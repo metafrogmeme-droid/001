@@ -145,6 +145,80 @@ test('peek never looks anything up, and the duel view carries only what was reme
   assert.equal((await sm.peekSmartMoney('ARB')).net_flow_usd, 7);
 });
 
+test('the member feed attaches its lines in ONE read for the whole page, only read lines; a visitor gets none', async () => {
+  // Remembered: SOL (read, from the first test), ARB (read, primed here) and
+  // a refusal for XYZ, which is remembered so it is not re-asked and must
+  // not become a line. NEVER was never asked.
+  netflowRows = [{ chain: 'ethereum', token_address: '0xb50721bcf8d664c30412cfbc6cf7a15145234ad1', net_flow_24h_usd: 7 }];
+  pool.floviaReads.delete('nansen:netflow:ARB');
+  await sm.smartMoneyReading('ARB');
+  const { remember } = require('../lib/flovia_reads');
+  await remember('nansen:netflow:XYZ', 60000, async () => ({ read: false, reason: 'refused' }));
+  lookups = [];
+  const realExecute = pool.execute.bind(pool);
+  let cacheReads = 0;
+  pool.execute = async (sql, params) => {
+    if (/FROM flovia_reads/i.test(String(sql))) cacheReads += 1;
+    return realExecute(sql, params);
+  };
+  try {
+    const lines = await sm.peekSmartMoneyMany(['SOL/USDT:USDT', 'ARB', 'SOL', 'XYZ', 'NEVER', null, 'BTC/USDT']);
+    assert.equal(cacheReads, 1, 'seven symbols, one read');
+    assert.deepStrictEqual([...lines.keys()].sort(), ['ARB', 'SOL']);
+    assert.equal(lines.get('SOL').net_flow_usd, 1234567.8);
+    assert.equal(lines.get('ARB').net_flow_usd, 7);
+    assert.ok(!lines.has('XYZ'), 'a remembered refusal is not a line');
+    assert.equal(lookups.length, 0, 'peeking spends nothing');
+
+    // The feed itself: five live rows over four tickers, read by a member and by a visitor.
+    const app = express();
+    app.use(express.json());
+    app.use('/api/auth', require('../auth').router);
+    app.use('/api/signals', require('../routes/signals'));
+    const server = http.createServer(app);
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const req = (method, p, { token, body } = {}) => new Promise((resolve, reject) => {
+      const payload = body ? JSON.stringify(body) : null;
+      const r = http.request(`${base}${p}`, { method, headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(payload ? { 'Content-Type': 'application/json' } : {}) } }, (res) => {
+        let d = ''; res.on('data', (c) => { d += c; });
+        res.on('end', () => resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }));
+      });
+      r.on('error', reject); if (payload) r.write(payload); r.end();
+    });
+    try {
+      const at = new Date();
+      for (const [key, symbol] of [['sm-feed-1', 'SOL/USDT'], ['sm-feed-2', 'ARB/USDT'], ['sm-feed-3', 'SOL/USDT'],
+        ['sm-feed-4', 'XYZ/USDT'], ['sm-feed-5', 'NEVER/USDT']]) {
+        await pool.execute(
+          'INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern, regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          [key, symbol, 'LONG', 0.7, 1, 't', 'trend', 100, 95, 110, 2, 't', 'NEW', null, at, null, new Date(at.getTime() + 600000)]);
+      }
+      const reg = await req('POST', '/api/auth/register', { body: { email: `sm${Date.now()}@x.io`, password: 'longenough1' } });
+      assert.ok(reg.data.token, 'registered');
+      cacheReads = 0;
+      const member = await req('GET', '/api/signals?limit=200', { token: reg.data.token });
+      assert.equal(member.status, 200);
+      assert.equal(cacheReads, 1, `five rows, four tickers: one read, not ${cacheReads}`);
+      const by = Object.fromEntries(member.data.signals.filter((s) => String(s.signal_key).startsWith('sm-feed-')).map((s) => [s.signal_key, s]));
+      assert.equal(Object.keys(by).length, 5, 'all five rows listed');
+      assert.equal(by['sm-feed-1'].smart_money.net_flow_usd, 1234567.8);
+      assert.equal(by['sm-feed-3'].smart_money.net_flow_usd, 1234567.8, 'the second SOL row carries the same line');
+      assert.equal(by['sm-feed-2'].smart_money.net_flow_usd, 7);
+      assert.ok(!('smart_money' in by['sm-feed-4']), 'a remembered refusal is no line on the feed');
+      assert.ok(!('smart_money' in by['sm-feed-5']), 'never asked, nothing claimed');
+      assert.equal(lookups.length, 0, 'the feed spends nothing');
+      cacheReads = 0;
+      const visitor = await req('GET', '/api/signals?limit=200');
+      assert.equal(visitor.status, 200);
+      assert.equal(cacheReads, 0, "a visitor's page peeks nothing");
+      for (const s of visitor.data.signals) assert.ok(!('smart_money' in s), "Nansen's data is shown to members, not republished");
+    } finally { server.close(); }
+  } finally { pool.execute = realExecute; }
+});
+
 test('the bot-secret route answers the reading as it is, and refuses without the secret', async () => {
   const app = express();
   app.use(express.json());

@@ -85,8 +85,13 @@ test('the signal stream survives a rolling schema gap in optional fee fields', a
     stop_loss: 99, take_profit: 102, rr: 2, thesis: 'measured', status: 'NEW',
     pnl: null, created_at: new Date(), resolved_at: null, seal: 'abc', expires_at: null,
   };
+  let cacheReads = 0;
   const pool = {
     execute: async (sql) => {
+      // A member's page also peeks the remembered smart-money lines
+      // (lib/flovia_reads.js), one read for the page; it is not a signal read
+      // and is answered empty here, so the count below is of signal reads.
+      if (/FROM flovia_reads/.test(sql)) { cacheReads += 1; return [[], []]; }
       calls += 1;
       if (calls === 1) {
         const err = new Error('unknown optional field');
@@ -100,7 +105,8 @@ test('the signal stream survives a rolling schema gap in optional fee fields', a
   const { status, body } = await get(
     '/api/signals', 'signals.js', '/api/signals?limit=1', pool);
   assert.strictEqual(status, 200);
-  assert.strictEqual(calls, 2);
+  assert.strictEqual(calls, 2, 'one signal read, one retry without the optional fields');
+  assert.ok(cacheReads <= 1, `the page peeked its smart-money lines ${cacheReads} times; one read is the whole page`);
   assert.strictEqual(body.signals.length, 1);
   assert.strictEqual(body.signals[0].signal_key, 'sig-1');
 });

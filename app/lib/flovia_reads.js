@@ -29,16 +29,34 @@ const PAYLOAD_MAX = 200 * 1024;
 
 function keyOf(k) { return String(k).slice(0, 190); }
 
-async function readRow(k) {
-  const [rows] = await pool.execute(
-    'SELECT k, payload, read_at, expires_at FROM flovia_reads WHERE k = ?', [keyOf(k)]);
-  const row = rows && rows[0];
+/** A stored row as a hit, or null when it has expired or will not parse. */
+function hitOf(row) {
   if (!row) return null;
   const exp = row.expires_at instanceof Date ? row.expires_at.getTime() : Date.parse(row.expires_at);
   if (!Number.isFinite(exp) || exp <= Date.now()) return null;
   let value;
   try { value = JSON.parse(row.payload); } catch (e) { return null; }
   return { value, read_at: row.read_at instanceof Date ? row.read_at.toISOString() : String(row.read_at), expires_at: new Date(exp).toISOString() };
+}
+
+async function readRow(k) {
+  const [rows] = await pool.execute(
+    'SELECT k, payload, read_at, expires_at FROM flovia_reads WHERE k = ?', [keyOf(k)]);
+  return hitOf(rows && rows[0]);
+}
+
+/** The rows for many keys in ONE read: a feed of forty rows is one query, not forty. */
+async function readRows(keys) {
+  const ks = [...new Set(keys.map(keyOf))];
+  if (!ks.length) return new Map();
+  const [rows] = await pool.execute(
+    `SELECT k, payload, read_at, expires_at FROM flovia_reads WHERE k IN (${ks.map(() => '?').join(', ')})`, ks);
+  const out = new Map();
+  for (const row of rows || []) {
+    const hit = hitOf(row);
+    if (hit) out.set(String(row.k), hit);
+  }
+  return out;
 }
 
 async function writeRow(k, value, ttlMs) {
@@ -54,6 +72,11 @@ async function writeRow(k, value, ttlMs) {
 /** The remembered value, or null; never produces. */
 async function peek(k) {
   try { return await readRow(k); } catch (e) { return null; }
+}
+
+/** The remembered values for many keys, as a Map of key -> hit; a key not remembered is absent. Never produces. */
+async function peekMany(keys) {
+  try { return await readRows(keys || []); } catch (e) { return new Map(); }
 }
 
 /**
@@ -84,4 +107,4 @@ async function sweep() {
   try { await pool.execute('DELETE FROM flovia_reads WHERE expires_at < ?', [new Date()]); } catch (e) { /* fine */ }
 }
 
-module.exports = { peek, remember, sweep, FAILURE_TTL_MS };
+module.exports = { peek, peekMany, remember, sweep, FAILURE_TTL_MS };

@@ -598,11 +598,11 @@ router.post('/trade-event', async (req, res) => {
     try {
       if (event === 'open') {
         await pool.execute(
-          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, event_id, book)
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, book, event_id)
            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)`,
           [user_id, trade.symbol, trade.direction, trade.entry_price,
            trade.size_usd, trade.fees || 0, trade.pattern || null,
-           trade.stop_loss || null, trade.take_profit || null, eid, bookOf(trade)]
+           trade.stop_loss || null, trade.take_profit || null, bookOf(trade), eid]
         );
       } else if (event === 'close') {
         // ATOMIC. The comment this replaces declined a transaction because the
@@ -619,12 +619,12 @@ router.post('/trade-event', async (req, res) => {
         // position on /positions, on a money surface.
         await withTransaction(async (conn) => {
           await conn.execute(
-            `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, event_id, book)
+            `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, book, event_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?, ?)`,
             [user_id, trade.symbol, trade.direction, trade.entry_price, trade.exit_price,
              trade.size_usd, trade.pnl, trade.fees || 0, trade.pattern || null,
              trade.opened_at ? new Date(trade.opened_at) : new Date(),
-             trade.closed_at ? new Date(trade.closed_at) : new Date(), eid, bookOf(trade)]
+             trade.closed_at ? new Date(trade.closed_at) : new Date(), bookOf(trade), eid]
           );
           // CLOSE THIS POSITION, NOT AN ARBITRARY ONE. Symbol-only LIMIT 1
           // closed whichever same-symbol row came first, and two opens on one

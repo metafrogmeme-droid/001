@@ -25,7 +25,7 @@
  */
 
 const flovia = require('./flovia');
-const { remember, peek } = require('./flovia_reads');
+const { remember, peek, peekMany } = require('./flovia_reads');
 
 const NANSEN_CREDIT = 'Data provided by Nansen';
 const COINGECKO_CREDIT = 'Data provided by CoinGecko';
@@ -147,10 +147,31 @@ async function peekSmartMoney(symbol) {
   const ticker = tickerOf(symbol);
   if (!ticker) return null;
   const hit = await peek(`nansen:netflow:${ticker}`);
+  return lineOf(hit);
+}
+
+/** A remembered hit as the card's line: only a read line is a line. */
+function lineOf(hit) {
   return hit && hit.value && hit.value.read ? { ...hit.value, read_at: hit.value.read_at || hit.read_at } : null;
 }
 
+/**
+ * The remembered lines for many symbols in one read: a Map of ticker -> line,
+ * holding only the tickers that have a read line. A feed of forty rows is one
+ * query, never forty, and still never a lookup.
+ */
+async function peekSmartMoneyMany(symbols) {
+  const tickers = [...new Set((symbols || []).map(tickerOf).filter(Boolean))];
+  const hits = await peekMany(tickers.map((t) => `nansen:netflow:${t}`));
+  const out = new Map();
+  for (const t of tickers) {
+    const line = lineOf(hits.get(`nansen:netflow:${t}`));
+    if (line) out.set(t, line);
+  }
+  return out;
+}
+
 module.exports = {
-  resolveToken, smartMoneyReading, peekSmartMoney, tickerOf,
+  resolveToken, smartMoneyReading, peekSmartMoney, peekSmartMoneyMany, tickerOf,
   NANSEN_CREDIT, COINGECKO_CREDIT, PLATFORM_TO_NANSEN, NATIVE, WINDOW,
 };

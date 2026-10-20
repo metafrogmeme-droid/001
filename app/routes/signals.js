@@ -111,16 +111,14 @@ router.get('/', optionalAuth, async (req, res) => {
   }
 });
 
-/** The remembered smart-money line on each row that has one, one peek per ticker. */
+/** The remembered smart-money line on each row that has one: ONE read for the whole page. */
 async function attachSmartMoneyLines(rows) {
-  const { peekSmartMoney, tickerOf } = require('../lib/smart_money');
-  const byTicker = new Map();
-  for (const r of rows) {
-    if (!r || typeof r !== 'object' || r.locked === true || !r.symbol) continue;
-    const t = tickerOf(r.symbol);
-    if (!t) continue;
-    if (!byTicker.has(t)) byTicker.set(t, await peekSmartMoney(t));
-    const line = byTicker.get(t);
+  const { peekSmartMoneyMany, tickerOf } = require('../lib/smart_money');
+  const shown = rows.filter((r) => r && typeof r === 'object' && r.locked !== true && r.symbol);
+  if (!shown.length) return rows;
+  const byTicker = await peekSmartMoneyMany(shown.map((r) => r.symbol));
+  for (const r of shown) {
+    const line = byTicker.get(tickerOf(r.symbol));
     if (line) r.smart_money = line;
   }
   return rows;

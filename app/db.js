@@ -2434,8 +2434,10 @@ class MemoryDB {
       return [{ affectedRows: 1 }, []];
     }
     if (cmd.includes('FROM FLOVIA_READS') && cmd.startsWith('SELECT')) {
-      const row = this.floviaReads.get(params[0]);
-      return [row ? [{ ...row }] : [], []];
+      // `WHERE k = ?` or `WHERE k IN (?, ?, ...)`: every bound key is a key.
+      const rows = [];
+      for (const k of params) { const row = this.floviaReads.get(k); if (row) rows.push({ ...row }); }
+      return [rows, []];
     }
     if (cmd.includes('DELETE FROM FLOVIA_READS')) {
       const cutoff = params[0] instanceof Date ? params[0].getTime() : Date.parse(params[0]);
