@@ -1,6 +1,6 @@
 {
   "_comment": "Known RustSec advisories in Cargo.lock, recorded deliberately. This is a RATCHET floor, not an approval: every entry is an outstanding advisory. 'shipped' means the crate is reachable through non-dev dependencies of the program and therefore belongs to its real supply chain; the rest are test-harness only. Regenerate with `python3 scripts/cargo_audit_gate.py --update` only after reviewing the delta.",
-  "recorded": "2026-10-14",
+  "recorded": "2026-10-20",
   "advisories": {
     "RUSTSEC-2022-0093": {
       "crate": "ed25519-dalek",
@@ -84,6 +84,18 @@
       "crate": "rustls",
       "version": "0.21.12",
       "title": "Unauthenticated ServerHello can downgrade later connections to classical key exchange",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0381": {
+      "crate": "webpki-roots",
+      "version": "0.25.4",
+      "title": "Bundled root certificates allow trust in distrusted emSign intermediates",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0382": {
+      "crate": "rustls-webpki",
+      "version": "0.101.7",
+      "title": "Certificate verification may accept distrusted intermediates",
       "shipped": false
     }
   }
