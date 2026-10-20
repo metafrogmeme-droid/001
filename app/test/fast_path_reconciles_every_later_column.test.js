@@ -35,11 +35,12 @@ const FAST_PATH_MARK = 'Schema already current';
 // list reconciles; a third list must be registered here to be checked.
 const {
   REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS,
-  REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS,
+  REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, REQUIRED_TRADE_COLUMNS,
 } = require('../db');
 const REQUIRED = {
   signals: REQUIRED_SIGNAL_COLUMNS, users: REQUIRED_USER_COLUMNS,
   duel_rounds: REQUIRED_DUEL_ROUND_COLUMNS, duel_picks: REQUIRED_DUEL_PICK_COLUMNS,
+  trades: REQUIRED_TRADE_COLUMNS,
 };
 
 function alterColumnsBelowTheFastPath() {
@@ -105,6 +106,6 @@ test('every reconciled column is also an ALTER below the fast path, and not in t
 test('the reconcile lists registered here are the ones db.js exports', () => {
   const exported = Object.keys(require('../db')).filter((k) => /^REQUIRED_\w+_COLUMNS$/.test(k)).sort();
   assert.deepEqual(exported, ['REQUIRED_DUEL_PICK_COLUMNS', 'REQUIRED_DUEL_ROUND_COLUMNS',
-    'REQUIRED_SIGNAL_COLUMNS', 'REQUIRED_USER_COLUMNS'],
+    'REQUIRED_SIGNAL_COLUMNS', 'REQUIRED_TRADE_COLUMNS', 'REQUIRED_USER_COLUMNS'],
     'a new REQUIRED_*_COLUMNS list must be registered in REQUIRED above so this check reads it');
 });

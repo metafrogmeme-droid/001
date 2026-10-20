@@ -622,7 +622,7 @@ about to change before changing it.
 - L27057: A REVIEW FROM OUTSIDE READ A SEASON'S NAME AS A USER LABEL, A SCREENSHOT FIXTURE AS A MOVING KICK-OFF, AND THE HOST'S BADGE SCRIPT AS OURS — `app/test/canonical_links.test.js`, `app/test/duel_scenarios.test.js`, `app/test/embed_arena_view.test.js`, `app/test/the_home_page_warns_about_impostors.test.js`, `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_theater_asks_for_the_contract_symbol.test.js`
 - L27095: THE TELEGRAM IMAGE CARDS WERE TEN RENDERERS WITH TEN PALETTES; NOW THEY ARE ONE LOOK, AND THE HONESTY TESTS NEVER NOTICED — `app/test/the_share_card_knows_which_book_the_trade_was_on.test.js`, `tests/png_text.py`, `tests/test_a_paper_close_sends_its_card.py`, `tests/test_a_signed_dollar_reads_as_money.py`, `tests/test_the_cards_share_one_look.py`, `tests/test_the_position_cards_print_the_score_the_record_holds.py`, `tests/test_the_synced_trade_says_which_book_it_was_on.py`
 
-## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE (line 27217)
+## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE (line 27221)
 
 
-## A RENTED DATA SOURCE IS A LINE ON THE CARD AND A CHECK ON THE RECEIPT, NEVER A VERDICT, AND IT ANSWERS THREE WAYS (line 27265)
+## A RENTED DATA SOURCE IS A LINE ON THE CARD AND A CHECK ON THE RECEIPT, NEVER A VERDICT, AND IT ANSWERS THREE WAYS (line 27269)

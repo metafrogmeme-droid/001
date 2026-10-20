@@ -2938,6 +2938,14 @@ const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
   settle_second_price_b: 'DOUBLE NULL',
   settle_disputed: 'TINYINT NULL',
 });
+// The share card's book (2026-10-20): `trades` is on every production
+// database, so the ALTER below the fast path never runs there. Reconciled
+// here, as the signal and user columns are; the fast-path test caught the
+// column sitting below the mark when the branch met the merged tree.
+const REQUIRED_TRADE_COLUMNS = Object.freeze({
+  // 'paper' | 'live' from the bot's record, NULL when the row carried none.
+  book: 'VARCHAR(5) DEFAULT NULL',
+});
 /** `pick` must hold a mover's 'second': the width the categories need. */
 const DUEL_PICK_WIDTH = 8;
 
@@ -3108,6 +3116,8 @@ async function migrate() {
       if (added.length) console.log(`Signals schema reconciled: ${added.join(', ')}`);
       const addedUsers = await ensureUserColumns();
       if (addedUsers.length) console.log(`Users schema reconciled: ${addedUsers.join(', ')}`);
+      const addedTrades = await ensureTableColumns('trades', REQUIRED_TRADE_COLUMNS);
+      if (addedTrades.length) console.log(`Trades schema reconciled: ${addedTrades.join(', ')}`);
       const addedRounds = await ensureTableColumns('duel_rounds', REQUIRED_DUEL_ROUND_COLUMNS);
       if (addedRounds.length) console.log(`Duel rounds schema reconciled: ${addedRounds.join(', ')}`);
       const addedPicks = await ensureTableColumns('duel_picks', REQUIRED_DUEL_PICK_COLUMNS);
@@ -4287,7 +4297,8 @@ async function withTransaction(fn) {
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
   EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS,
-  REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, DUEL_PICK_WIDTH, schemaIsCurrent, schemaPath,
+  REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, REQUIRED_TRADE_COLUMNS, DUEL_PICK_WIDTH,
+  schemaIsCurrent, schemaPath,
   ensureSignalColumns, ensureUserColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string

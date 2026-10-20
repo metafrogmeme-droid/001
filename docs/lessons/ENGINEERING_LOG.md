@@ -27212,7 +27212,11 @@ the page as such, and the share button forwards the word under the same
 guard the two instants use, so an older row claims nothing
 (`tests/test_the_synced_trade_says_which_book_it_was_on.py`,
 `app/test/the_share_card_knows_which_book_the_trade_was_on.test.js`;
-fifteen mutants, each killed).
+fifteen mutants, each killed). The column's ALTER sits below `migrate()`'s
+fast path, which every production database takes, so it is also reconciled
+there (`REQUIRED_TRADE_COLUMNS`, the net_rr lesson's remedy); the branch's
+own preflight was cut short, and the merged tree's fast-path test is what
+said so.
 
 ## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE
 
