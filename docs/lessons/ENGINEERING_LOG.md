@@ -27001,7 +27001,7 @@ mean won and lost. The direction question lost its second sentence in all
 stance line beside the Claw's name until the call is made.
 
 Found on the way, and the costlier lesson: the duel bot's first commit had
-tracked `app/node_modules` as a SYMLINK to a developer's checkout (the
+tracked the website's `node_modules` folder (under `app/`) as a SYMLINK to a developer's checkout (the
 worktree it was built in linked the folder by hand, and a `git add -A` took
 the link). Merged into the checkout that owned the real folder, git replaced
 the installed packages with a link to themselves: an ignored path is
