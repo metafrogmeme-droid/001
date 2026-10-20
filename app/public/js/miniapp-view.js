@@ -86,8 +86,9 @@
    */
   function signedOutHtml(season, host) {
     // The host is who signs the person in: Farcaster for the Mini App, Pi for
-    // the Pi Browser app. One sentence each, and nothing else differs.
-    var who = host === 'Pi' ? 'Pi' : 'Farcaster';
+    // the Pi Browser app, a wallet for the DogeOS app. One sentence each, and
+    // nothing else differs.
+    var who = host === 'Pi' ? 'Pi' : host === 'DogeOS' ? 'a DogeOS wallet' : 'Farcaster';
     var name = season && season.name ? season.name : null;
     return '<section class="m-gate">'
       + '<p class="m-gate-lead">'
@@ -111,7 +112,9 @@
     if (status === 'rejected') text = 'Sign-in cancelled.';
     else if (status === 'no-host') {
       text = host === 'Pi' ? 'Open this in the Pi Browser to sign in.'
-        : 'Open this from a Farcaster app to sign in.';
+        // The DogeOS app signs in with a browser wallet; none was found on the page.
+        : host === 'DogeOS' ? 'No wallet found. Open this page in a browser with an EVM wallet (MetaMask, Rabby or the DogeOS wallet) to sign in.'
+          : 'Open this from a Farcaster app to sign in.';
     }
     else if (status === 'unknown') text = 'Sign-in did not come back. You can try again.';
     else if (reason === 'domain_mismatch') text = 'That signature was for a different app.';

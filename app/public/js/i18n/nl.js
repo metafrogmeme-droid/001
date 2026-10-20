@@ -161,6 +161,7 @@
   ["es.dust_t", "Een ondergrens, geen offerte: huidig gas × een typische bridge-transactie × de live prijs van de native coin, vergeleken met dit saldo. Bridgekosten, relayerkosten en gas op de bestemming komen erbovenop. Een heuristisch signaal uit live prijzen — het beweegt; nooit een oordeel."],
   ["es.w_loaded", "{n} posities geladen van je chains. {home} lijkt je thuisketen (grootste saldo) — al het andere kwam binnen als gebrugd, wat het plan als LAATSTE naar huis haalt. Een gok: pas elke rij aan. De spiegel ziet alleen spot — voeg perps, leningen, LP’s en staking zelf toe; het plan is zo compleet als zijn invoer."],
   ["rt.anchored", "geverifieerd op Base"],
+  ["rt.anchored_on", "geverifieerd op {chain}"],
   ["rt.anchor_mismatch", "vastgelegd anker komt NIET overeen met deze root"],
   ["rt.anchor_unverified", "anker vastgelegd — chain niet bereikbaar om te bevestigen"],
   ["rt.unanchored", "nog niet on-chain verankerd"],

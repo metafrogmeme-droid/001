@@ -232,3 +232,35 @@ test('every receipt state still hands the reader the payload to compare', () => 
     assert.match(html, /RCROOT1:2026-08-24:/, `the compare payload is missing for ${JSON.stringify(verdict)}`);
   }
 });
+
+// ── more than one chain (2026-10-19): a cell per chain, each from its own chain ──
+const CELLS = require('../public/js/anchor_cell.js');
+const CHAINS_BY_KEY = {
+  base: { key: 'base', name: 'Base', explorer_tx: 'https://basescan.org/tx/' },
+  'dogeos-testnet': { key: 'dogeos-testnet', name: 'DogeOS testnet', explorer_tx: 'https://dogeos-testnet.l2scan.co/tx/' },
+};
+test('no anchor on any chain is said once', () => {
+  const html = CELLS.anchorCells({ anchors: [], anchor_tx: null }, {}, null, CHAINS_BY_KEY);
+  assert.match(html, /not yet anchored on-chain/);
+  assert.ok(!html.includes('var(--up)'));
+});
+test('two chains are two cells, each painted from its own chain\'s verdict', () => {
+  const row = { anchors: [{ chain: 'base', tx: TX }, { chain: 'dogeos-testnet', tx: '0x' + 'd'.repeat(64) }] };
+  const html = CELLS.anchorCells(row, { base: { status: 'verified', block_time: '2026-10-19T00:00:00Z' } }, null, CHAINS_BY_KEY);
+  assert.match(html, /verified on Base/);
+  assert.match(html, /basescan\.org\/tx\/0x[0-9a-f]+/);
+  assert.match(html, /dogeos-testnet\.l2scan\.co\/tx\/0xd/);
+  // DogeOS has no verdict yet: recorded, not confirmed — and not green.
+  assert.match(html, /chain not reachable to confirm/);
+  assert.strictEqual((html.match(/var\(--up\)/g) || []).length, 1, 'only the chain that confirmed is green');
+});
+test('a chain the page has no entry for prints its key and never a Base link', () => {
+  const html = CELLS.anchorCells({ anchors: [{ chain: 'somewhere-else', tx: TX }] }, { 'somewhere-else': { status: 'verified' } }, null, CHAINS_BY_KEY);
+  assert.match(html, /verified on somewhere-else/);
+  assert.ok(!html.includes('basescan.org'), 'an unknown chain must not borrow Base\'s explorer');
+});
+test('the older Base-only column is one Base cell', () => {
+  const html = CELLS.anchorCells({ anchor_tx: TX }, { base: { status: 'verified' } }, null, CHAINS_BY_KEY);
+  assert.match(html, /verified on Base/);
+  assert.match(html, /basescan\.org\/tx\//);
+});

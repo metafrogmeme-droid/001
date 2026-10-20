@@ -359,6 +359,7 @@ class MemoryDB {
     this.arenaFollows = {};   // user_id -> practice-follow prefs (paper only)
     this.watchlist = [];      // { user_id, symbol, created_at } (starred symbols)
     this.sealRoots = [];      // { day, root, seal_count, computed_at } — immutable daily Merkle roots
+    this.sealRootAnchors = []; // { day, chain, tx, from_addr, block_time, verified_at } — one per (day, chain), first write wins
     this.duelRounds = [];     // Daily Duel rounds, unique on (day, idx)
     this._nextDuelRoundId = 1;
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
@@ -1343,6 +1344,20 @@ class MemoryDB {
       const rows = this.arenaTrades.filter(t => t.user_id === params[0])
         .sort((a, b) => b.id - a.id).slice(0, 30);
       return [rows.map(r => ({ ...r })), []];
+    }
+
+    // -- SEAL ROOT ANCHORS (one per day and chain; Base and the DogeOS testnet, 2026-10-19) --
+    if (cmd.includes('INSERT IGNORE INTO SEAL_ROOT_ANCHORS')) {
+      // params: day, chain, tx, from_addr, block_time, verified_at — first write per (day, chain) wins
+      const dup = this.sealRootAnchors.some(r => r.day === params[0] && r.chain === params[1]);
+      if (!dup) {
+        this.sealRootAnchors.push({ day: params[0], chain: params[1], tx: params[2],
+          from_addr: params[3], block_time: params[4], verified_at: params[5] });
+      }
+      return [{ affectedRows: dup ? 0 : 1 }, []];
+    }
+    if (cmd.includes('FROM SEAL_ROOT_ANCHORS')) {
+      return [this.sealRootAnchors.filter(r => r.day === params[0]).map(r => ({ ...r })), []];
     }
 
     // -- SEAL ROOTS (Provable Calls v3 — one immutable Merkle root per UTC day) --
@@ -2749,6 +2764,7 @@ const EXPECTED_TABLES = Object.freeze([
   'learn_diary',
   'learn_progress',
   'seal_roots',
+  'seal_root_anchors',
   'arena_seasons',
   'arena_follows',
   'user_watchlist',
@@ -3922,6 +3938,21 @@ async function migrate() {
     // Anchor columns for pre-existing deployments.
     try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchor_tx VARCHAR(66) NULL'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE seal_roots ADD COLUMN anchored_at TIMESTAMP NULL'); } catch (e) { /* present */ }
+    // A day's root anchored on more than one chain (Base, the DogeOS testnet):
+    // one row per (day, chain), written only after the chain verified the
+    // transaction, first write wins. seal_roots.anchor_tx stays the Base leg's
+    // older spelling and is read as such (lib/seal_roots.js anchorsFor).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS seal_root_anchors (
+        day VARCHAR(10) NOT NULL,
+        chain VARCHAR(24) NOT NULL,
+        tx VARCHAR(66) NOT NULL,
+        from_addr VARCHAR(42) NULL,
+        block_time TIMESTAMP NULL,
+        verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (day, chain)
+      )
+    `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS arena_seasons (
         id INT AUTO_INCREMENT PRIMARY KEY,

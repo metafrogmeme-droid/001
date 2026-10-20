@@ -108,7 +108,7 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  */
 const SCRIPTS = [
   '/js/embed-arena-view.js?v=2',
-  '/js/miniapp-view.js?v=4',
+  '/js/miniapp-view.js?v=6',
   '/js/arena-session.js?v=4',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',

@@ -161,6 +161,7 @@
   ["es.dust_t", "Eine Untergrenze, kein Angebot: aktuelles Gas × eine typische Bridge-Transaktion × der Live-Preis des nativen Coins, verglichen mit diesem Guthaben. Bridge-Gebühren, Relayer-Gebühren und Ziel-Gas kommen obendrauf. Ein heuristisches Signal aus Live-Preisen — es bewegt sich; nie ein Urteil."],
   ["es.w_loaded", "{n} Bestände aus deinen Chains geladen. {home} sieht nach deiner Heimat-Chain aus (größtes Guthaben) — alles andere kam als gebrückt hinein, was der Plan ZULETZT heimholt. Eine Vermutung: ändere jede Zeile. Der Spiegel sieht nur Spot — Perps, Kredite, LPs und Staking fügst du selbst hinzu; der Plan ist so vollständig wie seine Eingaben."],
   ["rt.anchored", "auf Base verifiziert"],
+  ["rt.anchored_on", "auf {chain} verifiziert"],
   ["rt.anchor_mismatch", "verankerte Transaktion passt NICHT zu dieser Root"],
   ["rt.anchor_unverified", "Anker erfasst — Chain zur Bestätigung nicht erreichbar"],
   ["rt.unanchored", "noch nicht on-chain verankert"],

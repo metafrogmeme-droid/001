@@ -161,6 +161,7 @@
   ["es.dust_t", "Un mínimo, no una cotización: gas actual × una transacción de puente típica × el precio en vivo de la moneda nativa, comparado con este saldo. Las comisiones del puente, del relayer y el gas de destino van aparte. Una señal heurística de precios en vivo: se mueve; nunca un veredicto."],
   ["es.w_loaded", "{n} posiciones cargadas de tus cadenas. {home} parece tu cadena principal (mayor saldo): todo lo demás entró como puenteado, que el plan lleva a casa AL FINAL. Es una suposición: cambia cualquier fila. El espejo solo ve spot: añade tú perps, préstamos, LP y staking; el plan es tan completo como sus entradas."],
   ["rt.anchored", "verificada en Base"],
+  ["rt.anchored_on", "verificada en {chain}"],
   ["rt.anchor_mismatch", "el anclaje registrado NO coincide con esta raíz"],
   ["rt.anchor_unverified", "anclaje registrado — cadena no accesible para confirmar"],
   ["rt.unanchored", "aún sin anclar on-chain"],

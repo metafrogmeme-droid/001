@@ -161,6 +161,7 @@
   ["es.dust_t", "Un plancher, pas un devis : gas actuel × une transaction de pont typique × le prix en direct de la monnaie native, comparé à ce solde. Frais de pont, de relayer et gas de destination en sus. Un signal heuristique issu de prix en direct — il bouge ; jamais un verdict."],
   ["es.w_loaded", "{n} avoirs chargés depuis vos chaînes. {home} semble être votre chaîne principale (plus gros solde) — tout le reste est entré comme ponté, que le plan rapatrie EN DERNIER. C’est une estimation : modifiez n’importe quelle ligne. Le miroir ne voit que le spot — ajoutez vous-même perps, prêts, LP et staking ; le plan vaut ce que valent ses entrées."],
   ["rt.anchored", "vérifiée sur Base"],
+  ["rt.anchored_on", "vérifiée sur {chain}"],
   ["rt.anchor_mismatch", "l’ancrage enregistré NE correspond PAS à cette racine"],
   ["rt.anchor_unverified", "ancrage enregistré — chaîne inaccessible pour confirmer"],
   ["rt.unanchored", "pas encore ancrée on-chain"],

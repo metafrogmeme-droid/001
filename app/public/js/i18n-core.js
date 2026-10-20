@@ -203,6 +203,7 @@
     "es.dust_t": { en: "A floor, not a quote: current gas × a typical bridge transaction × the live native-coin price, compared to this balance. Bridge fees, relayer fees and destination gas come on top. A heuristic flag from live prices — it moves; never a verdict." },
     "es.w_loaded": { en: "{n} holdings loaded across your chains. {home} looks like your home chain (largest balance) — everything elsewhere entered as bridged, which the plan sequences home LAST. A guess: flip any row. The mirror sees spot only — add perps, loans, LPs and staking yourself; the plan is only as complete as its inputs." },
     "rt.anchored": { en: "verified on Base" },
+    "rt.anchored_on": { en: "verified on {chain}" },
     "rt.anchor_mismatch": { en: "recorded anchor does NOT match this root" },
     "rt.anchor_unverified": { en: "anchor recorded — chain not reachable to confirm" },
     "rt.unanchored": { en: "not yet anchored on-chain" },
@@ -2296,7 +2297,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"d92e38d4","zh":"47036efa","pt":"195efdb0","fr":"4e405057","de":"e94c9d57","nl":"da3bd3aa","ja":"60b3cb75","ko":"2998c744","ru":"b7c4739e","tr":"05163e55","it":"199b6a85","hi":"e8b2d83b","ar":"f22ad41f"};
+  var CHUNKS = {"es":"87c998b1","zh":"6f6d1c08","pt":"8a4be354","fr":"bc24ef6c","de":"98b6c251","nl":"c46869c8","ja":"01da9ce7","ko":"c42e3817","ru":"148e314f","tr":"668645c1","it":"265a6bb8","hi":"bbbd8c2d","ar":"da7598cd"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
