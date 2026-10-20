@@ -1975,7 +1975,7 @@
   ["duel.card_h", "Heutige Karte"],
   ["duel.rec_h", "Dein Verlauf"],
   ["duel.acc_k", "Trefferquote"],
-  ["duel.marks_k", "Male"],
+  ["duel.marks_k", "Punkte"],
   ["duel.streak_k", "Serie"],
   ["duel.b_long", "LONG"],
   ["duel.b_short", "SHORT"],

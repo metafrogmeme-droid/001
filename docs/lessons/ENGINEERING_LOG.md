@@ -27623,3 +27623,87 @@ door into the coach, no link drawn, a used-up day, Coach Plus paid as
 ordered). Eighteen mutants, each killed; the first sanitiser mutant restored
 only a bare `<a>` and survived, which measured the mutant, not the guard,
 and was replaced with one that draws the reply raw.
+
+## A SENTENCE IS ITS OWN KEY, A LIST OF SENTENCES IS READ FROM THE CODE, AND ONE WORD WITH TWO JOBS IS TWO SENTENCES
+
+*2026-10-20, the Pi app in seventeen languages, and season prizes behind a switch.*
+
+The Pi app could not borrow the site's dictionary: `i18n-core.js` carries
+every page's strings, the presale's among them, and the Pi app may load
+none of it. So it has its own small table, and three choices decided whether
+that table could drift.
+
+**English is the key.** A sentence is written once, in English, where it is
+drawn: `T('Position opened: {what} at {price}.', { … })`. There is no key
+name to keep in step with a second file, and a language that lacks a
+sentence shows the English that is already on the line, never a key or a
+blank. Spliced sentences were rewritten whole: "rises toward" and "falls
+toward" are two sentences, because a translator cannot reorder a verb the
+code glued in.
+
+**The list is read from the code, not written beside it.**
+`app/scripts/build_pi_i18n.js` reads exactly the scripts the page loads
+(`routes/piapp.js` SCRIPTS, the one list), comments blanked, and collects
+three shapes: `T('…')`, a tab block's `label:` (the session draws it
+through `T`), and the Duel renderer's `tr('duel.key', 'English')`, whose
+lookup on the Pi page is `T(English)`. A `T` on a variable is a sentence no
+table can hold, so each one is named in a test with what supplies its
+English, and a new one fails. The build fails on a sentence a language
+lacks, on an entry no screen says any more, and on a translation whose
+`{placeholders}` differ from the English: one that dropped `{price}` would
+print a price-less sentence, one that misspelt it would print the braces.
+A Duel sentence a language's file leaves out borrows the site's translation
+of the same key, but only while the site's English for that key is the
+renderer's English: a translation of another sentence is not one of this.
+
+**One word with two jobs is two sentences.** The first list had "Close"
+once: the button that closes a position and the receipt's row for the
+closing price. English reads both; Spanish and Portuguese need a verb for
+one and a noun for the other, and the translator who said so was right.
+The receipt row is "Close price" now. The same review found the site's own
+German and Dutch for the Duel's marks were "Male" and "Merken" ("times",
+"brands"); they are "Punkte" and "Punten".
+
+**Sixteen translators, one rule sheet.** The translations were written in
+parallel, two languages each, against one brief: the placeholders, the
+claims that must not soften ("Nothing was taken", "not credited to the
+call"), the names that stay, and the site's own terms for each language.
+The code changed while they worked (the receipt row, the prize sentences);
+the build's `--missing` reported each new sentence to whoever ran it next,
+which is the check doing its job across people, not only across commits.
+
+**The server picks, the page switches in place.** `/pi` reads `?lang=`
+then the Pi Browser's `Accept-Language` (q-order, `q=0` refused, `pt-BR`
+is pt, `in` is id, `tl` is fil), sets `<html lang dir>` (Arabic is right to
+left) and loads that language's chunk right after the runtime, before
+anything draws. Each chunk is addressed by the first eight hex of its own
+SHA-256, as the site's chunks are, so a translation that changes is a new
+address with no number to remember. About loads another language in place:
+a link would end the in-memory session. The coach is told the language on
+screen and answers in it.
+
+**Prizes are a table and a plan, and pay nothing.** `lib/pi_prizes.js`
+reads a prize table that is off unless `PI_SEASON_PRIZES_ENABLED` is exactly
+`1`, and a table that does not read (a bad amount, more than ten places, a
+lower place paying more) is off with its reason, never a different prize.
+The operator's plan is read from the season's closed trades, not from the
+board's rows: the board reads an unreadable pnl as 0, a fair shortcut for a
+ranking and the wrong one for paying people, so the plan holds a name with
+an unreadable close and is not final until someone looks. Ties share the
+prizes of the places they span. No route moves Pi and no key is read:
+paying from the app needs the app wallet's seed on our server, which is the
+owner's decision (`docs/hackathon/SEASON_PRIZES_PLAN.md`). The route test
+caught one defect before it shipped: the plan's own `final` spread over the
+route's "the season is still running", so a preview read as final.
+
+Driven: `app/test/the_pi_app_speaks_the_readers_language.test.js` (the
+build against doctored copies of the sources, the collector, the server's
+pick, the page's order, the runtime),
+`app/test/the_pi_app_speaks_the_readers_language.smoke.test.js` (Chromium:
+a Spanish browser from the first screen to the Duel renderer's words and
+the card's labels, About switching in place, the coach told the language,
+Arabic right to left, prizes on and off) and
+`app/test/season_prizes_are_a_table_and_a_plan_and_pay_nothing.test.js`.
+Thirty mutants, each killed: the runtime, the server's pick and order, the
+build's four checks, the client switches, the renderer's and the card's
+words, and the prize table and plan.

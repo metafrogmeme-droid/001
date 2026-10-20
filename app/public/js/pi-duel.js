@@ -36,13 +36,22 @@
     });
   }
 
+  /** The Pi app's translation (pi-i18n.js), the English where it is not loaded. */
+  function T(en, vars) {
+    var M = typeof window !== 'undefined' && window.RCMiniView;
+    if (M && typeof M.T === 'function') return M.T(en, vars);
+    return !vars ? en : en.replace(/\{(\w+)\}/g, function (m, k) { return vars[k] != null ? String(vars[k]) : m; });
+  }
+  /** The renderer's own words (duel.js asks by key with its English) through the same table. */
+  function TR(key, en) { return T(en); }
+
   /** The sentence after a call is recorded: what was called, at what, and
    *  what the Claw had said where there was something to say. */
   function recordedText(res) {
     var D = window.RCDuel;
     var M = window.RCMiniView;
     var r = res || {};
-    var word = D.pickLabel(r.pick, r);
+    var word = D.pickLabel(r.pick, r, TR);
     var at = M && typeof M.price === 'function' ? M.price(r.entry_price) : String(r.entry_price);
     var text;
     if (r.kind === 'sports') {
@@ -51,18 +60,18 @@
       var m = r.match || {};
       var home = m.home_short || m.home || '—';
       var away = m.away_short || m.away || '—';
-      return 'Call recorded: ' + word + ' on ' + home + ' vs ' + away + '. Settled on the final score.';
+      return T('Call recorded: {pick} on {home} vs {away}. Settled on the final score.', { pick: word, home: home, away: away });
     }
     if (r.kind === 'mover') {
       var atB = M && typeof M.price === 'function' ? M.price(r.entry_price_b) : String(r.entry_price_b);
-      text = 'Call recorded: ' + word + '. ' + D.base(r.symbol) + ' at ' + at + ', '
-        + D.base(r.symbol_b) + ' at ' + atB + ', snapped for you just now.';
+      text = T('Call recorded: {pick}. {a} at {pa}, {b} at {pb}, snapped for you just now.',
+        { pick: word, a: D.base(r.symbol), pa: at, b: D.base(r.symbol_b), pb: atB });
     } else {
-      text = 'Call recorded: ' + word + ' on ' + D.base(r.symbol) + ' at ' + at + ', snapped for you just now.';
+      text = T('Call recorded: {pick} on {sym} at {price}, snapped for you just now.', { pick: word, sym: D.base(r.symbol), price: at });
     }
     if ('agent_direction' in r && r.kind !== 'backfade') {
-      text += r.agent_direction == null ? ' The Claw passed on this one.'
-        : ' The Claw called ' + String(r.agent_direction).toUpperCase() + '.';
+      text += ' ' + (r.agent_direction == null ? T('The Claw passed on this one.')
+        : T('The Claw called {dir}.', { dir: String(r.agent_direction).toUpperCase() }));
     }
     return text;
   }
@@ -139,19 +148,19 @@
       var D = window.RCDuel;
       if (!me) {
         return card && !failed
-          ? '<p class="p-duel-norec">Your record could not be read just now. The card is current.</p>'
+          ? '<p class="p-duel-norec">' + esc(T('Your record could not be read just now. The card is current.')) + '</p>'
           : '';
       }
       var streak = me.streak && me.streak.current != null ? String(me.streak.current) : '—';
-      var marks = D.marksLabel(me.marks);
+      var marks = D.marksLabel(me.marks, TR);
       return '<div class="p-duel-rec">'
-        + stat('Accuracy', D.accuracyLabel(me.accuracy))
-        + stat('Marks', marks)
-        + stat('Streak', { text: '🔥 ' + streak, tone: 'muted', sub: '' })
+        + stat(T('Accuracy'), D.accuracyLabel(me.accuracy, TR))
+        + stat(T('Marks'), marks)
+        + stat(T('Streak'), { text: '🔥 ' + streak, tone: 'muted', sub: '' })
         + '</div>'
         // What a mark is, under the row: "Accuracy 60% of 5" beside "Marks 4"
         // cannot be reconciled without the rule.
-        + (marks.how ? '<p class="p-duel-how">' + esc('Marks: ' + marks.how) + '</p>' : '');
+        + (marks.how ? '<p class="p-duel-how">' + esc(T('Marks: {how}', { how: marks.how })) + '</p>' : '');
     }
 
     /** How many of today's rounds are called, and how many are still open. */
@@ -169,8 +178,8 @@
       var pct = Math.round((c.called / c.total) * 100);
       return '<div class="p-duel-prog" role="progressbar" aria-valuemin="0" aria-valuemax="' + esc(c.total)
         + '" aria-valuenow="' + esc(c.called) + '">'
-        + '<div class="p-duel-prog-t"><span>' + esc(c.called + ' of ' + c.total + ' called') + '</span>'
-        + (c.open ? '<span class="p-duel-prog-o">' + esc(c.open + ' open') + '</span>' : '') + '</div>'
+        + '<div class="p-duel-prog-t"><span>' + esc(T('{n} of {total} called', { n: c.called, total: c.total })) + '</span>'
+        + (c.open ? '<span class="p-duel-prog-o">' + esc(T('{n} open', { n: c.open })) + '</span>' : '') + '</div>'
         + '<div class="p-duel-bar"><div class="p-duel-bar-f" style="width:' + pct + '%"></div></div>'
         + '</div>';
     }
@@ -185,25 +194,25 @@
       var body;
       if (failed) {
         body = M.actionNoteHtml('warn',
-          'Today’s card could not be loaded. This is on our side; your record is unchanged.');
+          T('Today’s card could not be loaded. This is on our side; your record is unchanged.'));
       } else if (card === null) {
-        body = '<div class="e-load">Loading today’s card…</div>';
+        body = '<div class="e-load">' + esc(T('Loading today’s card…')) + '</div>';
       } else if (!card.rounds.length) {
-        body = M.actionNoteHtml('note', 'No rounds are on today’s card.');
+        body = M.actionNoteHtml('note', T('No rounds are on today’s card.'));
       } else {
         // Each round with the coach's door under it, where a coach is on the
         // screen (the Pi app); the DogeOS app has none and shows none.
         var canAsk = ctx && typeof ctx.ask === 'function' && hasCoach;
         body = '<div class="d-rounds">' + card.rounds.map(function (r) {
-          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), null, undefined, { verify: !!window.RCPiReceipt })
-            + (canAsk ? '<div class="p-why-row"><button type="button" class="p-why" data-ask="round" data-id="' + esc(r.id) + '">Explain this round</button></div>' : '');
+          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), TR, undefined, { verify: !!window.RCPiReceipt })
+            + (canAsk ? '<div class="p-why-row"><button type="button" class="p-why" data-ask="round" data-id="' + esc(r.id) + '">' + esc(T('Explain this round')) + '</button></div>' : '');
         }).join('') + '</div>';
       }
-      var day = card && !failed ? '<span class="p-duel-day">' + esc(card.day) + ' UTC</span>' : '';
+      var day = card && !failed ? '<span class="p-duel-day">' + esc(T('{day} UTC', { day: card.day })) + '</span>' : '';
       var sheet = receipt && window.RCPiReceipt ? window.RCPiReceipt.sheetHtml(receipt.label, receipt.res) : '';
-      return '<section class="m-open p-duel"><div class="p-sig-head"><h2>Daily Duel</h2>' + day + '</div>'
+      return '<section class="m-open p-duel"><div class="p-sig-head"><h2>' + esc(T('Daily Duel')) + '</h2>' + day + '</div>'
         + recordHtml() + progressHtml() + noteHtml + sheet + body
-        + '<p class="m-open-note">Call the market before the Claw does · free to play · counts and percent only</p>'
+        + '<p class="m-open-note">' + esc(T('Call the market before the Claw does · free to play · counts and percent only')) + '</p>'
         + '</section>';
     }
 
@@ -217,7 +226,7 @@
     function place(roundId, pick, c) {
       if (busy) return;
       busy = true;
-      note = ['note', 'Recording your call…'];
+      note = ['note', T('Recording your call…')];
       c.render();
       c.api('/api/duel/pick', { method: 'POST', body: { round_id: roundId, pick: pick } }).then(function (r) {
         busy = false;
@@ -227,13 +236,13 @@
         } else {
           // The server names why: a closed round, a price it could not read,
           // a call already made, a word this round does not take.
-          note = ['warn', (r.body && r.body.error) || 'Your call could not be recorded.'];
+          note = ['warn', (r.body && r.body.error) || T('Your call could not be recorded.')];
         }
         lastRead = null;
         return load();
       }, function () {
         busy = false;
-        note = ['warn', 'Your call could not be recorded. We could not reach the server.'];
+        note = ['warn', T('Your call could not be recorded. We could not reach the server.')];
         c.render();
       });
     }
@@ -241,7 +250,7 @@
     /** Check one receipt in place; a second tap on another replaces it. */
     function checkReceipt(btn, c) {
       var key = btn.getAttribute('data-receipt');
-      var label = btn.getAttribute('data-label') || 'Receipt';
+      var label = btn.getAttribute('data-label') || T('Receipt');
       receipt = { key: key, label: label, res: null };
       scrollTo = true;
       c.render();
@@ -267,9 +276,11 @@
         var r = card && card.rounds ? card.rounds.filter(function (x) { return x.id === id; })[0] : null;
         var what = r ? (r.kind === 'mover' ? window.RCDuel.base(r.symbol) + ' vs ' + window.RCDuel.base(r.symbol_b)
           : r.kind === 'sports' && r.match ? (r.match.home_short || r.match.home) + ' vs ' + (r.match.away_short || r.match.away)
-            : window.RCDuel.base(r.symbol)) : 'this';
-        c.ask('Explain the ' + (r ? window.RCDuel.kindLabel(r.kind || 'direction') : '') + ' round on ' + what
-          + ': what am I being asked, and how is it settled?', { kind: 'round', id: id });
+            : window.RCDuel.base(r.symbol)) : null;
+        c.ask(what
+          ? T('Explain the {kind} round on {what}: what am I being asked, and how is it settled?',
+            { kind: window.RCDuel.kindLabel(r.kind || 'direction', TR), what: what })
+          : T('Explain this round: what am I being asked, and how is it settled?'), { kind: 'round', id: id });
         return true;
       }
       var rc = target.closest('.p-duel .d-rc-v');

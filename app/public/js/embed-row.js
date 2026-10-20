@@ -21,6 +21,15 @@
 }(typeof self !== 'undefined' ? self : this, function (RD, CS, RW) {
   'use strict';
 
+  /**
+   * The Pi app's translation (pi-i18n.js) when that app loaded it; everywhere
+   * else (the embed board, the Mini App) there is none and the English stands.
+   */
+  function T(en) {
+    var I = typeof window !== 'undefined' && window.RCPiI18n;
+    return I ? I.t(en) : en;
+  }
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -84,12 +93,12 @@
     // A timestamp in the future is not an age. Clocks disagree by a few seconds
     // routinely, so a small skew reads as "now"; a large one is unreadable.
     if (secs < -300) return null;
-    if (secs < 60) return 'now';
+    if (secs < 60) return T('now');
     var mins = Math.floor(secs / 60);
-    if (mins < 60) return mins + 'm';
+    if (mins < 60) return T('{n}m').replace('{n}', mins);
     var hrs = Math.floor(mins / 60);
-    if (hrs < 48) return hrs + 'h';
-    return Math.floor(hrs / 24) + 'd';
+    if (hrs < 48) return T('{n}h').replace('{n}', hrs);
+    return T('{n}d').replace('{n}', Math.floor(hrs / 24));
   }
 
   /**
@@ -257,9 +266,9 @@
       + '" data-sc-label="' + esc(RD.displaySym(sig.symbol)) + '" data-sc-geo=\''
       + esc(geo) + '\'><div class="e-load">…</div></div>'
       + '<dl class="e-lv">'
-      + '<div><dt>entry</dt><dd>' + esc(price(sig.entry_price)) + '</dd></div>'
-      + '<div><dt>stop</dt><dd>' + esc(price(sig.stop_loss)) + '</dd></div>'
-      + '<div><dt>target</dt><dd>' + esc(price(sig.take_profit)) + '</dd></div>'
+      + '<div><dt>' + esc(T('entry')) + '</dt><dd>' + esc(price(sig.entry_price)) + '</dd></div>'
+      + '<div><dt>' + esc(T('stop')) + '</dt><dd>' + esc(price(sig.stop_loss)) + '</dd></div>'
+      + '<div><dt>' + esc(T('target')) + '</dt><dd>' + esc(price(sig.take_profit)) + '</dd></div>'
       + (rr ? '<div><dt>r:r</dt><dd>' + esc(rr)
         + (net ? ' <small>(' + esc(net) + ')</small>' : '') + '</dd></div>' : '')
       + '</dl>'

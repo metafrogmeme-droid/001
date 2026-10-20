@@ -28,6 +28,16 @@
     });
   }
 
+  /**
+   * A sentence in the reader's language where the Pi app's table is loaded
+   * (pi-i18n.js); the English here everywhere else, placeholders filled.
+   */
+  function T(en, vars) {
+    var I = typeof window !== 'undefined' && window.RCPiI18n;
+    if (I) return I.t(en, vars);
+    return !vars ? en : en.replace(/\{(\w+)\}/g, function (m, k) { return vars[k] != null ? String(vars[k]) : m; });
+  }
+
   function num(v) {
     if (v === null || v === undefined || v === '') return null;
     var n = Number(v);
@@ -49,14 +59,14 @@
    * the amount is the same everywhere.
    */
   function unitLabel(opts) {
-    return opts && opts.unit === 'credits' ? 'credits' : 'vUSDT';
+    return opts && opts.unit === 'credits' ? T('credits') : 'vUSDT';
   }
 
   /** The line under the screen that says what kind of money this is. */
   function sourceLine(opts) {
     return opts && opts.unit === 'credits'
-      ? 'Practice trading · credits, not money'
-      : 'Paper trading · virtual balance';
+      ? T('Practice trading · credits, not money')
+      : T('Paper trading · virtual balance');
   }
 
   /**
@@ -66,20 +76,20 @@
    */
   function legalHtml() {
     return '<p class="p-legal">'
-      + '<a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy</a>'
+      + '<a href="/privacy" target="_blank" rel="noopener noreferrer">' + esc(T('Privacy')) + '</a>'
       + '<span aria-hidden="true"> · </span>'
-      + '<a href="/terms" target="_blank" rel="noopener noreferrer">Terms</a></p>';
+      + '<a href="/terms" target="_blank" rel="noopener noreferrer">' + esc(T('Terms')) + '</a></p>';
   }
 
   /** "Position opened: BTCUSDT LONG at 65010, 2×." from the server's fill. */
   function openedText(filled) {
     var f = filled || {};
-    if (!f.symbol) return 'Position opened.';
+    if (!f.symbol) return T('Position opened.');
     var dir = String(f.direction || '').toUpperCase();
     var lev = num(f.leverage);
-    return 'Position opened: ' + f.symbol + (dir ? ' ' + dir : '')
-      + (num(f.entry) === null ? '' : ' at ' + price(f.entry))
-      + (lev === null ? '' : ', ' + lev + '×') + '.';
+    var v = { what: f.symbol + (dir ? ' ' + dir : ''), price: price(f.entry), lev: lev };
+    if (num(f.entry) === null) return lev === null ? T('Position opened: {what}.', v) : T('Position opened: {what}, {lev}×.', v);
+    return lev === null ? T('Position opened: {what} at {price}.', v) : T('Position opened: {what} at {price}, {lev}×.', v);
   }
 
   /**
@@ -91,12 +101,15 @@
     var c = closed || {};
     var h = held || {};
     var sym = c.symbol || h.symbol;
-    if (!sym) return 'Position closed.';
+    if (!sym) return T('Position closed.');
     var dir = String(h.direction || '').toUpperCase();
     var pnl = num(c.pnl);
-    return (c.liquidated === true ? 'Position liquidated: ' : 'Position closed: ') + sym + (dir ? ' ' + dir : '')
-      + (num(c.exit_price) === null ? '' : ' at ' + price(c.exit_price)) + '.'
-      + (pnl === null ? '' : ' Result ' + (pnl > 0 ? '+' : '') + vusdt(pnl) + ' ' + unitLabel(opts) + '.');
+    var v = { what: sym + (dir ? ' ' + dir : ''), price: price(c.exit_price) };
+    var at = num(c.exit_price) !== null;
+    var head = c.liquidated === true
+      ? (at ? T('Position liquidated: {what} at {price}.', v) : T('Position liquidated: {what}.', v))
+      : (at ? T('Position closed: {what} at {price}.', v) : T('Position closed: {what}.', v));
+    return head + (pnl === null ? '' : ' ' + T('Result {pnl} {unit}.', { pnl: (pnl > 0 ? '+' : '') + vusdt(pnl), unit: unitLabel(opts) }));
   }
 
   /**
@@ -146,17 +159,16 @@
     // The host is who signs the person in: Farcaster for the Mini App, Pi for
     // the Pi Browser app, a wallet for the DogeOS app. One sentence each, and
     // nothing else differs.
-    var who = host === 'Pi' ? 'Pi' : host === 'DogeOS' ? 'a DogeOS wallet' : 'Farcaster';
+    var who = host === 'Pi' ? 'Pi' : host === 'DogeOS' ? T('a DogeOS wallet') : 'Farcaster';
     var intro = opts && opts.intro;
     if (intro) return introHtml(intro, who);
     var name = season && season.name ? season.name : null;
     return '<section class="m-gate">'
       + '<p class="m-gate-lead">'
-      + (name ? 'Trade ' + esc(name) + ' with a virtual balance.' : 'Trade the season with a virtual balance.')
+      + (name ? esc(T('Trade {name} with a virtual balance.', { name: name })) : esc(T('Trade the season with a virtual balance.')))
       + '</p>'
-      + '<p class="m-gate-sub">Signing in with ' + who + ' creates a paper account. '
-      + 'No exchange keys, no real funds — everyone starts on the same balance.</p>'
-      + '<button type="button" class="m-signin">Sign in with ' + who + '</button>'
+      + '<p class="m-gate-sub">' + esc(T('Signing in with {who} creates a paper account. No exchange keys, no real funds — everyone starts on the same balance.', { who: who })) + '</p>'
+      + '<button type="button" class="m-signin">' + esc(T('Sign in with {who}', { who: who })) + '</button>'
       + '</section>';
   }
 
@@ -166,7 +178,9 @@
    * season name, a sentence and a button over two thirds of an empty screen.
    * The copy is the host's (`intro`); the shape and the button are shared.
    */
-  function introHtml(intro, who) {
+  function introHtml(intro0, who) {
+    // A function, so a language chosen after the app started is followed.
+    var intro = typeof intro0 === 'function' ? intro0() : intro0;
     var points = Array.isArray(intro.points) ? intro.points : [];
     return '<section class="m-gate m-gate--intro">'
       + (intro.image ? '<img class="m-gate-pic" src="' + esc(intro.image) + '" alt="" width="144" height="144" decoding="async">' : '')
@@ -176,8 +190,8 @@
         return '<li><span class="m-gate-i" aria-hidden="true">' + esc(p.icon || '•') + '</span>'
           + '<span>' + esc(p.text) + '</span></li>';
       }).join('') + '</ul>' : '')
-      + '<button type="button" class="m-signin">Sign in with ' + who + '</button>'
-      + '<p class="m-gate-sub">' + esc(intro.note || 'Signing in creates a practice account. No exchange keys, no real funds.') + '</p>'
+      + '<button type="button" class="m-signin">' + esc(T('Sign in with {who}', { who: who })) + '</button>'
+      + '<p class="m-gate-sub">' + esc(intro.note || T('Signing in creates a practice account. No exchange keys, no real funds.')) + '</p>'
       + '</section>';
   }
 
@@ -190,19 +204,19 @@
    */
   function signInProblemHtml(status, reason, host, opts) {
     var text;
-    if (status === 'rejected') text = 'Sign-in cancelled.';
+    if (status === 'rejected') text = T('Sign-in cancelled.');
     else if (status === 'no-host') {
-      text = host === 'Pi' ? 'Open this in the Pi Browser to sign in.'
+      text = host === 'Pi' ? T('Open this in the Pi Browser to sign in.')
         // The DogeOS app signs in with a browser wallet; none was found on the page.
-        : host === 'DogeOS' ? 'No wallet found. Open this page in a browser with an EVM wallet (MetaMask, Rabby or the DogeOS wallet) to sign in.'
-          : 'Open this from a Farcaster app to sign in.';
+        : host === 'DogeOS' ? T('No wallet found. Open this page in a browser with an EVM wallet (MetaMask, Rabby or the DogeOS wallet) to sign in.')
+          : T('Open this from a Farcaster app to sign in.');
     }
-    else if (status === 'unknown') text = 'Sign-in did not come back. You can try again.';
-    else if (reason === 'domain_mismatch') text = 'That signature was for a different app.';
-    else if (reason === 'unknown_or_used_nonce') text = 'That sign-in expired. Try again.';
-    else if (reason === 'token_rejected') text = 'Pi did not confirm that sign-in. Try again.';
-    else if (status === 'unavailable') text = 'Sign-in is unavailable right now — this is on our side.';
-    else text = 'Sign-in could not be completed.';
+    else if (status === 'unknown') text = T('Sign-in did not come back. You can try again.');
+    else if (reason === 'domain_mismatch') text = T('That signature was for a different app.');
+    else if (reason === 'unknown_or_used_nonce') text = T('That sign-in expired. Try again.');
+    else if (reason === 'token_rejected') text = T('Pi did not confirm that sign-in. Try again.');
+    else if (status === 'unavailable') text = T('Sign-in is unavailable right now — this is on our side.');
+    else text = T('Sign-in could not be completed.');
     // No accent colour on a cancellation: nothing went wrong.
     var kind = (status === 'rejected') ? 'note' : 'warn';
     return '<p class="m-problem m-problem--' + kind + '">' + esc(text) + '</p>'
@@ -218,9 +232,9 @@
    */
   function copyLinkHtml(url) {
     return '<div class="m-copy">'
-      + '<p class="m-copy-how">Inside X or Telegram there is no wallet. Copy the link and open it in your wallet app\u2019s browser.</p>'
-      + '<div class="m-copy-row"><input class="m-copy-url" type="text" readonly value="' + esc(url) + '" aria-label="This page\u2019s link">'
-      + '<button type="button" class="m-copy-b">Copy link</button></div></div>';
+      + '<p class="m-copy-how">' + esc(T('Inside X or Telegram there is no wallet. Copy the link and open it in your wallet app’s browser.')) + '</p>'
+      + '<div class="m-copy-row"><input class="m-copy-url" type="text" readonly value="' + esc(url) + '" aria-label="' + esc(T('This page’s link')) + '">'
+      + '<button type="button" class="m-copy-b">' + esc(T('Copy link')) + '</button></div></div>';
   }
 
   /**
@@ -233,12 +247,12 @@
     var a = acct || {};
     return '<section class="m-acct">'
       + '<div class="m-eq">'
-      + '<span class="m-eq-label">equity</span>'
+      + '<span class="m-eq-label">' + esc(T('equity')) + '</span>'
       + '<b class="m-eq-val">' + esc(vusdt(a.equity)) + '</b>'
       + '<span class="m-eq-unit">' + esc(unitLabel(opts)) + '</span>'
       + '<span class="m-eq-ret ' + toneFor(a.return_pct) + '">' + esc(pct(a.return_pct)) + '</span>'
       + '</div>'
-      + '<p class="m-free">' + esc(vusdt(a.balance)) + ' free</p>'
+      + '<p class="m-free">' + esc(T('{amount} free', { amount: vusdt(a.balance) })) + '</p>'
       + '</section>';
   }
 
@@ -265,12 +279,12 @@
       + '</span>'
       + '</div>'
       + '<div class="m-pos-foot">'
-      + '<span>entry ' + esc(price(pos.entry)) + '</span>'
+      + '<span>' + esc(T('entry {price}', { price: price(pos.entry) })) + '</span>'
       // Said out loud rather than left as a dash to puzzle over: the number is
       // missing because the feed is, not because the position is worthless.
-      + '<span>' + (unreadable ? 'mark unavailable' : 'mark ' + esc(price(pos.mark))) + '</span>'
-      + '<span>' + esc(vusdt(pos.margin)) + ' margin</span>'
-      + '<button type="button" class="m-close" data-close-id="' + esc(pos.id) + '">Close</button>'
+      + '<span>' + esc(unreadable ? T('mark unavailable') : T('mark {price}', { price: price(pos.mark) })) + '</span>'
+      + '<span>' + esc(T('{amount} margin', { amount: vusdt(pos.margin) })) + '</span>'
+      + '<button type="button" class="m-close" data-close-id="' + esc(pos.id) + '">' + esc(T('Close')) + '</button>'
       + '</div>'
       + '</li>';
   }
@@ -284,7 +298,7 @@
    */
   function positionsHtml(rows) {
     if (!rows || !rows.length) {
-      return '<p class="m-none">No open positions.</p>';
+      return '<p class="m-none">' + esc(T('No open positions.')) + '</p>';
     }
     return '<ul class="m-pos-list">' + rows.map(positionHtml).join('') + '</ul>';
   }
@@ -309,31 +323,30 @@
     var minMargin = num(l.min_margin);
     var unit = unitLabel(opts);
     return '<section class="m-open">'
-      + '<h2>Open a position</h2>'
+      + '<h2>' + esc(T('Open a position')) + '</h2>'
       + '<div class="m-row m-row--fields">'
-      + '<label class="m-field"><span class="m-label">Market</span>'
+      + '<label class="m-field"><span class="m-label">' + esc(T('Market')) + '</span>'
       + '<input class="m-sym" type="text" inputmode="latin" autocapitalize="characters" '
-      + 'placeholder="e.g. BTC"></label>'
-      + '<label class="m-field"><span class="m-label">Amount (' + esc(unit) + ')</span>'
+      + 'placeholder="' + esc(T('e.g. BTC')) + '"></label>'
+      + '<label class="m-field"><span class="m-label">' + esc(T('Amount ({unit})', { unit: unit })) + '</span>'
       + '<input class="m-margin" type="number" inputmode="decimal" '
-      + 'placeholder="' + esc(minMargin === null ? 'e.g. 100' : 'min ' + minMargin) + '" '
+      + 'placeholder="' + esc(minMargin === null ? T('e.g. 100') : T('min {n}', { n: minMargin })) + '" '
       + (minMargin === null ? '' : 'min="' + esc(minMargin) + '" ')
       + '></label>'
-      + '<label class="m-field"><span class="m-label">Leverage</span>'
+      + '<label class="m-field"><span class="m-label">' + esc(T('Leverage')) + '</span>'
       + '<input class="m-lev" type="number" inputmode="numeric" '
-      + 'placeholder="' + esc(maxLev === null ? 'e.g. 2' : '1–' + maxLev) + '" '
+      + 'placeholder="' + esc(maxLev === null ? T('e.g. 2') : '1–' + maxLev) + '" '
       + (maxLev === null ? '' : 'max="' + esc(maxLev) + '" ') + 'min="1"></label>'
       + '</div>'
       + '<div class="m-row m-row--go">'
-      + '<button type="button" class="m-long">Long</button>'
-      + '<button type="button" class="m-short">Short</button>'
+      + '<button type="button" class="m-long">' + esc(T('Long')) + '</button>'
+      + '<button type="button" class="m-short">' + esc(T('Short')) + '</button>'
       + '</div>'
-      + '<p class="m-open-how">Long gains if the price rises, short if it falls. '
-      + 'Leverage multiplies the move, the loss as much as the gain.</p>'
+      + '<p class="m-open-how">' + esc(T('Long gains if the price rises, short if it falls. Leverage multiplies the move, the loss as much as the gain.')) + '</p>'
       + '<p class="m-open-note">'
-      + (minMargin === null ? '' : 'min ' + esc(minMargin) + ' ' + esc(unit) + ' · ')
-      + (maxLev === null ? '' : 'up to ' + esc(maxLev) + '× · ')
-      + 'virtual funds only</p>'
+      + (minMargin === null ? '' : esc(T('min {n} {unit}', { n: minMargin, unit: unit })) + ' · ')
+      + (maxLev === null ? '' : esc(T('up to {n}×', { n: maxLev })) + ' · ')
+      + esc(T('virtual funds only')) + '</p>'
       + '</section>';
   }
 
@@ -361,6 +374,7 @@
     openedText: openedText,
     closedText: closedText,
     unitLabel: unitLabel,
+    T: T,
     sourceLine: sourceLine,
     legalHtml: legalHtml,
     vusdt: vusdt,

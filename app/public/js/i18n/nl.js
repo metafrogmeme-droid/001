@@ -1975,7 +1975,7 @@
   ["duel.card_h", "De kaart van vandaag"],
   ["duel.rec_h", "Je record"],
   ["duel.acc_k", "Nauwkeurigheid"],
-  ["duel.marks_k", "Merken"],
+  ["duel.marks_k", "Punten"],
   ["duel.streak_k", "Reeks"],
   ["duel.b_long", "LONG"],
   ["duel.b_short", "SHORT"],

@@ -57,6 +57,13 @@
     });
   }
 
+  /** The Pi app's translation (pi-i18n.js), the English where it is not loaded. */
+  function T(en, vars) {
+    var M = typeof window !== 'undefined' && window.RCMiniView;
+    if (M && typeof M.T === 'function') return M.T(en, vars);
+    return !vars ? en : en.replace(/\{(\w+)\}/g, function (m, k) { return vars[k] != null ? String(vars[k]) : m; });
+  }
+
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
   /** A window's end in the reader's own clock, HH:MM. */
@@ -95,30 +102,47 @@
     var dis = busy ? ' disabled' : '';
     if (SS.actionable(sig, now)) {
       var until = SS.liveUntil(sig);
-      var word = 'Live call · follow it within {t}';
+      // The countdown's {t} is left for the ticker (signal-status-model.js) to fill.
+      var word = T('Live call · follow it within {t}');
       return '<p class="p-sig-when" data-live-until="' + esc(until) + '" data-live-word="' + esc(word)
-        + '" data-closed-word="Window closed">' + esc(word.replace('{t}', SS.leftText(sig, now))) + '</p>'
+        + '" data-closed-word="' + esc(T('Window closed')) + '">' + esc(word.replace('{t}', SS.leftText(sig, now))) + '</p>'
         + '<div class="m-row m-row--go"><button type="button" class="p-sig-open" data-key="' + key
-        + '" data-live-until="' + esc(until) + '"' + dis + '>Paper '
-        + PAPER.margin + ' · ' + PAPER.leverage + '×</button></div>';
+        + '" data-live-until="' + esc(until) + '"' + dis + '>'
+        + esc(T('Paper {margin} · {lev}×', { margin: PAPER.margin, lev: PAPER.leverage })) + '</button></div>';
     }
     if (SS.ownable(sig, now)) {
       var closedAt = SS.liveUntil(sig);
-      var when = closedAt === null ? 'This call states no window.'
-        : 'Its window closed at ' + clockText(closedAt) + '.';
-      return '<p class="p-sig-when">' + esc(when)
-        + ' Taking it now is your own trade at the live price, not credited to the call.</p>'
+      var when = closedAt === null ? T('This call states no window.')
+        : T('Its window closed at {time}.', { time: clockText(closedAt) });
+      return '<p class="p-sig-when">' + esc(when + ' ' + T('Taking it now is your own trade at the live price, not credited to the call.')) + '</p>'
         + '<div class="m-row m-row--go"><button type="button" class="p-sig-own" data-key="' + key + '"'
-        + dis + '>Trade it yourself · ' + PAPER.margin + ' · ' + PAPER.leverage + '×</button></div>';
+        + dis + '>' + esc(T('Trade it yourself · {margin} · {lev}×', { margin: PAPER.margin, lev: PAPER.leverage })) + '</button></div>';
     }
     var st = SS.status(sig);
     if (st.final) {
       // Colour is a claim: only the two words that carry an R get one.
       var tone = st.cls === 'chip--up' ? ' p-sig-out--up' : st.cls === 'chip--down' ? ' p-sig-out--down' : '';
-      return '<p class="p-sig-when"><span class="p-sig-out' + tone + '">' + esc(st.label)
-        + '</span> This call has ended.</p>';
+      return '<p class="p-sig-when"><span class="p-sig-out' + tone + '">' + esc(outcomeLabel(st))
+        + '</span> ' + esc(T('This call has ended.')) + '</p>';
     }
     return '';
+  }
+
+  /**
+   * An ended call's outcome in the reader's language. The words are the
+   * status model's (signal-status-model.js CHIP), one per outcome; a word it
+   * does not know is shown as the row carries it.
+   */
+  function outcomeLabel(st) {
+    switch (st.word) {
+      case 'TARGET': return T('✓ TARGET');
+      case 'STOP': return T('✗ STOP');
+      case 'AMBIGUOUS': return T('? AMBIGUOUS');
+      case 'EXPIRED': return T('NOT FILLED');
+      case 'NO_EXIT': return T('NO EXIT');
+      case 'UNSCORED': return T('UNSCORED');
+      default: return st.label;
+    }
   }
 
   /** What an open got, and what of the call it did not carry. */
@@ -143,26 +167,36 @@
     var base = window.RCEmbedRow && window.RCEmbedRow.splitSymbol ? (window.RCEmbedRow.splitSymbol(s.symbol).base || s.symbol) : s.symbol;
     var up = dir === 'LONG';
     var parts = [];
-    if (tp !== null) parts.push('The call: ' + base + ' ' + (up ? 'rises' : 'falls') + ' toward ' + p(tp) + '.');
-    else parts.push('The call: ' + base + ' ' + (up ? 'rises' : 'falls') + '.');
-    if (sl !== null) parts.push('It is given up if ' + base + ' ' + (up ? 'falls' : 'rises') + ' to ' + p(sl) + '.');
+    // Whole sentences per direction: a translator words "rises toward"
+    // and "falls toward" apart, which a spliced verb would not allow.
+    if (tp !== null) {
+      parts.push(up ? T('The call: {sym} rises toward {price}.', { sym: base, price: p(tp) })
+        : T('The call: {sym} falls toward {price}.', { sym: base, price: p(tp) }));
+    } else {
+      parts.push(up ? T('The call: {sym} rises.', { sym: base }) : T('The call: {sym} falls.', { sym: base }));
+    }
+    if (sl !== null) {
+      parts.push(up ? T('It is given up if {sym} falls to {price}.', { sym: base, price: p(sl) })
+        : T('It is given up if {sym} rises to {price}.', { sym: base, price: p(sl) }));
+    }
     if (entry !== null && tp !== null && sl !== null && Math.abs(entry - sl) > 0) {
       var ratio = Math.abs(tp - entry) / Math.abs(entry - sl);
-      if (isFinite(ratio)) parts.push('The target is ' + ratio.toFixed(1) + ' times as far away as the stop.');
+      if (isFinite(ratio)) parts.push(T('The target is {x} times as far away as the stop.', { x: ratio.toFixed(1) }));
     }
     return parts.join(' ');
   }
 
   function filledText(f) {
-    var text = 'Opened ' + f.symbol + ' ' + f.direction + ' at ' + f.entry + ', the live mark'
-      + (f.own ? ', as your own trade. It is not credited to the call.' : '.');
+    var what = { sym: f.symbol, dir: f.direction, price: f.entry };
+    var text = f.own ? T('Opened {sym} {dir} at {price}, the live mark, as your own trade. It is not credited to the call.', what)
+      : T('Opened {sym} {dir} at {price}, the live mark.', what);
     var dropped = Array.isArray(f.dropped) ? f.dropped : [];
-    if (dropped.length === 2) text += ' Both its exits were already behind the market, so neither was carried over.';
-    else if (dropped[0] === 'tp') text += ' Its take-profit was already behind the market and was not carried over.';
-    else if (dropped[0] === 'sl') text += ' Its stop-loss was already behind the market and was not carried over.';
+    if (dropped.length === 2) text += ' ' + T('Both its exits were already behind the market, so neither was carried over.');
+    else if (dropped[0] === 'tp') text += ' ' + T('Its take-profit was already behind the market and was not carried over.');
+    else if (dropped[0] === 'sl') text += ' ' + T('Its stop-loss was already behind the market and was not carried over.');
     if (f.drift_warn === true && typeof f.drift_pct === 'number' && f.signal_entry != null) {
-      text += ' That is ' + (f.drift_pct > 0 ? '+' : '') + f.drift_pct + '% from the call\'s entry of '
-        + f.signal_entry + '.';
+      text += ' ' + T('That is {pct}% from the call’s entry of {price}.',
+        { pct: (f.drift_pct > 0 ? '+' : '') + f.drift_pct, price: f.signal_entry });
     }
     return text;
   }
@@ -228,7 +262,7 @@
         var sym = window.RCEmbedRow.splitSymbol(sig.symbol);
         return '<article class="e-row e-row--locked"><header class="e-head">'
           + '<span class="e-dir e-flat">LIVE</span><b class="e-sym">' + esc(sym.base || '—') + '</b>'
-          + '</header><p class="e-meta">A live call. Sign in again to see its side and levels.</p></article>';
+          + '</header><p class="e-meta">' + esc(T('A live call. Sign in again to see its side and levels.')) + '</p></article>';
       }
       // The action goes inside the card, so it reads as this call's; the
       // plain line and the coach's door go above it.
@@ -236,7 +270,7 @@
       var line = plainLine(sig);
       var why = '<div class="p-sig-why">' + (line ? '<p class="p-sig-plain">' + esc(line) + '</p>' : '')
         + (ctx && typeof ctx.ask === 'function'
-          ? '<button type="button" class="p-why" data-ask="signal" data-key="' + esc(sig.signal_key) + '">Why? Ask the Claw</button>' : '')
+          ? '<button type="button" class="p-why" data-ask="signal" data-key="' + esc(sig.signal_key) + '">' + esc(T('Why? Ask the Claw')) + '</button>' : '')
         + '</div>';
       var act = '<div class="p-sig-act" data-key="' + esc(sig.signal_key) + '">' + actionInner(sig, new Date(), busy) + '</div>';
       var end = row.lastIndexOf('</article>');
@@ -244,7 +278,7 @@
     }
 
     function tfHtml() {
-      return '<div class="p-tf" role="group" aria-label="Chart timeframe">'
+      return '<div class="p-tf" role="group" aria-label="' + esc(T('Chart timeframe')) + '">'
         + TFS.map(function (t) {
           return '<button type="button" class="p-tf-b" data-tf="' + t[0] + '" aria-pressed="'
             + (t[0] === tf ? 'true' : 'false') + '">' + t[1] + '</button>';
@@ -258,19 +292,19 @@
       var charts = false;
       if (failed) {
         body = M.actionNoteHtml('warn',
-          'Signals could not be loaded. This is on our side, not a statement that there are none.');
+          T('Signals could not be loaded. This is on our side, not a statement that there are none.'));
       } else if (sigs === null) {
-        body = '<div class="e-load">Loading signals…</div>';
+        body = '<div class="e-load">' + esc(T('Loading signals…')) + '</div>';
       } else if (!sigs.length) {
-        body = M.actionNoteHtml('note', 'No signals right now. The engine publishes them as it scans.');
+        body = M.actionNoteHtml('note', T('No signals right now. The engine publishes them as it scans.'));
       } else {
         charts = true;
         body = '<div class="e-list">' + sigs.map(cardHtml).join('') + '</div>';
       }
-      return '<section class="m-open p-signals"><div class="p-sig-head"><h2>Signals</h2>'
+      return '<section class="m-open p-signals"><div class="p-sig-head"><h2>' + esc(T('Signals')) + '</h2>'
         + (charts ? tfHtml() : '') + '</div>' + noteHtml + body
-        + '<p class="m-open-note">Paper opens at the live mark · virtual funds only'
-        + (charts ? ' · pinch a chart to zoom, drag it to look back' : '') + '</p></section>';
+        + '<p class="m-open-note">' + esc(T('Paper opens at the live mark · virtual funds only')
+        + (charts ? ' · ' + T('pinch a chart to zoom, drag it to look back') : '')) + '</p></section>';
     }
 
     /**
@@ -401,7 +435,7 @@
     function openOnPaper(key, c, own) {
       if (busy || !key) return;
       busy = true;
-      note = ['note', own ? 'Opening your own trade on paper…' : 'Opening on paper…'];
+      note = ['note', own ? T('Opening your own trade on paper…') : T('Opening on paper…')];
       c.render();
       var body = { signal_key: key, margin: PAPER.margin, leverage: PAPER.leverage };
       if (own) body.own = true;
@@ -418,7 +452,7 @@
         }
         // The server names why (window closed, still live, ended, already
         // open, season rules).
-        note = ['warn', (r.body && r.body.error) || 'That call could not be opened.'];
+        note = ['warn', (r.body && r.body.error) || T('That call could not be opened.')];
         c.render();
         // The call changed under the page: read the calls again, so the card
         // offers what is true now.
@@ -429,7 +463,7 @@
         }
       }, function () {
         busy = false;
-        note = ['warn', 'That call could not be opened. We could not reach the server.'];
+        note = ['warn', T('That call could not be opened. We could not reach the server.')];
         c.render();
       });
     }
@@ -441,10 +475,10 @@
       if (w) {
         var key = w.getAttribute('data-key');
         var sig = (sigs || []).filter(function (s) { return String(s.signal_key) === key; })[0];
-        var base = sig && window.RCEmbedRow ? (window.RCEmbedRow.splitSymbol(sig.symbol).base || sig.symbol) : 'this market';
+        var base = sig && window.RCEmbedRow ? (window.RCEmbedRow.splitSymbol(sig.symbol).base || sig.symbol) : null;
         var side = sig ? String(sig.direction || '').toUpperCase() : '';
-        c.ask('Why did the agent call ' + base + (side ? ' ' + side : '') + ' here, and what would prove it wrong?',
-          { kind: 'signal', key: key });
+        c.ask(base ? T('Why did the agent call {what} here, and what would prove it wrong?', { what: base + (side ? ' ' + side : '') })
+          : T('Why did the agent call this market here, and what would prove it wrong?'), { kind: 'signal', key: key });
         return true;
       }
       var b = target.closest('.p-sig-open, .p-sig-own');

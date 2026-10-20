@@ -39,6 +39,13 @@
     });
   }
 
+  /** The Pi app's translation where it is loaded (pi-i18n.js); the English everywhere else. */
+  function T(en, vars) {
+    var I = typeof window !== 'undefined' && window.RCPiI18n;
+    if (I) return I.t(en, vars);
+    return !vars ? en : en.replace(/\{(\w+)\}/g, function (m, k) { return vars[k] != null ? String(vars[k]) : m; });
+  }
+
   /** A finite number, or null. Never a fallback zero. */
   function num(v) {
     if (v === null || v === undefined || v === '') return null;
@@ -145,10 +152,10 @@
     var secs = Math.floor((t - now) / 1000);
     if (secs <= 0) return null;                  // over. The status says so.
     var days = Math.floor(secs / 86400);
-    if (days >= 2) return days + 'd left';
+    if (days >= 2) return T('{n}d left', { n: days });
     var hrs = Math.floor(secs / 3600);
-    if (hrs >= 1) return hrs + 'h left';
-    return 'ends soon';
+    if (hrs >= 1) return T('{n}h left', { n: hrs });
+    return T('ends soon');
   }
 
   // ── renderers ───────────────────────────────────────────────────────────
@@ -165,22 +172,22 @@
     var o = opts || {};
     if (!season) {
       return '<header class="a-season a-season--none">'
-        + '<h1>The Arena</h1>'
-        + '<p class="a-sub">No season is running. Standings below are all-time.</p>'
+        + '<h1>' + esc(T('The Arena')) + '</h1>'
+        + '<p class="a-sub">' + esc(T('No season is running. Standings below are all-time.')) + '</p>'
         + '</header>';
     }
     var status = String(season.status || '').toLowerCase();
     var left = status === 'live' ? remaining(season.ends_at, o.nowMs) : null;
-    var badge = status === 'live' ? 'live'
-      : status === 'upcoming' ? 'starts soon'
-        : status === 'ended' ? 'ended' : null;
+    var badge = status === 'live' ? T('live')
+      : status === 'upcoming' ? T('starts soon')
+        : status === 'ended' ? T('ended') : null;
 
     // "Season" before the badge: the name alone ("FARCASTER") read as a user
     // label in a review, because nothing on the screen said what it named.
     return '<header class="a-season">'
-      + '<h1>' + esc(season.name || 'The Arena') + '</h1>'
+      + '<h1>' + esc(season.name || T('The Arena')) + '</h1>'
       + '<p class="a-sub">'
-      + '<span class="a-season-k">' + (o.kicker === undefined ? 'Season' : esc(o.kicker)) + '</span>'
+      + '<span class="a-season-k">' + (o.kicker === undefined ? esc(T('Season')) : esc(o.kicker)) + '</span>'
       + (badge ? '<span class="a-badge a-badge--' + esc(status) + '">' + esc(badge) + '</span>' : '')
       // The countdown is omitted when unreadable rather than shown as zero.
       + (left ? '<span class="a-left">' + esc(left) + '</span>' : '')
@@ -203,7 +210,7 @@
     return '<li class="a-row">'
       + '<span class="a-rank">' + esc(count(row.rank)) + '</span>'
       + '<span class="a-handle">' + esc(row.handle || '—') + '</span>'
-      + '<span class="a-trades">' + esc(count(row.trades)) + ' trades</span>'
+      + '<span class="a-trades">' + esc(T('{n} trades', { n: count(row.trades) })) + '</span>'
       + '<span class="a-ret ' + tone + '">' + esc(pct(row.return_pct)) + '</span>'
       + '</li>';
   }
@@ -240,14 +247,15 @@
     var closes = meta ? num(meta.closes_in_window) : null;
     var ranked = meta ? num(meta.ranked_total) : null;
     if (closes === 0) {
-      return '<p class="a-empty">No trades have closed in this season yet.</p>';
+      return '<p class="a-empty">' + esc(T('No trades have closed in this season yet.')) + '</p>';
     }
     if (closes > 0 && ranked === 0) {
-      return '<p class="a-empty">' + esc(count(closes)) + ' trade'
-        + (closes === 1 ? '' : 's') + ' closed this season, but nobody has '
-        + 'chosen a public handle yet — the board only shows opted-in names.</p>';
+      return '<p class="a-empty">' + esc(closes === 1
+        ? T('1 trade closed this season, but nobody has chosen a public handle yet — the board only shows opted-in names.')
+        : T('{n} trades closed this season, but nobody has chosen a public handle yet — the board only shows opted-in names.', { n: count(closes) }))
+        + '</p>';
     }
-    return '<p class="a-empty">Nobody is on the board yet.</p>';
+    return '<p class="a-empty">' + esc(T('Nobody is on the board yet.')) + '</p>';
   }
 
   /** One line of the live tape. */

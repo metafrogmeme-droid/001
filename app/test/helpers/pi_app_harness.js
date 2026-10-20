@@ -122,9 +122,10 @@ async function context(browser, {
   tips = TIPS, unfinished = null, cancel = false, signals = null,
   account = ACCOUNT, close = null, openSignal = null,
   duel = { status: 200, body: DUEL_CARD }, duelMe = { status: 200, body: DUEL_ME }, duelPick = null,
-  routes = null,
+  routes = null, locale = null,
 } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 800 } });
+  // `locale` is the browser's language: Playwright sends it as Accept-Language.
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, ...(locale ? { locale } : {}) });
   await ctx.addInitScript(({ u, c }) => { window.__PI_UNFINISHED__ = u; window.__PI_CANCEL__ = c; },
     { u: unfinished, c: cancel });
   const sent = [];

@@ -61,6 +61,13 @@
     return chain;
   }
 
+  /** The Pi app's translation (pi-i18n.js) where it is on the page; the English on /doge. */
+  function T(en, vars) {
+    var I = typeof window !== 'undefined' && window.RCPiI18n;
+    if (I) return I.t(en, vars);
+    return !vars ? en : en.replace(/\{(\w+)\}/g, function (m, k) { return vars[k] != null ? String(vars[k]) : m; });
+  }
+
   function val(x) { return (x === null || x === undefined) ? '—' : String(x); }
   function up(x) { return x == null ? '—' : String(x).toUpperCase(); }
 
@@ -70,33 +77,34 @@
       : val(p.symbol) + (p.symbol_b ? ' vs ' + p.symbol_b : '');
     if (p.kind === 'duel_round') {
       return [
-        ['What it is', 'The round as it was dealt'],
-        ['Round', market + ' · ' + val(p.category) + ' · ' + val(p.day)],
-        ['The Claw’s call', p.agent_direction == null ? 'none on this round' : up(p.agent_direction) + ', sealed before anyone called'],
-      ].concat(p.threshold_pct != null ? [['Band', '±' + p.threshold_pct + '%']] : [])
-        .concat(p.match && p.match.kickoff ? [['Kick-off', String(p.match.kickoff)]] : [])
-        .concat([['Dealt at', val(p.dealt_at)]]);
+        [T('What it is'), T('The round as it was dealt')],
+        [T('Round'), market + ' · ' + val(p.category) + ' · ' + val(p.day)],
+        [T('The Claw’s call'), p.agent_direction == null ? T('none on this round')
+          : T('{dir}, sealed before anyone called', { dir: up(p.agent_direction) })],
+      ].concat(p.threshold_pct != null ? [[T('Band'), '±' + p.threshold_pct + '%']] : [])
+        .concat(p.match && p.match.kickoff ? [[T('Kick-off'), String(p.match.kickoff)]] : [])
+        .concat([[T('Dealt at'), val(p.dealt_at)]]);
     }
     if (p.kind === 'duel_pick') {
       return [
-        ['What it is', 'Your call, as it was recorded'],
-        ['Call', up(p.pick) + ' on ' + market],
-        ['Entry', p.entry_price == null ? 'none, settled on the score' : val(p.entry_price) + (p.entry_price_b != null ? ' / ' + p.entry_price_b : '')],
-        ['Called at', val(p.picked_at)],
-        ['Resolves at', val(p.resolves_at)],
+        [T('What it is'), T('Your call, as it was recorded')],
+        [T('Call'), T('{pick} on {market}', { pick: up(p.pick), market: market })],
+        [T('Entry'), p.entry_price == null ? T('none, settled on the score') : val(p.entry_price) + (p.entry_price_b != null ? ' / ' + p.entry_price_b : '')],
+        [T('Called at'), val(p.picked_at)],
+        [T('Resolves at'), val(p.resolves_at)],
       ];
     }
     if (p.kind === 'duel_settle') {
       return [
-        ['What it is', 'The settlement of your call'],
-        ['Call', up(p.pick) + ' · ' + val(p.category)],
-        ['Result', val(p.result) + (p.marks != null ? ' · ' + p.marks + ' mark' + (p.marks === 1 ? '' : 's') : '')],
-        [p.category === 'sports' ? 'Final score' : 'Close', p.settle_price == null ? 'none, unresolved'
+        [T('What it is'), T('The settlement of your call')],
+        [T('Call'), up(p.pick) + ' · ' + val(p.category)],
+        [T('Result'), val(p.result) + (p.marks != null ? ' · ' + (p.marks === 1 ? T('1 mark') : T('{n} marks', { n: p.marks })) : '')],
+        [p.category === 'sports' ? T('Final score') : T('Close price'), p.settle_price == null ? T('none, unresolved')
           : val(p.settle_price) + (p.settle_price_b != null ? (p.category === 'sports' ? '–' : ' / ') + p.settle_price_b : '')],
-        ['Settled at', val(p.settled_at)],
+        [T('Settled at'), val(p.settled_at)],
       ];
     }
-    return [['What it is', 'A receipt of a kind this app does not describe']];
+    return [[T('What it is'), T('A receipt of a kind this app does not describe')]];
   }
 
   /**
@@ -126,6 +134,9 @@
           return Object.assign(base, {
             state: hex === base.seal ? 'verified' : 'mismatch',
             payload: d.seal_payload,
+            // The parsed payload is kept so the rows are worded at render
+            // time, in the language on screen then.
+            parsed: p,
             facts: p ? facts(p) : [],
             anchor: anchor,
           });
@@ -152,56 +163,58 @@
 
   function verdictHtml(res) {
     if (res.state === 'verified') {
-      return '<p class="p-rc-v p-rc-v--ok">✅ Verified in your browser</p>'
-        + '<p class="p-rc-sub">The SHA-256 of what was sealed equals this seal, so not one character of it has changed since.</p>';
+      return '<p class="p-rc-v p-rc-v--ok">✅ ' + esc(T('Verified in your browser')) + '</p>'
+        + '<p class="p-rc-sub">' + esc(T('The SHA-256 of what was sealed equals this seal, so not one character of it has changed since.')) + '</p>';
     }
     if (res.state === 'mismatch') {
-      return '<p class="p-rc-v p-rc-v--bad">✖ Does not match</p>'
-        + '<p class="p-rc-sub">The SHA-256 of the payload is not this seal. This receipt is not intact.</p>';
+      return '<p class="p-rc-v p-rc-v--bad">✖ ' + esc(T('Does not match')) + '</p>'
+        + '<p class="p-rc-sub">' + esc(T('The SHA-256 of the payload is not this seal. This receipt is not intact.')) + '</p>';
     }
     if (res.state === 'sealed') {
-      return '<p class="p-rc-v">🔏 Still sealed</p>'
-        + '<p class="p-rc-sub">What this seal commits to opens when you call the round, or when its day ends'
-        + (res.opensAt ? ' (' + esc(res.opensAt) + ')' : '') + '. Nothing can be checked against it until then, and nothing is claimed.</p>';
+      return '<p class="p-rc-v">🔏 ' + esc(T('Still sealed')) + '</p>'
+        + '<p class="p-rc-sub">' + esc(res.opensAt
+          ? T('What this seal commits to opens when you call the round, or when its day ends ({at}). Nothing can be checked against it until then, and nothing is claimed.', { at: res.opensAt })
+          : T('What this seal commits to opens when you call the round, or when its day ends. Nothing can be checked against it until then, and nothing is claimed.')) + '</p>';
     }
-    if (res.state === 'bad_key') return '<p class="p-rc-v p-rc-v--bad">That is not a receipt this app can check.</p>';
-    return '<p class="p-rc-v p-rc-v--bad">The receipt could not be read just now.</p>'
-      + '<p class="p-rc-sub">' + (res.why === 'crypto'
-        ? 'This browser cannot compute SHA-256, so the check could not run. Nothing is claimed either way.'
-        : 'This is on our side, not a statement about the receipt. Try again in a moment.') + '</p>';
+    if (res.state === 'bad_key') return '<p class="p-rc-v p-rc-v--bad">' + esc(T('That is not a receipt this app can check.')) + '</p>';
+    return '<p class="p-rc-v p-rc-v--bad">' + esc(T('The receipt could not be read just now.')) + '</p>'
+      + '<p class="p-rc-sub">' + esc(res.why === 'crypto'
+        ? T('This browser cannot compute SHA-256, so the check could not run. Nothing is claimed either way.')
+        : T('This is on our side, not a statement about the receipt. Try again in a moment.')) + '</p>';
   }
 
   function anchorHtml(a) {
-    if (!a) return '<p class="p-rc-sub">Not yet in a daily root. Every seal of a day is folded into one root after the day ends.</p>';
+    if (!a) return '<p class="p-rc-sub">' + esc(T('Not yet in a daily root. Every seal of a day is folded into one root after the day ends.')) + '</p>';
     if (a.state === 'reaches') {
-      return '<p class="p-rc-sub">🌳 Folded into the ' + esc(a.day || '') + ' daily root'
-        + (a.count ? ', one of ' + esc(a.count) + ' seals' : '') + '. Your browser replayed the proof just now.</p>'
+      return '<p class="p-rc-sub">🌳 ' + esc(a.count
+        ? T('Folded into the {day} daily root, one of {n} seals. Your browser replayed the proof just now.', { day: a.day || '', n: a.count })
+        : T('Folded into the {day} daily root. Your browser replayed the proof just now.', { day: a.day || '' })) + '</p>'
         + '<p class="p-rc-hash">' + esc(a.root) + '</p>';
     }
-    if (a.state === 'misses') return '<p class="p-rc-v p-rc-v--bad">✖ The proof does not reach the day’s root.</p>';
-    return '<p class="p-rc-sub">The daily root could not be checked in this browser.</p>';
+    if (a.state === 'misses') return '<p class="p-rc-v p-rc-v--bad">✖ ' + esc(T('The proof does not reach the day’s root.')) + '</p>';
+    return '<p class="p-rc-sub">' + esc(T('The daily root could not be checked in this browser.')) + '</p>';
   }
 
   /** The sheet for one receipt: loading, or the check's result. */
   function sheetHtml(label, res) {
     var body;
     if (!res) {
-      body = '<p class="p-rc-sub">Checking in your browser…</p>';
+      body = '<p class="p-rc-sub">' + esc(T('Checking in your browser…')) + '</p>';
     } else {
-      var rows = (res.facts || []).map(function (f) {
+      var rows = (res.parsed ? facts(res.parsed) : (res.facts || [])).map(function (f) {
         return '<div class="p-rc-row"><span class="k">' + esc(f[0]) + '</span><span>' + esc(f[1]) + '</span></div>';
       }).join('');
       body = verdictHtml(res)
         + (rows ? '<div class="p-rc-rows">' + rows + '</div>' : '')
-        + (res.seal ? '<p class="p-rc-k">Seal (SHA-256)' + (res.sealedAt ? ', sealed ' + esc(res.sealedAt) : '') + '</p>'
+        + (res.seal ? '<p class="p-rc-k">' + esc(res.sealedAt ? T('Seal (SHA-256), sealed {at}', { at: res.sealedAt }) : T('Seal (SHA-256)')) + '</p>'
           + '<p class="p-rc-hash">' + esc(res.seal) + '</p>' : '')
         + (res.state === 'verified' || res.state === 'mismatch' || res.state === 'sealed' ? anchorHtml(res.anchor) : '')
-        + (res.payload ? '<details class="p-rc-raw"><summary>What was sealed (hash it yourself)</summary>'
+        + (res.payload ? '<details class="p-rc-raw"><summary>' + esc(T('What was sealed (hash it yourself)')) + '</summary>'
           + '<p class="p-rc-hash">' + esc(res.payload) + '</p></details>' : '');
     }
-    return '<section class="m-open p-rc-sheet" role="region" aria-label="Receipt check">'
-      + '<div class="p-sig-head"><h2>' + esc(label || 'Receipt') + '</h2>'
-      + '<button type="button" class="p-rc-close" aria-label="Close the receipt">✕</button></div>'
+    return '<section class="m-open p-rc-sheet" role="region" aria-label="' + esc(T('Receipt check')) + '">'
+      + '<div class="p-sig-head"><h2>' + esc(label || T('Receipt')) + '</h2>'
+      + '<button type="button" class="p-rc-close" aria-label="' + esc(T('Close the receipt')) + '">✕</button></div>'
       + body + '</section>';
   }
 

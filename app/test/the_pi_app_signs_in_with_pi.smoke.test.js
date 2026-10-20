@@ -236,7 +236,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       const opened = sent.find((s) => s.path === '/api/arena/open-signal');
       assert.deepStrictEqual(JSON.parse(opened.body), { signal_key: 'k-closed', margin: 200, leverage: 2, own: true });
       assert.match(await page.textContent('#root'),
-        /Opened SOLUSDT LONG at 153\.75, the live mark, as your own trade\. It is not credited to the call\. That is \+2\.5% from the call's entry of 150\./);
+        /Opened SOLUSDT LONG at 153\.75, the live mark, as your own trade\. It is not credited to the call\. That is \+2\.5% from the call’s entry of 150\./);
       assert.deepStrictEqual(errors, []);
       await ctx.close();
     });

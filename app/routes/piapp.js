@@ -47,8 +47,12 @@
  * site-wide policy is untouched.
  */
 
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
+const PiI18n = require('../public/js/pi-i18n.js');
 
 const router = express.Router();
 
@@ -107,36 +111,101 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  * Duel block (pi-duel.js); then the Leaders tab (pi-leaders.js). pi-arena.js
  * stays last: it starts the session with every block it needs already loaded.
  */
+/**
+ * The app's own words in the reader's language (pi-i18n.js), first of the
+ * deferred scripts. The chosen language's chunk is placed right after it,
+ * per request (page()), which finds it by this one name.
+ */
+const PI_I18N_SCRIPT = '/js/pi-i18n.js?v=1';
+
 const SCRIPTS = [
-  '/js/embed-arena-view.js?v=3',
-  '/js/miniapp-view.js?v=9',
-  '/js/arena-session.js?v=9',
+  PI_I18N_SCRIPT,
+  '/js/embed-arena-view.js?v=4',
+  '/js/miniapp-view.js?v=10',
+  '/js/arena-session.js?v=10',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',
   '/js/embed-read.js?v=2',
   '/js/confidence-score.js?v=2',
   '/js/rr-words.js?v=1',
-  '/js/embed-row.js?v=6',
+  '/js/embed-row.js?v=7',
   '/js/signal-chart.js?v=3',
   '/js/signal-status-model.js?v=4',
-  '/js/pi-signals.js?v=6',
+  '/js/pi-signals.js?v=7',
   // The Daily Duel: the website's round renderer, then the block.
   '/js/duel.js?v=8',
   // The in-app receipt check, before the block that uses it.
-  '/js/pi-receipt.js?v=1',
-  '/js/pi-duel.js?v=7',
+  '/js/pi-receipt.js?v=2',
+  '/js/pi-duel.js?v=8',
   // Ask the Claw, the coach tab.
-  '/js/pi-coach.js?v=1',
+  '/js/pi-coach.js?v=2',
   // The Leaders tab: the season's standings and your name on them.
-  '/js/pi-leaders.js?v=1',
-  '/js/pi-arena.js?v=5',
+  '/js/pi-leaders.js?v=2',
+  '/js/pi-arena.js?v=6',
 ];
 
-function page() {
+// ── the reader's language ────────────────────────────────────────────────
+
+const PI_I18N_DIR = path.join(__dirname, '..', 'public', 'js', 'pi-i18n');
+let chunkMap = null;
+
+/**
+ * { code: '/js/pi-i18n/<code>.js?v=<hash>' } for every language whose chunk
+ * is built (app/scripts/build_pi_i18n.js). The version is the first eight hex
+ * of the chunk's own SHA-256, as the site's i18n chunks are versioned
+ * (build_i18n.js): a translation that changes is a new address, with no
+ * number for anyone to remember to bump. Read once per process; a deploy is a
+ * new process. A language with no chunk on disk is offered nowhere.
+ */
+function chunks() {
+  if (chunkMap) return chunkMap;
+  const out = {};
+  for (const code of PiI18n.CODES) {
+    if (code === 'en') continue;
+    let text;
+    try { text = fs.readFileSync(path.join(PI_I18N_DIR, `${code}.js`)); } catch (e) { continue; }
+    out[code] = `/js/pi-i18n/${code}.js?v=${crypto.createHash('sha256').update(text).digest('hex').slice(0, 8)}`;
+  }
+  chunkMap = out;
+  return out;
+}
+
+/**
+ * The language the page opens in: `?lang=` when it names one this app has,
+ * else the first language of the Pi Browser's own Accept-Language that it
+ * has, else English. A tag it does not speak is never an error; it is English.
+ */
+function pickLang(req, offered = chunks()) {
+  const has = (c) => c === 'en' || Object.prototype.hasOwnProperty.call(offered, c);
+  const asked = PiI18n.normalize(req && req.query ? req.query.lang : '');
+  if (asked && has(asked)) return asked;
+  const header = req && typeof req.get === 'function' ? req.get('accept-language') : '';
+  const parts = String(header || '').split(',').map((p) => {
+    const bits = p.trim().split(';q=');
+    const q = bits.length > 1 ? Number(bits[1]) : 1;
+    return { tag: bits[0], q: Number.isFinite(q) ? q : 0 };
+  }).filter((p) => p.tag && p.q > 0).sort((a, b) => b.q - a.q);
+  for (const p of parts) {
+    const code = PiI18n.normalize(p.tag);
+    if (code && has(code)) return code;
+  }
+  return 'en';
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function page(lang = 'en', offered = chunks()) {
+  const code = lang === 'en' || Object.prototype.hasOwnProperty.call(offered, lang) ? lang : 'en';
   const head = HEAD_SCRIPTS.map((s) => `<script src="${s}"></script>`).join('\n');
-  const scripts = SCRIPTS.map((s) => `<script src="${s}" defer></script>`).join('\n');
+  const list = SCRIPTS.slice();
+  // The chosen language's words load right after the module that holds them,
+  // before anything draws.
+  if (code !== 'en') list.splice(list.indexOf(PI_I18N_SCRIPT) + 1, 0, offered[code]);
+  const scripts = list.map((s) => `<script src="${s}" defer></script>`).join('\n');
   return `<!doctype html>
-<html lang="en"><head>
+<html lang="${code}" dir="${PiI18n.dirOf(code)}"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW Arena</title>
@@ -153,7 +222,8 @@ function page() {
 <link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=17">
+<meta name="pi-i18n" content="${escAttr(JSON.stringify(offered))}">
+<link rel="stylesheet" href="/embed.css?v=18">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}
@@ -161,7 +231,10 @@ ${scripts}
 }
 
 router.get('/', (req, res) => {
-  res.type('html').send(page());
+  // The page depends on the reader's language; it is never cached anyway
+  // (framable(), no-store), and Vary says so to anything in between.
+  res.setHeader('Vary', 'Accept-Language');
+  res.type('html').send(page(pickLang(req)));
 });
 
 /**
@@ -185,6 +258,11 @@ function validationKey(req, res) {
 module.exports = router;
 module.exports.validationKey = validationKey;
 module.exports._page = page;
+module.exports._pickLang = pickLang;
+module.exports._chunks = chunks;
+// The Pi app's scripts, in load order: app/scripts/build_pi_i18n.js reads its
+// sentences from exactly these.
+module.exports.SCRIPTS = SCRIPTS;
 module.exports._piCsp = piCsp;
 // Pi's frame list, shared with routes/legal.js: Pi's listing links the policies.
 module.exports.frameAncestors = frameAncestors;

@@ -106,6 +106,11 @@
       });
     }
 
+    /** The Pi app's translation where it is loaded (pi-i18n.js), the English otherwise. */
+    function T(en, vars) { return M.T(en, vars); }
+    /** A host's sentence given as text, or as a function of the language. */
+    function said(x) { return typeof x === 'function' ? x() : x; }
+
     function state(kind, text, detail) {
       return '<div class="e-state e-state--' + kind + '" role="status">'
         + '<p>' + esc(text) + '</p>'
@@ -153,7 +158,7 @@
     }
     function toastHtml() {
       if (!toast || toast.until <= Date.now()) return '';
-      return '<button type="button" class="p-toast p-toast--' + esc(toast.kind) + '" role="status" aria-label="Dismiss">' + esc(toast.text) + '</button>';
+      return '<button type="button" class="p-toast p-toast--' + esc(toast.kind) + '" role="status" aria-label="' + esc(T('Dismiss')) + '">' + esc(toast.text) + '</button>';
     }
 
     var extraCtx = {
@@ -202,9 +207,9 @@
       return names;
     }
     function tabMeta(name) {
-      if (name === 'arena') return { label: 'Arena', icon: '\u25CE', bar: true };
+      if (name === 'arena') return { label: T('Arena'), icon: '\u25CE', bar: true };
       var x = extras.filter(function (e) { return e.tab === name; })[0] || {};
-      return { label: x.label || name, icon: x.icon || '', badge: x.badge, bar: x.bar !== false };
+      return { label: x.label ? T(x.label) : name, icon: x.icon || '', badge: x.badge, bar: x.bar !== false };
     }
     /** The header's buttons for the tabs that are not in the bar (About). */
     function offBarHtml(names) {
@@ -216,7 +221,7 @@
       }).join('');
     }
     function tabsHtml(names) {
-      return '<nav class="p-tabs" aria-label="Sections">' + names.filter(function (n) {
+      return '<nav class="p-tabs" aria-label="' + esc(T('Sections')) + '">' + names.filter(function (n) {
         return tabMeta(n).bar;
       }).map(function (name) {
         var m = tabMeta(name);
@@ -318,11 +323,11 @@
      */
     function refreshBarHtml(extra) {
       return '<div class="m-refresh-row">'
-        + '<span class="m-updated">' + (readAt ? 'Updated ' + pad2(readAt.getHours()) + ':'
-          + pad2(readAt.getMinutes()) + ':' + pad2(readAt.getSeconds()) : '') + '</span>'
+        + '<span class="m-updated">' + (readAt ? esc(T('Updated {time}', { time: pad2(readAt.getHours()) + ':'
+          + pad2(readAt.getMinutes()) + ':' + pad2(readAt.getSeconds()) })) : '') + '</span>'
         + (extra || '')
         + '<button type="button" class="m-refresh"' + (refreshing ? ' disabled' : '') + '>'
-        + (refreshing ? 'Refreshing…' : '↻ Refresh') + '</button></div>';
+        + esc(refreshing ? T('Refreshing…') : '↻ ' + T('Refresh')) + '</button></div>';
     }
 
     /**
@@ -388,7 +393,8 @@
 
     function render() {
       if (busy && !token) {
-        root.innerHTML = state('load', opts.waiting[0], opts.waiting[1]);
+        var w = said(opts.waiting) || [];
+        root.innerHTML = state('load', w[0], w[1]);
         return;
       }
 
@@ -406,15 +412,15 @@
 
       if (loadError) {
         root.innerHTML = V.seasonHtml(season)
-          + state('error', 'Your account could not be loaded.',
-            'This is a fault on our side, not a statement that it is empty.')
+          + state('error', T('Your account could not be loaded.'),
+            T('This is a fault on our side, not a statement that it is empty.'))
           + refreshBarHtml('')
           + '<p class="e-src">' + esc(M.sourceLine(view)) + '</p>';
         return;
       }
 
       if (!account) {
-        root.innerHTML = state('load', 'Loading your account…');
+        root.innerHTML = state('load', T('Loading your account…'));
         return;
       }
 
@@ -424,16 +430,16 @@
       if (hasTabs && names.indexOf(tab) < 0) tab = 'arena';
       var footer = '<p class="e-src">'
         + (me && me.handle
-          ? 'Trading as ' + esc(me.handle)
+          ? esc(T('Trading as {name}', { name: me.handle }))
           // A null handle is a real answer: this account is invisible on the
           // board until it picks one, and saying so is more useful than a blank.
           // A host that can set one in the app says where; "on the web" sent
           // a Pi user to a site the Pi app does not link to.
           : opts.noHandle
-            ? esc(opts.noHandle) + (opts.noHandleTab && names.indexOf(opts.noHandleTab) >= 0
+            ? esc(said(opts.noHandle)) + (opts.noHandleTab && names.indexOf(opts.noHandleTab) >= 0
               ? ' <button type="button" class="p-goto" data-tab="' + esc(opts.noHandleTab) + '">'
                 + esc(tabMeta(opts.noHandleTab).label) + '</button>' : '')
-            : 'No leaderboard handle yet — set one on the web to appear in standings')
+            : esc(T('No leaderboard handle yet — set one on the web to appear in standings')))
         + '</p>';
       // The season and the account head the arena tab only. On the Duel or
       // Signals tab they repeated a balance that tab is not about, and the
@@ -491,7 +497,7 @@
       }).catch(function () {
         busy = false;
         lastNote = M.actionNoteHtml('warn',
-          'The position could not be opened — we could not reach the server.');
+          T('The position could not be opened — we could not reach the server.'));
         render();
       });
     }
@@ -510,10 +516,12 @@
       // and the limit it quotes are the server's; only the unit is the host's.
       var min = account && account.limits ? account.limits.min_margin : null;
       if (b.code === 'min_margin' && view.unit && min != null && isFinite(Number(min))) {
-        return 'The amount must be at least ' + Number(min) + ' ' + M.unitLabel(view) + '.';
+        return T('The amount must be at least {min} {unit}.', { min: Number(min), unit: M.unitLabel(view) });
       }
       if (r.body && r.body.error) return r.body.error;
-      return 'The position could not be ' + verb + ' (the server answered ' + r.status + ').';
+      return verb === 'opened'
+        ? T('The position could not be opened (the server answered {status}).', { status: r.status })
+        : T('The position could not be closed (the server answered {status}).', { status: r.status });
     }
 
     function closePosition(id) {
@@ -538,7 +546,7 @@
         }).catch(function () {
           busy = false;
           lastNote = M.actionNoteHtml('warn',
-            'The position could not be closed — we could not reach the server.');
+            T('The position could not be closed — we could not reach the server.'));
           render();
         });
     }
@@ -551,14 +559,14 @@
     function copyLink(btn) {
       var box = root.querySelector('.m-copy-url');
       if (!box) return;
-      var said = function (text) { btn.textContent = text; };
+      var put = function (text) { btn.textContent = text; };
       var select = function () {
         try { box.focus(); box.select(); } catch (e) { /* nothing to select into */ }
-        said('Selected, copy it');
+        put(T('Selected, copy it'));
       };
       var clip = typeof navigator !== 'undefined' && navigator.clipboard;
       if (!clip || typeof clip.writeText !== 'function') return void select();
-      clip.writeText(box.value).then(function () { said('Copied'); }, select);
+      clip.writeText(box.value).then(function () { put(T('Copied')); }, select);
     }
 
     // One delegated listener: the view is replaced wholesale on every render, so

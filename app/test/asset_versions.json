@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 17,
-    "sha": "8735bdca240f9ca2"
+    "v": 18,
+    "sha": "fbb85e20fca8ec6c"
   },
   "js/admin.js": {
     "v": 3,
@@ -40,8 +40,8 @@
     "sha": "77d4026436966cf1"
   },
   "js/arena-session.js": {
-    "v": 9,
-    "sha": "963943cdbec7e02f"
+    "v": 10,
+    "sha": "b52749cbf2afc4e3"
   },
   "js/arena_engine.js": {
     "v": 2,
@@ -120,8 +120,8 @@
     "sha": "3ce34294ef7bac4a"
   },
   "js/embed-arena-view.js": {
-    "v": 3,
-    "sha": "bbac1ea1802faf6e"
+    "v": 4,
+    "sha": "81431becef8c3cb1"
   },
   "js/embed-arena.js": {
     "v": 3,
@@ -136,8 +136,8 @@
     "sha": "3d66a71d40da7fd8"
   },
   "js/embed-row.js": {
-    "v": 6,
-    "sha": "ff6f2dc9bdaf4fca"
+    "v": 7,
+    "sha": "ae2b94e67305a4e2"
   },
   "js/embed-signals.js": {
     "v": 8,
@@ -180,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 194,
-    "sha": "13f4c4c877b3fbc2"
+    "v": 195,
+    "sha": "bf272b6149d53855"
   },
   "js/icons.js": {
     "v": 6,
@@ -216,8 +216,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 9,
-    "sha": "4a4b904ecb62d729"
+    "v": 10,
+    "sha": "a55bb51db15f8184"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -232,28 +232,32 @@
     "sha": "25cb3003194ae98c"
   },
   "js/pi-arena.js": {
-    "v": 5,
-    "sha": "84b869bfb19def8d"
+    "v": 6,
+    "sha": "f48cd9d00f06eb39"
   },
   "js/pi-coach.js": {
-    "v": 1,
-    "sha": "ab09f211e1d1c12d"
+    "v": 2,
+    "sha": "f79bc53b5b9a3e77"
   },
   "js/pi-duel.js": {
-    "v": 7,
-    "sha": "75f5143d4bb85c34"
+    "v": 8,
+    "sha": "81e89a4726f2c0ee"
+  },
+  "js/pi-i18n.js": {
+    "v": 1,
+    "sha": "9b07887e34c093bc"
   },
   "js/pi-leaders.js": {
-    "v": 1,
-    "sha": "6ae3b4abff75a72d"
+    "v": 2,
+    "sha": "c401aff666606a0d"
   },
   "js/pi-receipt.js": {
-    "v": 1,
-    "sha": "3c4e62fedd0d8235"
+    "v": 2,
+    "sha": "2df4aa454834ebb3"
   },
   "js/pi-signals.js": {
-    "v": 6,
-    "sha": "ac6f06c8c7ef3176"
+    "v": 7,
+    "sha": "13de70971b2a6337"
   },
   "js/pi-signin-callback.js": {
     "v": 1,

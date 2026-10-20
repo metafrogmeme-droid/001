@@ -79,6 +79,10 @@ Each card offers one action at most, depending on where the call stands:
 - **A daily allowance** per Pi account, counted in the database: 20 questions a day by default. A question no model answered (a fixed answer, an outage) is given back. When the day's questions are used, the tab says when they reset.
 - **Coach Plus** raises the allowance (100 a day by default) for 30 days from the moment its payment completes. It is paid in Pi through the same server-ordered payment as a tip, and it is off until `PI_COACH_PLUS_PI` sets its price.
 
+**Languages.** The app speaks seventeen: English, the website's thirteen others (Spanish, Chinese, Portuguese, French, German, Dutch, Japanese, Korean, Russian, Turkish, Italian, Hindi and Arabic, right to left), and Vietnamese, Indonesian and Filipino. The server opens it in the Pi Browser's own language (`Accept-Language`; `?lang=vi` picks one for a test), and **About** switches to another in place, without ending the session. The coach answers in the language on screen. The words are written in English where they are drawn and collected from the page's own scripts by `app/scripts/build_pi_i18n.js`; the translations are `app/i18n/pi/<code>.json`, and a test fails on a sentence any language lacks, on one no screen says any more, and on a placeholder a translation dropped. Still English: a refusal the server words (a name already taken, for example), the coach's four fixed answers, and the weekday of a football round's kick-off.
+
+**Season prizes** in Pi are built behind a switch that is off (`PI_SEASON_PRIZES_ENABLED`), and pay nothing: the operator's plan says who is owed what, and paying is a decision for the owner (`docs/hackathon/SEASON_PRIZES_PLAN.md`). When on, the Leaders tab shows the table and its rule.
+
 **Tips.** A signed-in Pi user can tip the team a small amount of Pi from the **Support RUNECLAW** buttons in About. A tip unlocks nothing and does not touch the arena account.
 
 1. The page asks our server for one of the amounts it offers. The server records an order (who, how much) and returns the amount, memo and metadata the page hands to `Pi.createPayment`. The page never chooses the amount itself.
@@ -101,6 +105,9 @@ Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn fro
 | `PI_COACH_PLUS_PI` | The price of Coach Plus in Pi (at most 100). Unset, Coach Plus is not offered |
 | `PI_COACH_PLUS_DAYS` | How long a completed Coach Plus lasts, `30` days by default |
 | `PI_COACH_PLUS_DAILY` | Coach questions a day with Coach Plus, `100` by default |
+| `PI_SEASON_PRIZES_ENABLED` | `1` turns season prizes on; anything else, or a table that does not read, is off |
+| `PI_SEASON_PRIZES` | Pi per place, e.g. `50,30,20` (at most 10 places, each at most 10000, never rising down the table) |
+| `PI_SEASON_PRIZES_MIN_TRADES` | Closed trades a name needs to place, `5` by default |
 | `PI_OAUTH_CLIENT_ID` | The OAuth Client ID for **Sign in with Pi** on the website, from the Developer Portal: this app, then **Pi Sign-In**. It is public. Without it the login page shows no Pi button. |
 | `PI_VALIDATION_KEY` | The key from the Developer Portal's **Verify App Domain** step. It is served at `/pi/validation-key.txt`, the path the portal checks for this app, and at `/validation-key.txt`; 404 when unset |
 | `PI_FRAME_ANCESTORS` | Replaces Pi's frame list (for `/pi`, `/privacy` and `/terms`) if Pi's hosts change |

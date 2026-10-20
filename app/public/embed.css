@@ -680,3 +680,16 @@ html, body {
 .p-sig-why { margin: 8px 0 0; }
 .p-sig-plain { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--e-text-2); }
 .p-why-row { margin: -4px 0 4px; }
+/* The language list in About (pi-arena.js langHtml). Each name is in its own
+   language and script, so the buttons wrap and size to their text. */
+.p-lang { margin: 14px 0 0; }
+.p-lang h2 { margin: 0 0 8px; font-size: 14px; }
+.p-lang-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.p-lang-b { min-height: 36px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--e-line); background: transparent; color: var(--e-text-2); font: inherit; font-size: 13px; cursor: pointer; }
+.p-lang-b[aria-pressed="true"] { border-color: var(--e-info); color: var(--e-text); background: rgba(127, 127, 255, .08); }
+.p-lang-b[disabled] { opacity: .5; cursor: default; }
+.p-lang-b:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+/* Season prizes on the Leaders tab (pi-leaders.js), shown only when the operator turns them on. */
+.p-prize-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.p-prize-list li { display: flex; gap: 6px; align-items: baseline; padding: 6px 10px; border: 1px solid var(--e-line); border-radius: 10px; font-size: 13px; color: var(--e-text-2); }
+.p-prize-list b { color: var(--e-text); }

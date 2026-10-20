@@ -68,17 +68,20 @@
 
   function note(kind, text) { tipNote = [kind, text]; }
 
+  /** The Pi app's translation (pi-i18n.js), the English when it is not loaded. */
+  function T(en, vars) { return window.RCMiniView.T(en, vars); }
+
   function tipHtml() {
     var M = window.RCMiniView;
     var noteHtml = tipNote ? M.actionNoteHtml(tipNote[0], tipNote[1]) : '';
     if (tipsFailed) {
       return '<section class="m-open">' + noteHtml
-        + M.actionNoteHtml('note', 'Tips could not be loaded right now.') + '</section>';
+        + M.actionNoteHtml('note', T('Tips could not be loaded right now.')) + '</section>';
     }
     // Not read yet, or not offered on this server: there is nothing to say.
     if (!tips || !tips.enabled || !tips.amounts || !tips.amounts.length) return noteHtml;
     return '<section class="m-open">'
-      + '<h2>Support RUNECLAW</h2>'
+      + '<h2>' + esc(T('Support RUNECLAW')) + '</h2>'
       + noteHtml
       + '<div class="m-row m-row--go">'
       + tips.amounts.map(function (a) {
@@ -86,17 +89,17 @@
           + (tipBusy ? ' disabled' : '') + '>' + esc(a) + ' π</button>';
       }).join('')
       + '</div>'
-      + '<p class="m-open-note">An optional tip in Pi. It unlocks nothing and does not touch your arena account.</p>'
+      + '<p class="m-open-note">' + esc(T('An optional tip in Pi. It unlocks nothing and does not touch your arena account.')) + '</p>'
       + '</section>';
   }
 
   /** The server's word on a step, in the person's terms. */
   function problem(r) {
     var code = r && r.body && r.body.error;
-    if (r && r.status === 503) return 'Tips are unavailable right now. This is on our side; nothing was taken.';
-    if (code === 'pi_account_required') return 'Tips need a Pi sign-in.';
-    if (code === 'amount_not_offered') return 'That amount is not offered. Pick one of the buttons.';
-    return 'The tip could not be prepared. Nothing was taken.';
+    if (r && r.status === 503) return T('Tips are unavailable right now. This is on our side; nothing was taken.');
+    if (code === 'pi_account_required') return T('Tips need a Pi sign-in.');
+    if (code === 'amount_not_offered') return T('That amount is not offered. Pick one of the buttons.');
+    return T('The tip could not be prepared. Nothing was taken.');
   }
 
   /**
@@ -112,7 +115,7 @@
     return ctx.api(orderPath, { method: 'POST', body: orderBody }).then(function (r) {
       if (!r.ok || !r.body || !r.body.orderId) return { ok: false, refused: r };
       var order = r.body;
-      say('note', 'Confirm the payment in the Pi Browser.');
+      say('note');
       return new Promise(function (resolve) {
         // Amount, memo and metadata exactly as the server issued them.
         Pi.createPayment({ amount: order.amount, memo: order.memo, metadata: order.metadata }, {
@@ -139,24 +142,24 @@
     if (tipBusy) return;
     var Pi = window.Pi;
     if (!Pi || typeof Pi.createPayment !== 'function') {
-      note('note', 'Open this in the Pi Browser to tip.');
+      note('note', T('Open this in the Pi Browser to tip.'));
       ctx.render();
       return;
     }
     tipBusy = true;
-    note('note', 'Preparing your tip…');
+    note('note', T('Preparing your tip…'));
     ctx.render();
-    payOrder(ctx, '/api/pi/payments/tips', { amount: amount }, function (kind, text) {
-      note(kind, text.replace('the payment', 'the tip'));
+    payOrder(ctx, '/api/pi/payments/tips', { amount: amount }, function (kind) {
+      note(kind, T('Confirm the tip in the Pi Browser.'));
       ctx.render();
     }).then(function (out) {
       tipBusy = false;
-      if (out.ok) note('ok', 'Thank you, your tip arrived.');
+      if (out.ok) note('ok', T('Thank you, your tip arrived.'));
       else if (out.refused) note('warn', problem(out.refused));
-      else if (out.unreachable) note('warn', 'The tip could not be prepared. Nothing was taken.');
-      else if (out.cancelled) note('note', 'Tip cancelled. Nothing was paid.');
-      else if (out.sent) note('warn', 'Your tip was sent but not yet confirmed here. Reopen the app and it will be finished.');
-      else note('warn', 'The tip did not go through. If Pi shows it as paid, reopen the app and it will be finished.');
+      else if (out.unreachable) note('warn', T('The tip could not be prepared. Nothing was taken.'));
+      else if (out.cancelled) note('note', T('Tip cancelled. Nothing was paid.'));
+      else if (out.sent) note('warn', T('Your tip was sent but not yet confirmed here. Reopen the app and it will be finished.'));
+      else note('warn', T('The tip did not go through. If Pi shows it as paid, reopen the app and it will be finished.'));
       ctx.render();
     });
   }
@@ -165,17 +168,17 @@
   function buyPlus(ctx) {
     return payOrder(ctx, '/api/pi/payments/coach-plus', {}, function () { /* the coach says its own steps */ })
       .then(function (out) {
-        if (out.ok) return { ok: true, text: 'Coach Plus is on. Thank you.' };
-        if (out.noHost) return { ok: false, text: 'Open this in the Pi Browser to get Coach Plus.' };
+        if (out.ok) return { ok: true, text: T('Coach Plus is on. Thank you.') };
+        if (out.noHost) return { ok: false, text: T('Open this in the Pi Browser to get Coach Plus.') };
         if (out.refused) {
           var code = out.refused.body && out.refused.body.error;
-          return { ok: false, text: code === 'not_offered' ? 'Coach Plus is not offered right now. Nothing was taken.'
-            : out.refused.status === 503 ? 'Payments are unavailable right now. This is on our side; nothing was taken.'
-              : 'Coach Plus could not be prepared. Nothing was taken.' };
+          return { ok: false, text: code === 'not_offered' ? T('Coach Plus is not offered right now. Nothing was taken.')
+            : out.refused.status === 503 ? T('Payments are unavailable right now. This is on our side; nothing was taken.')
+              : T('Coach Plus could not be prepared. Nothing was taken.') };
         }
-        if (out.cancelled) return { ok: false, text: 'Cancelled. Nothing was paid.' };
-        if (out.sent) return { ok: false, text: 'Your payment was sent but not yet confirmed here. Reopen the app and it will be finished.' };
-        return { ok: false, text: 'Coach Plus did not go through. If Pi shows it as paid, reopen the app and it will be finished.' };
+        if (out.cancelled) return { ok: false, text: T('Cancelled. Nothing was paid.') };
+        if (out.sent) return { ok: false, text: T('Your payment was sent but not yet confirmed here. Reopen the app and it will be finished.') };
+        return { ok: false, text: T('Coach Plus did not go through. If Pi shows it as paid, reopen the app and it will be finished.') };
       });
   }
 
@@ -187,10 +190,10 @@
       unfinished = null;
       resumed = ctx.api('/api/pi/payments/incomplete', { method: 'POST', body: { paymentId: id } })
         .then(function (r) {
-          if (r.ok) note('ok', 'Your earlier tip was completed. Thank you.');
-          else note('warn', 'An earlier tip could not be finished yet. It will be tried again next time.');
+          if (r.ok) note('ok', T('Your earlier tip was completed. Thank you.'));
+          else note('warn', T('An earlier tip could not be finished yet. It will be tried again next time.'));
         }, function () {
-          note('warn', 'An earlier tip could not be finished yet. It will be tried again next time.');
+          note('warn', T('An earlier tip could not be finished yet. It will be tried again next time.'));
         });
     }
     resumed.then(function () {
@@ -268,45 +271,95 @@
    */
   function aboutHtml() {
     var M = window.RCMiniView;
+    var item = function (head, body) { return '<li><b>' + esc(head) + '</b> ' + esc(body) + '</li>'; };
     return '<section class="m-open p-about">'
-      + '<h2>About RUNECLAW Arena</h2>'
-      + '<p class="p-about-p">Call the market against an AI and practise trading at live prices. '
-      + 'Everything here is practice: credits are not money, and they cannot be bought, sold or withdrawn.</p>'
+      + '<h2>' + esc(T('About RUNECLAW Arena')) + '</h2>'
+      + '<p class="p-about-p">' + esc(T('Call the market against an AI and practise trading at live prices. Everything here is practice: credits are not money, and they cannot be bought, sold or withdrawn.')) + '</p>'
       + '<ul class="p-about-list">'
-      + '<li><b>Daily Duel.</b> A few rounds a day: call each one before the Claw reveals its own call. '
-      + 'Every round is sealed when it is dealt; tap a receipt to check it in your browser.</li>'
-      + '<li><b>Ask the Claw.</b> An AI coach for questions about the Duel, a signal or your practice trades. '
-      + 'A few questions a day are free; Coach Plus, when offered, adds more for a payment in Pi.</li>'
-      + '<li><b>Signals.</b> The calls the agent makes, with their charts. Follow one with practice credits.</li>'
-      + '<li><b>Leaders.</b> The season ranked on percent return, under the name you choose.</li>'
+      + item(T('Daily Duel.'), T('A few rounds a day: call each one before the Claw reveals its own call. Every round is sealed when it is dealt; tap a receipt to check it in your browser.'))
+      + item(T('Ask the Claw.'), T('An AI coach for questions about the Duel, a signal or your practice trades. A few questions a day are free; Coach Plus, when offered, adds more for a payment in Pi.'))
+      + item(T('Signals.'), T('The calls the agent makes, with their charts. Follow one with practice credits.'))
+      + item(T('Leaders.'), T('The season ranked on percent return, under the name you choose.'))
       + '</ul>'
       + M.legalHtml()
+      + langHtml()
       + '</section>'
       + tipHtml();
   }
 
+  // ── language ────────────────────────────────────────────────────────────
+
+  /**
+   * The languages, in About. The server chose one from the Pi Browser's own
+   * language and loaded it with the page; another is loaded here in place
+   * (a link would end the in-memory session). The chunks' addresses are the
+   * server's, versioned, in the page's `pi-i18n` meta.
+   */
+  var langBusy = false;
+  function chunks() {
+    var el = document.querySelector('meta[name="pi-i18n"]');
+    try { return JSON.parse(el && el.getAttribute('content') || '{}') || {}; } catch (e) { return {}; }
+  }
+  function langHtml() {
+    var I = window.RCPiI18n;
+    if (!I) return '';
+    var now = I.lang();
+    return '<div class="p-lang"><h2>' + esc(T('Language')) + '</h2><div class="p-lang-list">'
+      + I.LANGS.map(function (l) {
+        return '<button type="button" class="p-lang-b" data-lang="' + esc(l.code) + '" lang="' + esc(l.code) + '"'
+          + ' aria-pressed="' + (l.code === now ? 'true' : 'false') + '"' + (langBusy ? ' disabled' : '') + '>' + esc(l.name) + '</button>';
+      }).join('') + '</div></div>';
+  }
+  function chooseLang(code, ctx) {
+    var I = window.RCPiI18n;
+    if (!I || langBusy) return;
+    if (I.has(code)) { I.use(code); ctx.render(); return; }
+    var src = chunks()[code];
+    if (!src) return;
+    langBusy = true;
+    ctx.render();
+    var el = document.createElement('script');
+    el.src = src;
+    el.onload = function () { langBusy = false; I.use(code); ctx.render(); };
+    el.onerror = function () { langBusy = false; ctx.render(); };
+    document.head.appendChild(el);
+  }
+  function aboutClick(target, ctx) {
+    var b = target.closest('.p-lang-b');
+    if (b) { chooseLang(b.getAttribute('data-lang'), ctx); return true; }
+    return click(target, ctx);
+  }
+
+  // The language the server chose for the page (its <html lang>), whose words
+  // loaded with it. A chunk that failed to load is English, and use() says so
+  // on the page too.
+  if (window.RCPiI18n) window.RCPiI18n.use(document.documentElement.getAttribute('lang') || 'en');
+
   window.RCArenaSession.start({
     root: document.getElementById('root'),
     host: 'Pi',
-    waiting: ['Waiting for Pi…', 'Approve the sign-in in the Pi Browser.'],
+    waiting: function () { return [T('Waiting for Pi…'), T('Approve the sign-in in the Pi Browser.')]; },
     signIn: signIn,
     // Credits, not vUSDT: see miniapp-view.js unitLabel.
     view: {
       unit: 'credits',
-      intro: {
-        image: '/mascot/runeclaw_owl_round.webp?v=1',
-        title: 'Beat the Claw',
-        lead: 'Call the market against an AI. Free to play, and every round is provable.',
-        points: [
-          { icon: '\u2694', text: 'Daily Duel: call today\u2019s rounds before the AI shows its own.' },
-          { icon: '\uD83E\uDD89', text: 'Ask the Claw: an AI coach that explains every call, in plain words.' },
-          { icon: '\u25CE', text: 'Practice trading at live prices, with credits, not money.' },
-          { icon: '\u265B', text: 'A season leaderboard, ranked on percent return.' },
-        ],
-        note: 'Signing in with Pi creates a practice account. No exchange keys, no real funds.',
+      // A function, so the first screen follows a language chosen later.
+      intro: function () {
+        return {
+          image: '/mascot/runeclaw_owl_round.webp?v=1',
+          title: T('Beat the Claw'),
+          lead: T('Call the market against an AI. Free to play, and every round is provable.'),
+          points: [
+            { icon: '\u2694', text: T('Daily Duel: call today’s rounds before the AI shows its own.') },
+            { icon: '\uD83E\uDD89', text: T('Ask the Claw: an AI coach that explains every call, in plain words.') },
+            { icon: '\u25CE', text: T('Practice trading at live prices, with credits, not money.') },
+            { icon: '\u265B', text: T('A season leaderboard, ranked on percent return.') },
+          ],
+          note: T('Signing in with Pi creates a practice account. No exchange keys, no real funds.'),
+        };
       },
     },
-    noHandle: 'No leaderboard name yet. Choose one in',
+    noHandle: function () { return T('No leaderboard name yet. Choose one in'); },
     noHandleTab: 'leaders',
     legal: true,
     extras: [
@@ -320,7 +373,7 @@
       window.RCPiLeaders.create(),
       // What this is, the policies and the tip, behind the header's About.
       { place: 'main', tab: 'about', bar: false, label: 'About', icon: '\u24D8',
-        html: aboutHtml, click: click, signedIn: signedIn },
+        html: aboutHtml, click: aboutClick, signedIn: signedIn },
     ],
   });
 }());
