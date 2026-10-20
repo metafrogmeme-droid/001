@@ -324,6 +324,13 @@ RULES: list[Rule] = [
             # calls _llm_chat with is_admin=False, public=True and never reads
             # a user), as text/event-stream. Only the wire shape differs.
             "handle_public_chat_stream",
+            # Ask the Claw (bot/web/pi_coach.py): the same account-free,
+            # tool-free public turn as handle_public_chat, with the coach's
+            # prompt. It reads no telegram_id and touches no account; the
+            # website signs the Pi user in and counts their allowance before
+            # it calls, and like every route here it sits behind
+            # secret_middleware.
+            "handle_pi_coach",
             "handle_proofofpnl_public",   # the sealed statement; open verification is the point
             "handle_leaderboard_public",  # anonymous, independently re-verifiable rows
             "handle_strategies_public",   # preset catalogue: design + regime, no numbers
