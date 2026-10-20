@@ -238,13 +238,13 @@
               + '<span class="' + cls + '">' + (x.return_pct > 0 ? '+' : '') + x.return_pct + '%</span></div>';
           }).join('')
         : '<p class="muted" style="font-size:var(--fs-xs)">' +
-          (d.season.status === 'upcoming' ? 'Starts soon — same virtual stake for everyone, ranked on percent return.'
+          (d.season.status === 'upcoming' ? 'Starts soon — same virtual balance for everyone, ranked on percent return.'
             : 'The season crown is up for grabs — no closed trades in the window yet.') + '</p>';
     })
     .catch(function () { /* teaser is best-effort */ });
 })();
 </script>
-<script src="/js/i18n-core.js?v=187"></script>
+<script src="/js/i18n-core.js?v=190"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

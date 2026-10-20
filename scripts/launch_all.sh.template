@@ -103,6 +103,26 @@ BRIDGE_PID=$!
 WAIT_SECONDS="${BRIDGE_WAIT:-20}" scripts/verify_bot_alive.sh --pid "$BRIDGE_PID" \
   || die "api_bridge did not stay up (insight/patterns/lab will 502)"
 
+# ── 3. the Daily Duel's own bot — OPTIONAL, only where its token is set ──
+#
+# `python3 -m bot.duel_bot` polls a second BotFather token (DUEL_BOT_TOKEN)
+# and runs no engine; see scripts/systemd/runeclaw-duel.service. The token is
+# read here for PRESENCE only and never printed; the process reads it itself.
+# A box without it logs one line and starts the two processes above as before.
+duel_configured() {
+  [ -n "${DUEL_BOT_TOKEN:-}" ] && return 0
+  grep -qE '^DUEL_BOT_TOKEN=[^[:space:]]+' "$REPO/.env" 2>/dev/null
+}
+DUEL_PID="off"
+if duel_configured; then
+  log "starting duel bot"
+  nohup "$PY_BIN" -m bot.duel_bot >> duel_bot.log 2>&1 &
+  DUEL_PID=$!
+  scripts/verify_bot_alive.sh --pid "$DUEL_PID" || die "duel bot did not stay up (see duel_bot.log)"
+else
+  log "DUEL_BOT_TOKEN is not set — the Daily Duel bot is not started (optional; scripts/systemd/README.md)"
+fi
+
 # ── 3. both must actually ANSWER, not merely exist ──────────────────────────
 #
 # A process can be alive and not serving: bound to the wrong interface, stuck
@@ -136,5 +156,10 @@ check_port "gateway :8080" "http://127.0.0.1:8080/gateway/health" \
 
 check_port "bridge  :8000" "http://127.0.0.1:8000/health" \
   || die "api_bridge is alive but not answering — insight/patterns/lab will 502"
+if [ "$DUEL_PID" != "off" ]; then
+  # 200 only while the poller runs (bot/duel_bot.py health_body).
+  check_port "duel    :8081" "http://127.0.0.1:8081/health" \
+    || die "duel bot is alive but not polling — its health port is not answering"
+fi
 
-log "DEPLOY_DONE  bot=$BOT_PID bridge=$BRIDGE_PID"
+log "DEPLOY_DONE  bot=$BOT_PID bridge=$BRIDGE_PID duel=$DUEL_PID"

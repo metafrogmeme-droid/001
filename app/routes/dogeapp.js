@@ -41,11 +41,11 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3'];
  * which starts the session with every block already loaded.
  */
 const SCRIPTS = [
-  '/js/embed-arena-view.js?v=2',
-  '/js/miniapp-view.js?v=6',
-  '/js/arena-session.js?v=4',
-  '/js/duel.js?v=3',
-  '/js/pi-duel.js?v=1',
+  '/js/embed-arena-view.js?v=3',
+  '/js/miniapp-view.js?v=7',
+  '/js/arena-session.js?v=6',
+  '/js/duel.js?v=6',
+  '/js/pi-duel.js?v=4',
   '/js/anchor_cell.js?v=2',
   '/js/doge-proof.js?v=1',
   '/js/doge-app.js?v=1',
@@ -72,7 +72,7 @@ function page() {
 <link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=10">
+<link rel="stylesheet" href="/embed.css?v=13">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

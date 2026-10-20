@@ -161,7 +161,7 @@ function seasonUnfurl(rows, now, pitch) {
     : 'has ended — see the Hall of Champions';
   return {
     title: `RUNECLAW Arena · ${season.name} ${st === 'live' ? 'is LIVE' : st}`,
-    og: `${season.name} ${when}. Same virtual stake for everyone, ranked on percent return under anonymous handles. ${pitch}`,
+    og: `${season.name} ${when}. Same virtual balance for everyone, ranked on percent return under anonymous handles. ${pitch}`,
   };
 }
 

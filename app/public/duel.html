@@ -53,7 +53,27 @@
   .d-btn:hover { border-color: var(--gold-bright); color: var(--gold-bright); }
   .d-btn:disabled { opacity: .45; cursor: default; }
   .d-btn--pass { flex-basis: 100%; }
-  .d-called { display: flex; flex-direction: column; gap: 4px; }
+  .d-round-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: var(--s2); }
+  .d-kind { display: inline-flex; align-items: center; gap: 5px; }
+  .d-icon { font-size: 12px; line-height: 1; }
+  .d-status { font-size: var(--fs-xs); font-family: var(--font-data); white-space: nowrap; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--text-2); }
+  .d-status.tone-up { color: var(--up); border-color: var(--up); }
+  .d-status.tone-down { color: var(--down); border-color: var(--down); }
+  .d-sym { margin: 0 0 4px; font-weight: 600; }
+  .d-agent { display: flex; align-items: center; gap: 6px; }
+  .d-pill-k { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); }
+  .d-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .d-pill { display: inline-flex; flex-direction: column; gap: 1px; min-width: 96px; padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); }
+  .d-pill b { font-family: var(--font-data); font-size: var(--fs-sm); color: var(--text-1); }
+  .d-pill--you { border-color: var(--gold-bright); }
+  .d-pill--you .d-pill-k { color: var(--gold-bright); }
+  .d-bi { margin-right: 6px; color: var(--text-3); }
+  .d-btn--long .d-bi { color: var(--up); } .d-btn--short .d-bi { color: var(--down); }
+  .d-called { display: flex; flex-direction: column; gap: 6px; }
+  .d-receipts { display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--font-data); font-size: 11px; color: var(--text-3); }
+  .d-receipts--inline { display: inline-flex; margin-left: 6px; }
+  .d-rc { color: var(--text-3); text-decoration: none; border-bottom: 1px dotted var(--line-2); }
+  a.d-rc:hover { color: var(--gold-bright); border-bottom-color: var(--gold-bright); }
   .d-mycall { font-family: var(--font-data); font-size: var(--fs-sm); color: var(--text-1); }
   .d-state { font-size: var(--fs-sm); }
   .d-note { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.5; }
@@ -82,9 +102,9 @@
   </div>
   <p class="lede" data-i18n="duel.lede">A card a day in five categories: Direction — call a coin LONG, SHORT or PASS
   with the Claw’s own call hidden until you commit; Back or fade — the Claw’s second call is shown, agree with it or
-  bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more;
+  go against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more;
   Football — who wins the day’s match, settled on the final score. The market settles each market call 24 hours
-  after you make it. Beat the Claw and the round is worth double. Free, no stake, nothing to lose but the argument.</p>
+  after you make it. Beat the Claw and the round is worth double. Free, with nothing to lose but the argument.</p>
 
   <p class="note" id="notice" hidden></p>
 
@@ -113,15 +133,15 @@
     <div id="squads"></div>
   </section>
 
-  <p class="disc" data-i18n="duel.disc">A duel has no stake and moves no money — counts and percentages only,
+  <p class="disc" data-i18n="duel.disc">A duel is free and moves no money — counts and percentages only,
   recomputed from your own calls on every read. An unresolved round is one we could not price; it counts for neither
   side and is never shown as a loss. Education and practice, not investment advice.</p>
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=187"></script>
+<script src="/js/i18n-core.js?v=190"></script>
 <script src="/js/presale.js?v=2"></script>
-<script src="/js/duel.js?v=3"></script>
+<script src="/js/duel.js?v=6"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -157,13 +177,15 @@
   function stat(k, label) {
     return '<div class="stat"><div class="k">' + esc(k) + '</div>'
       + '<div class="v tone-' + esc(label.tone) + '">' + esc(label.text) + '</div>'
-      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '') + '</div>';
+      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '')
+      + (label.how ? '<div class="d d-how">' + esc(label.how) + '</div>' : '') + '</div>';
   }
 
   function drawCard(data) {
     $('rounds').innerHTML = (data.rounds || []).map(function (r) {
       // The horizon is the card's, and every question names it.
-      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T);
+      // The website may link a receipt to its verify page; the Pi app may not.
+      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T, undefined, { links: true });
     }).join('');
     // Only a feed that FAILED is reported; a day with no match says nothing.
     $('sportsNote').hidden = !(data.sources && data.sources.sports === 'unreadable');

@@ -34,11 +34,24 @@
  *                   signedIn(ctx), reload() -> Promise, for the Refresh
  *                   button }; every member is optional. `place` is
  *                   'main' (after the positions) or 'end' (after the open
- *                   form). ctx is { api, render, refresh }: the same
+ *                   form). ctx is { api, render, refresh, toast }: the same
  *                   authenticated api() and nothing else, so a block can never
  *                   hold the token itself. mounted() runs after every render,
  *                   because a render replaces the screen and with it anything
  *                   a block drew into it (a chart).
+ *
+ *                   A block may also name a `tab` ('duel', 'signals', …) with
+ *                   a `label`, an `icon` and an optional `badge()` -> number.
+ *                   With two or more tabs on the screen (the account and
+ *                   positions are always the first, 'arena'), the screen is
+ *                   one tab at a time behind a bottom bar instead of one long
+ *                   scroll; a block without a tab sits on the arena tab at
+ *                   its `place`. The active tab is a closure variable, like
+ *                   the session: no browser storage on a framable page.
+ *
+ *                   ctx.toast(kind, text) shows a short notice above the bar
+ *                   for a few seconds (a recorded call); a failure belongs in
+ *                   the block itself, where it stays until it is read.
  */
 (function () {
   'use strict';
@@ -58,6 +71,9 @@
     var lastNote = '';      // the last action's message, cleared on the next one
     var busy = false;
     var extras = opts.extras || [];
+    var tab = 'arena';      // the active tab, for the life of this page
+    var toast = null;       // { kind, text, until }
+    var toastTimer = null;
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -100,15 +116,60 @@
       });
     }
 
+    // Long enough to read a sentence, short enough not to sit on the next
+    // card; a tap dismisses it sooner.
+    var TOAST_MS = 3500;
+    function showToast(kind, text) {
+      if (!text) return;
+      toast = { kind: kind || 'ok', text: text, until: Date.now() + TOAST_MS };
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toast = null; toastTimer = null; render(); }, TOAST_MS);
+      render();
+    }
+    function toastHtml() {
+      if (!toast || toast.until <= Date.now()) return '';
+      return '<button type="button" class="p-toast p-toast--' + esc(toast.kind) + '" role="status" aria-label="Dismiss">' + esc(toast.text) + '</button>';
+    }
+
     var extraCtx = {
       api: api,
       render: function () { render(); },
       refresh: function () { return refresh(); },
+      toast: showToast,
     };
 
-    function extrasHtml(place) {
-      return extras.filter(function (x) { return (x.place || 'end') === place && x.html; })
-        .map(function (x) { return x.html(); }).join('');
+    function tabOf(x) { return x.tab || 'arena'; }
+    function extrasHtml(place, tabName) {
+      return extras.filter(function (x) {
+        return (x.place || 'end') === place && tabOf(x) === (tabName || 'arena') && x.html;
+      }).map(function (x) { return x.html(); }).join('');
+    }
+    /** The tabs on screen, the arena first, then each block's in the order given. */
+    function tabList() {
+      var names = ['arena'];
+      extras.forEach(function (x) { if (x.tab && names.indexOf(x.tab) < 0) names.push(x.tab); });
+      return names;
+    }
+    function tabMeta(name) {
+      if (name === 'arena') return { label: 'Arena', icon: '\u25CE' };
+      var x = extras.filter(function (e) { return e.tab === name; })[0] || {};
+      return { label: x.label || name, icon: x.icon || '', badge: x.badge };
+    }
+    function tabsHtml(names) {
+      return '<nav class="p-tabs" aria-label="Sections">' + names.map(function (name) {
+        var m = tabMeta(name);
+        var n = typeof m.badge === 'function' ? Number(m.badge()) : 0;
+        return '<button type="button" class="p-tab-b" data-tab="' + esc(name) + '"'
+          + ' aria-pressed="' + (name === tab ? 'true' : 'false') + '">'
+          + (m.icon ? '<span class="p-tab-i">' + m.icon + '</span>' : '')
+          + '<span class="p-tab-l">' + esc(m.label) + '</span>'
+          + (n > 0 ? '<span class="p-tab-n">' + esc(n) + '</span>' : '')
+          + '</button>';
+      }).join('') + '</nav>';
+    }
+    function panel(name, html, hasTabs) {
+      return '<section class="p-panel" data-tab="' + esc(name) + '"' + (hasTabs && name !== tab ? ' hidden' : '') + '>'
+        + html + '</section>';
     }
 
     // ── sign in ───────────────────────────────────────────────────────────
@@ -259,7 +320,7 @@
         root.innerHTML = V.seasonHtml(season)
           + signInNote
           + M.signedOutHtml(season, host)
-          + '<p class="e-src">Paper trading · virtual stakes</p>';
+          + '<p class="e-src">Paper trading · virtual balance</p>';
         return;
       }
 
@@ -268,7 +329,7 @@
           + state('error', 'Your account could not be loaded.',
             'This is a fault on our side, not a statement that it is empty.')
           + refreshBarHtml()
-          + '<p class="e-src">Paper trading · virtual stakes</p>';
+          + '<p class="e-src">Paper trading · virtual balance</p>';
         return;
       }
 
@@ -278,21 +339,29 @@
       }
 
       var kept = keepForm();
-      root.innerHTML = V.seasonHtml(season)
-        + refreshBarHtml()
-        + M.accountHtml(account)
-        + lastNote
-        + M.positionsHtml(account.positions)
-        + extrasHtml('main')
-        + M.openFormHtml(account.limits)
-        + extrasHtml('end')
-        + '<p class="e-src">'
+      var names = tabList();
+      var hasTabs = names.length > 1;
+      if (hasTabs && names.indexOf(tab) < 0) tab = 'arena';
+      var footer = '<p class="e-src">'
         + (me && me.handle
           ? 'Trading as ' + esc(me.handle)
           // A null handle is a real answer: this account is invisible on the
           // board until it picks one, and saying so is more useful than a blank.
           : 'No leaderboard handle yet — set one on the web to appear in standings')
         + '</p>';
+      root.innerHTML = '<div class="p-top">' + V.seasonHtml(season) + M.accountHtml(account) + refreshBarHtml() + '</div>'
+        + panel('arena', lastNote
+          + M.positionsHtml(account.positions)
+          + extrasHtml('main', 'arena')
+          + M.openFormHtml(account.limits)
+          + extrasHtml('end', 'arena')
+          + footer, hasTabs)
+        + names.slice(1).map(function (name) {
+          return panel(name, extrasHtml('main', name) + extrasHtml('end', name), hasTabs);
+        }).join('')
+        + toastHtml()
+        + (hasTabs ? tabsHtml(names) : '');
+      if (root.classList) root.classList.toggle('p-has-tabs', hasTabs);
       restoreForm(kept);
       extras.forEach(function (x) { if (x.mounted) x.mounted(root); });
     }
@@ -378,7 +447,20 @@
       var close = t.closest('.m-close');
       if (close) return void closePosition(close.getAttribute('data-close-id'));
       if (t.closest('.m-refresh')) return void refreshAll();
+      if (t.closest('.p-toast')) {
+        toast = null;
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = null;
+        return void render();
+      }
       if (!token) return;
+      var tb = t.closest('.p-tab-b');
+      if (tb) {
+        tab = tb.getAttribute('data-tab') || 'arena';
+        render();
+        if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
+        return;
+      }
       for (var i = 0; i < extras.length; i++) {
         if (extras[i].click && extras[i].click(t, extraCtx)) return;
       }

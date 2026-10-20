@@ -458,3 +458,13 @@ def test_a_football_call_reports_the_final_score_and_never_a_move():
                               "resolves_at": "2026-10-19T21:30:00.000Z"})
     assert "Chelsea" in rec and "Arsenal vs Chelsea" in rec and "Kick-off 19:00 UTC" in rec
     assert "Entry:" not in rec, "a match has no entry price to confirm"
+
+
+def test_the_settle_moment_is_printed_for_a_person_and_a_dash_when_unreadable():
+    rec = render_pick_result({"ok": True, "kind": "direction", "pick": "long", "symbol": "BTCUSDT",
+                              "entry_price": 82024.5, "resolves_at": "2026-10-20T09:12:00.000Z"})
+    assert "Settles: 2026-10-20 09:12 UTC" in rec
+    assert "T09:12" not in rec, "the wire's ISO string is not a sentence"
+    odd = render_pick_result({"ok": True, "kind": "direction", "pick": "long", "symbol": "BTCUSDT", "entry_price": 1,
+                              "resolves_at": "soon"})
+    assert "Settles: —" in odd

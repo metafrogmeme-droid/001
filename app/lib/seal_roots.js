@@ -40,11 +40,25 @@ async function sealsForDay(day) {
     // day's root anchored on Base that ordering rests on our own clock —
     // exactly the thing it is being offered as evidence against.
     'SELECT seal FROM scan_seals WHERE sealed_at >= ? AND sealed_at < ?',
+    // The Daily Duel (Provable Calls v6/v7, 2026-10-19): the round dealt, the
+    // call made and the settlement written are three seals on three days
+    // (the day each was minted), so a day's root commits to the Claw's stance
+    // before anyone called, to every call before the market moved, and to
+    // every outcome as it was scored. Picks before v6 carry a seal and no
+    // round seal; both still fold in.
+    'SELECT seal FROM duel_rounds WHERE created_at >= ? AND created_at < ?',
+    'SELECT seal FROM duel_picks WHERE created_at >= ? AND created_at < ?',
+    'SELECT settle_seal AS seal FROM duel_picks WHERE settled_at >= ? AND settled_at < ?',
   ];
   for (const q of QUERIES) {
     try {
       const [rows] = await pool.execute(q, [lo, hi]);
-      for (const r of rows) if (r.seal) out.push(String(r.seal));
+      for (const r of rows) {
+        // The in-memory shim answers the settlement sweep with whole rows,
+        // so the alias above is read either way.
+        const leaf = q.includes('settle_seal') ? (r.settle_seal || r.seal) : r.seal;
+        if (leaf) out.push(String(leaf));
+      }
     } catch (e) { /* surface not sealed yet on this deployment — skip */ }
   }
   return canonicalLeaves(out);

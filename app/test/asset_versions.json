@@ -1,15 +1,15 @@
 {
   "embed.css": {
-    "v": 10,
-    "sha": "2c4fca4ac0c88bbc"
+    "v": 13,
+    "sha": "c3fe76d9a1e7d1cf"
   },
   "js/admin.js": {
     "v": 3,
     "sha": "f68d9fa4aa93124e"
   },
   "js/agent-page.js": {
-    "v": 1,
-    "sha": "d368ad38000f60e0"
+    "v": 2,
+    "sha": "57210c73a86e7dea"
   },
   "js/agent-scorecard.js": {
     "v": 9,
@@ -32,16 +32,16 @@
     "sha": "709de236d56f9677"
   },
   "js/arb-carry-model.js": {
-    "v": 1,
-    "sha": "da03e9e1ddefd8c4"
+    "v": 2,
+    "sha": "268f842613e1119b"
   },
   "js/arena-risk-model.js": {
     "v": 1,
     "sha": "77d4026436966cf1"
   },
   "js/arena-session.js": {
-    "v": 4,
-    "sha": "4ff22a3f8d4f2a5f"
+    "v": 6,
+    "sha": "f8b777925c2a42f2"
   },
   "js/arena_engine.js": {
     "v": 2,
@@ -92,8 +92,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 247,
-    "sha": "8643ad3201ad91f9"
+    "v": 248,
+    "sha": "a39b35aafcfddb26"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -116,16 +116,16 @@
     "sha": "36a2fa665721307e"
   },
   "js/duel.js": {
-    "v": 3,
-    "sha": "5b9d7a029579b03b"
+    "v": 6,
+    "sha": "0f89b9e537ca1fdc"
   },
   "js/embed-arena-view.js": {
-    "v": 2,
-    "sha": "263ddbb234b5a51d"
+    "v": 3,
+    "sha": "bbac1ea1802faf6e"
   },
   "js/embed-arena.js": {
-    "v": 2,
-    "sha": "3f9563476b68436c"
+    "v": 3,
+    "sha": "be250eea58844e68"
   },
   "js/embed-chart.js": {
     "v": 1,
@@ -156,8 +156,8 @@
     "sha": "d1e7b4fdef7a0136"
   },
   "js/equity-theatre-model.js": {
-    "v": 2,
-    "sha": "015b11d0eff4f461"
+    "v": 3,
+    "sha": "b174310ee033ad0d"
   },
   "js/escape-model.js": {
     "v": 2,
@@ -180,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 187,
-    "sha": "d117b19cdd29714d"
+    "v": 190,
+    "sha": "ffd0d173d6253dfd"
   },
   "js/icons.js": {
     "v": 6,
@@ -216,8 +216,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 6,
-    "sha": "14b47fac2e5a54d2"
+    "v": 7,
+    "sha": "9bd0fcddce63170e"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -236,12 +236,12 @@
     "sha": "26ac784ae9f55944"
   },
   "js/pi-duel.js": {
-    "v": 1,
-    "sha": "b0c2a24b777e79b3"
+    "v": 4,
+    "sha": "9998fdc9a3490753"
   },
   "js/pi-signals.js": {
-    "v": 3,
-    "sha": "b027bf1d7797b855"
+    "v": 4,
+    "sha": "1105314b8a46a1c0"
   },
   "js/pi-signin-callback.js": {
     "v": 1,
@@ -332,8 +332,8 @@
     "sha": "93a650c4329ff1f1"
   },
   "js/theater.js": {
-    "v": 2,
-    "sha": "2d1bbf1c17554a79"
+    "v": 3,
+    "sha": "a80337c76056c495"
   },
   "js/thesis-model.js": {
     "v": 2,

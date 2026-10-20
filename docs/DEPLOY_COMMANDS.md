@@ -6,14 +6,17 @@
 
 There are two bot-box processes and a separate web container. A deploy is not
 complete until all three use the new source and the web runtime can reach both
-bot processes.
+bot processes. A box with `DUEL_BOT_TOKEN` set runs a third, optional process,
+`python3 -m bot.duel_bot` (`runeclaw-duel.service`, health on :8081); restart
+it with the other two.
 
 1. Fetch by URL and reset to `FETCH_HEAD`.
 2. Run `./deploy.sh`. Besides restoring `.env`, `data/`, and `logs/`, it writes
    the persistent `~/runeclaw-persist/web.env` used for web publishes.
 3. Run `scripts/verify_deploy_source.sh` before starting anything.
-4. Restart `runeclaw-bot.service` and `runeclaw-bridge.service`, each as its
-   own command. Do not chain a probe onto a restart; verify afterward.
+4. Restart `runeclaw-bot.service` and `runeclaw-bridge.service` (and
+   `runeclaw-duel.service` where installed), each as its own command. Do not
+   chain a probe onto a restart; verify afterward.
 5. Publish `app/` using `~/runeclaw-persist/web.env`, not the bot `.env`.
    There is no install step unless a dependency manifest changed.
 6. Run `scripts/verify_deploy.sh` in a separate invocation.

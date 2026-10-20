@@ -92,10 +92,10 @@
     var name = season && season.name ? season.name : null;
     return '<section class="m-gate">'
       + '<p class="m-gate-lead">'
-      + (name ? 'Trade ' + esc(name) + ' with a virtual stake.' : 'Trade the season with a virtual stake.')
+      + (name ? 'Trade ' + esc(name) + ' with a virtual balance.' : 'Trade the season with a virtual balance.')
       + '</p>'
       + '<p class="m-gate-sub">Signing in with ' + who + ' creates a paper account. '
-      + 'No exchange keys, no real funds — everyone starts on the same stake.</p>'
+      + 'No exchange keys, no real funds — everyone starts on the same balance.</p>'
       + '<button type="button" class="m-signin">Sign in with ' + who + '</button>'
       + '</section>';
   }

@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 272 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 273 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **497 of 1346** reach for source text through `source_scan`, `code_only`
+Driven, **498 of 1347** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 497 is a FLOOR and the honest shape is
+source scan that rule does not see, so 498 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -23134,6 +23134,11 @@ fine, the gateway recovered, the status page called the system healthy, and two
 panels returned 502 until an operator noticed broken pages. A deploy that
 starts one of two processes and reports success is the same defect as a suite
 that runs a subset and reports it as the whole.
+
+An optional third process joined them on 2026-10-19: `python3 -m bot.duel_bot`,
+the Daily Duel's own Telegram bot on its own token, started by the launcher
+only where `DUEL_BOT_TOKEN` is set and supervised by `runeclaw-duel.service`
+(health on :8081). It is not the bot: no engine, none of the bot's state.
 
 `python3 -m bot.main` defaults to `--mode telegram`. It used to default to
 `cli`, which finds no TTY and **exits zero** — so a launcher that forgot the
@@ -26921,6 +26926,171 @@ first line only; the log wraps at 78 columns and most titles are longer, so
 252 of the 576 chapters were absent from the index and their guard tests
 were credited to the chapter before them. The generator joins a wrapped
 title now, and the index regenerated with every chapter on it.
+
+**THE DAILY DUEL GOT ITS OWN TELEGRAM BOT, AND IT IS NOT THE BOT.** 19
+October, the owner: "if possible we can make new telegram bot and run this
+also on mulerun same time as the other bot". `python3 -m bot.duel_bot` polls a
+second BotFather token beside `bot.main` and plays the duel and nothing else:
+it reads the card and records calls through the website's bot channel (the
+route the main bot's /duel already used) and renders with the same formatter,
+so the categories, the questions and the buttons are one reading across the
+two bots, the website and the Pi app. Identity is the website account: /link
+posts the link token to `/api/auth/validate-token` with the bot secret, the
+contract the main bot's /link uses, and the website binds the chat.
+
+What it was kept from doing is the chapter. It builds no engine, opens no
+venue, and touches none of the main bot's state — not the SQLite store the
+main bot's /link also writes, not the JSON user store, not the main bot's PID
+file, not the audit chain; a test scans for each of those names. Its own PID
+file names an earlier instance only when `/proc/<pid>/cmdline` says
+`bot.duel_bot`: a number in a file is reused by any process after a reboot,
+and the main bot kills whatever its file names. Its token must be its own: a
+`DUEL_BOT_TOKEN` equal to `TELEGRAM_BOT_TOKEN` is refused at boot, because two
+processes polling one token answer each other's 409 getUpdates conflict
+forever and the main bot's poller watchdog restarts against the other every
+thirty seconds. Both refusals exit 78 (EX_CONFIG), and the unit's
+`RestartPreventExitStatus=78` is the same number by a test, so a box that has
+not created the bot gets one journal line and a stopped unit rather than a
+fifteen-second restart loop; every other exit restarts, as the other units
+do. `/health` on :8081 answers 200 only while the poller runs and no stop was
+requested, because `active (running)` says a process exists and nothing more.
+
+The third process is optional, and three readers had to learn the word. The
+launcher starts it only where the token is present (read from `.env` for
+presence, never printed), smoke-tests it and probes its port before
+`DEPLOY_DONE`, and says `duel=off` otherwise. The status script lists an
+uninstalled `runeclaw-duel` as OPTIONAL and leaves the verdict to the two
+required units; a NOT INSTALLED there would have made every box without the
+bot read as broken, and a verdict that is always red stops meaning anything.
+The agent guide, the runbook, the systemd README and the deploy commands say
+"two processes, and an optional third" rather than three.
+(`tests/test_the_duel_bot_is_its_own_process.py`,
+`tests/test_systemd_units_supervise.py`, `tests/test_launch_all_starts_both.py`,
+`tests/test_claude_md_accuracy.py`.)
+
+**THE PI APP BECAME THREE TABS BEHIND A STICKY TOP, AND A DUEL ROUND SAYS WHEN
+IT SETTLES.** 19 October, the owner, with a screenshot of the app: "we need
+this ui more user friendly and up to 2027 standards". The signed-in screen
+was one scroll from the equity to the last chart: the positions, six duel
+rounds of four near-identical lines each ("Higher or lower in 24h? The Claw's
+own call is shown once you commit. The Claw called SHORT. You called SHORT.
+Running."), the record, then the signals with their charts, and nothing said
+WHEN a running call would settle. It is now a sticky top (season, equity,
+Refresh), three panels behind a bottom bar (Arena, Duel with the count of
+rounds still open to a call, Signals), and a toast for a recorded call; a
+refusal stays in its block, where it is read. `arena-session.js` groups a
+host's blocks by a `tab` each may name, and shows the bar only when there are
+two or more, so the Farcaster mini app, which passes no blocks, is unchanged.
+The active tab is a closure variable like the session: no browser storage on
+a framable page.
+
+The round card, on every surface since `duel.js` draws it for /duel, the Pi
+app and the Arena alike: a category chip with a glyph and a hue of its own,
+a status pill (Open · Settles in 21h 12m · Correct — you beat the Claw ·
+Closed), the title, the question, then either the buttons (▲ LONG, ▼ SHORT,
+– PASS, ✓ BACK, ✕ FADE, ⇅ BREAKS, ⇔ HOLDS; a team's name needs no glyph) or
+two pills, yours and the Claw's. Three honesty points held. (1) The time to
+settle is read from the call's own `resolves_at`; a horizon that cannot be
+read says "Running", never a made-up time. (2) The Claw's pill appears only
+where there was a stance to reveal (a classic round after the call, a
+back/fade round always); a range, a mover or a match never held one, and a
+Claw that passed says PASS, the word a pass has everywhere, not a blank. (3)
+The hue on the chip is decoration and is neither the green nor the red that
+mean won and lost. The direction question lost its second sentence in all
+14 languages; the promise it carried ("shown once you commit") lives on the
+stance line beside the Claw's name until the call is made.
+
+Found on the way, and the costlier lesson: the duel bot's first commit had
+tracked the website's `node_modules` folder (under `app/`) as a SYMLINK to a developer's checkout (the
+worktree it was built in linked the folder by hand, and a `git add -A` took
+the link). Merged into the checkout that owned the real folder, git replaced
+the installed packages with a link to themselves: an ignored path is
+expendable to git, and the folder is ignored. Every worktree pointed at that
+folder, so no copy survived; `npm ci` restored it from the cache, and the
+entry is untracked. A dependency folder is never tracked, and a hand-made
+link inside a worktree is a thing `git add -A` will commit.
+(`app/test/duel_scenarios.test.js`, `app/test/pi_duel_block.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`,
+`app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
+`app/test/miniapp_arena.test.js`,
+`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`,
+`app/test/cache_buster_ratchet.test.js`, `app/test/i18n.test.js`.)
+
+**THE DUEL BECAME PROVABLE END TO END: THE ROUND SEALED AS DEALT, THE
+SETTLEMENT SEALED AS WRITTEN, BOTH IN THE DAILY ROOT.** 19 October, the
+owner: "can we also seal it in hashes the duel and predictions outcomes?"
+A call had been sealed since v3; the two ends of it had not. The round's
+rule, that the agent's own call is hidden until the player commits, was a
+promise about the server, and the outcome was a row anyone with the
+database could rewrite. Now the round is sealed when the card is dealt,
+stance INCLUDED, behind a sixteen-hex nonce so a three-way stance is not
+a three-guess secret (Provable Calls v6, `canonicalDuelRoundPayload`), and
+the hash is on the card from the first read; the payload opens for the
+player who has called that round and for everyone when the round's day
+ends, so sha256(payload) === the hash they saw proves the stance was fixed
+before they called. The settlement gets a receipt of its own (v7,
+`canonicalDuelSettlePayload`) naming the call seal it settles and the
+round seal the call was made under: prices or the score, the outcome in
+the category's words, the verdict and the marks. An UNRESOLVED settlement
+is sealed too, null prices and all: "we could not price it" is the dated
+fact a later rewrite would most like to lose. The three are served by seal
+(`/api/call/round:…`, `duel:…`, `settle:…`, `app/lib/duel_receipts.js`),
+quoted on every card (linked on the website, quoted only in the Pi app,
+which links nowhere on the site), and folded into the daily Merkle roots
+on the day each was minted.
+
+Two rules held against the spec's own letter. Rule 2, "a payload carries
+no outcome field", was written for call receipts; a settlement receipt
+carries the outcome BY DEFINITION, so the rule now says what it meant
+(a call's payload; outcomes are sealed only in a settlement receipt that
+names the call), and the conformance test checks both halves. And the
+card's own JSON never carries a round's payload, even for a range round
+that hides nothing: the pre-pick wire test forbids the string
+`agent_direction` anywhere in it, and a payload would have carried the key
+with a null. The payload lives on the receipt, where the viewer is known.
+(`app/test/duel_routes.test.js`, `app/test/provable_calls_spec.test.js`,
+`app/test/seal_roots.test.js`, `app/test/duel_scenarios.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`.)
+
+**A REVIEW FROM OUTSIDE READ A SEASON'S NAME AS A USER LABEL, A SCREENSHOT
+FIXTURE AS A MOVING KICK-OFF, AND THE HOST'S BADGE SCRIPT AS OURS.** 19
+October, an external review of the Pi app and the website, read against the
+code before any of it was fixed. Three of its findings were the review's own
+error, and each is a lesson about what a surface says to someone who does not
+know the code. "FARCASTER" in the Pi header was the live Arena season's name,
+set by the operator's season rename; the header printed the name alone, so a
+reader took it for an account label. The header now says "Season" before the
+badge. The kick-off that "drifted between screenshots" was my own screenshot
+fixture, which set `kickoff` relative to `Date.now()` on every render; the
+feed's kick-off is a fixed fact. But the card printed a bare "21:33" with no
+zone, and a time with no zone cannot be told from a time that moves, so
+`kickoffText` now prints the zone it is read in and the day when that is not
+today. And the "inline script violates CSP" error on every page is the
+hosting provider's injected badge (`mule.page`), which our hash-based
+`script-src` blocks; it is not in this repository and the fix is in the host's
+project settings. The review's real findings were fixed the same day: a
+replay-theater symbol built by stripping punctuation from `CRV/USDT:USDT`
+(`CRVUSDTUSDT`, a live 502 on the home page); a football call that counted
+down to a clock time nobody set (it settles after full time); a toast that sat
+on the next card for seven seconds; a marks figure with no rule beside it; the
+word "stake" across the Arena and Duel copy in fourteen languages (the terms
+reserve it for the token, and three translations had the literal word for a
+bet); no safety line beside the Telegram door; a link preview that did not
+say what the page says; `/study` for a door labelled "Study Room"; and a Pi
+page with no description, no preview image and no icon.
+
+Two findings were not mine to act on and are recorded as such: hiding the
+presale and the token from the home page is the owner's call (the sale is
+live and announced), and a branded share image needs an image library the
+website does not carry, or a canvas drawn in the browser from the wordmark,
+which is the plan.
+(`app/test/the_theater_asks_for_the_contract_symbol.test.js`,
+`app/test/duel_scenarios.test.js`, `app/test/embed_arena_view.test.js`,
+`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`,
+`app/test/the_home_page_warns_about_impostors.test.js`,
+`app/test/canonical_links.test.js`.)
 
 ## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE
 

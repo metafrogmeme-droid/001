@@ -706,6 +706,26 @@ RULES: list[Rule] = [
              "public, add it to exclude_functions with the reason."),
     ),
     Rule(
+        name="duel-bot-health-only",
+        files=["bot/duel_bot.py"],
+        language="python",
+        selector="aiohttp-route",
+        mode="forbid",
+        # The Daily Duel's own bot (2026-10-19) binds an aiohttp server for ONE
+        # route, its liveness probe on 127.0.0.1: `health_body` answers
+        # ok/polling/stopping/updates_seen/started_at and nothing about a
+        # player. The process holds no session model, so any other route here
+        # would answer unauthenticated. Every route is forbidden but that one;
+        # player data is served by the website's routes, never from here.
+        trigger=r".",
+        guard="",
+        min_sites=0,                  # the one route is on the exempt list
+        exclude_functions=["health"],  # constant-shape liveness probe, loopback only
+        why=("bot/duel_bot.py serves its liveness probe and nothing else. A second "
+             "aiohttp route in this process has no authentication at all: serve it "
+             "from the website (app/routes) instead, or exempt it here with a reason."),
+    ),
+    Rule(
         name="dashboard-route-placement",
         files=["bot/web/dashboard_server.py"],
         language="python",
