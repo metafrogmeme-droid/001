@@ -302,6 +302,11 @@ function sameAfterStorage(key, sealed, live) {
                 : esc(val(p.settle_price)) + (p.settle_price_b != null ? (p.category === 'sports' ? '–' : ' / ') + esc(p.settle_price_b) : ''))
               + row('Outcome', esc(val(p.outcome)))
               + row('Verdict', '<b>' + esc(val(p.result)) + '</b>' + (p.marks != null ? ' · ' + esc(p.marks) + ' mark' + (p.marks === 1 ? '' : 's') : ''))
+              + (p.category === 'sports' ? '' : row('Second source', p.second_source && p.second_source.price != null
+                ? esc(val(p.second_source.provider)) + ' ' + esc(val(p.second_source.price)) + (p.second_source_b && p.second_source_b.price != null ? ' / ' + esc(p.second_source_b.price) : '') + (p.second_source.source_at ? ' <span class="muted">at ' + esc(p.second_source.source_at) + '</span>' : '')
+                : '<span class="muted">none — not checked</span>'))
+              + (p.category === 'sports' ? '' : row('Disputed', p.disputed === true ? '<b>yes</b> — the second source disagreed past the tolerance; the venue’s close settles'
+                : p.disputed === false ? 'no — the second source agreed' : '<span class="muted">not checked</span>'))
               + row('Settled at', esc(val(p.settled_at)))
               + row('Call receipt', link(d.call))
               + row('Round receipt', link(d.round));
@@ -457,7 +462,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=191"></script>
+<script src="/js/i18n-core.js?v=192"></script>
 <script src="/js/presale.js?v=2"></script>
   <script>
   (function () {

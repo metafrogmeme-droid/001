@@ -30,4 +30,25 @@ router.get('/', (req, res) => {
   res.json({ token: rclaw.publicRecord(record) });
 });
 
+/**
+ * GET /api/token/pool — the $RCLAW DEX pool as CoinGecko reports it
+ * (lib/token_pool.js). Public: market facts about a public mint. Three
+ * answers: a pool (200, listed true), none listed (200, listed false, a fact
+ * CoinGecko reported), could not be read (503, listed null, with the reason)
+ * — the page paints each with its own sentence.
+ */
+router.get('/pool', async (req, res) => {
+  try {
+    const { tokenPool } = require('../lib/token_pool');
+    const out = await tokenPool();
+    res.setHeader('Cache-Control', 'no-cache');
+    if (out.listed === null) return res.status(503).json({ error: 'pool_unreadable', ...out });
+    res.json(out);
+  } catch (err) {
+    const name = err && err.name ? String(err.name) : 'Error';
+    console.error('Token pool error:', name);
+    res.status(503).json({ error: 'pool_unreadable', listed: null, reason: 'unreachable', detail: name });
+  }
+});
+
 module.exports = router;

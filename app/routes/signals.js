@@ -86,6 +86,11 @@ router.get('/', optionalAuth, async (req, res) => {
     }
     viewerCacheControl(res, 0);
     const out = seen.map((r) => signalFor(member, r, teased));
+    // A member's rows carry the remembered smart-money line for their symbol
+    // (lib/smart_money.js): a peek, never a lookup, so a feed of fifty rows
+    // opens no lookups. A visitor's rows carry none: Nansen's data is shown
+    // to members, not republished.
+    if (member) await attachSmartMoneyLines(out);
     const body = { signals: out };
     if (!member) {
       const locked = out.filter((r) => r && r.locked === true).length;
@@ -105,6 +110,19 @@ router.get('/', optionalAuth, async (req, res) => {
     res.status(503).json({ error: 'signal_stream_unavailable' });
   }
 });
+
+/** The remembered smart-money line on each row that has one: ONE read for the whole page. */
+async function attachSmartMoneyLines(rows) {
+  const { peekSmartMoneyMany, tickerOf } = require('../lib/smart_money');
+  const shown = rows.filter((r) => r && typeof r === 'object' && r.locked !== true && r.symbol);
+  if (!shown.length) return rows;
+  const byTicker = await peekSmartMoneyMany(shown.map((r) => r.symbol));
+  for (const r of shown) {
+    const line = byTicker.get(tickerOf(r.symbol));
+    if (line) r.smart_money = line;
+  }
+  return rows;
+}
 
 /**
  * The words a signal can carry, as the bot's outcome walk writes them. Read

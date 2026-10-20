@@ -57,6 +57,24 @@ def _recorded_label(value: object, absent: str = "") -> Optional[str]:
     return text
 
 
+def _book_of(obj) -> Optional[str]:
+    """Which book a trade row is on: ``"paper"``, ``"live"``, or None.
+
+    Three values. ``TradeExecution.is_paper`` is a bool on every paper fill
+    and the live executor's rows say ``False`` for themselves; a row that
+    carries no bool (an older record, a stand-in that forgot the field) names
+    no book, and the website stores NULL and the share card claims neither.
+    A guess here would print PAPER on a real-money card or LIVE on a practice
+    one, which is the one thing the chip exists to never do.
+    """
+    flag = _attr(obj, "is_paper", None)
+    if flag is True:
+        return "paper"
+    if flag is False:
+        return "live"
+    return None
+
+
 def _opt_num(obj, key):
     """The number, or ``None`` when nobody could read one.
 
@@ -253,6 +271,11 @@ def sync_portfolio(equity: Optional[float],
             "opened_at": str(_attr(p, "opened_at", "")),
             "venue": str(_attr(p, "venue", "bitget") or "bitget"),
         })
+        # Which book, when the row says. Absent otherwise: the website stores
+        # NULL for "the bot did not say", and no surface guesses.
+        book = _book_of(p)
+        if book:
+            open_list[-1]["book"] = book
 
     # Send only what counts as a trade. The website's schema stores neither
     # close_reason nor trade_id, so it CANNOT apply this rule itself — which
@@ -285,6 +308,9 @@ def sync_portfolio(equity: Optional[float],
             # `_attr` defaults to the venue every existing trade IS.
             "venue": str(_attr(t, "venue", "bitget") or "bitget"),
         })
+        book = _book_of(t)
+        if book:
+            closed_list[-1]["book"] = book
 
     # Replace-all: this endpoint overwrites the user's website state with the
     # snapshot in this payload, so a second delivery is a no-op rather than a
@@ -315,6 +341,10 @@ def sync_trade_event(user_id: int, event: str, trade, equity: float) -> bool:
         "stop_loss": float(_attr(trade, "stop_loss", 0)),
         "take_profit": float(_attr(trade, "take_profit", 0)),
     }
+    # The same claim as the bulk wire, read the same way (see `_book_of`).
+    book = _book_of(trade)
+    if book:
+        trade_data["book"] = book
 
     if event == "close":
         # The single-event wire makes the identical claim as the bulk one

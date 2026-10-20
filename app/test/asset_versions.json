@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 13,
-    "sha": "c3fe76d9a1e7d1cf"
+    "v": 14,
+    "sha": "637967776c83f373"
   },
   "js/admin.js": {
     "v": 3,
@@ -92,8 +92,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 249,
-    "sha": "e041d2c38aff2ffb"
+    "v": 250,
+    "sha": "1ed9e1412d13d668"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -116,8 +116,8 @@
     "sha": "36a2fa665721307e"
   },
   "js/duel.js": {
-    "v": 6,
-    "sha": "0f89b9e537ca1fdc"
+    "v": 7,
+    "sha": "4213148c23ad7ac7"
   },
   "js/embed-arena-view.js": {
     "v": 3,
@@ -180,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 191,
-    "sha": "69d98d8113d2ca74"
+    "v": 192,
+    "sha": "8507c2244f458522"
   },
   "js/icons.js": {
     "v": 6,
@@ -323,6 +323,10 @@
     "v": 2,
     "sha": "5d27a0aa000d121b"
   },
+  "js/studies-panel.js": {
+    "v": 1,
+    "sha": "956628eed9c6ec33"
+  },
   "js/swap-page.js": {
     "v": 3,
     "sha": "178c78c3574b6abd"
@@ -340,8 +344,8 @@
     "sha": "0a41f855dcb11f74"
   },
   "js/token-page.js": {
-    "v": 7,
-    "sha": "7cd7a2617e54c956"
+    "v": 8,
+    "sha": "f27ee2e74bc76ea4"
   },
   "js/trade-confirm-model.js": {
     "v": 2,
@@ -382,9 +386,5 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
-  },
-  "js/studies-panel.js": {
-    "v": 1,
-    "sha": "956628eed9c6ec33"
   }
 }

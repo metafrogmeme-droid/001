@@ -339,6 +339,30 @@ def agent_line(round_: dict) -> str | None:
     return f"The Claw: {_PICK_WORD.get(str(direction), str(direction))}"
 
 
+def smart_money_line(round_: dict) -> str | None:
+    """The round's smart-money context, when the website read one; else None.
+
+    A line beside the question, never a tint on the buttons: the figure is a
+    market fact the website remembered for the day (Nansen, through Flovia),
+    and a round with nothing remembered prints nothing, never a zero.
+    """
+    from bot.formatters.money import compact_signed_usd
+    parts = []
+    for key, sym_key in (("smart_money", "symbol"), ("smart_money_b", "symbol_b")):
+        sm = round_.get(key)
+        if not isinstance(sm, dict) or sm.get("read") is not True:
+            continue
+        v = _num(sm.get("net_flow_usd"))
+        if v is None:
+            continue
+        word = "in" if v >= 0 else "out"
+        label = f"{_base(round_.get(sym_key))}: " if round_.get("smart_money_b") else ""
+        parts.append(f"{label}{compact_signed_usd(v)} {word}")
+    if not parts:
+        return None
+    return "📊 Smart money 24h: " + " · ".join(parts) + " (Nansen)"
+
+
 def call_line(round_: dict) -> str | None:
     """How the caller's own call on this round is doing, or None if uncalled."""
     call = round_.get("my_call")
@@ -368,6 +392,11 @@ def call_line(round_: dict) -> str | None:
     home, away = _num(score.get("home")), _num(score.get("away"))
     if home is not None and away is not None and state in ("correct", "wrong", "push"):
         tail = f" (final score {int(home)}–{int(away)})"
+    # A second source disagreed with the settle price: the verdict stands and
+    # the word is added. Only True says so; False agreed and None was not
+    # checked, and neither earns a word.
+    if call.get("disputed") is True and state in ("correct", "wrong", "push"):
+        tail += " · disputed"
     return f"{glyph} You called {word} — {text}{tail}"
 
 
@@ -403,6 +432,9 @@ def render_card(data: dict | None) -> str:
             lines.append("  " + question)
         else:
             lines.append("  This round asks a question this bot cannot show. Update the bot.")
+        context = smart_money_line(r)
+        if context:
+            lines.append("  " + context)
         agent = agent_line(r)
         if agent:
             lines.append("  " + agent)

@@ -2022,6 +2022,11 @@
     "duel.b_long": { en: "LONG" },
     "duel.b_short": { en: "SHORT" },
     "duel.b_pass": { en: "PASS" },
+    "duel.smart_money": { en: "Smart money 24h: {flow} {dir}" },
+    "duel.sm_in": { en: "in" },
+    "duel.sm_out": { en: "out" },
+    "duel.st_disputed": { en: "disputed" },
+    "duel.st_disputed_n": { en: "A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both." },
     "duel.you_called": { en: "You called" },
     "duel.ag_hidden": { en: "Hidden until you call" },
     "duel.ag_passed": { en: "The Claw passed" },
@@ -2294,6 +2299,16 @@
     "tok.presale_body_announced": { en: "These are the sale’s terms as announced. Smithii’s sale contract enforces the price, the hard cap, the per-wallet limits and the claim; the soft cap and everything after the sale are the team’s commitments, not the contract’s. We never DM first and never ask for a seed phrase." },
     "tok.presale_body": { en: "A presale is being prepared. The date, price and venue will be announced on this page, in the Telegram bot and on the project’s X account before anything opens. Until then there is nothing to buy from us." },
     "tok.verify": { en: "Only this mint address is $RCLAW. Any other token using the name or logo is not ours — check the address before you trade anything." },
+    "tok.pool_h": { en: "Where it trades" },
+    "tok.pool_none": { en: "Not listed on a DEX yet. CoinGecko reports no pool holding this mint; this will show the pool once there is one." },
+    "tok.pool_unread": { en: "The pool could not be read just now. This is a read that failed, not a token with no pool." },
+    "tok.pool_liq": { en: "Liquidity" },
+    "tok.pool_vol": { en: "24h volume" },
+    "tok.pool_price": { en: "Price" },
+    "tok.pool_pool": { en: "Pool" },
+    "tok.pool_note": { en: "The largest pool on the first page CoinGecko answered, read {ago}. Market facts only: a price is not a promise." },
+    "tok.pool_open": { en: "View on GeckoTerminal" },
+    "tok.pool_credit": { en: "Data provided by CoinGecko" },
     "tok.not_offer": { en: "Nothing on this page is financial advice, an offer to sell or a solicitation to buy any token. Presale terms may still change with legal review before the sale opens; this page shows the current ones." },
     "tok.unread": { en: "The token record could not be read right now. No mint address is shown in its place — a guessed address is worse than none. Try again in a minute." },
     "tok.bot_hint": { en: "Also in the Telegram bot: /rclaw" },
@@ -2347,7 +2362,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"027e7d34","zh":"7cb55268","pt":"d3f63d99","fr":"de2fba79","de":"8ef353c0","nl":"cadfef61","ja":"e36b6773","ko":"37882e20","ru":"fdfc810a","tr":"6acf485a","it":"006a43a1","hi":"55af7d43","ar":"5d3566c3"};
+  var CHUNKS = {"es":"243ae3ba","zh":"0cecee4e","pt":"9ee04971","fr":"d241f058","de":"27a3e20d","nl":"bb1e6a31","ja":"3681ccbc","ko":"4655faab","ru":"001f9b48","tr":"7abfec05","it":"1aaa6d4a","hi":"709264d2","ar":"d9a0b094"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

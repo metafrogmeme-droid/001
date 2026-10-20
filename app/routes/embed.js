@@ -117,7 +117,7 @@ function page(title, bodyClass, script, meta, deps) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 ${meta || ''}
-<link rel="stylesheet" href="/embed.css?v=13">
+<link rel="stylesheet" href="/embed.css?v=14">
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

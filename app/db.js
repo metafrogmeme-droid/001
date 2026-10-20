@@ -319,6 +319,7 @@ class MemoryDB {
     this._nextTradeId = 1;
     this._nextSnapId = 1;
     this.scanCache = null; // { scan_json, updated_at }
+    this.floviaReads = new Map(); // k -> { k, payload, read_at, expires_at }
     this.signals = [];     // global signal stream (UPSERT by signal_key)
     this._nextSignalId = 1;
     this.agentEvents = []; // public agent mind-stream feed (bounded ring)
@@ -2218,6 +2219,7 @@ class MemoryDB {
       if (!('status' in trade)) trade.status = 'OPEN';          // schema DEFAULT 'OPEN'
       if (!('fees' in trade)) trade.fees = 0;                   // DEFAULT 0
       if (!('venue' in trade)) trade.venue = 'bitget';          // DEFAULT 'bitget'
+      if (!('book' in trade)) trade.book = null;                // DEFAULT NULL
       if (!('opened_at' in trade)) trade.opened_at = new Date(); // DEFAULT CURRENT_TIMESTAMP
       this.trades.push(trade);
       return [{ insertId: trade.id }, []];
@@ -2426,6 +2428,27 @@ class MemoryDB {
       return [[{ wins }], []];
     }
 
+    // -- FLOVIA READS (lib/flovia_reads.js) --
+    if (cmd.includes('REPLACE INTO FLOVIA_READS')) {
+      this.floviaReads.set(params[0], { k: params[0], payload: params[1], read_at: params[2], expires_at: params[3] });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM FLOVIA_READS') && cmd.startsWith('SELECT')) {
+      // `WHERE k = ?` or `WHERE k IN (?, ?, ...)`: every bound key is a key.
+      const rows = [];
+      for (const k of params) { const row = this.floviaReads.get(k); if (row) rows.push({ ...row }); }
+      return [rows, []];
+    }
+    if (cmd.includes('DELETE FROM FLOVIA_READS')) {
+      const cutoff = params[0] instanceof Date ? params[0].getTime() : Date.parse(params[0]);
+      let n = 0;
+      for (const [k, row] of this.floviaReads) {
+        const exp = row.expires_at instanceof Date ? row.expires_at.getTime() : Date.parse(row.expires_at);
+        if (exp < cutoff) { this.floviaReads.delete(k); n++; }
+      }
+      return [{ affectedRows: n }, []];
+    }
+
     // -- SCAN CACHE --
     if (cmd.includes('REPLACE INTO SCAN_CACHE') || (cmd.includes('INSERT') && cmd.includes('SCAN_CACHE'))) {
       this.scanCache = { id: 1, scan_json: params[0], updated_at: new Date() };
@@ -2566,26 +2589,20 @@ class MemoryDB {
       return [{ affectedRows: 1, insertId: this._nextDuelPickId - 1 }, []];
     }
     if (cmd.startsWith('UPDATE DUEL_PICKS SET SETTLE')) {
-      // Three shapes, told apart by the statement: the classic
-      //   settle_price, settle_state, settled_at, id
-      // the categories'
-      //   settle_price, settle_price_b, settle_state, settled_at, id
-      // and the sealed settlement's (Provable Calls v7)
-      //   settle_price, settle_price_b, settle_state, settled_at, settle_seal, settle_payload, id
-      const sealed = cmd.includes('SETTLE_SEAL');
-      const two = sealed || cmd.includes('SETTLE_PRICE_B');
-      const idAt = sealed ? 6 : two ? 4 : 3;
-      const p = this.duelPicks.find(x => Number(x.id) === Number(params[idAt]));
-      if (p) {
-        p.settle_price = params[0] == null ? null : params[0];
-        if (two) p.settle_price_b = params[1] == null ? null : params[1];
-        p.settle_state = params[two ? 2 : 1] == null ? null : params[two ? 2 : 1];
-        p.settled_at = params[two ? 3 : 2];
-        if (sealed) {
-          p.settle_seal = params[4] == null ? null : params[4];
-          p.settle_payload = params[5] == null ? null : params[5];
-        }
+      // The SET list is parsed, not counted: this handler used to tell four
+      // statement shapes apart by which column names appeared and bind
+      // parameters by position per shape, and every new settlement column
+      // (the v7 seal, then the second reading) added a shape. A column the
+      // statement names is bound in order, like the trades INSERT above;
+      // the trailing `WHERE id = ?` takes the last parameter.
+      const m = /UPDATE duel_picks SET ([\s\S]*?) WHERE id = \?/i.exec(sql);
+      if (!m) throw new Error('MemoryDB: unparseable UPDATE duel_picks');
+      const cols = m[1].split(',').map((c) => c.trim().split('=')[0].trim().toLowerCase()).filter(Boolean);
+      if (cols.length + 1 !== params.length) {
+        throw new Error(`MemoryDB: UPDATE duel_picks sets ${cols.length} columns but received ${params.length - 1} values`);
       }
+      const p = this.duelPicks.find(x => Number(x.id) === Number(params[params.length - 1]));
+      if (p) cols.forEach((c, k) => { p[c] = params[k] == null ? null : params[k]; });
       return [{ affectedRows: p ? 1 : 0 }, []];
     }
     if (cmd.includes('FROM DUEL_PICKS')) {
@@ -2755,6 +2772,7 @@ const EXPECTED_TABLES = Object.freeze([
   'trades',
   'equity_snapshots',
   'scan_cache',
+  'flovia_reads',
   'wallet_link_codes',
   'wallet_link_nonces',
   'auth_attempts',
@@ -2915,6 +2933,20 @@ const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
   // The settlement's own receipt (Provable Calls v7), naming the call seal.
   settle_seal: 'VARCHAR(64) NULL',
   settle_payload: 'TEXT NULL',
+  // A second reading at settlement (lib/second_price.js): the other source's
+  // price per leg, and whether it disagreed. NULL is "not checked" on all
+  // three, which every settlement before 2026-10-20 is.
+  settle_second_price: 'DOUBLE NULL',
+  settle_second_price_b: 'DOUBLE NULL',
+  settle_disputed: 'TINYINT NULL',
+});
+// The share card's book (2026-10-20): `trades` is on every production
+// database, so the ALTER below the fast path never runs there. Reconciled
+// here, as the signal and user columns are; the fast-path test caught the
+// column sitting below the mark when the branch met the merged tree.
+const REQUIRED_TRADE_COLUMNS = Object.freeze({
+  // 'paper' | 'live' from the bot's record, NULL when the row carried none.
+  book: 'VARCHAR(5) DEFAULT NULL',
 });
 /** `pick` must hold a mover's 'second': the width the categories need. */
 const DUEL_PICK_WIDTH = 8;
@@ -3086,6 +3118,8 @@ async function migrate() {
       if (added.length) console.log(`Signals schema reconciled: ${added.join(', ')}`);
       const addedUsers = await ensureUserColumns();
       if (addedUsers.length) console.log(`Users schema reconciled: ${addedUsers.join(', ')}`);
+      const addedTrades = await ensureTableColumns('trades', REQUIRED_TRADE_COLUMNS);
+      if (addedTrades.length) console.log(`Trades schema reconciled: ${addedTrades.join(', ')}`);
       const addedRounds = await ensureTableColumns('duel_rounds', REQUIRED_DUEL_ROUND_COLUMNS);
       if (addedRounds.length) console.log(`Duel rounds schema reconciled: ${addedRounds.join(', ')}`);
       const addedPicks = await ensureTableColumns('duel_picks', REQUIRED_DUEL_PICK_COLUMNS);
@@ -3246,6 +3280,7 @@ async function migrate() {
         closed_at TIMESTAMP NULL,
         notes TEXT DEFAULT NULL,
         venue VARCHAR(20) NOT NULL DEFAULT 'bitget',
+        book VARCHAR(5) DEFAULT NULL,
         INDEX idx_user_status (user_id, status),
         INDEX idx_user_opened (user_id, opened_at)
       )
@@ -3266,6 +3301,15 @@ async function migrate() {
     try {
       await pool.execute(
         "ALTER TABLE trades ADD COLUMN venue VARCHAR(20) NOT NULL DEFAULT 'bitget'");
+    } catch (e) { /* column already exists — fine */ }
+    // WHICH BOOK the trade was on: 'paper' or 'live', as the bot said, and
+    // NULL when it did not (a row synced by an older bot, or one whose record
+    // carried no flag). Nullable on purpose, unlike `venue`: the agent's
+    // record has carried both books over time, so a default here would be a
+    // guess, and the share card built from this row prints a PAPER or LIVE
+    // chip only from a value the bot sent.
+    try {
+      await pool.execute('ALTER TABLE trades ADD COLUMN book VARCHAR(5) DEFAULT NULL');
     } catch (e) { /* column already exists — fine */ }
     // Multi-venue selection, for deployments whose tables predate it. Nullable
     // on BOTH: NULL means "nothing proposed" / "the bot has not told us yet",
@@ -3291,6 +3335,18 @@ async function migrate() {
         id INT PRIMARY KEY DEFAULT 1,
         scan_json LONGTEXT NOT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    // Remembered Flovia reads (lib/flovia_reads.js): one row per key, so a
+    // read good for a day is made once across every instance. expires_at is
+    // the row's own horizon; a stale row reads as absent.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS flovia_reads (
+        k VARCHAR(190) PRIMARY KEY,
+        payload MEDIUMTEXT NOT NULL,
+        read_at TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        INDEX idx_flovia_reads_exp (expires_at)
       )
     `);
     // Phone/QR wallet-link: short-lived single-use codes + sign nonces persisted
@@ -4107,6 +4163,9 @@ async function migrate() {
         seal_payload TEXT NULL,
         settle_seal VARCHAR(64) NULL,
         settle_payload TEXT NULL,
+        settle_second_price DOUBLE NULL,
+        settle_second_price_b DOUBLE NULL,
+        settle_disputed TINYINT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_pick (user_id, round_id),
         INDEX idx_duel_picks_user (user_id),
@@ -4134,6 +4193,9 @@ async function migrate() {
       'ALTER TABLE duel_picks ADD COLUMN settle_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_seal VARCHAR(64) NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_payload TEXT NULL',
+      'ALTER TABLE duel_picks ADD COLUMN settle_second_price DOUBLE NULL',
+      'ALTER TABLE duel_picks ADD COLUMN settle_second_price_b DOUBLE NULL',
+      'ALTER TABLE duel_picks ADD COLUMN settle_disputed TINYINT NULL',
       `ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`,
       'ALTER TABLE duel_picks MODIFY COLUMN entry_price DOUBLE NULL',
     ]) {
@@ -4237,7 +4299,8 @@ async function withTransaction(fn) {
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
   EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS,
-  REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, DUEL_PICK_WIDTH, schemaIsCurrent, schemaPath,
+  REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, REQUIRED_TRADE_COLUMNS, DUEL_PICK_WIDTH,
+  schemaIsCurrent, schemaPath,
   ensureSignalColumns, ensureUserColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string

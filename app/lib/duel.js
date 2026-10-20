@@ -740,6 +740,10 @@ function publicPick(pick, { now = new Date(), round = null } = {}) {
     // Provable Calls v7: the settlement's own receipt, once there is one.
     settle_seal: p.settle_seal || null,
     outcome: null,
+    // Whether a second source agreed with the settle price: true (disputed),
+    // false (agreed), null (not checked). The verdict stands either way; a
+    // surface says "disputed" beside it.
+    disputed: p.settle_disputed == null ? null : Boolean(Number(p.settle_disputed)),
   };
   if (kind === 'mover') out.entry_price_b = Number(p.entry_price_b);
   const outcome = round ? callOutcome(round, p) : pickOutcome(p);

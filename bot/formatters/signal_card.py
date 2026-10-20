@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Any, Dict, Optional
 
-from bot.formatters.money import signed_usd
+from bot.formatters.money import compact_signed_usd, signed_usd
 
 log = logging.getLogger("runeclaw.signal_card")
 
@@ -383,6 +383,13 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
                 # used to CLAIM and the code did not check; driving the card
                 # is what said so.
                 _draw_cell(col2_x, y, conf_label, conf_text, conf_color)
+    y += CELL_H + CELL_GAP
+
+    # ── Smart money row: a context line the website read (Nansen through
+    # Flovia), printed as answered, three absences and three words; it feeds
+    # nothing above it (`tests/test_smart_money_is_a_line_and_never_a_verdict.py`) ──
+    sm_text, sm_color = _smart_money_cell(data)
+    _draw_cell(PAD, y, "SMART MONEY 24H (NANSEN)", sm_text, sm_color, w=W - PAD * 2)
     y += CELL_H + CELL_GAP + 4
 
     # ── Pattern badge ──
@@ -540,6 +547,14 @@ def signal_card_from_idea(idea, rank: int = 1, scan_data: Optional[Dict] = None)
         "summary": summary,
         "strategy_type": getattr(idea, "strategy_type", ""),
     }
+    # The website's smart-money line for this symbol, printed as the website
+    # answered it (read, or not read with the reason); a context line, never
+    # an input to the score above it.
+    if sd.get("smart_money") is not None:
+        data["smart_money"] = sd["smart_money"]
+    else:
+        from bot.utils.context_pull import smart_money_reading
+        data["smart_money"] = smart_money_reading(idea.asset)
     return render_signal_card(data)
 
 
@@ -2145,6 +2160,32 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
 
 #: The SCORE cell's word for a row written before the confidence was recorded.
 NOT_RECORDED = "not recorded"
+
+
+def _smart_money_cell(data: Dict[str, Any]):
+    """(text, colour) for the SMART MONEY cell: three absences, three words.
+
+    A read figure prints its sign and magnitude in the text colour: a flow is
+    a market fact, and tinting it green or red would make the line a verdict
+    on the trade, which it is not. "not read" (grey) when the website said so,
+    with its reason when it gave one a reader can use; the dash (muted) when
+    the caller passed nothing, as an older caller does.
+    """
+    sm = data.get("smart_money")
+    if sm is None:
+        return "\u2014", _MUTED
+    if isinstance(sm, dict) and sm.get("read") is True:
+        raw = sm.get("net_flow_usd")
+        if raw is None:
+            return "not read", _GRAY
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return "not read", _GRAY
+        word = "in" if v >= 0 else "out"
+        return f"{compact_signed_usd(v)} net {word}", _WHITE
+    reason = str((sm or {}).get("reason") or "") if isinstance(sm, dict) else ""
+    return ("not read" + (f" ({reason})" if reason in ("not covered", "unconfigured") else "")), _GRAY
 
 
 def _score_cell(data: Dict[str, Any]):

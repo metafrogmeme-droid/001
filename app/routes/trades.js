@@ -97,7 +97,7 @@ router.get('/history', async (req, res) => {
     const offset = parseInt(req.query.offset) || 0;
 
     const [rows] = await pool.execute(
-      `SELECT id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at, notes
+      `SELECT id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at, notes, book
        FROM trades WHERE user_id = ? AND status = 'CLOSED'
        ORDER BY closed_at DESC LIMIT ${limit} OFFSET ${offset}`,
       [uid]
