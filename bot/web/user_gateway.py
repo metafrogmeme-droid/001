@@ -1450,6 +1450,68 @@ async def handle_public_chat_stream(request: web.Request) -> web.StreamResponse:
     return await _sse_turn(request, _public_chat_turn)
 
 
+async def handle_pi_coach(request: web.Request) -> web.Response:
+    """POST /chat/pi-coach: Ask the Claw, the coach in the Pi Browser app.
+
+    Called by the website only (behind `secret_middleware`, like every route
+    here), for a signed-in Pi user whose daily allowance the website counts
+    and refunds. The turn is the public one: account-free and tool-free
+    (`_llm_chat(public=True)`), with the coach's prompt and the facts the
+    website read for the person (bot/web/pi_coach.py). Two fixed answers come
+    before any model (a token or sale question; a question that needs a live
+    price), and the model's reply passes the coach's output check or is
+    withheld. `answered` says whether a model answered, which is what the
+    website counts: a fixed sentence or an outage spends nothing.
+    """
+    from bot.nlp.intent_router import detect_reply_mode, needs_live_market_data
+    from bot.web import pi_coach
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "text required"}, status=400)
+    if len(text) > pi_coach.MAX_TEXT:
+        return web.json_response({"error": "message too long"}, status=400)
+    reply_lang = str(body.get("lang") or "").strip()[:12]
+
+    if pi_coach.token_ask(text):
+        return web.json_response({"reply_html": pi_coach.TOKEN_ANSWER,
+                                  "intent": "pi_coach_token", "answered": False})
+    if needs_live_market_data(text):
+        return web.json_response({"reply_html": pi_coach.NO_FEED_ANSWER,
+                                  "intent": "pi_coach_no_feed", "answered": False})
+
+    # The same provenance scan the public turn runs, fail-open to the
+    # denylist exactly as there.
+    _engine = request.app.get("engine")
+    _verdict = None
+    try:
+        if _engine is not None:
+            _verdict = _engine.firewall_scan(text, source="pi_coach", user_id="")
+    except Exception:
+        _verdict = None
+    from bot.guardian.firewall import hardened_prompt as _harden
+    _res = await tg_handler._llm_chat(
+        _harden(text, _verdict), user_id="", user_name="", is_admin=False,
+        public=True, surface="pi_coach",
+        coach_context=pi_coach.clean_context(body.get("context")),
+        reply_lang=reply_lang, return_meta=True,
+        reply_mode=detect_reply_mode(text))
+    answer, meta = _res if isinstance(_res, tuple) else (_res, None)
+    if not meta:
+        # No model answered: a budget refusal or an outage. Its own wording
+        # names the website's doors, so the coach says its own sentence.
+        return web.json_response({"reply_html": pi_coach.UNAVAILABLE_ANSWER,
+                                  "intent": "pi_coach_unavailable", "answered": False})
+    why = pi_coach.withheld_reason(answer)
+    if why is not None:
+        system_log.warning("Pi coach reply withheld (%s)", why)
+        return web.json_response({"reply_html": pi_coach.WITHHELD_ANSWER,
+                                  "intent": "pi_coach_withheld", "answered": True,
+                                  "withheld": why})
+    return web.json_response({"reply_html": answer, "intent": "pi_coach", "answered": True})
+
+
 #: The most `client_capabilities` rows the card will print, and the longest
 #: any one of them may be. The web route sends its own intercept table's
 #: sentences (fifteen today, all short); these bounds exist because the field
@@ -5816,6 +5878,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_post("/chat/stream", handle_chat_stream)
     app.router.add_post("/chat/public", handle_public_chat)
     app.router.add_post("/chat/public/stream", handle_public_chat_stream)
+    app.router.add_post("/chat/pi-coach", handle_pi_coach)
     app.router.add_post("/contract/studio", handle_contract_studio)
     app.router.add_post("/contract/compile", handle_contract_compile)
     app.router.add_post("/contract/deploy", handle_contract_deploy)

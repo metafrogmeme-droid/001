@@ -165,7 +165,8 @@ test('the Pi app says what just happened, and nothing it did before', SKIP ? { s
       await page.waitForFunction(() => { const i = document.querySelector('.m-gate-pic'); return i && i.complete && i.naturalWidth > 0; });
       assert.strictEqual(await page.getAttribute('.m-gate-pic', 'src'), '/mascot/runeclaw_owl_round.webp?v=1');
       assert.strictEqual(await page.textContent('.m-gate-title'), 'Beat the Claw');
-      assert.strictEqual((await page.$$('.m-gate-points li')).length, 3);
+      assert.strictEqual((await page.$$('.m-gate-points li')).length, 4);
+      assert.match(await page.textContent('.m-gate-points'), /Ask the Claw: an AI coach/);
       assert.match(await page.textContent('.m-signin'), /Sign in with Pi/);
       const legal = await page.$$eval('.p-legal a', (as) => as.map((a) => [new URL(a.href).pathname, a.target, a.rel]));
       assert.deepStrictEqual(legal, [['/privacy', '_blank', 'noopener noreferrer'], ['/terms', '_blank', 'noopener noreferrer']]);

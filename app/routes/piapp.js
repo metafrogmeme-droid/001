@@ -110,7 +110,7 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
 const SCRIPTS = [
   '/js/embed-arena-view.js?v=3',
   '/js/miniapp-view.js?v=9',
-  '/js/arena-session.js?v=8',
+  '/js/arena-session.js?v=9',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',
   '/js/embed-read.js?v=2',
@@ -119,15 +119,17 @@ const SCRIPTS = [
   '/js/embed-row.js?v=6',
   '/js/signal-chart.js?v=3',
   '/js/signal-status-model.js?v=4',
-  '/js/pi-signals.js?v=5',
+  '/js/pi-signals.js?v=6',
   // The Daily Duel: the website's round renderer, then the block.
   '/js/duel.js?v=8',
   // The in-app receipt check, before the block that uses it.
   '/js/pi-receipt.js?v=1',
-  '/js/pi-duel.js?v=6',
+  '/js/pi-duel.js?v=7',
+  // Ask the Claw, the coach tab.
+  '/js/pi-coach.js?v=1',
   // The Leaders tab: the season's standings and your name on them.
   '/js/pi-leaders.js?v=1',
-  '/js/pi-arena.js?v=4',
+  '/js/pi-arena.js?v=5',
 ];
 
 function page() {
@@ -151,7 +153,7 @@ function page() {
 <link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=16">
+<link rel="stylesheet" href="/embed.css?v=17">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **504 of 1355** reach for source text through `source_scan`, `code_only`
+Driven, **505 of 1356** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 504 is a FLOOR and the honest shape is
+source scan that rule does not see, so 505 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -27556,3 +27556,70 @@ the page guard, which now pins the app's only links to the two policies and
 names the one shared link it never reaches. Eighteen mutants, each killed;
 the policy-text mutant had to be aimed at the built page, which is what the
 truth test reads.
+
+## A COACH THAT CAN BE TOLD WHAT TO SAY IS NOT ONE THAT CANNOT SAY IT: THE RULE IS STRUCTURAL, AND THE FACTS ARE THE SERVER'S
+
+*2026-10-20, Ask the Claw in the Pi app.*
+
+The Pi app has three rules a reviewer will test: no token or sale, no link
+out, no live price the app cannot read. A coach that answers in free text is
+the one surface that could break all three in a sentence, and the repo had
+already watched a model ignore an order (the public chat that published a
+"full analysis" around an invented price, which is why the public scan gate
+is a branch and not a sentence in a prompt).
+
+So the prompt states the rules and nothing depends on it:
+
+- **Before the model**, two fixed answers: a question about a token, a sale
+  or an airdrop, and a question the router says needs live market data. No
+  model runs, nothing is counted.
+- **After the model**, an output check (`bot/web/pi_coach.py::withheld_reason`):
+  a reply carrying a link in any form, the project's token or a sale,
+  signing up, or exchange keys is withheld and replaced, and the turn still
+  counts, because a model ran. The page also draws the reply as escaped text
+  with five bare inline tags put back, so no link can be drawn whatever the
+  bot sends.
+- **No model answering** (a budget refusal, an outage) is the coach's own
+  sentence, because the public turn's refusals name the website's doors
+  ("sign in", a dashboard link) and the Pi app has none.
+- **The website's FAQ is not consulted** on the coach: its starter answers
+  are the site's pitch, with exchanges and signing up in them. A test
+  drives `_llm_chat` with a stand-in provider and reads the prompt the model
+  was handed, which is the only place the difference is visible.
+
+**The facts are the server's, and so is the stance.** The page sends a
+question and the name of the card it asked "Why?" about; the website reads
+the person's practice positions, their last closed trades, today's Duel card
+and that card itself. A `context` the page sends is ignored. The Duel facts
+are built from `cardFor`, the same reader `/api/duel/today` answers with, so
+a stance still sealed on the person's card is absent from the coach's facts
+too: the coach cannot reveal what the person has not yet earned. A source
+that cannot be read is said to be unreadable in the facts, never handed to
+the model as an empty list.
+
+**The allowance is a row, not a counter in memory.** One row per Pi account
+per UTC day, capped in the UPDATE's own `count < ?` (two requests at the
+limit cannot both pass), given back when no model answered. Coach Plus
+raises the cap for a window that starts when its payment COMPLETES: the
+grant is the payment row reaching `completed`, which is exactly what Pi
+allows to be delivered, so there is no second grant to forget or to race.
+It is paid through the tip's path (`payOrder`), on the server's price and
+kind, and is off until the operator sets a price.
+
+**The policy says what is sent and what is kept, including the exception.**
+The coach stores a count, not the conversation, except that the
+prompt-injection check keeps a short excerpt of a question it flags on the
+audit chain. The first draft of the sentence said nothing was stored; the
+firewall's own docstring said otherwise, and the page now says both halves,
+pinned by a truth test to the call that makes the exception true.
+
+Driven: `tests/test_the_pi_coach_says_nothing_the_pi_app_must_not.py` (the
+gates, the check, the handler with a stand-in model, the prompt a stand-in
+provider was handed), `app/test/the_pi_coach_answers_from_facts_it_read.test.js`
+(the route on the in-memory database: the facts as sent, the sealed stance,
+the cap, the give-back, Coach Plus's window, the order's price) and
+`app/test/the_pi_coach_answers_in_the_app.smoke.test.js` (Chromium: every
+door into the coach, no link drawn, a used-up day, Coach Plus paid as
+ordered). Eighteen mutants, each killed; the first sanitiser mutant restored
+only a bare `<a>` and survived, which measured the mutant, not the guard,
+and was replaced with one that draws the reply raw.

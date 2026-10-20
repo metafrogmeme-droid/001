@@ -255,6 +255,7 @@ class MemoryDB {
     learn_diary: { field: 'learnDiary' },
     learn_progress: { field: 'learnProgress' },
     pi_payments: { field: 'piPayments' },
+    pi_coach_usage: { field: 'piCoachUsage' },
   };
 
   // ── Transactions ────────────────────────────────────────────────────────
@@ -365,6 +366,7 @@ class MemoryDB {
     this._nextDuelRoundId = 1;
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
     this.piPayments = [];     // Pi tips (routes/pi_payments.js), unique payment_id
+    this.piCoachUsage = [];   // Ask the Claw allowance (lib/pi_coach.js), one row per (user_id, day)
     this._nextDuelPickId = 1;
     // The arena key routes ARE implemented here now — see the ARENA API KEYS
     // branches below. They were not, which left mint/verify/bind/revoke
@@ -2685,6 +2687,16 @@ class MemoryDB {
       });
       return [{ affectedRows: 1 }, []];
     }
+    // Coach Plus (lib/pi_coach.js plusUntil): this person's latest
+    // completed payment of a kind. Read BEFORE the by-id branch below, which
+    // would read its first parameter as an order id.
+    if (pp.startsWith('SELECT UPDATED_AT FROM PI_PAYMENTS WHERE USER_ID = ? AND KIND = ? AND STATUS = ? ORDER BY UPDATED_AT DESC LIMIT 1')) {
+      this.piPayments = this.piPayments || [];
+      const hit = this.piPayments
+        .filter((r) => String(r.user_id) === String(params[0]) && r.kind === params[1] && r.status === params[2])
+        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+      return [hit.slice(0, 1).map((r) => ({ updated_at: r.updated_at })), []];
+    }
     if (pp.startsWith('SELECT') && pp.includes('FROM PI_PAYMENTS')) {
       this.piPayments = this.piPayments || [];
       const byUser = pp.includes('AND USER_ID = ?');
@@ -2725,6 +2737,41 @@ class MemoryDB {
       if (!row) return [{ affectedRows: 0 }, []];
       row.status = params[0]; row.updated_at = params[1];
       return [{ affectedRows: 1 }, []];
+    }
+
+    // ── pi_coach_usage: Ask the Claw's allowance (lib/pi_coach.js) ────────
+    // The guards are read from the statement, as above: `count < ?` IS the
+    // cap and `count > 0` keeps a give-back from going negative.
+    if (pp.startsWith('UPDATE PI_COACH_USAGE SET COUNT = COUNT + 1')) {
+      this.piCoachUsage = this.piCoachUsage || [];
+      const row = this.piCoachUsage.find((r) => String(r.user_id) === String(params[0]) && r.day === params[1]
+        && (!pp.includes('AND COUNT < ?') || r.count < Number(params[2])));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.count += 1;
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('UPDATE PI_COACH_USAGE SET COUNT = COUNT - 1')) {
+      this.piCoachUsage = this.piCoachUsage || [];
+      const row = this.piCoachUsage.find((r) => String(r.user_id) === String(params[0]) && r.day === params[1]
+        && (!pp.includes('AND COUNT > 0') || r.count > 0));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.count -= 1;
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('INSERT INTO PI_COACH_USAGE')) {
+      this.piCoachUsage = this.piCoachUsage || [];
+      if (this.piCoachUsage.some((r) => String(r.user_id) === String(params[0]) && r.day === params[1])) {
+        const err = new Error(`Duplicate entry '${params[0]}-${params[1]}' for key 'PRIMARY'`);
+        err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+        throw err;
+      }
+      this.piCoachUsage.push({ user_id: params[0], day: params[1], count: Number(params[2]) });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('SELECT COUNT FROM PI_COACH_USAGE WHERE USER_ID = ? AND DAY = ?')) {
+      this.piCoachUsage = this.piCoachUsage || [];
+      const row = this.piCoachUsage.find((r) => String(r.user_id) === String(params[0]) && r.day === params[1]);
+      return [row ? [{ count: row.count }] : [], []];
     }
 
     // NO BRANCH MATCHED. This used to `return [[], []]` — the shim inventing
@@ -2817,6 +2864,7 @@ const EXPECTED_TABLES = Object.freeze([
   'duel_picks',
   'siwf_nonces',
   'pi_payments',
+  'pi_coach_usage',
 ]);
 
 /**
@@ -4226,6 +4274,18 @@ async function migrate() {
         updated_at TIMESTAMP NOT NULL,
         UNIQUE KEY uq_pi_payments_payment (payment_id),
         INDEX idx_pi_payments_user (user_id)
+      )
+    `);
+    // Ask the Claw (lib/pi_coach.js): questions a Pi account has asked on a
+    // UTC day. The UPDATE's `count < ?` is the cap; the row is here, not in
+    // memory, so a restart or a second instance does not grant a second
+    // allowance.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pi_coach_usage (
+        user_id INT NOT NULL,
+        day CHAR(10) NOT NULL,
+        count INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, day)
       )
     `);
     return 'ddl';

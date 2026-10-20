@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 16,
-    "sha": "c235690646262282"
+    "v": 17,
+    "sha": "8735bdca240f9ca2"
   },
   "js/admin.js": {
     "v": 3,
@@ -40,8 +40,8 @@
     "sha": "77d4026436966cf1"
   },
   "js/arena-session.js": {
-    "v": 8,
-    "sha": "7625755ef66002a7"
+    "v": 9,
+    "sha": "963943cdbec7e02f"
   },
   "js/arena_engine.js": {
     "v": 2,
@@ -232,12 +232,16 @@
     "sha": "25cb3003194ae98c"
   },
   "js/pi-arena.js": {
-    "v": 4,
-    "sha": "cca9b0e1dec9212a"
+    "v": 5,
+    "sha": "84b869bfb19def8d"
+  },
+  "js/pi-coach.js": {
+    "v": 1,
+    "sha": "ab09f211e1d1c12d"
   },
   "js/pi-duel.js": {
-    "v": 6,
-    "sha": "2d170442afa56990"
+    "v": 7,
+    "sha": "75f5143d4bb85c34"
   },
   "js/pi-leaders.js": {
     "v": 1,
@@ -248,8 +252,8 @@
     "sha": "3c4e62fedd0d8235"
   },
   "js/pi-signals.js": {
-    "v": 5,
-    "sha": "eb5fa452874883cb"
+    "v": 6,
+    "sha": "ac6f06c8c7ef3176"
   },
   "js/pi-signin-callback.js": {
     "v": 1,

@@ -15,12 +15,14 @@
  * Pi.init is awaited to completion before Pi.authenticate, and is not told
  * whether this is the sandbox: the SDK detects that itself.
  *
- * ONE PAYMENT: AN OPTIONAL TIP, AND IT UNLOCKS NOTHING. The amounts, the
- * memo and the order come from our server (routes/pi_payments.js), never
- * from this page, and the page hands Pi's payment id back for the server to
- * approve and complete against Pi with a key the page never sees. A payment
- * the SDK finds unfinished at sign-in is handed back the same way, by id
- * only: the server reads the rest from Pi.
+ * TWO PAYMENTS, ONE PATH. An optional tip, which unlocks nothing, and Coach
+ * Plus, which adds coach questions for a while (off unless the operator
+ * prices it). The amount, the memo and the order come from our server
+ * (routes/pi_payments.js), never from this page, and the page hands Pi's
+ * payment id back for the server to approve and complete against Pi with a
+ * key the page never sees (`payOrder`). A payment the SDK finds unfinished
+ * at sign-in is handed back the same way, by id only: the server reads the
+ * rest from Pi.
  */
 (function () {
   'use strict';
@@ -97,19 +99,40 @@
     return 'The tip could not be prepared. Nothing was taken.';
   }
 
-  function finish(ctx, paymentId, txid) {
-    return ctx.api('/api/pi/payments/complete', {
-      method: 'POST', body: { paymentId: paymentId, txid: txid },
-    }).then(function (r) {
-      tipBusy = false;
-      if (r.ok) note('ok', 'Thank you, your tip arrived.');
-      else note('warn', 'Your tip was sent but not yet confirmed here. Reopen the app and it will be finished.');
-      ctx.render();
-    }, function () {
-      tipBusy = false;
-      note('warn', 'Your tip was sent but not yet confirmed here. Reopen the app and it will be finished.');
-      ctx.render();
-    });
+  /**
+   * One payment, as the server ordered it: ask our server for the order,
+   * hand exactly that to Pi.createPayment, let the server approve and
+   * complete it by Pi's id. Resolves { ok, cancelled?, sent? } and never
+   * rejects; every outcome is a different sentence for the caller to say.
+   * `say(kind, text)` reports the steps in between.
+   */
+  function payOrder(ctx, orderPath, orderBody, say) {
+    var Pi = window.Pi;
+    if (!Pi || typeof Pi.createPayment !== 'function') return Promise.resolve({ ok: false, noHost: true });
+    return ctx.api(orderPath, { method: 'POST', body: orderBody }).then(function (r) {
+      if (!r.ok || !r.body || !r.body.orderId) return { ok: false, refused: r };
+      var order = r.body;
+      say('note', 'Confirm the payment in the Pi Browser.');
+      return new Promise(function (resolve) {
+        // Amount, memo and metadata exactly as the server issued them.
+        Pi.createPayment({ amount: order.amount, memo: order.memo, metadata: order.metadata }, {
+          onReadyForServerApproval: function (paymentId) {
+            // Pi retries this until the server approves; the server is idempotent.
+            ctx.api('/api/pi/payments/approve', { method: 'POST', body: { paymentId: paymentId } });
+          },
+          onReadyForServerCompletion: function (paymentId, txid) {
+            ctx.api('/api/pi/payments/complete', {
+              method: 'POST', body: { paymentId: paymentId, txid: txid },
+            }).then(function (c) { resolve({ ok: !!c.ok, sent: true }); },
+              function () { resolve({ ok: false, sent: true }); });
+          },
+          onCancel: function () { resolve({ ok: false, cancelled: true }); },
+          // The SDK does not say whether the transaction was signed, so the
+          // caller does not claim either way.
+          onError: function () { resolve({ ok: false, error: true }); },
+        });
+      });
+    }, function () { return { ok: false, unreachable: true }; });
   }
 
   function tip(amount, ctx) {
@@ -123,43 +146,37 @@
     tipBusy = true;
     note('note', 'Preparing your tip…');
     ctx.render();
-    ctx.api('/api/pi/payments/tips', { method: 'POST', body: { amount: amount } }).then(function (r) {
-      if (!r.ok || !r.body || !r.body.orderId) {
-        tipBusy = false;
-        note('warn', problem(r));
-        return ctx.render();
-      }
-      var order = r.body;
-      note('note', 'Confirm the tip in the Pi Browser.');
+    payOrder(ctx, '/api/pi/payments/tips', { amount: amount }, function (kind, text) {
+      note(kind, text.replace('the payment', 'the tip'));
       ctx.render();
-      // Amount, memo and metadata exactly as the server issued them.
-      Pi.createPayment({ amount: order.amount, memo: order.memo, metadata: order.metadata }, {
-        onReadyForServerApproval: function (paymentId) {
-          // Pi retries this until the server approves; the server is idempotent.
-          ctx.api('/api/pi/payments/approve', { method: 'POST', body: { paymentId: paymentId } });
-        },
-        onReadyForServerCompletion: function (paymentId, txid) {
-          finish(ctx, paymentId, txid);
-        },
-        onCancel: function () {
-          tipBusy = false;
-          note('note', 'Tip cancelled. Nothing was paid.');
-          ctx.render();
-        },
-        onError: function () {
-          tipBusy = false;
-          // The SDK does not say whether the transaction was signed, so this
-          // does not claim either way.
-          note('warn', 'The tip did not go through. If Pi shows it as paid, reopen the app and it will be finished.');
-          ctx.render();
-        },
-      });
-      return undefined;
-    }, function () {
+    }).then(function (out) {
       tipBusy = false;
-      note('warn', 'The tip could not be prepared. Nothing was taken.');
+      if (out.ok) note('ok', 'Thank you, your tip arrived.');
+      else if (out.refused) note('warn', problem(out.refused));
+      else if (out.unreachable) note('warn', 'The tip could not be prepared. Nothing was taken.');
+      else if (out.cancelled) note('note', 'Tip cancelled. Nothing was paid.');
+      else if (out.sent) note('warn', 'Your tip was sent but not yet confirmed here. Reopen the app and it will be finished.');
+      else note('warn', 'The tip did not go through. If Pi shows it as paid, reopen the app and it will be finished.');
       ctx.render();
     });
+  }
+
+  /** Coach Plus, for the coach tab (pi-coach.js): the same path as a tip. */
+  function buyPlus(ctx) {
+    return payOrder(ctx, '/api/pi/payments/coach-plus', {}, function () { /* the coach says its own steps */ })
+      .then(function (out) {
+        if (out.ok) return { ok: true, text: 'Coach Plus is on. Thank you.' };
+        if (out.noHost) return { ok: false, text: 'Open this in the Pi Browser to get Coach Plus.' };
+        if (out.refused) {
+          var code = out.refused.body && out.refused.body.error;
+          return { ok: false, text: code === 'not_offered' ? 'Coach Plus is not offered right now. Nothing was taken.'
+            : out.refused.status === 503 ? 'Payments are unavailable right now. This is on our side; nothing was taken.'
+              : 'Coach Plus could not be prepared. Nothing was taken.' };
+        }
+        if (out.cancelled) return { ok: false, text: 'Cancelled. Nothing was paid.' };
+        if (out.sent) return { ok: false, text: 'Your payment was sent but not yet confirmed here. Reopen the app and it will be finished.' };
+        return { ok: false, text: 'Coach Plus did not go through. If Pi shows it as paid, reopen the app and it will be finished.' };
+      });
   }
 
   /** After sign-in: finish an interrupted tip, then read what is offered. */
@@ -258,6 +275,8 @@
       + '<ul class="p-about-list">'
       + '<li><b>Daily Duel.</b> A few rounds a day: call each one before the Claw reveals its own call. '
       + 'Every round is sealed when it is dealt; tap a receipt to check it in your browser.</li>'
+      + '<li><b>Ask the Claw.</b> An AI coach for questions about the Duel, a signal or your practice trades. '
+      + 'A few questions a day are free; Coach Plus, when offered, adds more for a payment in Pi.</li>'
       + '<li><b>Signals.</b> The calls the agent makes, with their charts. Follow one with practice credits.</li>'
       + '<li><b>Leaders.</b> The season ranked on percent return, under the name you choose.</li>'
       + '</ul>'
@@ -280,6 +299,7 @@
         lead: 'Call the market against an AI. Free to play, and every round is provable.',
         points: [
           { icon: '\u2694', text: 'Daily Duel: call today\u2019s rounds before the AI shows its own.' },
+          { icon: '\uD83E\uDD89', text: 'Ask the Claw: an AI coach that explains every call, in plain words.' },
           { icon: '\u25CE', text: 'Practice trading at live prices, with credits, not money.' },
           { icon: '\u265B', text: 'A season leaderboard, ranked on percent return.' },
         ],
@@ -291,7 +311,9 @@
     legal: true,
     extras: [
       // The Daily Duel's card: quick to play, so the first tab after the arena.
-      window.RCPiDuel.create(),
+      window.RCPiDuel.create({ coach: true }),
+      // Ask the Claw: the coach, which every "Why?" on a card opens.
+      window.RCPiCoach.create({ buyPlus: buyPlus }),
       // The engine's calls with their charts.
       window.RCPiSignals.create(),
       // The season's standings, and your name on them.

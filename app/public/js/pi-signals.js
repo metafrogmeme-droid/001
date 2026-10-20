@@ -122,6 +122,37 @@
   }
 
   /** What an open got, and what of the call it did not carry. */
+  /**
+   * The call in plain words, under the trader's card: which way, toward
+   * what, given up where, and how far the target is against the stop. Read
+   * only from the call's own levels; a level that is missing leaves its
+   * clause out, and a call with no readable direction or levels has no line
+   * at all, never a sentence built on a dash.
+   */
+  function plainLine(sig) {
+    var s = sig || {};
+    var dir = String(s.direction || '').toUpperCase();
+    if (dir !== 'LONG' && dir !== 'SHORT') return null;
+    var n = function (v) { var x = (v === null || v === undefined || v === '') ? NaN : Number(v); return isFinite(x) ? x : null; };
+    var entry = n(s.entry_price);
+    var tp = n(s.take_profit);
+    var sl = n(s.stop_loss);
+    if (tp === null && sl === null) return null;
+    var M = window.RCMiniView;
+    var p = function (v) { return M && typeof M.price === 'function' ? M.price(v) : String(v); };
+    var base = window.RCEmbedRow && window.RCEmbedRow.splitSymbol ? (window.RCEmbedRow.splitSymbol(s.symbol).base || s.symbol) : s.symbol;
+    var up = dir === 'LONG';
+    var parts = [];
+    if (tp !== null) parts.push('The call: ' + base + ' ' + (up ? 'rises' : 'falls') + ' toward ' + p(tp) + '.');
+    else parts.push('The call: ' + base + ' ' + (up ? 'rises' : 'falls') + '.');
+    if (sl !== null) parts.push('It is given up if ' + base + ' ' + (up ? 'falls' : 'rises') + ' to ' + p(sl) + '.');
+    if (entry !== null && tp !== null && sl !== null && Math.abs(entry - sl) > 0) {
+      var ratio = Math.abs(tp - entry) / Math.abs(entry - sl);
+      if (isFinite(ratio)) parts.push('The target is ' + ratio.toFixed(1) + ' times as far away as the stop.');
+    }
+    return parts.join(' ');
+  }
+
   function filledText(f) {
     var text = 'Opened ' + f.symbol + ' ' + f.direction + ' at ' + f.entry + ', the live mark'
       + (f.own ? ', as your own trade. It is not credited to the call.' : '.');
@@ -199,11 +230,17 @@
           + '<span class="e-dir e-flat">LIVE</span><b class="e-sym">' + esc(sym.base || '—') + '</b>'
           + '</header><p class="e-meta">A live call. Sign in again to see its side and levels.</p></article>';
       }
-      // The action goes inside the card, so it reads as this call's.
+      // The action goes inside the card, so it reads as this call's; the
+      // plain line and the coach's door go above it.
       var row = window.RCEmbedRow.rowHtml(sig, {});
+      var line = plainLine(sig);
+      var why = '<div class="p-sig-why">' + (line ? '<p class="p-sig-plain">' + esc(line) + '</p>' : '')
+        + (ctx && typeof ctx.ask === 'function'
+          ? '<button type="button" class="p-why" data-ask="signal" data-key="' + esc(sig.signal_key) + '">Why? Ask the Claw</button>' : '')
+        + '</div>';
       var act = '<div class="p-sig-act" data-key="' + esc(sig.signal_key) + '">' + actionInner(sig, new Date(), busy) + '</div>';
       var end = row.lastIndexOf('</article>');
-      return end < 0 ? row + act : row.slice(0, end) + act + row.slice(end);
+      return end < 0 ? row + why + act : row.slice(0, end) + why + act + row.slice(end);
     }
 
     function tfHtml() {
@@ -400,6 +437,16 @@
     function click(target, c) {
       var t = target.closest('.p-tf-b');
       if (t) { setTf(t.getAttribute('data-tf')); return true; }
+      var w = target.closest('.p-signals .p-why');
+      if (w) {
+        var key = w.getAttribute('data-key');
+        var sig = (sigs || []).filter(function (s) { return String(s.signal_key) === key; })[0];
+        var base = sig && window.RCEmbedRow ? (window.RCEmbedRow.splitSymbol(sig.symbol).base || sig.symbol) : 'this market';
+        var side = sig ? String(sig.direction || '').toUpperCase() : '';
+        c.ask('Why did the agent call ' + base + (side ? ' ' + side : '') + ' here, and what would prove it wrong?',
+          { kind: 'signal', key: key });
+        return true;
+      }
       var b = target.closest('.p-sig-open, .p-sig-own');
       if (!b) return false;
       var own = b.classList.contains('p-sig-own');
@@ -414,7 +461,7 @@
   }
 
   return {
-    create: create, actionInner: actionInner, filledText: filledText,
+    create: create, actionInner: actionInner, filledText: filledText, plainLine: plainLine,
     LIMIT: LIMIT, PAPER: PAPER, TFS: TFS, BARS: BARS, VISIBLE_BARS: VISIBLE_BARS,
   };
 }));

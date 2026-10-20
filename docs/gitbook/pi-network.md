@@ -24,7 +24,14 @@ The image is published by `.github/workflows/image.yml` when a `v*` tag is pushe
 
 ## The Arena in the Pi Browser
 
-`https://www.humanoid-traders.com/pi` is the paper Arena for Pi users. Everyone starts on the same 10,000 vUSDT virtual stake, trades live Bitget prices, and can climb the season board.
+`https://www.humanoid-traders.com/pi` is the practice Arena for Pi users: the Daily Duel against the AI, an AI coach, practice trading at live Bitget prices and the season board. Everyone starts on the same 10,000-credit practice balance. The Pi app calls the balance **credits**; the website calls the same number vUSDT. Neither is money, and nothing is transacted in either.
+
+**The screens.** A first screen with the owl, what is inside and the sign-in button, with Privacy and Terms under it. Signed in, one tab at a time behind a bottom bar: **Arena** (the account, positions and the open form, with the season and balance at the top of this tab only), **Duel**, **Coach**, **Signals** and **Leaders**. **About** is a button in the header: what the app is, the policies, and the tip.
+
+- **A done action is a toast** that names the position ("Position opened: BTCUSDT LONG at 65010, 2×."). A refusal stays on the Arena tab until the next action or a change of tab, so an old message never sits over a newer trade.
+- **The open form** has a visible label on each field and one line on what long, short and leverage do.
+- **Your leaderboard name** is chosen on the Leaders tab. Sign-in offers the username Pi verified as the first value in the box; it is saved only when you tap Save, and **Hide me** takes you off the board.
+- **Duel receipts are checked in the app.** Each receipt on a Duel card has a **Check** button. It reads the receipt from our API, hashes what was sealed with the browser's own SHA-256, and replays the day's proof to its daily root. A round still sealed (not called, day not over) is shown as sealed, with no verdict either way. The DogeOS app runs the same check.
 
 **How sign-in works.** The page waits for `Pi.init({ version: "2.0" })` to finish, then asks Pi's SDK to authenticate and gets back an access token. Our server exchanges that token with Pi's App Studio (`POST /pi/auth/v1/login`), the flow Pi requires of every app. App Studio checks the token against the Pi Platform, and the uid in its answer is the identity. A uid or username the page sends is ignored. One Pi account is one RUNECLAW account.
 
@@ -63,9 +70,16 @@ Each card offers one action at most, depending on where the call stands:
 - A list that cannot be read says so. That message is never a claim that there are no signals.
 - The chart library is the site's own copy, served from our domain, and the candles come from our relay. The page's security policy is unchanged.
 
-**What is not on it.** No token, no presale and no link to the rest of the site. The page is built from the Farcaster Mini App's parts and loads none of the site's pages. Its one payment is an optional tip.
+**What is not on it.** No token, no presale and no link to the rest of the site except the two policies, which open in a new tab. The page is built from the Farcaster Mini App's parts and loads none of the site's pages. Its payments are an optional tip and, when the operator prices it, Coach Plus.
 
-**Tips.** A signed-in Pi user can tip the team a small amount of Pi from the **Support RUNECLAW** buttons. A tip unlocks nothing and does not touch the arena account.
+**Ask the Claw.** The Coach tab is a chat with the owl about the Duel, a signal, your practice trades or any trading word. Every signal card has a plain-language line ("The call: BTC rises toward 67000. It is given up if BTC falls to 64000.") and a **Why? Ask the Claw** button; every Duel round has **Explain this round**. Both open the coach on that card.
+
+- **The facts are read by our server** for the question: your open practice positions, your last closed practice trades, today's Duel card as you see it (a stance still sealed stays sealed), and the card you asked about. The page sends only which card.
+- **The coach's turn is the bot's** (`/chat/pi-coach`): the public chat's account-free, tool-free model with its own prompt. A question about a token, a sale or an airdrop gets a fixed answer, and so does one that needs a live price; neither runs a model. A reply that names a sale, the project's token, a link, signing up or exchange keys is withheld and replaced.
+- **A daily allowance** per Pi account, counted in the database: 20 questions a day by default. A question no model answered (a fixed answer, an outage) is given back. When the day's questions are used, the tab says when they reset.
+- **Coach Plus** raises the allowance (100 a day by default) for 30 days from the moment its payment completes. It is paid in Pi through the same server-ordered payment as a tip, and it is off until `PI_COACH_PLUS_PI` sets its price.
+
+**Tips.** A signed-in Pi user can tip the team a small amount of Pi from the **Support RUNECLAW** buttons in About. A tip unlocks nothing and does not touch the arena account.
 
 1. The page asks our server for one of the amounts it offers. The server records an order (who, how much) and returns the amount, memo and metadata the page hands to `Pi.createPayment`. The page never chooses the amount itself.
 2. When Pi is ready, the page passes on Pi's payment id. The server reads that payment from the Pi Platform (`GET https://api.minepi.com/v2/payments/{id}`, with the server-only key) and checks it against the order: the same person, amount and order, user to app, not cancelled. Only then does it approve the payment.
@@ -83,6 +97,10 @@ Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn fro
 |---|---|
 | `PI_NETWORK_API_KEY` | The app's server API key, from the Developer Portal: this app, then **Settings**, **API key**, **Reveal**. Set it in the hosting provider's secret settings, on the website server only. Without it there are no tip buttons. |
 | `PI_TIP_AMOUNTS` | The tip amounts in Pi, comma-separated, `1,3,5` by default (each at most 100) |
+| `PI_COACH_DAILY` | Coach questions a Pi account may ask a UTC day, `20` by default |
+| `PI_COACH_PLUS_PI` | The price of Coach Plus in Pi (at most 100). Unset, Coach Plus is not offered |
+| `PI_COACH_PLUS_DAYS` | How long a completed Coach Plus lasts, `30` days by default |
+| `PI_COACH_PLUS_DAILY` | Coach questions a day with Coach Plus, `100` by default |
 | `PI_OAUTH_CLIENT_ID` | The OAuth Client ID for **Sign in with Pi** on the website, from the Developer Portal: this app, then **Pi Sign-In**. It is public. Without it the login page shows no Pi button. |
 | `PI_VALIDATION_KEY` | The key from the Developer Portal's **Verify App Domain** step. It is served at `/pi/validation-key.txt`, the path the portal checks for this app, and at `/validation-key.txt`; 404 when unset |
 | `PI_FRAME_ANCESTORS` | Replaces Pi's frame list (for `/pi`, `/privacy` and `/terms`) if Pi's hosts change |

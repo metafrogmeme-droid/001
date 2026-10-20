@@ -58,7 +58,10 @@
  *                   About sheet). ctx also carries season() (the last
  *                   /api/arena/season answer, or null when it could not be
  *                   read), me() (who signed in), setHandle(h) (a leaderboard
- *                   name was saved) and go(tab).
+ *                   name was saved), go(tab), and ask(text, about): hand a
+ *                   question to the block that answers questions (the Pi
+ *                   app's coach, an extra with an `ask` member) and open
+ *                   its tab; false when no block answers questions.
  *   view            optional, the host's options for RCMiniView ({ unit }),
  *                   so the Pi app can say "credits" where Farcaster says vUSDT
  *   noHandle        optional, the footer's sentence for an account with no
@@ -168,6 +171,13 @@
         render();
       },
       go: function (name) { goTab(name); },
+      ask: function (text, about) {
+        var coach = extras.filter(function (x) { return typeof x.ask === 'function'; })[0];
+        if (!coach) return false;
+        if (coach.tab) goTab(coach.tab);
+        coach.ask(text, about || null, extraCtx);
+        return true;
+      },
     };
 
     /** Open a tab. A refusal on the arena tab belongs to what was done there. */

@@ -73,7 +73,12 @@
       + (label.sub ? '<span class="d">' + esc(label.sub) + '</span>' : '') + '</div>';
   }
 
-  function create() {
+  /**
+   * opts.coach: true where the app has a coach tab to send "Explain this
+   * round" to (the Pi app); the DogeOS app runs this block without one.
+   */
+  function create(opts) {
+    var hasCoach = !!(opts && opts.coach);
     var card = null;      // null: not read yet
     var me = null;        // the record, or null when it could not be read
     var failed = false;   // the card read failed
@@ -186,8 +191,12 @@
       } else if (!card.rounds.length) {
         body = M.actionNoteHtml('note', 'No rounds are on today’s card.');
       } else {
+        // Each round with the coach's door under it, where a coach is on the
+        // screen (the Pi app); the DogeOS app has none and shows none.
+        var canAsk = ctx && typeof ctx.ask === 'function' && hasCoach;
         body = '<div class="d-rounds">' + card.rounds.map(function (r) {
-          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), null, undefined, { verify: !!window.RCPiReceipt });
+          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), null, undefined, { verify: !!window.RCPiReceipt })
+            + (canAsk ? '<div class="p-why-row"><button type="button" class="p-why" data-ask="round" data-id="' + esc(r.id) + '">Explain this round</button></div>' : '');
         }).join('') + '</div>';
       }
       var day = card && !failed ? '<span class="p-duel-day">' + esc(card.day) + ' UTC</span>' : '';
@@ -252,6 +261,17 @@
     }
 
     function click(target, c) {
+      var why = target.closest('.p-duel .p-why');
+      if (why) {
+        var id = Number(why.getAttribute('data-id'));
+        var r = card && card.rounds ? card.rounds.filter(function (x) { return x.id === id; })[0] : null;
+        var what = r ? (r.kind === 'mover' ? window.RCDuel.base(r.symbol) + ' vs ' + window.RCDuel.base(r.symbol_b)
+          : r.kind === 'sports' && r.match ? (r.match.home_short || r.match.home) + ' vs ' + (r.match.away_short || r.match.away)
+            : window.RCDuel.base(r.symbol)) : 'this';
+        c.ask('Explain the ' + (r ? window.RCDuel.kindLabel(r.kind || 'direction') : '') + ' round on ' + what
+          + ': what am I being asked, and how is it settled?', { kind: 'round', id: id });
+        return true;
+      }
       var rc = target.closest('.p-duel .d-rc-v');
       if (rc) { checkReceipt(rc, c); return true; }
       if (target.closest('.p-duel .p-rc-close')) { receipt = null; c.render(); return true; }

@@ -641,3 +641,42 @@ html, body {
   background: transparent; border: 1px solid var(--e-line); border-radius: 8px; padding: 8px 12px; min-height: 40px;
 }
 .m-copy-url:focus-visible, .m-copy-b:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+
+/* ── Ask the Claw (pi-coach.js), and the doors to it on the cards ──────── */
+.p-coach-left { margin: -4px 0 10px; font-size: 12px; color: var(--e-text-3); font-variant-numeric: tabular-nums; }
+.p-coach-hi { margin: 0 0 10px; font-size: 14px; line-height: 1.5; color: var(--e-text); }
+.p-coach-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.p-coach-chip, .p-why {
+  font: inherit; font-size: 12.5px; color: var(--e-info); cursor: pointer; text-align: left;
+  background: var(--e-accent-soft); border: 1px solid transparent; border-radius: 999px; padding: 7px 12px; min-height: 36px;
+}
+.p-coach-chip:focus-visible, .p-why:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+.p-coach-log { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.p-coach-msg { max-width: 88%; padding: 9px 12px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.p-coach-msg--me { align-self: flex-end; background: var(--e-accent-soft); color: var(--e-text); border-bottom-right-radius: 4px; }
+.p-coach-msg--claw { align-self: flex-start; background: var(--e-surface-2); border: 1px solid var(--e-line-2); color: var(--e-text); border-bottom-left-radius: 4px; }
+.p-coach-msg--note { align-self: center; color: var(--e-text-3); font-size: 12px; }
+.p-coach-msg code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.p-coach-typing { color: var(--e-text-3); font-style: italic; }
+.p-coach-form { display: flex; gap: 8px; align-items: flex-end; }
+.p-coach-form .m-field { flex: 1 1 auto; }
+.p-coach-in {
+  font: inherit; font-size: 14px; width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px;
+  color: var(--e-text); background: var(--e-bg); border: 1px solid var(--e-line); border-radius: 10px; padding: 10px;
+}
+.p-coach-in:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+.p-coach-send {
+  font: inherit; font-size: 14px; font-weight: 650; min-height: 44px; padding: 10px 16px; cursor: pointer;
+  color: var(--e-bg); background: var(--e-info); border: 0; border-radius: 10px;
+}
+.p-coach-send[disabled] { opacity: .5; cursor: default; }
+.p-coach-out { margin: 0 0 12px; padding: 10px 12px; border: 1px dashed var(--e-line-2); border-radius: 12px; font-size: 13px; color: var(--e-text-2); }
+.p-coach-out p { margin: 0 0 8px; }
+.p-coach-plus {
+  font: inherit; font-size: 13px; font-weight: 600; width: 100%; min-height: 44px; cursor: pointer;
+  color: var(--e-text); background: transparent; border: 1px solid var(--e-accent); border-radius: 10px; padding: 10px;
+}
+.p-coach-plus[disabled] { opacity: .5; cursor: default; }
+.p-sig-why { margin: 8px 0 0; }
+.p-sig-plain { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--e-text-2); }
+.p-why-row { margin: -4px 0 4px; }

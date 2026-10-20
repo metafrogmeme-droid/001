@@ -54,6 +54,8 @@ const USER_SCOPED_TABLES = [
   // Pi tips. The rows go; the payment itself stays on Pi's ledger, which is
   // not ours to erase, and a tip granted nothing that would need undoing.
   'pi_payments',
+  // How many coach questions a Pi account asked each day.
+  'pi_coach_usage',
   // trading history and positions
   'trades',
   'equity_snapshots',

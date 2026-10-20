@@ -126,7 +126,7 @@ test('the only pages the app links to are the two policies, which carry no presa
   // /call/ is the website's receipt link, which duel.js draws only when asked
   // for links; the Pi block asks for the in-app check instead.
   const duelBlock = codeOnly(fs.readFileSync(path.join(PUBLIC_JS, 'pi-duel.js'), 'utf8'));
-  assert.match(duelBlock, /\{ verify: true \}/, 'the Pi Duel stopped asking for the in-app receipt check');
+  assert.match(duelBlock, /\{ verify: !!window\.RCPiReceipt \}/, 'the Pi Duel stopped asking for the in-app receipt check');
   assert.doesNotMatch(duelBlock, /links:\s*true/, 'the Pi Duel asks for links to the website');
   assert.ok(targets.has('/privacy') && targets.has('/terms'), 'the policies are not reachable from the app');
 });
