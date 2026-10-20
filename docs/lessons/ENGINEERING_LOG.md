@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 276 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 277 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **501 of 1351** reach for source text through `source_scan`, `code_only`
+Driven, **502 of 1353** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 501 is a FLOOR and the honest shape is
+source scan that rule does not see, so 502 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -27240,3 +27240,77 @@ route refusing a wrong chain.
 `app/test/the_doge_app_plays_the_duel_and_anchors_on_dogeos.test.js`,
 `app/test/anchor_cell.test.js`, `app/test/root_anchor.test.js`;
 `docs/hackathon/VIBE_CODE_ON_DOGE.md` is the entry and the prompt pack.)
+
+## A RENTED DATA SOURCE IS A LINE ON THE CARD AND A CHECK ON THE RECEIPT, NEVER A VERDICT, AND IT ANSWERS THREE WAYS
+
+20 October 2026, the owner, after connecting Flovia (a group-buying front
+for Nansen, CoinGecko, QuickNode, Exa, Firecrawl and Zerion, one MCP server
+at `api.flovia.dev/mcp` behind a bearer key): "we also have api from them …
+yes build all please." Five things, built in one branch:
+
+- **One client, in the website** (`app/lib/flovia.js`). The bot does not
+  speak to Flovia: it asks the website over the bot channel and prints what
+  the website says (`bot/utils/context_pull.py`), so there is one key, one
+  session and one allowance tracker. The client answers `{read: true, data}`
+  or `{read: false, reason}` with four reasons (unconfigured, unreachable,
+  refused, malformed) and never throws; a reply may be a JSON body or an
+  event stream, and both are read. A remembered read lives in a table
+  (`flovia_reads`), not in a process: the host replaces its instance every
+  seventy seconds, and an in-memory cache would make the free allowance pay
+  for every restart. A failed read is remembered too, reason kept, for ten
+  minutes, so a spent window is not re-asked on every render; `unconfigured`
+  is never stored, because it is a fact about this deployment and costs
+  nothing to answer.
+- **A smart-money line on the signal and duel cards** (`app/lib/smart_money.js`):
+  Nansen's 24h net flow, read once a day per symbol, after a CoinGecko
+  resolve of the ticker to the chain and address Nansen keys by. Three
+  absences, three words: a read figure in the TEXT colour, because a flow
+  tinted green or red would be a verdict on the trade; "not read" when the
+  website said so; the dash when the caller passed nothing. The decision
+  files never read it (`tests/test_smart_money_is_a_line_and_never_a_verdict.py`
+  holds the engine, the executor, the risk package, the duel's rules, seal
+  and candles to zero mentions, and the duel service to the two card sites).
+  "Missing rows are not zero" is Nansen's own note, and a token with no
+  contract on a chain Nansen tracks (BTC) is "not covered", a reason of its
+  own.
+- **A second reading at settlement** (`app/lib/second_price.js`). The duel
+  still settles on the venue's hourly close; CoinGecko's point nearest the
+  horizon is sealed BESIDE it, inside the v7 receipt's hashed bytes, with
+  `disputed` three-valued: true (a read leg disagreed past
+  `DUEL_SETTLE_TOLERANCE_PCT`), false (every leg read and agreed), null (not
+  fully checked). A disputed settlement keeps its verdict and says the word
+  on the receipt, the website, the Pi app and the Telegram card. The first
+  draft of the test put the horizon at a fixed noon and the calls were not
+  due before noon on the day it was written; a test's "past" must be
+  relative to its own run.
+- **An anchor verifier with one more reader** (`app/lib/root_anchor.js`).
+  When every RPC in a chain's list fails to ANSWER, QuickNode is asked
+  through Flovia for the transaction and its block header, and the same
+  calldata is verified; the verdict carries `source: 'quicknode'`. An RPC
+  that answers "no such transaction" is an answer and the fallback is not
+  asked. The registry names QuickNode's chain where it has one (`base`);
+  the DogeOS testnet has none, and says so by its absence.
+- **The token page's pool panel** (`app/lib/token_pool.js`,
+  `GET /api/token/pool`). "Not listed on a DEX yet" is CoinGecko's fact and
+  "could not be read" is a fact about the read; the panel gives them
+  different sentences, and a figure the answer lacks is unreadable. The
+  first draft printed `$0.00` for a null liquidity and `0` for a null
+  price, through `Number(null)`, which is 0: the shapes table's "absent
+  field is zero" in a new spelling, in three places at once (the page's
+  formatter, the duel page's formatter, the pool reader's number parser).
+  Each refuses absence before the coercion now, and the tests pass a null
+  through every one.
+
+What stayed fixed: nothing on the trading path reads any of it; the service
+is in alpha with a shared free window, so every reader was written for the
+day the window is spent; the key is in the website server's environment and
+in no chat; Nansen's data is shown to members and the bot's own cards, not
+republished on the public feed; "Data provided by Nansen" and "Data provided
+by CoinGecko" ride with the figures, as the provider asks.
+(`app/test/flovia_client_reads_three_ways.test.js`,
+`app/test/the_smart_money_line_is_one_remembered_read.test.js`,
+`app/test/a_settlement_checks_itself_against_a_second_source.test.js`,
+`app/test/the_anchor_verifier_asks_quicknode_when_the_rpcs_are_down.test.js`,
+`app/test/the_token_page_shows_the_pool_or_says_why.test.js`,
+`tests/test_the_smart_money_line_prints_what_the_website_read.py`,
+`tests/test_smart_money_is_a_line_and_never_a_verdict.py`.)

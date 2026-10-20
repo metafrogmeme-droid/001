@@ -104,6 +104,9 @@ async function settleReceipt(pick, round) {
       settle_price: pick.settle_price == null ? null : Number(pick.settle_price),
       settle_price_b: pick.settle_price_b == null ? null : Number(pick.settle_price_b),
       settled_at: pick.settled_at,
+      second_price: pick.settle_second_price == null ? null : Number(pick.settle_second_price),
+      second_price_b: pick.settle_second_price_b == null ? null : Number(pick.settle_second_price_b),
+      disputed: pick.settle_disputed == null ? null : Boolean(Number(pick.settle_disputed)),
     },
     proves: 'that this settlement, prices (or score) and verdict, was written at this time over the call whose seal it names.',
   };

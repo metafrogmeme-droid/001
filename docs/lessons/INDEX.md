@@ -623,3 +623,6 @@ about to change before changing it.
 - L27095: THE TELEGRAM IMAGE CARDS WERE TEN RENDERERS WITH TEN PALETTES; NOW THEY ARE ONE LOOK, AND THE HONESTY TESTS NEVER NOTICED — `tests/png_text.py`, `tests/test_a_paper_close_sends_its_card.py`, `tests/test_a_signed_dollar_reads_as_money.py`, `tests/test_the_cards_share_one_look.py`, `tests/test_the_position_cards_print_the_score_the_record_holds.py`
 
 ## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE (line 27196)
+
+
+## A RENTED DATA SOURCE IS A LINE ON THE CARD AND A CHECK ON THE RECEIPT, NEVER A VERDICT, AND IT ANSWERS THREE WAYS (line 27244)

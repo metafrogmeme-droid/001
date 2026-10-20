@@ -484,6 +484,7 @@ html, body {
 .p-duel .d-sym { margin: 0 0 3px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: var(--e-text); }
 .p-duel .d-vs { font-weight: 400; font-size: 13px; color: var(--e-text-3); }
 .p-duel .d-q { margin: 0 0 9px; font-size: 13px; color: var(--e-text-2); line-height: 1.45; }
+.p-duel .d-ctx { margin: -4px 0 9px; font-size: 12px; color: var(--e-text-3); line-height: 1.4; }
 .p-duel .d-agent { display: flex; align-items: center; gap: 6px; margin: -3px 0 9px; font-size: 12px; color: var(--e-text-3); }
 .p-duel .d-pill-k {
   font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3);

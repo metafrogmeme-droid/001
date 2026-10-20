@@ -116,20 +116,34 @@
         note: tr('duel.st_unresolved_n', 'We could not read a settling price. This call is not counted either way.'),
       };
     }
+    // A second source disagreed with the settle price past the tolerance:
+    // the verdict stands (the venue's close settles), and the note says a
+    // reader may want to check the receipt. Only a true `disputed` says so;
+    // false is agreement and null is "not checked", and neither is a note.
+    const dispute = e.disputed === true
+      ? ' \u00b7 ' + tr('duel.st_disputed', 'disputed') : '';
+    const disputeNote = e.disputed === true
+      ? tr('duel.st_disputed_n', 'A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.') : null;
+    const withDispute = (r) => {
+      if (!dispute) return r;
+      const out = Object.assign({}, r, { text: r.text + dispute, disputed: true });
+      out.note = r.note ? r.note + ' ' + disputeNote : disputeNote;
+      return out;
+    };
     switch (e.state) {
       case 'correct':
-        return e.beat_agent
+        return withDispute(e.beat_agent
           ? { text: tr('duel.st_beat', 'Correct — you beat the Claw'), tone: 'up', known: true }
-          : { text: tr('duel.st_correct', 'Correct'), tone: 'up', known: true };
+          : { text: tr('duel.st_correct', 'Correct'), tone: 'up', known: true });
       case 'wrong':
-        return { text: tr('duel.st_wrong', 'Wrong'), tone: 'down', known: true };
+        return withDispute({ text: tr('duel.st_wrong', 'Wrong'), tone: 'down', known: true });
       case 'push':
-        return {
+        return withDispute({
           text: tr('duel.st_push', 'No result'),
           tone: 'muted',
           known: true,
           note: tr('duel.st_push_n', 'The market went nowhere, or you passed on one that moved. Counts for neither side.'),
-        };
+        });
       default:
         return { text: tr('duel.st_pending', 'Running'), tone: 'muted', known: false };
     }
@@ -346,6 +360,41 @@
       : '<span class="d-rc" title="' + esc(seal) + '">' + label + '</span>';
   }
 
+  /** +$1.2M / -$340K / +$12: a market figure at the size a card line has room for. */
+  function compactUsd(v) {
+    // `Number(null)` is 0: absence is refused before the coercion, or a
+    // flow nobody read prints as +$0.
+    if (v === null || v === undefined || v === '') return '';
+    var n = Number(v);
+    if (!isFinite(n)) return '';
+    var a = Math.abs(n), sign = n < 0 ? '-' : '+';
+    var body = a >= 1e9 ? (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(1) + 'M'
+      : a >= 1e3 ? (a / 1e3).toFixed(0) + 'K' : a.toFixed(0);
+    return sign + '$' + body;
+  }
+
+  /**
+   * The smart-money context line, when the card carries one. A read value
+   * only: the line is omitted, never "0", when nothing was read, and it is
+   * a line beside the question, never a tint on the buttons.
+   */
+  function smartMoneyText(sm, tr) {
+    if (!sm || sm.read !== true) return '';
+    var flow = compactUsd(sm.net_flow_usd);
+    if (!flow) return '';
+    var dir = Number(sm.net_flow_usd) >= 0 ? tr('duel.sm_in', 'in') : tr('duel.sm_out', 'out');
+    return tr('duel.smart_money', 'Smart money 24h: {flow} {dir}', { flow: flow, dir: dir })
+      + ' \u00b7 ' + (sm.provider || 'Nansen');
+  }
+  function smartMoneyHtml(r, tr) {
+    var a = smartMoneyText(r && r.smart_money, tr);
+    var b = smartMoneyText(r && r.smart_money_b, tr);
+    var parts = [];
+    if (a) parts.push((b && r.symbol ? base(r.symbol) + ': ' : '') + a);
+    if (b) parts.push((r.symbol_b ? base(r.symbol_b) + ': ' : '') + b);
+    return parts.length ? '<p class="d-ctx">' + parts.map(esc).join('<br>') + '</p>' : '';
+  }
+
   function roundCard(round, t, now, opts) {
     const tr = t || IDENT;
     const links = Boolean(opts && opts.links);
@@ -438,10 +487,11 @@
       + '</header>'
       + '<h3 class="d-sym">' + title + '</h3>'
       + '<p class="d-q">' + esc(questionText(r, tr, now)) + '</p>'
+      + smartMoneyHtml(r, tr)
       + stance
       + body
       + '</article>';
   }
 
-  return { esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard };
+  return { esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
 }));

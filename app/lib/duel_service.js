@@ -18,6 +18,8 @@ const { closeAt } = require('./candles');
 const { sealDuelPick, sealDuelRound, sealDuelSettle, newRoundNonce } = require('./callseal');
 const duel = require('./duel');
 const sportsFeed = require('./sports_feed');
+const duelContext = require('./duel_context');
+const secondPrice = require('./second_price');
 
 /** How far back a player's record is computed, stated on every payload that
  *  carries it rather than truncating in silence. */
@@ -154,6 +156,9 @@ async function ensureRounds(day, now = new Date()) {
       [r.day, r.idx, r.kind, r.symbol, r.symbol_b, r.threshold_pct, r.agent_direction, r.signal_key,
         r.meta == null ? null : JSON.stringify(r.meta), receipt.seal, receipt.seal_payload, dealt_at]);
   }
+  // The day's context lines, read once now and remembered; not awaited, so
+  // the deal never waits on a rented source (lib/duel_context.js).
+  duelContext.primeSmartMoney(built);
   return loadRoundsForDay(day);
 }
 
@@ -206,13 +211,39 @@ async function settleDue(rounds, picks, now = new Date()) {
     const closeB = (mover && close != null && round.symbol_b && Number.isFinite(at))
       ? await closeAt(round.symbol_b, at) : null;
     if (close != null && (!mover || closeB != null)) {
-      await writeSettlement(round, p, 'settled', close, mover ? closeB : null, now);
+      // A second reading of the same instant (lib/second_price.js), for the
+      // receipt to say whether another source agreed. The venue's close
+      // above is the settle price whatever it says; a reading that could
+      // not be made leaves the settlement unchecked, never unsettled.
+      const check = await secondReadings(symbol, mover ? round.symbol_b : null, at, close, closeB);
+      await writeSettlement(round, p, 'settled', close, mover ? closeB : null, now, check);
       settled++;
     } else if (duel.isAbandoned(p, now)) {
       await writeSettlement(round, p, 'unresolved', null, null, now);
     }
   }
   return settled;
+}
+
+/**
+ * The second readings for a settlement and the dispute they make:
+ * { second, second_b, disputed } with disputed true (a read leg disagreed
+ * past the tolerance), false (every leg read, all agreed) or null (no leg
+ * read, or a leg unread while the read ones agreed: not fully checked).
+ */
+async function secondReadings(symbol, symbolB, at, close, closeB) {
+  const read = async (sym) => {
+    try { return await secondPrice.secondPriceAt(sym, at); } catch (e) { return { read: false, reason: 'unreachable', detail: (e && e.name) || 'Error' }; }
+  };
+  const second = await read(symbol);
+  const second_b = symbolB ? await read(symbolB) : null;
+  const tol = secondPrice.tolerancePct();
+  const verdicts = [secondPrice.disputed(close, second, tol)];
+  if (symbolB) verdicts.push(secondPrice.disputed(closeB, second_b, tol));
+  let disputed = null;
+  if (verdicts.some((v) => v === true)) disputed = true;
+  else if (verdicts.every((v) => v === false)) disputed = false;
+  return { second, second_b, disputed };
 }
 
 /**
@@ -225,8 +256,11 @@ async function settleDue(rounds, picks, now = new Date()) {
  * rewrite would most like to lose. A pick whose round is not loaded cannot
  * be scored and is written without a receipt rather than with a wrong one.
  */
-async function writeSettlement(round, p, state, close, closeB, now) {
+async function writeSettlement(round, p, state, close, closeB, now, check = null) {
   const settled_at = new Date(now).toISOString();
+  const second = check && check.second && check.second.read === true ? check.second : null;
+  const secondB = check && check.second_b && check.second_b.read === true ? check.second_b : null;
+  const disputed = check && check.disputed != null ? Boolean(check.disputed) : null;
   let seal = null;
   let payload = null;
   if (round) {
@@ -238,20 +272,27 @@ async function writeSettlement(round, p, state, close, closeB, now) {
       round_id: round.id, call_seal: p.seal, round_seal: round.seal, kind, pick: p.pick,
       settle_state: state, settle_price: close, settle_price_b: closeB,
       outcome, result: res.state, marks: res.marks, settled_at,
+      second_source: second, second_source_b: secondB, disputed,
     });
     seal = receipt.seal;
     payload = receipt.seal_payload;
   }
   await pool.execute(
     'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?,'
-    + ' settle_seal = ?, settle_payload = ? WHERE id = ?',
-    [close, closeB, state, settled_at, seal, payload, p.id]);
+    + ' settle_seal = ?, settle_payload = ?, settle_second_price = ?, settle_second_price_b = ?,'
+    + ' settle_disputed = ? WHERE id = ?',
+    [close, closeB, state, settled_at, seal, payload,
+      second ? second.price : null, secondB ? secondB.price : null,
+      disputed == null ? null : (disputed ? 1 : 0), p.id]);
   p.settle_price = close;
   p.settle_price_b = closeB;
   p.settle_state = state;
   p.settled_at = settled_at;
   p.settle_seal = seal;
   p.settle_payload = payload;
+  p.settle_second_price = second ? second.price : null;
+  p.settle_second_price_b = secondB ? secondB.price : null;
+  p.settle_disputed = disputed == null ? null : (disputed ? 1 : 0);
 }
 
 async function handleFor(userId) {
@@ -389,7 +430,8 @@ async function cardFor(userId, now = new Date()) {
   await settleDue(rounds, picks, now);
   const mine = new Map(picks.map((p) => [String(p.round_id), p]));
 
-  const cards = rounds.map((r) => {
+  const cards = [];
+  for (const r of rounds) {
     const pick = mine.get(String(r.id));
     // The stance is owed only once the caller has committed. Before that it is
     // omitted entirely — see duel.publicRound.
@@ -398,8 +440,10 @@ async function cardFor(userId, now = new Date()) {
       view.my_call = duel.publicPick(pick, { now, round: r });
       view.my_result = duel.scoreCall(duel.kindOf(r), pick.pick, duel.callOutcome(r, pick), r.agent_direction);
     }
-    return view;
-  });
+    // A remembered context line, when there is one; never a lookup here.
+    await duelContext.attachSmartMoney(view, r);
+    cards.push(view);
+  }
 
   return {
     day,
@@ -432,6 +476,7 @@ async function recordFor(userId, now = new Date()) {
 }
 
 module.exports = {
+  secondReadings,
   RECORD_WINDOW_DAYS, SETTLE_BATCH, ROUND_COLS, PICK_COLS,
   dayFloor, parseRound, loadRoundsForDay, loadRoundsSince, loadPicks, sportsStateFor, writeSettlement,
   ensureRounds, settleDue, handleFor, placePick, cardFor, recordFor,

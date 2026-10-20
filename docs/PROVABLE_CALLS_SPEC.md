@@ -168,7 +168,9 @@ than being a blank one.
 {"v":7,"kind":"duel_settle","round_id":0,"call_seal":"<64 hex>","round_seal":"<64 hex>",
  "category":"direction","pick":"long","settle_state":"settled",
  "settle_price":0,"settle_price_b":null,"outcome":"up","result":"correct","marks":1,
- "settled_at":"2026-10-20T12:00:00.000Z"}
+ "settled_at":"2026-10-20T12:00:00.000Z",
+ "second_source":{"provider":"CoinGecko","price":0,"source_at":"2026-10-20T11:55:00.000Z"},
+ "second_source_b":null,"disputed":false}
 ```
 
 Rule 2 keeps a **call** receipt free of outcome fields; an outcome gets a
@@ -185,6 +187,18 @@ An **unresolved** settlement is sealed too, with `settle_state: "unresolved"`,
 both prices `null`, `outcome: null`, `result: "unresolved"` and `marks: 0`. "We
 could not price it" is a dated fact, and the receipt a later rewrite would
 most like to lose.
+
+**A second reading, since 2026-10-20.** Three fields ride inside the hashed
+bytes after `settled_at`: `second_source` and `second_source_b` (`{provider,
+price, source_at}` for the same instant from a second price provider, or
+`null` when none was read; the `_b` leg only on a mover) and `disputed`, which
+is three-valued: `true` when a read leg disagreed with the settle price past
+the operator's tolerance (`DUEL_SETTLE_TOLERANCE_PCT`, default 0.5%), `false`
+when every leg was read and agreed, `null` when the settlement was not fully
+checked. The venue's close in `settle_price` remains the one price the
+verdict is given on; a disputed settlement keeps its `result` and says so on
+its surfaces. A receipt minted before this date carries none of the three,
+and verifies as it did. A match (`category: "sports"`) is never second-read.
 
 ---
 
