@@ -648,6 +648,41 @@
     "ag.h1": { en: "Strategy Agents" },
     "ag.loading": { en: "Loading the agent catalogue…" },
     "ag.lede": { en: "Each agent is a preset from the engine's own config, and its card says when the live engine does not run its rule. Where a frozen backtest on content-hashed benchmark data is attached, it is percent and ratio only, never a dollar figure. Open one to follow it, reproduce its numbers in the Lab, or ask it anything." },
+    "studies.h": { en: "Pre-registered studies" },
+    "studies.loading": { en: "Loading the studies…" },
+    "studies.lede": { en: "Each study below was written down and sealed (its SHA-256 recorded, with the time) before its result was computed: the question, the data, the costs, the windows and the pass rule. A rule that failed is listed beside the ones that passed. Figures are Sharpe ratios, percents and counts." },
+    "studies.none": { en: "No study has been registered yet." },
+    "studies.verify": { en: "Recompute every seal from the repository:" },
+    "studies.english": { en: "Study text is shown in English, as it was sealed." },
+    "studies.unreadable": { en: "The studies registry could not be read just now, so no study is shown. That is a read failure, not an empty record." },
+    "studies.not_recorded": { en: "not recorded" },
+    "studies.passed": { en: "passed" },
+    "studies.failed": { en: "did not pass" },
+    "studies.not_a_test": { en: "not a pass/fail test" },
+    "studies.tally_unread": { en: "pass count not recorded" },
+    "studies.tally": { en: "{p} of {n} passed" },
+    "studies.sealed": { en: "sealed {date}" },
+    "studies.resealed": { en: "re-sealed for {n} addenda" },
+    "studies.verdict": { en: "Verdict" },
+    "studies.c_rule": { en: "Rule" },
+    "studies.c_pass": { en: "Result" },
+    "studies.c_dev": { en: "Development Sharpe" },
+    "studies.c_hold": { en: "Holdout Sharpe" },
+    "studies.c_sharpe": { en: "Sharpe" },
+    "studies.c_hw": { en: "Holdout-window Sharpe" },
+    "studies.c_cagr": { en: "Yearly growth" },
+    "studies.c_dd": { en: "Max drawdown" },
+    "studies.c_hdd": { en: "Holdout max drawdown" },
+    "studies.c_fund": { en: "Funding share of gross profit" },
+    "studies.c_years": { en: "Years up" },
+    "studies.c_boot": { en: "90% interval, full-period Sharpe" },
+    "studies.more": { en: "Data, windows, pass rule and limits" },
+    "studies.windows": { en: "Windows" },
+    "studies.windows_v": { en: "development {d} · holdout {h}" },
+    "studies.data": { en: "Data" },
+    "studies.pass_rule": { en: "Pass rule" },
+    "studies.limits": { en: "Limits" },
+    "studies.prereg": { en: "Pre-registration" },
     "lt.lede": { en: "The autonomous desk's weekly letter, composed entirely from <b>recorded trades and snapshots</b> — nothing hand-written, and a losing week reads like one. Counts, win rate, and percent moves only: <b>account size is never published</b>." },
     "lt.loading": { en: "Opening the letter press…" },
     "ac.brand_sub": { en: "Command Core" },
@@ -2327,7 +2362,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"3bee96fd","zh":"e0c72157","pt":"c05cda12","fr":"07464022","de":"59bb4a59","nl":"b3aeb653","ja":"c911b2cf","ko":"1717353f","ru":"042776ce","tr":"b2978f67","it":"e39a1e6a","hi":"a4c96925","ar":"9328a3c1"};
+  var CHUNKS = {"es":"243ae3ba","zh":"0cecee4e","pt":"9ee04971","fr":"d241f058","de":"27a3e20d","nl":"bb1e6a31","ja":"3681ccbc","ko":"4655faab","ru":"001f9b48","tr":"7abfec05","it":"1aaa6d4a","hi":"709264d2","ar":"d9a0b094"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

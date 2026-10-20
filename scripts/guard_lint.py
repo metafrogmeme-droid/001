@@ -385,6 +385,12 @@ RULES: list[Rule] = [
             "public_agent", "public_chat", "public_flight", "public_invite",
             "public_leaderboard", "public_letter", "public_proofofpnl",
             "public_status", "public_strategies", "public_user_strategies",
+            "public_studies",      # mounted under /api/public — the pre-registered
+                                   # studies registry (benchmark/studies.json):
+                                   # sealed prose, Sharpe ratios, percents and
+                                   # counts by allowlist (app/lib/studies.js); no
+                                   # account in scope, a dollar amount in the prose
+                                   # refuses the registry; §4-tested.
             "public_duel",         # mounted under /api/public — the duel board and
                                    # squad standings. Opt-in handles only (a player
                                    # who never chose one cannot appear), and a duel

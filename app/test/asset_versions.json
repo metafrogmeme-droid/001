@@ -180,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 191,
-    "sha": "40585e5073e4680b"
+    "v": 192,
+    "sha": "8507c2244f458522"
   },
   "js/icons.js": {
     "v": 6,
@@ -322,6 +322,10 @@
   "js/stress-model.js": {
     "v": 2,
     "sha": "5d27a0aa000d121b"
+  },
+  "js/studies-panel.js": {
+    "v": 1,
+    "sha": "956628eed9c6ec33"
   },
   "js/swap-page.js": {
     "v": 3,
