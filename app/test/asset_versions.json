@@ -180,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 190,
-    "sha": "ffd0d173d6253dfd"
+    "v": 191,
+    "sha": "69d98d8113d2ca74"
   },
   "js/icons.js": {
     "v": 6,
@@ -382,5 +382,9 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
+  },
+  "js/studies-panel.js": {
+    "v": 1,
+    "sha": "956628eed9c6ec33"
   }
 }

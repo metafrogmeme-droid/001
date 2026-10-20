@@ -65,6 +65,27 @@
   .cmp-t.on { border-color: var(--gold-bright, #f0b950); color: var(--gold-bright, #f0b950); }
   #cmpTray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: var(--surface, #12141c); border-top: 1px solid var(--line-2, #2a2e3d); padding: 10px var(--s4); display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; }
   #cmpTray .names { color: var(--text-2); font-size: var(--fs-sm); }
+  /* Pre-registered studies (js/studies-panel.js) */
+  .st-wrap { margin-top: var(--s6); }
+  .st-wrap h2 { font-family: var(--font-display); letter-spacing: .03em; font-size: clamp(20px, 3vw, 26px); margin: 0 0 var(--s2); }
+  .st-lede { color: var(--text-2); max-width: 70ch; line-height: 1.6; margin: 0 0 var(--s4); }
+  .st-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s3); }
+  .st-card h3 { margin: 0 0 var(--s1); font-size: var(--fs-lg); }
+  .st-meta { color: var(--text-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+  .st-tally { color: var(--text-2); font-weight: 600; }
+  .st-q, .st-verdict { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.55; margin: var(--s2) 0 0; }
+  .st-scroll { overflow-x: auto; margin-top: var(--s3); }
+  .st-table { border-collapse: collapse; font-size: var(--fs-xs); min-width: 100%; }
+  .st-table th, .st-table td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  .st-table thead th { color: var(--text-3); font-weight: 500; font-family: inherit; white-space: normal; vertical-align: bottom; }
+  .st-table tbody th { text-align: left; font-family: inherit; font-weight: 500; white-space: normal; }
+  .st-na, .st-fail { color: var(--text-3); }
+  .st-pass { color: var(--up); font-weight: 600; }
+  .st-more { margin-top: var(--s3); font-size: var(--fs-xs); color: var(--text-2); }
+  .st-more summary { cursor: pointer; color: var(--text-3); }
+  .st-more dt { color: var(--text-3); margin-top: var(--s2); }
+  .st-more dd { margin: 2px 0 0; line-height: 1.55; overflow-wrap: anywhere; }
+  .st-sha { font-family: var(--font-data); color: var(--text-3); }
 </style>
 </head>
 <body>
@@ -91,10 +112,16 @@
   </div>
 
   <div id="ag-root"><div class="empty" data-i18n="ag.loading">Loading the agent catalogue…</div></div>
+
+  <section class="st-wrap" aria-labelledby="st-h">
+    <h2 id="st-h" data-i18n="studies.h">Pre-registered studies</h2>
+    <div id="st-root"><div class="empty" data-i18n="studies.loading">Loading the studies…</div></div>
+  </section>
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
 <script src="/js/agent-scorecard.js?v=9"></script>
+<script src="/js/studies-panel.js?v=1"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -275,6 +302,21 @@
     return fetch(url, { headers: { Accept: 'application/json' } })
       .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
   }
+  // The pre-registered studies: their own panel, so a failed read says so
+  // here and leaves the catalogue alone (js/studies-panel.js).
+  (function () {
+    var st = document.getElementById('st-root');
+    if (!st || !window.StudiesPanel) return;
+    fetch('/api/public/studies', { headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (body) {
+          if (r.ok && body) { st.innerHTML = StudiesPanel.render(body, T); return; }
+          st.innerHTML = StudiesPanel.unreadable(body && body.exception ? String(body.exception) : null, T);
+        });
+      })
+      .catch(function () { st.innerHTML = StudiesPanel.unreadable(null, T); });
+  })();
+
   // The engine catalogue AND the published community strategies, side by side.
   Promise.all([getJSON('/api/public/strategies'), getJSON('/api/public/user-strategies')])
     .then(function (res) {
@@ -322,7 +364,7 @@
     });
 })();
 </script>
-<script src="/js/i18n-core.js?v=190"></script>
+<script src="/js/i18n-core.js?v=191"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

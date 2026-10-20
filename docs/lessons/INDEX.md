@@ -623,3 +623,5 @@ about to change before changing it.
 - L27095: THE TELEGRAM IMAGE CARDS WERE TEN RENDERERS WITH TEN PALETTES; NOW THEY ARE ONE LOOK, AND THE HONESTY TESTS NEVER NOTICED — `tests/png_text.py`, `tests/test_a_paper_close_sends_its_card.py`, `tests/test_a_signed_dollar_reads_as_money.py`, `tests/test_the_cards_share_one_look.py`, `tests/test_the_position_cards_print_the_score_the_record_holds.py`
 
 ## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE (line 27196)
+
+- L27244: THE SEALED STUDIES, ON THE PAGE WHERE A VISITOR READS THE CARDS — `app/test/the_agents_page_shows_the_sealed_studies.test.js`

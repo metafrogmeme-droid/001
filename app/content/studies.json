@@ -1,0 +1,288 @@
+{
+  "format": "runeclaw.studies.v1",
+  "note": "Every study here was pre-registered: the question, data, costs, windows and pass rule were written and sealed (SHA-256 recorded beside the file, with the time) before the result was computed. A sidecar with several lines is a pre-registration that was re-sealed when an addendum was appended; the last line is the file as it stands. Figures are percent, ratio and count only. scripts/verify_evidence.py recomputes each seal from the committed file.",
+  "studies": [
+    {
+      "id": "bitget_slow_rules",
+      "title": "Five slow daily rules on Bitget USDT-M perps, 2021-06 → 2026-10",
+      "question": "Is there a rule, on the data the bot already trades, that makes money after costs out of sample? Slower rules on longer history, every parameter fixed before the first run.",
+      "sealed_at": "2026-10-17T05:34:49Z",
+      "resealed_for_addenda_at": [
+        "2026-10-17T05:43:11Z",
+        "2026-10-17T05:43:54Z",
+        "2026-10-17T05:47:18Z"
+      ],
+      "prereg": "docs/research/prereg/bitget_slow_rules/PREREGISTRATION.md",
+      "prereg_sha256": "4e4011e27ec4ed4c6555e348342b558359154eed1de95e4abf32a80259c00e94",
+      "report": "docs/research/prereg/bitget_slow_rules/result_1D_holdout.json",
+      "data": "Bitget USDT-M perpetual daily bars, 20 coins chosen ex ante (January 2022 market cap), 150 days of history before a coin is eligible; 0.10% per side; longs charged 0.03%/day funding.",
+      "windows": {
+        "development": "2021-06-01 → 2024-12-31",
+        "holdout": "2025-01-01 → 2026-10"
+      },
+      "pass_rule": "development Sharpe ≥ 0.5 AND holdout Sharpe ≥ 0.5 AND positive in ≥ 4 of 6 calendar years AND 90% block-bootstrap interval of the full-period Sharpe above 0 AND holdout drawdown no worse than BTC buy-and-hold's.",
+      "tests": 5,
+      "passes": 0,
+      "verdict": "none of the five passes; H1a trend long/short came nearest at development 0.66 / holdout 0.24",
+      "results": [
+        {
+          "rule": "H1a trend long/short",
+          "dev_sharpe": 0.66,
+          "holdout_sharpe": 0.24,
+          "holdout_max_dd_pct": 7.7,
+          "bootstrap90_full_sharpe": [
+            -0.18,
+            1.26
+          ],
+          "pass": false
+        },
+        {
+          "rule": "H1b trend long-only",
+          "dev_sharpe": 0.89,
+          "holdout_sharpe": -0.02,
+          "holdout_max_dd_pct": 6.6,
+          "bootstrap90_full_sharpe": [
+            -0.19,
+            1.48
+          ],
+          "pass": false
+        },
+        {
+          "rule": "H2a breakout long/short",
+          "dev_sharpe": 0.33,
+          "holdout_sharpe": 0.01,
+          "holdout_max_dd_pct": 11.1,
+          "bootstrap90_full_sharpe": [
+            -0.44,
+            0.93
+          ],
+          "pass": false
+        },
+        {
+          "rule": "H2b breakout long-only",
+          "dev_sharpe": 0.6,
+          "holdout_sharpe": -0.07,
+          "holdout_max_dd_pct": 7.5,
+          "bootstrap90_full_sharpe": [
+            -0.35,
+            1.21
+          ],
+          "pass": false
+        },
+        {
+          "rule": "H3 cross-sectional momentum",
+          "dev_sharpe": 0.37,
+          "holdout_sharpe": -0.8,
+          "holdout_max_dd_pct": 33.6,
+          "bootstrap90_full_sharpe": [
+            -0.61,
+            0.66
+          ],
+          "pass": false
+        },
+        {
+          "rule": "BTC buy-and-hold (benchmark)",
+          "dev_sharpe": 0.73,
+          "holdout_sharpe": 0.01,
+          "holdout_max_dd_pct": 53.3,
+          "pass": null
+        }
+      ],
+      "limits": "Survivorship (the 20 were chosen by 2022 market cap; LUNA and MATIC absent, stated not corrected); a 3-to-5-year Sharpe has a standard error near 0.8, so the study had little power; funding was a fixed assumption, revisited in funding_recost."
+    },
+    {
+      "id": "funding_rules",
+      "title": "Three funding-rate rules on Bitget USDT-M perps, 2023-10 → 2026-10",
+      "question": "Does the funding rate itself carry a tradable signal: a cross-sectional carry, a crowded-funding contrarian, or a crowded-funding filter on the trend rule?",
+      "sealed_at": "2026-10-17T06:38:33Z",
+      "prereg": "docs/research/prereg/funding_rules/PREREGISTRATION.md",
+      "prereg_sha256": "75a1aaeb3ddc11a77db35f366f27b8b67d2479a0c192b8991b117487f608b078",
+      "report": "docs/research/prereg/funding_rules/REPORT.md",
+      "data": "Bitget USDT-M perpetual daily prices with Hyperliquid funding as the proxy (Bitget's public funding history starts around July 2026); the primary universe, fixed from coverage alone, is the 9 coins with funding on every day from 2023-06-01: BTC ETH BNB SOL DOGE AVAX LTC ATOM LINK; 0.10% per side.",
+      "windows": {
+        "development": "bars opening 2023-10-01 → 2025-03-31",
+        "holdout": "2025-04-01 → 2026-10-14"
+      },
+      "pass_rule": "development Sharpe ≥ 0.5 AND holdout Sharpe ≥ 0.5 AND 90% bootstrap interval above 0 AND holdout drawdown no worse than BTC's.",
+      "tests": 3,
+      "passes": 0,
+      "verdict": "none passes. Carry's funding leg is real (+4–10%/yr received every year), but weekly rebalancing costs about 5.3%/yr and the unhedged price leg decides the result; crowded funding kept going rather than reversing; the funding filter removed the trend rule's best days",
+      "results": [
+        {
+          "rule": "F1 cross-sectional carry (weekly, top/bottom quartile)",
+          "dev_sharpe": -0.32,
+          "holdout_sharpe": 0.39,
+          "bootstrap90_full_sharpe": [
+            -0.96,
+            0.92
+          ],
+          "holdout_max_dd_pct": 14.9,
+          "pass": false
+        },
+        {
+          "rule": "F2 funding-z contrarian (7d z vs 90d, ±2)",
+          "dev_sharpe": -1.38,
+          "holdout_sharpe": -0.63,
+          "bootstrap90_full_sharpe": [
+            -1.98,
+            0.06
+          ],
+          "holdout_max_dd_pct": 9.5,
+          "pass": false
+        },
+        {
+          "rule": "F3 trend (H1a) + crowded-funding filter",
+          "dev_sharpe": 0.39,
+          "holdout_sharpe": 0.48,
+          "bootstrap90_full_sharpe": [
+            -0.43,
+            1.44
+          ],
+          "holdout_max_dd_pct": 6.5,
+          "pass": false
+        }
+      ],
+      "limits": "A proxy venue's funding; the holdout's prices had been read by the Bitget study; low power (Sharpe s.e. ≈ 0.8)."
+    },
+    {
+      "id": "kraken_spot_history",
+      "title": "The same five rules on Kraken's spot history, 2014 → 2026",
+      "question": "Do the five rules hold on the earlier, unread history? The Bitget study's weakness was power.",
+      "sealed_at": "2026-10-17T07:36:30Z",
+      "prereg": "docs/research/prereg/kraken_spot_history/PREREGISTRATION.md",
+      "prereg_sha256": "b54e4e859357ecc5b45c7e40da62d244a7bace8abceeac3df10dafabff26587a",
+      "report": "docs/research/prereg/kraken_spot_history/REPORT.md",
+      "data": "Kraken OHLCVT archive (sha256 bc273e90…e7b1c7), daily USD bars: the 16 of the earlier study's 20 coins with a Kraken USD pair and at least 150 daily bars before 2021-06-01 (AVAX, BNB, NEAR, SOL out); 0.10% per side; spot, so no funding.",
+      "windows": {
+        "development": "first day with two eligible coins (2014) → 2021-05-31",
+        "holdout": "2021-06-01 → 2026-06-30 (prices read before on Bitget: a replication on another venue's prints, not a clean holdout)"
+      },
+      "pass_rule": "development Sharpe ≥ 0.5 AND holdout Sharpe ≥ 0.5 AND positive in ≥ 6 of the calendar years traded AND 90% bootstrap interval above 0 AND holdout drawdown no worse than BTC buy-and-hold's.",
+      "tests": 5,
+      "passes": 1,
+      "verdict": "H1b trend long-only passes every criterion (development 2.12, holdout 0.63, up in 8 of 13 years, bootstrap [1.05, 2.15], drawdown 10.1% against BTC's 76.7%); the other four fail on the holdout Sharpe",
+      "results": [
+        {
+          "rule": "H1a trend long/short",
+          "dev_sharpe": 1.46,
+          "holdout_sharpe": 0.29,
+          "years_up": "12/13",
+          "bootstrap90_full_sharpe": [
+            0.52,
+            1.54
+          ],
+          "holdout_max_dd_pct": 18.8,
+          "pass": false
+        },
+        {
+          "rule": "H1b trend long-only",
+          "dev_sharpe": 2.12,
+          "holdout_sharpe": 0.63,
+          "years_up": "8/13",
+          "bootstrap90_full_sharpe": [
+            1.05,
+            2.15
+          ],
+          "holdout_max_dd_pct": 10.1,
+          "pass": true
+        },
+        {
+          "rule": "H2a breakout long/short",
+          "dev_sharpe": 1.38,
+          "holdout_sharpe": 0.15,
+          "years_up": "9/13",
+          "bootstrap90_full_sharpe": [
+            0.42,
+            1.43
+          ],
+          "holdout_max_dd_pct": 20.8,
+          "pass": false
+        },
+        {
+          "rule": "H2b breakout long-only",
+          "dev_sharpe": 1.73,
+          "holdout_sharpe": 0.42,
+          "years_up": "8/12",
+          "bootstrap90_full_sharpe": [
+            0.75,
+            1.8
+          ],
+          "holdout_max_dd_pct": 14.6,
+          "pass": false
+        },
+        {
+          "rule": "H3 cross-sectional momentum",
+          "dev_sharpe": 0.49,
+          "holdout_sharpe": -0.46,
+          "years_up": "3/8",
+          "bootstrap90_full_sharpe": [
+            -0.48,
+            0.53
+          ],
+          "holdout_max_dd_pct": 57.3,
+          "pass": false
+        }
+      ],
+      "limits": "Survivorship as above; spot without funding flatters nothing on the long-only rule but flatters the long/short ones in 2013–2017; the holdout years were read before."
+    },
+    {
+      "id": "funding_recost",
+      "title": "The long-only trend sleeve re-costed with real perpetual funding, 2021-01 → 2026-06",
+      "question": "The Bitget study charged a fixed 0.03%/day of funding and read about zero; Kraken spot charged none and read the pass. What does a trend-following long book actually pay, and does the rule survive it?",
+      "sealed_at": "2026-10-17T15:01:29Z",
+      "prereg": "docs/research/prereg/funding_recost/PREREGISTRATION.md",
+      "prereg_sha256": "93450568c5a67c85260adfe40cdb6b1825997caeee10fbfab8ec2e22195ac21f",
+      "report": "docs/research/prereg/funding_recost/REPORT.md",
+      "data": "Kraken spot daily prices (the kraken_spot_history set) with Binance USDT-perp funding per 8-hour window from CoinAPI, 16 coins; a window with no sample is counted, never read as zero; 0.10% per side.",
+      "windows": {
+        "window": "2021-01-01 → 2026-06-30 (the overlap of the funding series and the archive; prices read before)"
+      },
+      "pass_rule": "Sharpe ≥ 0.5 AND funding paid ≤ 40% of gross profit AND max drawdown ≤ half of BTC buy-and-hold's, net of costs and real funding.",
+      "tests": 1,
+      "passes": 1,
+      "verdict": "passes on the pre-registered window (Sharpe 0.88, funding 14.5% of gross profit as read and 18.9% with the gaps filled, drawdown 12.0% against BTC's 76.7%); on the stricter 2021-06 → 2026-06 window the same runs read 0.54 and 0.49. The finding: funding on the coin-days the sleeve held averaged 0.0589%/day against 0.0263%/day over all coin-days, a ratio of 2.24, above 1.5 on every coin — 15–20%/yr of long notional against the 11%/yr the fixed assumption charged. The prediction that real funding would land below the assumption was wrong in direction.",
+      "results": [
+        {
+          "run": "no funding",
+          "sharpe": 1.03,
+          "cagr_pct": 8.0,
+          "max_dd_pct": 11.4,
+          "funding_share_of_gross_profit_pct": 0.0,
+          "holdout_window_sharpe": 0.63
+        },
+        {
+          "run": "fixed 0.03%/day",
+          "sharpe": 0.92,
+          "cagr_pct": 7.0,
+          "max_dd_pct": 12.5,
+          "funding_share_of_gross_profit_pct": 10.4,
+          "holdout_window_sharpe": 0.51
+        },
+        {
+          "run": "real funding, as read",
+          "sharpe": 0.88,
+          "cagr_pct": 6.7,
+          "max_dd_pct": 12.0,
+          "funding_share_of_gross_profit_pct": 14.5,
+          "holdout_window_sharpe": 0.54,
+          "pass": true
+        },
+        {
+          "run": "real funding, gaps filled",
+          "sharpe": 0.83,
+          "cagr_pct": 6.3,
+          "max_dd_pct": 12.8,
+          "funding_share_of_gross_profit_pct": 18.9,
+          "holdout_window_sharpe": 0.49
+        },
+        {
+          "run": "BTC buy-and-hold (benchmark)",
+          "sharpe": 0.51,
+          "cagr_pct": 13.7,
+          "max_dd_pct": 76.7
+        }
+      ],
+      "limits": "Binance's funding, not Bitget's (CoinAPI's Bitget futures history starts 2023-06); spot prices with a perp's funding and without the perp's basis gain, the conservative reading; 24% of held coin-days had no funding sample (charged nothing, counted; the gaps-filled run is the bound the other way); the window's prices were read before."
+    }
+  ]
+}
