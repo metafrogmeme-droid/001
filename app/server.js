@@ -115,6 +115,7 @@ const express = require('express');
 const { migrate, lastStatement, backend } = require('./db');
 const readiness = require('./lib/readiness');
 const { notReadyGate, holdMsFrom } = require('./lib/not_ready_gate');
+const { navigate } = require('./lib/navigate');
 const bootLog = require('./lib/boot_log');
 const { router: authRouter } = require('./auth');
 const tradesRouter = require('./routes/trades');
@@ -429,6 +430,9 @@ app.use('/miniapp', require('./routes/miniapp'));
 app.use('/api/pi/payments', require('./routes/pi_payments'));
 app.use('/api/pi', require('./routes/pi_auth'));
 app.use('/pi', require('./routes/piapp'));
+// The DogeOS app (the Vibe Code on DOGE entry): the duel and the arena, signed
+// in with a DogeOS wallet, every day's root anchored on the DogeOS testnet.
+app.use('/doge', require('./routes/dogeapp'));
 app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
@@ -508,6 +512,10 @@ app.get('/guardian', (req, res) => { res.setHeader('Cache-Control', 'no-cache');
 app.get('/firewall', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'firewall.html')); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
+// "Study Room" is the door's label; /study is the address people guess for it.
+// The host follows a 3xx itself (lib/navigate.js has the measurement), so the
+// alias answers a page that navigates, never a redirect.
+app.get('/study', (req, res) => { navigate(res, '/learn'); });
 app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'learn.html')); });
 // /rune — the soulbound collection, public and honest about all three forge
 // states (cold / unreadable / lit) before and after deployment.

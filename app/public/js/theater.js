@@ -9,6 +9,21 @@
  * section stays hidden.
  */
 (function () {
+  /**
+   * The feed's contract symbol for a recorded trade. The history stores the
+   * engine's form, `CRV/USDT:USDT`; stripping its punctuation gave
+   * `CRVUSDTUSDT`, which the relay forwarded and Bitget answered with a 502,
+   * so every theater replay of a perp trade said its path was unavailable.
+   * Base leg + `USDT`, as embed-read.js builds it; '' when nothing survives.
+   * Exposed before the page check so a test can drive it without a stage.
+   */
+  function contractSym(raw) {
+    const s = String(raw || '').toUpperCase();
+    const base = s.split('/')[0].split(':')[0].replace(/[^A-Z0-9]/g, '').replace(/USDT$/, '');
+    return base ? base + 'USDT' : '';
+  }
+  window.RCTheater = { contractSym };
+
   const section = document.getElementById('theaterSection');
   if (!section) return;
 
@@ -82,7 +97,7 @@
   }
 
   async function loadCandles(trade) {
-    const sym = String(trade.symbol || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    const sym = contractSym(trade.symbol);
     if (!sym) return null;
     const open = new Date(trade.opened_at).getTime();
     const close = new Date(trade.closed_at).getTime();

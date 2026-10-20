@@ -448,6 +448,9 @@ RULES: list[Rule] = [
                            # rather than one the message merely asserts.
                            # app/test/siwf.test.js drives all three, and the
                            # mutations that remove any one of them fail it.
+            "dogeapp",     # /doge — the DogeOS app: ONE HTML document, like
+                           # /pi below; the API it calls is guarded where it
+                           # lives (routes/duel.js, auth.js, roots.js).
             "piapp",       # /pi — the Pi Browser app: ONE HTML document, like
                            # `miniapp` above and for the same reason. Every
                            # action it takes is an authenticated call to
@@ -559,7 +562,7 @@ RULES: list[Rule] = [
             "reports.js:GET /",
             # Provable Calls v3 — the daily Merkle seal-root feed is public by
             # design; mirroring it is what makes the timestamp independent.
-            "roots.js:GET /", "roots.js:GET /anchor-plan/:day", "roots.js:GET /verify/:day",
+            "roots.js:GET /", "roots.js:GET /chains", "roots.js:GET /anchor-plan/:day", "roots.js:GET /verify/:day",
             # "public curated radar (no user data, IP-rate-limited)".
             "airdrops.js:GET /",
             # sync.js authenticates with its own botAuth (shared secret). Its
@@ -707,6 +710,26 @@ RULES: list[Rule] = [
              "the token dependency fails CLOSED (503) when DASHBOARD_TOKEN is unset, "
              "which is the property to preserve. If the new route is genuinely "
              "public, add it to exclude_functions with the reason."),
+    ),
+    Rule(
+        name="duel-bot-health-only",
+        files=["bot/duel_bot.py"],
+        language="python",
+        selector="aiohttp-route",
+        mode="forbid",
+        # The Daily Duel's own bot (2026-10-19) binds an aiohttp server for ONE
+        # route, its liveness probe on 127.0.0.1: `health_body` answers
+        # ok/polling/stopping/updates_seen/started_at and nothing about a
+        # player. The process holds no session model, so any other route here
+        # would answer unauthenticated. Every route is forbidden but that one;
+        # player data is served by the website's routes, never from here.
+        trigger=r".",
+        guard="",
+        min_sites=0,                  # the one route is on the exempt list
+        exclude_functions=["health"],  # constant-shape liveness probe, loopback only
+        why=("bot/duel_bot.py serves its liveness probe and nothing else. A second "
+             "aiohttp route in this process has no authentication at all: serve it "
+             "from the website (app/routes) instead, or exempt it here with a reason."),
     ),
     Rule(
         name="dashboard-route-placement",

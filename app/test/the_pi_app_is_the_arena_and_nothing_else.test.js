@@ -200,3 +200,31 @@ test('the domain key is served only when set, and never as an empty 200', async 
     assert.match(set.headers.get('content-type'), /^text\/plain/, p);
   }
 });
+
+test('the page carries a description, a link-preview image and an icon, and the files it names exist', async () => {
+  const r = await get('/pi/');
+  const head = r.text.split('</head>')[0];
+  assert.match(head, /<meta name="description" content="[^"]{40,}">/);
+  assert.match(head, /<meta property="og:image" content="https:\/\/www\.humanoid-traders\.com\/pi_og_1200x630\.jpg">/);
+  assert.match(head, /<meta property="og:image:width" content="1200">[\s\S]*<meta property="og:image:height" content="630">/);
+  assert.match(head, /<link rel="icon" type="image\/png" sizes="200x200" href="\/pi_icon_200\.png">/);
+  assert.match(head, /<link rel="apple-touch-icon" sizes="180x180" href="\/pi_touch_180\.png">/);
+  assert.doesNotMatch(head, PRESALE, 'the preview names the sale');
+  assert.doesNotMatch(head, /<a\s/, 'a door in the head');
+  for (const f of ['pi_og_1200x630.jpg', 'pi_icon_200.png', 'pi_touch_180.png']) {
+    assert.ok(fs.existsSync(path.join(PUBLIC, f)), `${f} is not in public/`);
+  }
+  // The JPEG's own frame header says what the tags claim.
+  const jpg = fs.readFileSync(path.join(PUBLIC, 'pi_og_1200x630.jpg'));
+  let i = 2, size = null;
+  while (i < jpg.length - 9) {
+    if (jpg[i] !== 0xFF) { i++; continue; }
+    const marker = jpg[i + 1];
+    if (marker === 0xC0 || marker === 0xC2) { size = { h: jpg.readUInt16BE(i + 5), w: jpg.readUInt16BE(i + 7) }; break; }
+    if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+    i += 2 + jpg.readUInt16BE(i + 2);
+  }
+  assert.deepEqual(size, { w: 1200, h: 630 });
+  const png = fs.readFileSync(path.join(PUBLIC, 'pi_icon_200.png'));
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [200, 200]);
+});

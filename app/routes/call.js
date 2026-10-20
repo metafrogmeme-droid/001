@@ -54,7 +54,7 @@ async function findArena(key) {
  * The one lookup both the public route and the MCP verify_call tool share:
  * → { code: 200, body } | { code: 400|404, body: { error } }
  */
-async function lookupCall(key) {
+async function lookupCall(key, viewer = {}) {
   {
     if (!KEY_RE.test(key)) return { code: 400, body: { error: 'Invalid call id' } };
     // A PRE-SIGNATURE scan receipt. Unlike every other receipt here, the thing
@@ -89,6 +89,13 @@ async function lookupCall(key) {
         input_note: 'The scanned bytes were never stored — the payload commits to their sha256. Whoever holds the original can prove this receipt is about it; nobody else can learn what it was.',
         verify: 'sha256 over the UTF-8 bytes of seal_payload, verbatim, is `seal`. The seal is a leaf in that day\'s Merkle root — see /api/roots.',
       } };
+    }
+    // The Daily Duel's three receipts (lib/duel_receipts.js), addressed by seal.
+    if (/^(round|duel|settle):/.test(key)) {
+      // A signed-in player who has called the round opens its payload now;
+      // everyone else when the round's day ends.
+      const found = await require('../lib/duel_receipts').lookupDuel(key, { userId: viewer.userId || null });
+      if (found) return found;
     }
     if (key.startsWith('arena:')) {
       const found = await findArena(key);
@@ -222,7 +229,7 @@ router.get('/latest', optionalAuth, async (req, res) => {
 
 router.get('/:key', optionalAuth, async (req, res) => {
   try {
-    const r = await lookupCall(String(req.params.key || ''));
+    const r = await lookupCall(String(req.params.key || ''), { userId: req.user && req.user.user_id ? req.user.user_id : null });
     if (r.code !== 200) return res.status(r.code).json(r.body);
     viewerCacheControl(res, 15);
     res.status(200).json(receiptFor(signedIn(req), r.body));

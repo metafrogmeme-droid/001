@@ -124,7 +124,7 @@ test('a called round shows the call, the stance, and no result yet', () => {
     my_call: { pick: 'long', pending: true },
     my_result: { state: 'unresolved', marks: 0, beat_agent: false },
   });
-  say(html, ['ETHUSDT', 'You called LONG', 'The Claw called SHORT', 'Running', 'tone-muted'],
+  say(html, ['ETHUSDT', 'd-pill--you', '>LONG<', 'd-pill--claw', '>SHORT<', 'Running', 'tone-muted'],
     ['tone-up', 'tone-down', 'Correct', 'Wrong']);
 });
 
@@ -134,7 +134,7 @@ test('a settled win says it was a win, and says it beat the agent', () => {
     my_call: { pick: 'long', outcome: 'up', move_pct: 3.2 },
     my_result: { state: 'correct', marks: 2, beat_agent: true },
   });
-  say(html, ['You called LONG', 'beat the Claw', 'tone-up'], ['tone-down', 'Wrong']);
+  say(html, ['d-pill--you', '>LONG<', 'beat the Claw', 'tone-up'], ['tone-down', 'Wrong']);
 });
 
 test('THE RED HERRING: a long streak with nothing settled must not read as a good record', () => {
@@ -222,17 +222,17 @@ test('a called round reports the call in the words of its category', () => {
     options: ['first', 'second', 'pass'],
     my_call: { pick: 'second', outcome: 'second', move_pct: 1, move_pct_b: 10 },
     my_result: { state: 'correct', marks: 1, beat_agent: false } });
-  say(mover, ['You called ARB MOVES MORE', 'Correct', 'tone-up'], ['SECOND', 'tone-down']);
+  say(mover, ['d-pill--you', '>ARB MOVES MORE<', 'Correct', 'tone-up'], ['SECOND', 'tone-down']);
   const range = D.roundCard({ id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 2,
     options: ['break', 'hold', 'pass'],
     my_call: { pick: 'hold', pending: true },
     my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
-  say(range, ['You called HOLDS ±2%', 'Running', 'tone-muted'], ['tone-up', 'tone-down']);
+  say(range, ['d-pill--you', '>HOLDS ±2%<', 'Running', 'tone-muted'], ['tone-up', 'tone-down']);
   const fade = D.roundCard({ id: 2, kind: 'backfade', symbol: 'SOLUSDT', callable: true, agent_direction: 'short',
     options: ['back', 'fade', 'pass'],
     my_call: { pick: 'fade', outcome: 'up', move_pct: 3 },
     my_result: { state: 'correct', marks: 2, beat_agent: true } });
-  say(fade, ['You called FADE THE CLAW', 'beat the Claw', 'tone-up']);
+  say(fade, ['d-pill--you', '>FADE THE CLAW<', 'beat the Claw', 'tone-up']);
 });
 
 test('the category strings can all be translated, placeholders intact', () => {
@@ -294,11 +294,12 @@ test('a settled football call reports the final score, and a running one no scor
   const won = D.roundCard({ ...MATCH_ROUND, callable: false,
     my_call: { pick: 'draw', entry_price: null, outcome: 'draw', score: { home: 1, away: 1 } },
     my_result: { state: 'correct', marks: 1, beat_agent: false } });
-  say(won, ['You called DRAW', 'Correct', 'Final score 1–1', 'tone-up'], ['tone-down', 'MOVES MORE']);
+  say(won, ['d-pill--you', '>DRAW<', 'Correct', 'Final score 1–1', 'tone-up'], ['tone-down', 'MOVES MORE']);
   const running = D.roundCard({ ...MATCH_ROUND,
     my_call: { pick: 'home', entry_price: null, pending: true },
     my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
-  say(running, ['You called ARSENAL', 'Running', 'tone-muted'], ['Final score', 'tone-up', 'tone-down']);
+  // A running match settles on its final score, not at a clock time, so its pill says so.
+  say(running, ['d-pill--you', '>ARSENAL<', 'Settles after full time', 'tone-muted'], ['Final score', 'tone-up', 'tone-down', 'Settles in']);
   // A goalless draw is a score, not an absence.
   say(D.roundCard({ ...MATCH_ROUND, callable: false,
     my_call: { pick: 'away', outcome: 'draw', score: { home: 0, away: 0 } },
@@ -320,4 +321,134 @@ test('the football strings can be translated, and a team without a short name is
   assert.equal(D.pickLabel('home', { match: { home: 'Arsenal FC' } }), 'ARSENAL FC');
   assert.equal(D.kickoffText({ kickoff: 'nonsense' }), '—');
   assert.equal(D.kindLabel('sports'), 'Football');
+});
+
+// ── the 2027 card (2026-10-19): status pill, time to settle, two pills ─────
+
+test('a running call says when it settles, from its own horizon, or Running when that cannot be read', () => {
+  const now = new Date('2026-10-19T12:00:00Z');
+  assert.equal(D.timeLeftText('2026-10-20T09:12:00Z', now), '21h 12m');
+  assert.equal(D.timeLeftText('2026-10-19T12:40:00Z', now), '40m');
+  assert.equal(D.timeLeftText('2026-10-19T11:00:00Z', now), 'any moment');
+  assert.strictEqual(D.timeLeftText('soon', now), null);
+  assert.strictEqual(D.timeLeftText(null, now), null);
+  assert.equal(D.callState({ pending: true, resolves_at: '2026-10-20T09:12:00Z' }, null, now).text, 'Settles in 21h 12m');
+  assert.equal(D.callState({ pending: true }, null, now).text, 'Running');
+  assert.equal(D.callState({ pending: true, resolves_at: 'soon' }, null, now).text, 'Running', 'an unreadable horizon is not a time');
+  const html = D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, agent_direction: 'long',
+    my_call: { pick: 'long', pending: true, resolves_at: '2026-10-20T09:12:00Z' },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } }, null, now);
+  say(html, ['Settles in 21h 12m', 'd-round--called', 'tone-muted'], ['Running', 'tone-up', 'tone-down']);
+});
+
+test('the status pill: Open on a callable round, Closed on a closed one, none on a kind this page cannot show', () => {
+  say(D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true }), ['d-status', '>Open<', 'd-round--open', 'd-bi'], ['>Closed<']);
+  say(D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: false }), ['>Closed<', 'd-round--closed', 'This round has closed.'], ['d-btn', '>Open<']);
+  say(D.roundCard({ id: 1, kind: 'later', symbol: 'X', callable: true, options: ['a'] }), ['d-round--unknown', 'Update the app'], ['d-status', 'data-pick']);
+});
+
+test('the Claw’s pill sits beside yours only where there was a stance to reveal', () => {
+  const bf = D.roundCard({ id: 2, kind: 'backfade', symbol: 'SOLUSDT', callable: true, agent_direction: 'short',
+    options: ['back', 'fade', 'pass'], my_call: { pick: 'back', pending: true },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
+  say(bf, ['d-pill--you', '>BACK THE CLAW<', 'd-pill--claw', '>SHORT<']);
+  // A range round never held a stance; a field that arrives on one anyway
+  // (an older server, a hand edit) is not dressed as the Claw's word.
+  const range = D.roundCard({ id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 2,
+    agent_direction: 'long', options: ['break', 'hold', 'pass'], my_call: { pick: 'hold', pending: true },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
+  say(range, ['d-pill--you', '>HOLDS ±2%<'], ['d-pill--claw']);
+  // The Claw passed: its pill says PASS, the word a pass has on every surface.
+  const passed = D.roundCard({ id: 4, symbol: 'ETHUSDT', callable: true, agent_direction: null,
+    my_call: { pick: 'long', pending: true }, my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
+  say(passed, ['d-pill--claw', '>PASS<'], ['The Claw passed']);
+  // Uncalled: the stance line names the Claw and says it is hidden; no pill yet.
+  say(D.roundCard({ id: 5, symbol: 'XRPUSDT', callable: true }), ['d-agent', 'Hidden until you call'], ['d-pill--claw']);
+  assert.equal(D.kindIcon('sports'), '⚽');
+  assert.equal(D.pickIcon('long'), '▲');
+  assert.equal(D.pickIcon('home'), '', 'a team name needs no glyph');
+});
+
+// ── the provable duel (2026-10-19): receipts on the card ──────────────────
+
+test('a called round quotes its receipts; the website links them, the Pi app only quotes them', () => {
+  const a = 'a'.repeat(64), b = 'b'.repeat(64), c = 'c'.repeat(64);
+  const round = { id: 1, symbol: 'BTCUSDT', callable: true, agent_direction: 'short', seal: a,
+    my_call: { pick: 'long', pending: true, seal: b, settle_seal: null },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } };
+  const quoted = D.roundCard(round);
+  say(quoted, ['d-receipts', 'Receipt bbbbbbbb…', 'Dealt sealed aaaaaaaa…', 'title="' + b + '"'], ['href=', 'Settlement']);
+  const linked = D.roundCard(round, null, null, { links: true });
+  say(linked, ['href="/call/duel:' + b + '"', 'href="/call/round:' + a + '"'], ['href="/call/settle:']);
+  // Settled: the settlement's receipt joins the line.
+  const settled = D.roundCard({ ...round, my_call: { pick: 'long', outcome: 'up', move_pct: 2, seal: b, settle_seal: c },
+    my_result: { state: 'correct', marks: 1, beat_agent: false } }, null, null, { links: true });
+  say(settled, ['Settlement cccccccc…', 'href="/call/settle:' + c + '"']);
+  // A round dealt before the seals, or a call without one, quotes nothing and invents nothing.
+  say(D.roundCard({ id: 2, symbol: 'ETHUSDT', callable: true, agent_direction: 'long',
+    my_call: { pick: 'long', pending: true }, my_result: { state: 'unresolved', marks: 0, beat_agent: false } }),
+  ['d-pill--you'], ['d-receipts', 'Receipt', 'Dealt sealed']);
+  assert.strictEqual(D.shortSeal('nothex'), null);
+  assert.equal(D.shortSeal(a), 'aaaaaaaa…');
+});
+
+test('an open classic round shows the commitment beside the hidden stance; a range round does not', () => {
+  const a = 'a'.repeat(64);
+  const open = D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a });
+  say(open, ['Hidden until you call', 'Dealt sealed aaaaaaaa…', 'd-receipts--inline'], ['href=']);
+  const openLinked = D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, null, null, { links: true });
+  say(openLinked, ['href="/call/round:' + a + '"']);
+  const range = D.roundCard({ id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 2, seal: a, options: ['break', 'hold', 'pass'] });
+  say(range, ['BREAKS ±2%'], ['Dealt sealed', 'd-receipts']);
+  const t = (k, en) => 'XX' + k + '|' + en;
+  assert.ok(D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, t).includes('XXduel.rc_round|'));
+  const i18n = require('../public/js/i18n.js');
+  for (const k of ['duel.rc_call', 'duel.rc_settle', 'duel.rc_round']) {
+    for (const l of i18n.LANGS) assert.ok(i18n.STRINGS[k] && i18n.STRINGS[k][l.code], `${k} is missing ${l.code}`);
+  }
+});
+
+// ── the 19 Oct review: a match settles after full time, a kick-off names its
+// zone and its day, a mark says what it is ───────────────────────────────────
+
+test('a running football call settles after full time, never on a countdown; a market call keeps its clock', () => {
+  const now = new Date('2026-10-19T12:00:00Z');
+  assert.equal(D.callState({ kind: 'sports', pending: true, resolves_at: '2026-10-19T21:30:00Z' }, null, now).text, 'Settles after full time');
+  assert.equal(D.callState({ kind: 'direction', pending: true, resolves_at: '2026-10-20T09:12:00Z' }, null, now).text, 'Settles in 21h 12m');
+  const html = D.roundCard({ ...MATCH_ROUND,
+    my_call: { pick: 'home', entry_price: null, pending: true, resolves_at: '2026-10-19T21:30:00Z' },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } }, null, now);
+  say(html, ['Settles after full time', 'tone-muted', '>ARSENAL<'], ['Settles in', '>Running<']);
+  const t = (k, en) => 'XX' + k + '|' + en;
+  assert.ok(D.callState({ kind: 'sports', pending: true }, t).text.startsWith('XXduel.st_fulltime|'));
+});
+
+test('a kick-off is printed in the reader’s clock with its zone, and with its day when that is not today', () => {
+  const ref = new Date('2026-10-19T12:00:00Z');
+  const kickoff = '2026-10-19T19:00:00.000Z';
+  const d = new Date(kickoff);
+  const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const text = D.kickoffText({ kickoff }, ref);
+  // The clock reading, then a zone name: "19:00 UTC", "21:00 GMT+2".
+  assert.match(text, new RegExp('(^|^[A-Z][a-z]{2} )' + hhmm + ' [A-Z][A-Za-z0-9+\\-:]*$'), text);
+  // The day appears exactly when the reader's local date differs from the reference day.
+  const sameLocalDay = d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
+  assert.equal(/^[A-Z][a-z]{2} /.test(text), !sameLocalDay, text);
+  // A kick-off a week on always carries its day.
+  assert.match(D.kickoffText({ kickoff: '2026-10-25T19:00:00.000Z' }, ref), /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d /);
+  assert.equal(D.kickoffText({ kickoff: 'nonsense' }, ref), '—');
+  assert.ok(D.roundCard(MATCH_ROUND, null, ref).includes(hhmm), 'the card prints the kick-off through the same reader');
+});
+
+test('the marks figure says what a mark is, beside the count still running', () => {
+  const how = '1 per correct call, 2 for beating the Claw';
+  assert.deepEqual(D.marksLabel({ marks: 4, pending: 1 }), { text: '4', tone: 'muted', sub: '1 still running', how });
+  assert.deepEqual(D.marksLabel({ marks: 0, pending: 0 }), { text: '0', tone: 'muted', sub: '', how });
+  assert.equal(D.marksLabel({}).text, '—');
+  assert.equal(D.marksLabel({ marks: 2 }, (k, en) => 'XX' + k + '|' + en).how, 'XXduel.marks_how|' + how);
+  const i18n = require('../public/js/i18n.js');
+  for (const k of ['duel.marks_how', 'duel.st_fulltime']) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+    for (const l of i18n.LANGS) assert.ok(i18n.STRINGS[k][l.code], `${k} is missing ${l.code}`);
+  }
 });

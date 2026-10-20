@@ -1,7 +1,9 @@
-# Supervising the two RUNECLAW processes
+# Supervising the RUNECLAW processes
 
 `Restart=always` for `bot.main` and `api_bridge`, so a death at 03:00 is
-recovered at 03:00:15 instead of whenever somebody next opens Telegram.
+recovered at 03:00:15 instead of whenever somebody next opens Telegram. A
+third unit, `runeclaw-duel`, is optional: the Daily Duel's own Telegram bot,
+installed only on a box that has created it (below).
 
 ## Why
 
@@ -27,6 +29,26 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now runeclaw-bot runeclaw-bridge
 scripts/systemd/runeclaw-status.sh
 ```
+
+### The optional third unit: `runeclaw-duel`
+
+`python3 -m bot.duel_bot` runs the Daily Duel on its own BotFather token
+(`DUEL_BOT_TOKEN` in the bot's `.env`), with no engine and none of the main
+bot's state; health on `:8081`. Install it only once the token is set:
+
+```bash
+sudo cp scripts/systemd/runeclaw-duel.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now runeclaw-duel
+scripts/systemd/runeclaw-status.sh
+```
+
+A box without the token leaves the unit uninstalled, and the status script
+lists it as `OPTIONAL`, which is not a failure. Installed with no token, or
+with the main bot's token, the process exits 78 and the unit's
+`RestartPreventExitStatus=78` keeps it from looping: one journal line, a
+stopped unit, and `runeclaw-status.sh` says DOWN. Every other exit restarts,
+as the other units do.
 
 Check three things in the unit files before installing — all three are box
 facts this repo cannot know:

@@ -204,6 +204,94 @@ function sealDuelPick(p) {
 }
 
 /**
+ * v6 — a DEALT ROUND, sealed before anyone calls it: a commitment.
+ *
+ * The classic round's whole point is that the Claw's stance is hidden until
+ * the player commits. Until now that was a promise about the server ("we do
+ * not change it"); this makes it a fact a player can check. The round's
+ * facts, the stance INCLUDED, are hashed when the card is dealt, and the
+ * hash is published on the card at once. The payload is revealed to the
+ * player once they have called (and to everyone once the round has closed),
+ * so sha256(payload) === the hash they saw before calling proves the stance
+ * was fixed then, not written to fit afterwards.
+ *
+ * `nonce`: a three-way stance behind a bare hash is a three-guess secret.
+ * Sixteen random hex characters in the payload make the commitment hide
+ * what it commits to until it is opened. A round with no stance (a range, a
+ * mover, a match) carries the nonce too; one payload shape, one rule.
+ */
+function newRoundNonce() {
+  return crypto.randomBytes(8).toString('hex');
+}
+
+function canonicalDuelRoundPayload(r) {
+  const m = r.match && typeof r.match === 'object' ? r.match : null;
+  return JSON.stringify({
+    v: 6,
+    kind: 'duel_round',
+    day: String(r.day),
+    idx: Number(r.idx),
+    category: r.kind == null ? 'direction' : String(r.kind),
+    symbol: String(r.symbol),
+    symbol_b: r.symbol_b == null ? null : String(r.symbol_b),
+    threshold_pct: numOrNull(r.threshold_pct),
+    agent_direction: r.agent_direction == null ? null : String(r.agent_direction),
+    match: m ? {
+      event_id: m.event_id == null ? null : String(m.event_id),
+      home: String(m.home || ''),
+      away: String(m.away || ''),
+      kickoff: m.kickoff == null ? null : new Date(m.kickoff).toISOString(),
+    } : null,
+    nonce: String(r.nonce),
+    dealt_at: new Date(r.dealt_at || Date.now()).toISOString(),
+  });
+}
+
+/** { seal_payload, seal } for one dealt round. */
+function sealDuelRound(r) {
+  const seal_payload = canonicalDuelRoundPayload(r);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
+/**
+ * v7 — a SETTLEMENT, sealed when the market (or the final score) answers.
+ *
+ * The call receipt (v4) stays outcome-free by the spec's rule 2: it is the
+ * pre-commitment. The outcome gets a receipt OF ITS OWN that names the call
+ * seal it settles and the round seal it was dealt under, so a reader holds a
+ * chain: round sealed → call sealed → settlement sealed, each hash folded
+ * into its day's root. An UNRESOLVED settlement is sealed too, with null
+ * prices and `result: 'unresolved'`: "we could not price it" is a dated
+ * fact worth a receipt, and the one a quiet rewrite would most like to lose.
+ *
+ * §4: prices, a score, a state and counts only; never an amount.
+ */
+function canonicalDuelSettlePayload(s) {
+  return JSON.stringify({
+    v: 7,
+    kind: 'duel_settle',
+    round_id: Number(s.round_id),
+    call_seal: s.call_seal ? String(s.call_seal) : null,
+    round_seal: s.round_seal ? String(s.round_seal) : null,
+    category: s.kind == null ? 'direction' : String(s.kind),
+    pick: String(s.pick),
+    settle_state: String(s.settle_state),
+    settle_price: numOrNull(s.settle_price),
+    settle_price_b: numOrNull(s.settle_price_b),
+    outcome: s.outcome == null ? null : String(s.outcome),
+    result: String(s.result),
+    marks: numOrNull(s.marks),
+    settled_at: new Date(s.settled_at || Date.now()).toISOString(),
+  });
+}
+
+/** { seal_payload, seal } for one settlement. */
+function sealDuelSettle(s) {
+  const seal_payload = canonicalDuelSettlePayload(s);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
+/**
  * v5 — a PRE-SIGNATURE scan, sealed before the transaction was signed.
  *
  * `xray_transaction` and `scan_transaction` both end their own descriptions
@@ -276,5 +364,7 @@ module.exports = {
   canonicalPayload, canonicalSignalPayload, numOrNull, sealOf, sealCall,
   canonicalArenaPayload, sealArenaTrade, newTradeKey,
   canonicalDuelPayload, sealDuelPick,
+  newRoundNonce, canonicalDuelRoundPayload, sealDuelRound,
+  canonicalDuelSettlePayload, sealDuelSettle,
   canonicalScanPayload, sealScan, inputDigest,
 };

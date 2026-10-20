@@ -110,7 +110,7 @@ const ORDER = { orderId: 'order-from-server', amount: 3, memo: 'Support RUNECLAW
 // Today's duel card as /api/duel/today sends it: one round of each category,
 // the classic one uncalled, and the record as /api/duel/me sends it.
 const DUEL_CARD = { day: '2026-10-19', horizon_hours: 24, open: 4, counts_only: true, rounds: [
-  { id: 11, day: '2026-10-19', idx: 0, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true },
+  { id: 11, day: '2026-10-19', idx: 0, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true, seal: 'a'.repeat(64) },
   { id: 12, day: '2026-10-19', idx: 3, kind: 'backfade', symbol: 'SOLUSDT', options: ['back', 'fade', 'pass'], callable: true, agent_direction: 'short' },
   { id: 13, day: '2026-10-19', idx: 4, kind: 'range', symbol: 'BNBUSDT', options: ['break', 'hold', 'pass'], callable: true, threshold_pct: 2 },
   { id: 14, day: '2026-10-19', idx: 5, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', options: ['first', 'second', 'pass'], callable: true },
@@ -191,6 +191,12 @@ async function signInAndSettle(page) {
   await page.waitForFunction(() => !document.querySelector('.e-state--load'));
   await page.waitForTimeout(200);
   return page.textContent('#root');
+}
+
+/** The signed-in screen is one tab at a time behind a bottom bar; open one. */
+async function showTab(page, name) {
+  await page.click('.p-tab-b[data-tab="' + name + '"]');
+  await page.waitForSelector('.p-panel[data-tab="' + name + '"]:not([hidden])');
 }
 
 test('the Pi app signs in with Pi and shows the arena, and says why when it cannot', SKIP ? { skip: SKIP } : {}, async (t) => {
@@ -329,6 +335,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       const { ctx, sent } = await context(browser, { signals: { status: 200, body: { signals: [LIVE_CALL, LOCKED_CALL] } } });
       const { page, errors } = await open(ctx, `${base}/pi`);
       await signInAndSettle(page);
+      await showTab(page, 'signals');
       await page.waitForSelector('.p-signals .e-row');
       assert.match(await page.textContent('.p-signals .e-row--locked'), /Sign in again to see its side and levels/);
       const card = await page.textContent('.p-signals .e-row:not(.e-row--locked)');
@@ -379,6 +386,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       });
       const { page, errors } = await open(ctx, `${base}/pi`);
       await signInAndSettle(page);
+      await showTab(page, 'signals');
       await page.waitForSelector('.p-sig-act[data-key="k-ended"]');
 
       const live = await cardOf(page, 'k-live-1');
@@ -419,6 +427,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       });
       const { page, errors } = await open(ctx, `${base}/pi`);
       await signInAndSettle(page);
+      await showTab(page, 'signals');
       await page.waitForSelector('.p-sig-open');
       closedNow = true;
       await page.click('.p-sig-open');
@@ -434,15 +443,19 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       const { ctx } = await context(browser, { signals: { status: 200, body: { signals: [soon] } } });
       const { page, errors } = await open(ctx, `${base}/pi`);
       await signInAndSettle(page);
+      await showTab(page, 'signals');
       await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
-      await page.evaluate(() => { document.querySelector('.p-signals .sc-tv').dataset.before = '1'; });
       const first = (await cardOf(page, 'k-soon')).act;
+      // The ticket is on the Arena tab; the chart stays drawn on the Signals
+      // tab behind it, and the window closing must turn the card in place.
+      await showTab(page, 'arena');
+      await page.evaluate(() => { document.querySelector('.p-signals .sc-tv').dataset.before = '1'; });
       await page.fill('.m-sym', 'eth');
       await page.fill('.m-margin', '250');
       await page.waitForTimeout(1300);
       assert.notStrictEqual((await cardOf(page, 'k-soon')).act, first, 'the countdown did not tick');
 
-      await page.waitForSelector('.p-sig-own', { timeout: 9000 });
+      await page.waitForSelector('.p-sig-own', { timeout: 9000, state: 'attached' });
       assert.match((await cardOf(page, 'k-soon')).act, /Its window closed at/);
       assert.ok(await page.$('.p-signals .sc-tv[data-before="1"]'), 'the chart was redrawn to turn a button');
       assert.strictEqual(await page.inputValue('.m-sym'), 'eth');
@@ -492,6 +505,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
         });
       });
       await signInAndSettle(page);
+      await showTab(page, 'signals');
       await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
       assert.deepStrictEqual(await page.$$eval('.p-tf-b', (bs) => bs.map((b) => [b.textContent, b.getAttribute('aria-pressed')])),
         [['15m', 'false'], ['1H', 'true'], ['4H', 'false'], ['1D', 'false']]);
@@ -516,8 +530,10 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       await page.evaluate(() => window.__charts[window.__charts.length - 1].c.timeScale().setVisibleLogicalRange({ from: 170, to: 190 }));
       await page.waitForTimeout(150);
       const before = await page.evaluate(() => window.__charts.length);
+      await showTab(page, 'arena');
       await page.click('.m-long');            // an empty ticket: refused, and the screen is rendered again
       await page.waitForFunction((n) => window.__charts.length > n, before);
+      await showTab(page, 'signals');
       await page.waitForTimeout(150);
       assert.deepStrictEqual(await range(), [170, 190], 'a redraw threw the reader\'s zoom away');
 
@@ -533,6 +549,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       await page.waitForSelector('.m-signin');
       const at = sent.length;
       await signInAndSettle(page);
+      await showTab(page, 'signals');
       await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
       assert.deepStrictEqual(sent.slice(at).filter((s) => s.path.startsWith('/api/market/candles/')).map((s) => s.query),
         ['?granularity=4h&limit=200']);
@@ -555,11 +572,13 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       });
       const { page, errors } = await open(ctx, `${base}/pi`);
       await signInAndSettle(page);
+      await showTab(page, 'signals');
       await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
       assert.match(await page.textContent('.m-updated'), /^Updated \d\d:\d\d:\d\d$/);
       assert.strictEqual((await page.textContent('.m-refresh')).trim(), '↻ Refresh');
       assert.match(await page.textContent('.m-pos'), /entry 0\.149450.*mark 0\.148100/s,
         'a coin under a dollar was printed to two decimals');
+      await showTab(page, 'arena');
       await page.fill('.m-sym', 'eth');
 
       const before = { account: accountReads, signals: sent.filter((x) => x.path === '/api/signals').length,
@@ -628,10 +647,16 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       const { ctx, sent } = await context(browser, { signals: { status: 200, body: { signals: [] } } });
       const { page, errors } = await open(ctx, `${base}/pi`);
       await signInAndSettle(page);
+      // One tab at a time: the duel waits behind its tab, which counts the open rounds.
+      assert.strictEqual(await page.$eval('.p-panel[data-tab="duel"]', (e) => e.hidden), true);
+      assert.match(await page.textContent('.p-tab-b[data-tab="duel"]'), /Duel5$/, 'the badge is the rounds still open to a call');
+      await showTab(page, 'duel');
+      assert.strictEqual(await page.$eval('.p-panel[data-tab="arena"]', (e) => e.hidden), true);
       await page.waitForSelector('.p-duel .d-round');
+      assert.match(await page.textContent('.p-duel-prog'), /0 of 5 called.*5 open/s, 'the progress line counts calls, not rounds');
       const today = sent.find((s) => s.path === '/api/duel/today');
       assert.strictEqual(today && today.auth, 'Bearer session-jwt-1', 'the card was read without the session');
-      const kinds = await page.$$eval('.p-duel .d-round .d-kind', (els) => els.map((e) => e.textContent));
+      const kinds = await page.$$eval('.p-duel .d-round .d-kind', (els) => els.map((e) => e.textContent.replace(/^[^A-Za-z]+/, '')));
       assert.deepStrictEqual(kinds, ['Direction', 'Back or fade', 'Range', 'Bigger mover', 'Football']);
       const text = await page.textContent('.p-duel');
       assert.match(text, /Arsenal vs Chelsea — who wins\? Premier League/);
@@ -660,6 +685,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       assert.ok(sent.filter((s) => s.path === '/api/duel/today').length >= 2, 'the card was not read again after the call');
       // Nothing in the block links back to the site.
       assert.strictEqual(await page.$('.p-duel a[href]'), null);
+      assert.match(text, /Dealt sealed aaaaaaaa…/, 'the round’s commitment is quoted');
       assert.deepStrictEqual(errors, []);
       await ctx.close();
     });
@@ -668,6 +694,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
         duelPick: { status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'You have already called this round.' }) } });
       const r = await open(refused.ctx, `${base}/pi`);
       await signInAndSettle(r.page);
+      await showTab(r.page, 'duel');
       await r.page.waitForSelector('.p-duel .d-actions[data-round="11"]');
       await r.page.click('.p-duel .d-actions[data-round="11"] .d-btn[data-pick="short"]');
       await r.page.waitForFunction(() => /You have already called this round\./.test(document.querySelector('#root').textContent));
@@ -677,6 +704,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
         duel: { status: 503, body: { error: 'The day\'s rounds are unavailable', reason: 'prices_unreadable' } } });
       const d = await open(down.ctx, `${base}/pi`);
       await signInAndSettle(d.page);
+      await showTab(d.page, 'duel');
       await d.page.waitForFunction(() => /Today’s card could not be loaded/.test(document.querySelector('#root').textContent));
       const text = await d.page.textContent('.p-duel');
       assert.doesNotMatch(text, /No rounds/, 'an unreadable card must not read as an empty one');
@@ -687,6 +715,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
         duelMe: { status: 500, body: { error: 'Your record is unavailable' } } });
       const n = await open(norec.ctx, `${base}/pi`);
       await signInAndSettle(n.page);
+      await showTab(n.page, 'duel');
       await n.page.waitForSelector('.p-duel .d-round');
       await n.page.waitForFunction(() => /Your record could not be read just now/.test(document.querySelector('#root').textContent));
       assert.strictEqual(await n.page.$('.p-duel-rec'), null);

@@ -406,7 +406,7 @@
       return true;
     }
 
-    return { place: 'main', html: html, mounted: mounted, click: click, signedIn: signedIn, reload: reload };
+    return { place: 'main', tab: 'signals', label: 'Signals', icon: '\u224B', html: html, mounted: mounted, click: click, signedIn: signedIn, reload: reload };
   }
 
   return {

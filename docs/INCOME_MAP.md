@@ -883,7 +883,14 @@ day's match (home, draw, away), closed at kick-off and settled on the final
 score from football-data.org (`app/lib/sports_feed.js::pickCandidate`,
 `::resultOf`). Each market call is scored over a 24h horizon measured from
 the player's own call, beating the agent scoring double
-(`app/lib/duel.js::#"A card a UTC day"`, `::CARD`, `::KINDS`, `::HORIZON_HOURS`). The same card is played in
+(`app/lib/duel.js::#"A card a UTC day"`, `::CARD`, `::KINDS`, `::HORIZON_HOURS`). The duel is provable end
+to end: each round is sealed as dealt, the agent's stance included, and its
+hash is on the card before anyone calls (`app/lib/callseal.js::canonicalDuelRoundPayload`);
+each call is sealed when made; each settlement, an unresolved one included,
+gets a receipt of its own naming the call it settles
+(`app/lib/callseal.js::canonicalDuelSettlePayload`); the three are served by
+seal at `/api/call/round:…`, `duel:…`, `settle:…` (`app/lib/duel_receipts.js::lookupDuel`)
+and folded into the daily Merkle roots (`app/lib/seal_roots.js::sealsForDay`). The same card is played in
 the Pi Browser app (`app/public/js/pi-duel.js`) and shown on the website Arena
 (`app/public/arena.html::#"duelPanel"`). Doors, opened and read: Telegram /duel at
 `bot/skills/start_commands.py::StartCommands._cmd_duel` (@guard("start"), which `pending` holds, so

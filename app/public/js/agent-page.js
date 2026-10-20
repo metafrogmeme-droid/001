@@ -224,7 +224,7 @@
 
   /** Paper, always. Never let this page imply otherwise. */
   function footerHtml() {
-    return '<p class="ap-foot">Paper trading · virtual stakes · percent '
+    return '<p class="ap-foot">Paper trading · virtual balance · percent '
       + 'returns only. Nothing on this page is a real-money result.</p>';
   }
 

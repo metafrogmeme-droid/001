@@ -61,3 +61,27 @@ test('canonical URLs are absolute https, not relative', () => {
     assert.match(canonOf(read(file)), /^https:\/\//, `${file} canonical is absolute https`);
   }
 });
+
+test('the Study Room answers at the address people guess for it', async () => {
+  // The nav calls /learn "Study Room"; a review typed /study and got a 404.
+  // Driven: the alias answers a page that navigates to /learn, not a 3xx,
+  // because the live host follows a redirect itself (lib/navigate.js).
+  const express = require('express');
+  const { navigationTarget } = require('./helpers/navigation');
+  const { navigate } = require('../lib/navigate');
+  const app = express();
+  app.get('/study', (req, res) => { navigate(res, '/learn'); });
+  const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/study`, { redirect: 'manual' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(await navigationTarget(r), '/learn');
+  } finally {
+    server.close();
+  }
+  const { codeOnly } = require('./helpers/code_only');
+  const src = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  assert.match(src, /app\.get\('\/study', \(req, res\) => \{ navigate\(res, '\/learn'\); \}\);/,
+    'the server route is the one driven above');
+  assert.ok(fs.existsSync(path.join(PUB, 'learn.html')), 'the alias lands on a page that exists');
+});

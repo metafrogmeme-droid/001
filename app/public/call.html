@@ -92,7 +92,7 @@ function sameAfterStorage(key, sealed, live) {
 <script src="/js/thesis-model.js?v=2"></script>
 <script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/signal-status-model.js?v=4"></script>
-<script src="/js/anchor_cell.js?v=1"></script>
+<script src="/js/anchor_cell.js?v=2"></script>
 <script>
 (function () {
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -122,14 +122,18 @@ function sameAfterStorage(key, sealed, live) {
    * day. Found by asking which OTHER surface makes the same claim, before
    * calling the /roots fix done.
    */
-  function anchorLeg(a, verdict) {
+  // The chain an anchor without a named chain is on: Base, as every anchor
+  // was before 2026-10-19. Other chains (the DogeOS testnet) arrive with the
+  // receipt's `anchors` list and the registry at /api/roots/chains.
+  function anchorLeg(a, verdict, chain) {
+    var c = chain && chain.explorer_tx ? chain : { key: 'base', name: 'Base', explorer_tx: 'https://basescan.org/tx/' };
     var small = 'margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)';
     var state = window.RCAnchorCell
       ? RCAnchorCell.anchorState({ anchor_tx: a.anchor_tx }, verdict)
       // Module missing: say the state is unreadable rather than silently
       // falling back to the database claim this function exists to retire.
       : 'unknown';
-    var compare = '<a href="https://basescan.org/tx/' + esc(a.anchor_tx || '')
+    var compare = '<a href="' + esc(c.explorer_tx) + esc(a.anchor_tx || '')
       + '" target="_blank" rel="noopener">view the transaction</a> and compare its calldata to '
       + '<code style="word-break:break-all">RCROOT1:' + esc(a.day) + ':' + esc(a.root)
       + '</code> (hex-encoded) yourself.';
@@ -141,7 +145,7 @@ function sameAfterStorage(key, sealed, live) {
     if (state === 'verified') {
       var when = verdict && verdict.block_time
         ? ' (' + esc(String(verdict.block_time).slice(0, 19).replace('T', ' ')) + ' UTC)' : '';
-      return '<div style="margin-top:6px">⛓ <b>This root is anchored on Base</b>, confirmed against the '
+      return '<div style="margin-top:6px">⛓ <b>This root is anchored on ' + esc(c.name) + '</b>, confirmed against the '
         + 'chain just now. The block timestamp' + when + ' is an independent upper bound on every seal '
         + 'in the day — ' + compare + '</div>';
     }
@@ -151,9 +155,36 @@ function sameAfterStorage(key, sealed, live) {
         + 'resolved — ' + compare + '</div>';
     }
     // Recorded, not confirmed. Never phrased as a settled fact.
-    return '<div style="margin-top:6px">⛓ An anchor transaction is recorded for this day, but Base could '
+    return '<div style="margin-top:6px">⛓ An anchor transaction is recorded for this day, but ' + esc(c.name) + ' could '
       + 'not be reached to confirm it just now. Until it is confirmed the day’s timestamp rests on the '
       + 'published feed — ' + compare + '</div>';
+  }
+
+  /** The receipt's anchors: its `anchors` list, or its older Base-only `anchor_tx`. */
+  function anchorsOf(a) {
+    var list = a && Array.isArray(a.anchors) ? a.anchors.slice() : [];
+    if (!list.length && a && a.anchor_tx) list.push({ chain: 'base', tx: a.anchor_tx });
+    return list;
+  }
+  // The chain registry, read once from the feed so names and explorers are the
+  // server's reading, never a literal of this page's (Base's own stays above
+  // only as the default for an anchor that names no chain).
+  var chainsByKey = {};
+  fetch('/api/roots/chains', { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { ((j && j.chains) || []).forEach(function (c) { chainsByKey[c.key] = c; }); })
+    .catch(function () { /* the default below names Base; others print their key */ });
+  /** One leg per chain the day is anchored on; the unanchored sentence once when none. */
+  function anchorLegs(a, verdicts) {
+    var list = anchorsOf(a);
+    if (!list.length) return anchorLeg({ day: a.day, root: a.root, anchor_tx: null }, null);
+    return list.map(function (an) {
+      // Base is anchorLeg's own default; another chain the registry has not
+      // described prints its key, and no explorer link it cannot vouch for.
+      var chain = chainsByKey[an.chain] || (an.chain === 'base' ? null : { key: an.chain, name: an.chain, explorer_tx: '' });
+      var v = verdicts && Object.prototype.hasOwnProperty.call(verdicts, an.chain) ? verdicts[an.chain] : null;
+      return anchorLeg({ day: a.day, root: a.root, anchor_tx: an.tx }, v, chain);
+    }).join('');
   }
 
   // v3 — replay the Merkle proof: seal → … → the published daily root.
@@ -175,7 +206,7 @@ function sameAfterStorage(key, sealed, live) {
         ? '<div class="big">🌳 Anchored in the ' + esc(d.anchor.day) + ' daily seal root</div>'
           + 'One of ' + (Number(d.anchor.seal_count) || 0) + ' seals folded into that day’s Merkle root — your browser just replayed the proof.'
           + '<div class="hash" style="margin-top:8px">' + esc(d.anchor.root) + '</div>'
-          + '<div class="anchor-leg">' + anchorLeg(d.anchor, null) + '</div>'
+          + '<div class="anchor-leg">' + anchorLegs(d.anchor, {}) + '</div>'
           + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror it from the <a href="/roots">daily roots page</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
         : '<div class="big">✖ ANCHOR MISMATCH — the Merkle proof does not reach the published day root</div>';
       out.appendChild(el);
@@ -184,14 +215,19 @@ function sameAfterStorage(key, sealed, live) {
       // an unanchored day has nothing to confirm and the request would be
       // noise. A failed lookup leaves the "recorded, not confirmed" wording
       // exactly as drawn — it must never fall through to the settled claim.
-      if (ok && d.anchor.anchor_tx) {
-        fetch('/api/roots/verify/' + encodeURIComponent(d.anchor.day), { headers: { Accept: 'application/json' } })
-          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-          .then(function (v) {
-            var leg = el.querySelector('.anchor-leg');
-            if (leg) leg.innerHTML = anchorLeg(d.anchor, v);
-          })
-          .catch(function () { /* stays unconfirmed, which is the truth */ });
+      if (ok) {
+        var verdicts = {};
+        anchorsOf(d.anchor).forEach(function (an) {
+          fetch('/api/roots/verify/' + encodeURIComponent(d.anchor.day) + '?chain=' + encodeURIComponent(an.chain),
+            { headers: { Accept: 'application/json' } })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (v) {
+              verdicts[an.chain] = v;
+              var leg = el.querySelector('.anchor-leg');
+              if (leg) leg.innerHTML = anchorLegs(d.anchor, verdicts);
+            })
+            .catch(function () { /* stays unconfirmed, which is the truth */ });
+        });
       }
     }).catch(function () { /* anchor stays un-rendered — the seal verdict above stands alone */ });
   }
@@ -208,16 +244,21 @@ function sameAfterStorage(key, sealed, live) {
       // false accusation. The seal is shown so it can be checked once revealed.
       if (d.locked === true) {
         var lc = d.current || {};
+        var isRound = d.kind === 'duel_round';
         out.innerHTML = '<div class="verdict">'
-          + '<div class="big">🔏 Sealed — revealed when the call resolves</div>'
+          + '<div class="big">' + (isRound ? '🔏 Sealed when dealt — opens when the round’s day ends' : '🔏 Sealed — revealed when the call resolves') + '</div>'
           + esc(d.note || 'Live calls are for signed-in members.') + '</div>'
           + '<div class="kv">'
-          + '<span class="k">Market</span><span>' + esc(lc.symbol || '—') + '</span>'
+          + '<span class="k">' + (isRound ? 'Round' : 'Market') + '</span><span>' + esc(lc.symbol || '—') + (isRound && lc.category ? ' · ' + esc(lc.category) : '') + '</span>'
           + '<span class="k">Sealed at</span><span>' + esc(d.sealed_at || '') + '</span>'
-          + '<span class="k">Status</span><span>' + esc((d.outcome && d.outcome.status) || 'live') + '</span>'
+          + (isRound
+            ? '<span class="k">Opens at</span><span>' + esc(d.opens_at || '') + '</span>'
+            : '<span class="k">Status</span><span>' + esc((d.outcome && d.outcome.status) || 'live') + '</span>')
           + '</div>'
           + '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>'
-          + '<p style="margin-top:var(--s3)"><a class="btn" href="/">Sign in to see the trade</a></p>';
+          + (isRound
+            ? '<p style="margin-top:var(--s3)" class="muted">A player who has called this round sees its payload now, signed in, on /duel.</p>'
+            : '<p style="margin-top:var(--s3)"><a class="btn" href="/">Sign in to see the trade</a></p>');
         appendAnchor(d);
         return;
       }
@@ -228,6 +269,60 @@ function sameAfterStorage(key, sealed, live) {
         var html = '<div class="verdict ' + (intact ? 'ok' : 'bad') + '">'
           + '<div class="big">' + (intact ? '✅ Seal verified in your browser' : '✖ HASH MISMATCH — this receipt is not intact') + '</div>'
           + 'sha256(sealed payload) ' + (intact ? '=' : '≠') + ' stored seal</div>';
+        if (p && (p.kind === 'duel_round' || p.kind === 'duel_pick' || p.kind === 'duel_settle')) {
+          // Provable Calls v6 / v4 / v7 — the Daily Duel's chain: the round as
+          // dealt (stance included), the call, the settlement. §4: prices, a
+          // score, states and counts; never an amount.
+          var val = function (x) { return (x === null || x === undefined) ? '—' : String(x); };
+          var row = function (k, v) { return '<span class="k">' + esc(k) + '</span><span>' + v + '</span>'; };
+          var link = function (rel) { return rel && rel.key ? '<a href="/call/' + esc(rel.key) + '">' + esc(rel.key.slice(0, 14)) + '…</a>' : '—'; };
+          var title = p.kind === 'duel_round' ? 'Daily Duel · round as dealt'
+            : p.kind === 'duel_pick' ? 'Daily Duel · call' : 'Daily Duel · settlement';
+          var market = p.match ? esc(val(p.match.home)) + ' vs ' + esc(val(p.match.away))
+            : esc(val(p.symbol)) + (p.symbol_b ? ' vs ' + esc(p.symbol_b) : '');
+          html += '<div class="kv">' + row('Receipt', esc(title));
+          if (p.kind === 'duel_round') {
+            html += row('Round', market + ' · ' + esc(val(p.category)) + ' · ' + esc(val(p.day)) + ' #' + esc(val(p.idx)))
+              + row('Claw’s call', p.agent_direction === null ? '<span class="muted">none on this round</span>' : '<b>' + esc(String(p.agent_direction).toUpperCase()) + '</b> — sealed before anyone called')
+              + (p.threshold_pct != null ? row('Band', '±' + esc(p.threshold_pct) + '%') : '')
+              + (p.match && p.match.kickoff ? row('Kick-off', esc(p.match.kickoff)) : '')
+              + row('Dealt at', esc(val(p.dealt_at)));
+          } else if (p.kind === 'duel_pick') {
+            html += row('Call', '<b>' + esc(String(p.pick).toUpperCase()) + '</b> on ' + market + ' · ' + esc(val(p.category)) + ' · ' + esc(val(p.day)))
+              + row('Player', p.handle ? esc(p.handle) : '<span class="muted">anonymous at the call</span>')
+              + row('Entry', p.entry_price === null ? '<span class="muted">none — settled on a score</span>' : esc(val(p.entry_price)) + (p.entry_price_b != null ? ' / ' + esc(p.entry_price_b) : ''))
+              + row('Resolves at', esc(val(p.resolves_at)))
+              + row('Called at', esc(val(p.picked_at)))
+              + row('Round receipt', link(d.round))
+              + row('Settlement', d.settlement ? link(d.settlement) + ' · ' + esc(d.settlement.state || '') : '<span class="muted">none yet — the call is still running</span>');
+          } else {
+            html += row('Settles', '<b>' + esc(String(p.pick).toUpperCase()) + '</b> · ' + esc(val(p.category)))
+              + row('State', esc(val(p.settle_state)))
+              + row(p.category === 'sports' ? 'Final score' : 'Close', p.settle_price === null ? '<span class="muted">none — unresolved</span>'
+                : esc(val(p.settle_price)) + (p.settle_price_b != null ? (p.category === 'sports' ? '–' : ' / ') + esc(p.settle_price_b) : ''))
+              + row('Outcome', esc(val(p.outcome)))
+              + row('Verdict', '<b>' + esc(val(p.result)) + '</b>' + (p.marks != null ? ' · ' + esc(p.marks) + ' mark' + (p.marks === 1 ? '' : 's') : ''))
+              + row('Settled at', esc(val(p.settled_at)))
+              + row('Call receipt', link(d.call))
+              + row('Round receipt', link(d.round));
+          }
+          html += row('Sealed at', esc(d.sealed_at || '')) + '</div>';
+          // Drift check: the live row must still say what was sealed.
+          var dc = d.current || {};
+          var drifted = [];
+          Object.keys(dc).forEach(function (k) {
+            if (!(k in p)) return;
+            if (!sameAfterStorage(k, p[k], dc[k])) drifted.push(k + ': sealed ' + val(p[k]) + ' → now ' + val(dc[k]));
+          });
+          if (drifted.length) {
+            html += '<div class="drift">⚠️ The live record DIFFERS from what was sealed: ' + esc(drifted.join(' · ')) + '</div>';
+          }
+          html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
+          html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';
+          out.innerHTML = html;
+          appendAnchor(d);
+          return;
+        }
         if (p && p.kind === 'arena_trade') {
           // Provable Calls v2 — an Arena paper trade sealed at OPEN time.
           // §4: prices, leverage, percent and times only — no amounts.
@@ -362,7 +457,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=187"></script>
+<script src="/js/i18n-core.js?v=191"></script>
 <script src="/js/presale.js?v=2"></script>
   <script>
   (function () {
