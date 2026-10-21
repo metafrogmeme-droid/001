@@ -22,6 +22,10 @@ What it checks, and against what:
               pre-registration is on disk, its SHA-256 is the one recorded in
               the registry and in the sealed sidecar, the report it names
               exists, and its pass count does not exceed its test count.
+  record      every committed week under benchmark/record/: its format, the
+              week it is named for, no dollar key at any depth, and nothing from
+              a sleeve row (weights, holdings, returns) before the sleeve's
+              sealed first measurement.
   roots       (--online) the published daily Merkle roots: the newest root's
               construction is recomputed from the day's seals where the site
               serves them, the anchor status is read as the site states it, and
@@ -52,12 +56,13 @@ sys.path.insert(0, str(ROOT))
 MATCH, MISMATCH, CANNOT = "MATCH", "MISMATCH", "CANNOT CHECK"
 SCORECARD_FORMAT = "runeclaw.agent.scorecard.v1"
 STUDIES_FORMAT = "runeclaw.studies.v1"
+RECORD_FORMAT = "runeclaw.public_record.v1"
 #: Dollar figures never sit on a public card (the rule the scorecard test holds).
 FORBIDDEN_KEYS = ("net_pnl", "total_pnl", "final_equity", "balance", "avg_win_usd",
                   "avg_loss_usd", "total_commission", "max_drawdown_usd")
 DEFAULT_SITE = "https://www.humanoid-traders.com"
 #: Directories under benchmark/ that are not snapshots.
-NOT_SNAPSHOTS = {"scorecards", "eligibility"}
+NOT_SNAPSHOTS = {"scorecards", "eligibility", "record"}
 
 
 @dataclass
@@ -225,6 +230,43 @@ def check_studies(root: Path) -> list[Row]:
     return rows
 
 
+# ── the weekly record ───────────────────────────────────────────────────────
+
+def check_records(root: Path) -> list[Row]:
+    """Each committed week: the format, the file named for the week it says,
+    no dollar key at any depth, and nothing from a sleeve row before the
+    sleeve's sealed first measurement. No week written yet is no row: nothing was
+    published, so there is nothing to re-derive."""
+    from bot.core.public_record import SLEEVE_MEASURED_ON as sealed
+    rows: list[Row] = []
+    for p in sorted((root / "benchmark" / "record").glob("*.json")):
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            rows.append(Row("record", p.name, CANNOT, type(exc).__name__))
+            continue
+        if not isinstance(rec, dict):
+            rows.append(Row("record", p.name, MISMATCH, "not a record"))
+            continue
+        problems: list[str] = []
+        if rec.get("format") != RECORD_FORMAT:
+            problems.append(f"format {rec.get('format')!r}")
+        if f"{rec.get('week')}.json" != p.name:
+            problems.append(f"file is named for a week it does not hold ({rec.get('week')!r})")
+        keys = _keys(rec)
+        dollars = sorted(k for k in keys if k in FORBIDDEN_KEYS or k.endswith("_usd"))
+        if dollars:
+            problems.append(f"dollar key(s) on a public record: {dollars}")
+        sleeve = rec.get("sleeve") if isinstance(rec.get("sleeve"), dict) else {}
+        early = sorted(k for k in _keys(sleeve)
+                       if any(w in k for w in ("return", "pnl", "sharpe", "weight", "hold", "gross")))
+        if early and str(rec.get("as_of") or "")[:10] < sealed:
+            problems.append(f"sleeve row content before its sealed measurement {sealed}: {early}")
+        rows.append(Row("record", p.name, MISMATCH if problems else MATCH,
+                        "; ".join(problems) if problems else f"as of {rec.get('as_of')}"))
+    return rows
+
+
 # ── roots and calls (online) ────────────────────────────────────────────────
 
 def _get_json(url: str, timeout: float = 15.0):
@@ -334,7 +376,8 @@ def write_readme(root: Path = ROOT) -> bool:
 # ── the verdict ─────────────────────────────────────────────────────────────
 
 def run(root: Path, online: bool, site: str) -> list[Row]:
-    rows = check_datasets(root) + check_scorecards(root) + check_studies(root)
+    rows = (check_datasets(root) + check_scorecards(root) + check_studies(root)
+            + check_records(root))
     if online:
         rows += check_online(site)
     return rows

@@ -67,6 +67,9 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   fs.writeFileSync(path.join(repo, 'token', 'config', 'rclaw.mainnet.json'), '{"a":1}\n');
   fs.mkdirSync(path.join(repo, 'benchmark'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'benchmark', 'studies.json'), '{"studies":[]}\n');
+  // The weekly record's folder, with its README and no week yet: nothing to copy.
+  fs.mkdirSync(path.join(repo, 'benchmark', 'record'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'benchmark', 'record', 'README.md'), '# record\n');
   fs.mkdirSync(path.join(repo, 'contracts', 'memeclaw', 'compiled'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'contracts', 'memeclaw', 'compiled', 'MemeclawFactory.json'), '{"contracts":{}}\n');
   fs.writeFileSync(path.join(repo, 'docs', 'learn', '01-x.md'), '# X\n');

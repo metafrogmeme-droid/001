@@ -34,6 +34,9 @@
  * So is the studies registry (`benchmark/studies.json`): after a study is
  * added or re-sealed, run this script, or the copy test fails.
  *
+ * So is the weekly public record (`benchmark/record/`): after
+ * `scripts/weekly_record.py` writes a week, run this script, then commit both.
+ *
  * So is Memeclaw's compiled factory: after `npm run build` in
  * contracts/memeclaw, run this script too.
  */
@@ -57,6 +60,9 @@ const MIRRORS = [
   ['website/terms', 'site/terms', /^index\.html$/],
   // The site's stylesheet only: its script bundle is not served by the website.
   ['website/assets', 'site/assets', /\.css$/],
+  // The weekly public record (scripts/weekly_record.py), which /record serves
+  // (app/lib/weekly_record.js). One file per ISO week; the README stays home.
+  ['benchmark/record', 'record', /^\d{4}-W\d{2}\.json$/],
 ];
 
 /** [source relative to the repo, copy relative to app/content]. One reading. */

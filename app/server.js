@@ -399,6 +399,8 @@ app.use('/api/public/leaderboard', require('./routes/public_leaderboard'));
 app.use('/api/public/strategies', require('./routes/public_strategies'));
 // The pre-registered studies (benchmark/studies.json, served from app/content).
 app.use('/api/public/studies', require('./routes/public_studies'));
+// The weekly public record (benchmark/record/, served from app/content).
+app.use('/api/public/record', require('./routes/public_record'));
 app.use('/api/public/letter', require('./routes/public_letter'));
 app.use('/api/public/agent', require('./routes/public_agent'));
 app.use('/api/public/invite', require('./routes/public_invite'));

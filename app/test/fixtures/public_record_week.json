@@ -1,0 +1,71 @@
+{
+ "as_of": "2026-10-21T09:30:00+00:00",
+ "equity": {
+  "book": "live",
+  "daily_returns": 34,
+  "days_recorded": 35,
+  "first_day": "2026-09-01",
+  "flows_separated": false,
+  "gap_days": 0,
+  "last_day": "2026-10-05",
+  "max_drawdown_pct": -0.5,
+  "min_daily_returns": 30,
+  "return_pct": 8.76,
+  "sharpe": 6.27,
+  "skipped_rows": 0,
+  "state": "read"
+ },
+ "format": "runeclaw.public_record.v1",
+ "parity": {
+  "aborts": 0,
+  "benchmark": {
+   "code_sha": "5c46595e3222b6b32320b412c8cb1ed4e0991376",
+   "dataset": "benchmark/majors_1h",
+   "folds_run": 6,
+   "mean_oos_return_pct": -3.275,
+   "pooled_pf": 0.6459844550254641,
+   "pooled_trades": 196,
+   "pooled_win_rate": 0.5459183673469388,
+   "profitable_folds": 1,
+   "reason": "",
+   "recorded_at": "2026-10-12T06:53:15+00:00",
+   "state": "read"
+  },
+  "excluded_non_fills": 1,
+  "fee_drag_of_gross": 0.030000000000000006,
+  "fee_vs_model": null,
+  "fees_read": 3,
+  "fees_stated": 0,
+  "inferred_fills": 0,
+  "modeled_fee_rate": 0.0012,
+  "pf": 5.0,
+  "realized_fee_rate": null,
+  "state": "read",
+  "trades": 3,
+  "unscored_pnl": 0,
+  "verdict": {
+   "ballpark": "thin",
+   "edge": "thin",
+   "in_universe": 3,
+   "inferred": 0,
+   "min_trades": 10,
+   "n": 3,
+   "outside": 0
+  },
+  "win_rate": 0.6666666666666666
+ },
+ "sleeve": {
+  "days_recorded": 19,
+  "first_day": "2026-10-01",
+  "gap_days": 1,
+  "last_day": "2026-10-20",
+  "measured": false,
+  "measured_on": "2027-10-17",
+  "places_orders": false,
+  "prereg": "docs/research/daily_trend_sleeve_prereg.md",
+  "skipped_rows": 0,
+  "state": "read"
+ },
+ "week": "2026-W43",
+ "week_starts": "2026-10-19"
+}
