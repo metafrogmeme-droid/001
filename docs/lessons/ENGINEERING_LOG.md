@@ -27862,7 +27862,8 @@ day-over-day returns, maximum drawdown and, from 30 daily returns, a Sharpe
 ratio annualised on 365 days; live exits against the backtest; and the daily
 trend sleeve. `scripts/weekly_record.py` writes `benchmark/record/<YYYY>-W<ww>.json`
 and refuses to replace a written week without `--force`; `sync_content.js`
-copies the weeks into `app/content/record/`; `/api/public/record` serves them
+copies the weeks under `app/content` (a `record` folder, which git holds only
+once a first week is committed); `/api/public/record` serves them
 through an allowlist (`app/lib/weekly_record.js`); the panel sits on `/agents`
 under the studies (`/agents#record`); `verify_evidence.py` checks
 every committed week. Four things the first design had wrong, each found by

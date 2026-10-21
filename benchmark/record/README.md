@@ -6,7 +6,8 @@ One file a week, `<YYYY>-W<ww>.json` (ISO week), written on the bot's server by
     node app/scripts/sync_content.js
 
 and committed as it was written. The website's `/record` page serves these
-files (its copy is `app/content/record/`), and `python3 scripts/verify_evidence.py`
+files (its copy is the `record` folder under `app/content`, there once a
+first week is committed), and `python3 scripts/verify_evidence.py`
 checks each one: its format, and that no dollar figure is on it.
 
 What a week holds is `bot/core/public_record.py`, in percent, ratio and count
