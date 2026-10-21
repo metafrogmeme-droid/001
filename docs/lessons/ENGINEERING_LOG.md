@@ -28206,3 +28206,37 @@ class, and `counts: null`**, never an empty list that reads as all clear;
 the watcher's own state goes to `failed` in `watchers`. A mutant that turned
 the failure into an empty list is killed by the test. Thirteen mutants, all
 killed.
+
+## A TEST THAT READS THE WALL CLOCK FAILS AT NIGHT, AND A PUBLIC ROUTE IS PUBLIC ONLY WHERE IT SAYS SO
+
+21 October 2026, the full preflight on the merged stack, run in the evening
+(UTC). Three gates failed that had passed in the afternoon.
+
+**Five Duel route tests failed every evening, on `main` too.** The football
+round is dealt only for a match kicking off on the card's own UTC day and at
+least an hour away (`app/lib/sports_feed.js` `LEAD_MS`). The test's stand-in
+match kicked off "three hours from now": after 21:00 UTC that is tomorrow,
+and after 23:00 no match can be dealt at all. CI on #657 ran at 20:10 and was
+green. `app/test/duel_routes.test.js` now moves the clock to half past nine
+of the real day and leaves it running. A frozen clock was tried first and
+broke a receipt test, because a call's seal covers its time: two players
+calling the same side in the same instant seal the same payload, and a
+frozen clock makes every call that instant.
+
+**A Pi app smoke test raced its own request log.** After Refresh, the
+charts are drawn again by the render that brings the button back, and
+Playwright reports their bar requests to the test a moment after the page
+makes them; under the preflight's load the assertion ran first. It now waits
+for the bars, bounded at five seconds. With the reload's cache clear removed,
+it still fails: the wait does not weaken the claim. (A first mutation run
+reported that mutant surviving: `--test-name-pattern` matched the subtest but
+not its parent, so nothing ran. "Pass 1" was the skipped parent.)
+
+**New public routes were public by accident of omission.** The guard check
+(`scripts/guard_lint.py`) refuses an `/api` route module that never applies
+`authMiddleware`, and an unauthenticated route in a module that guards its
+others, unless the route is listed as public with a reason. The Claw Record
+module and the Bitcoin and quorum routes on `/api/roots` were public by
+design and listed nowhere; each is listed now, with its reason. The
+stacked branches had run their app suites, not the full preflight, which is
+where this gate lives.

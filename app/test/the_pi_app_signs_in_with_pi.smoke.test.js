@@ -423,8 +423,16 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       });
       assert.strictEqual(accountReads, before.account + 1, 'the account was not read again');
       assert.ok(sent.filter((x) => x.path === '/api/signals').length > before.signals, 'the calls were not read again');
-      assert.ok(sent.filter((x) => x.path.startsWith('/api/market/candles/')).length > before.candles,
-        'the charts kept their old bars');
+      // The charts are drawn again by the render that brings the button back,
+      // and Playwright hands their requests to this process a moment after the
+      // page has them: wait for the bars, bounded, rather than racing the event.
+      const barsReadAgain = async () => {
+        for (const t0 = Date.now(); Date.now() - t0 < 5000; await new Promise((r) => setTimeout(r, 25))) {
+          if (sent.filter((x) => x.path.startsWith('/api/market/candles/')).length > before.candles) return true;
+        }
+        return false;
+      };
+      assert.ok(await barsReadAgain(), 'the charts kept their old bars');
       assert.strictEqual(await page.inputValue('.m-sym'), 'eth', 'Refresh wiped the ticket');
 
       // Back in front after being put away, the account is read again by itself.
