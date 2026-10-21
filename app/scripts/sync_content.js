@@ -33,6 +33,9 @@
  *
  * So is the studies registry (`benchmark/studies.json`): after a study is
  * added or re-sealed, run this script, or the copy test fails.
+ *
+ * So is Memeclaw's compiled factory: after `npm run build` in
+ * contracts/memeclaw, run this script too.
  */
 
 const fs = require('node:fs');
@@ -64,6 +67,10 @@ function plan({ repo = REPO } = {}) {
     // (app/lib/studies.js). The README's table and scripts/verify_evidence.py
     // read the original.
     ['benchmark/studies.json', 'studies.json'],
+    // Memeclaw's compiled factory (contracts/memeclaw/scripts/build.mjs):
+    // the ABI the website encodes calls and decodes events with, and the
+    // runtime code it checks a factory address against (app/lib/memeclaw.js).
+    ['contracts/memeclaw/compiled/MemeclawFactory.json', 'memeclaw/MemeclawFactory.json'],
   ];
   for (const [from, to, keep] of MIRRORS) {
     for (const f of fs.readdirSync(path.join(repo, from)).filter((n) => keep.test(n)).sort()) {
@@ -105,6 +112,7 @@ function write({ repo = REPO, content = CONTENT } = {}) {
     }
   }
   for (const [src, dst] of pairs) {
+    fs.mkdirSync(path.dirname(path.join(content, dst)), { recursive: true });
     fs.copyFileSync(path.join(repo, src), path.join(content, dst));
   }
   return pairs.length;

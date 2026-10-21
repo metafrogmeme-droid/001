@@ -271,11 +271,11 @@ test('every timed job the server starts is on the shared schedule', async (t) =>
   const flush = async () => { for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r)); };
   const JOBS = { '../lib/alerts': 'startAlertEngine', '../lib/letter': 'startLetterSweep', '../lib/board_watch': 'startBoardWatch',
     '../lib/arena_watch': 'startArenaWatch', '../lib/season_watch': 'startSeasonWatch', '../lib/pattern_watch': 'startPatternWatch',
-    '../routes/arena': 'startFollowSweep' };
+    '../routes/arena': 'startFollowSweep', '../lib/memeclaw_indexer': 'startMemeclawIndexer' };
   for (const m of [...Object.keys(JOBS), '../lib/shared_schedule', '../lib/job_state']) delete require.cache[require.resolve(m)];
   for (const [m, start] of Object.entries(JOBS)) require(m)[start]();
   t.mock.timers.tick(5_000); await flush();
   assert.deepStrictEqual(Object.keys(db.pool.jobRuns).sort(),
-    ['alert_engine', 'arena_follow', 'arena_watch', 'board_watch', 'letter_sweep', 'pattern_watch', 'season_watch'],
+    ['alert_engine', 'arena_follow', 'arena_watch', 'board_watch', 'letter_sweep', 'memeclaw_indexer', 'pattern_watch', 'season_watch'],
     'a job started outside the shared schedule runs once per instance, or never');
 });

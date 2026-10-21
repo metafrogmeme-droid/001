@@ -367,6 +367,9 @@ class MemoryDB {
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
     this.piPayments = [];     // Pi tips (routes/pi_payments.js), unique payment_id
     this.piCoachUsage = [];   // Ask the Claw allowance (lib/pi_coach.js), one row per (user_id, day)
+    this.memeclawPlans = [];  // Memeclaw terms planned for a wallet (lib/memeclaw_store.js)
+    this.memeclawCoins = [];  // Memeclaw coins the chain says the factory created
+    this.memeclawTrades = []; // Memeclaw Trade events, (tx_hash, log_index) unique
     this._nextDuelPickId = 1;
     // The arena key routes ARE implemented here now — see the ARENA API KEYS
     // branches below. They were not, which left mint/verify/bind/revoke
@@ -2774,6 +2777,125 @@ class MemoryDB {
       return [row ? [{ count: row.count }] : [], []];
     }
 
+    // ── memeclaw: the testnet launchpad (lib/memeclaw_store.js) ──────────
+    // Every guard is read from the statement, as the pi branches above do:
+    // `seal IS NULL`, `used_at IS NULL` and the newest-trade comparison ARE
+    // the once-only rules, and a shim that applied them regardless would keep
+    // a test green after the real SQL lost one.
+    if (pp.includes('MEMECLAW_')) {
+      if (pp.startsWith('INSERT INTO MEMECLAW_PLANS')) {
+        if (this.memeclawPlans.some((r) => r.terms_hash === params[0])) {
+          const err = new Error(`Duplicate entry '${params[0]}' for key 'PRIMARY'`);
+          err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+          throw err;
+        }
+        const [terms_hash, chain_id, factory, creator, name, symbol, description, dev_buy, created_at] = params;
+        this.memeclawPlans.push({ terms_hash, chain_id, factory, creator, name, symbol, description, dev_buy,
+          created_at, used_at: null });
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('SELECT TERMS_HASH,') && pp.includes('FROM MEMECLAW_PLANS WHERE TERMS_HASH = ?')) {
+        return [this.memeclawPlans.filter((r) => r.terms_hash === params[0]).map((r) => ({ ...r })), []];
+      }
+      if (pp.startsWith('UPDATE MEMECLAW_PLANS SET USED_AT = ? WHERE TERMS_HASH = ?')) {
+        const row = this.memeclawPlans.find((r) => r.terms_hash === params[1]
+          && (!pp.includes('AND USED_AT IS NULL') || r.used_at == null));
+        if (!row) return [{ affectedRows: 0 }, []];
+        row.used_at = params[0];
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('DELETE FROM MEMECLAW_PLANS WHERE CREATED_AT < ?')) {
+        const before = new Date(params[0]).getTime();
+        const keep = this.memeclawPlans.filter((r) => !(new Date(r.created_at).getTime() < before
+          && (!pp.includes('AND USED_AT IS NULL') || r.used_at == null)));
+        const n = this.memeclawPlans.length - keep.length;
+        this.memeclawPlans = keep;
+        return [{ affectedRows: n }, []];
+      }
+      if (pp.startsWith('INSERT IGNORE INTO MEMECLAW_COINS')) {
+        const [token, chain_id, factory, creator, name, symbol, terms_hash, tx_hash, block_number, launched_at,
+          doge_reserve, token_reserve, hidden_at, hidden_reason, created_at] = params;
+        if (this.memeclawCoins.some((r) => r.token === token)) return [{ affectedRows: 0 }, []];
+        this.memeclawCoins.push({ token, chain_id, factory, creator, name, symbol, description: null, terms_hash,
+          terms_recorded: 0, tx_hash, block_number, launched_at, doge_reserve, token_reserve, last_block: null,
+          last_log_index: null, trade_count: 0, last_trade_at: null, seal: null, seal_payload: null, sealed_at: null,
+          hidden_at, hidden_reason, created_at });
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('UPDATE MEMECLAW_COINS SET DESCRIPTION = ?, TERMS_RECORDED = 1, SEAL = ?')) {
+        const row = this.memeclawCoins.find((r) => r.token === params[4]
+          && (!pp.includes('AND SEAL IS NULL') || r.seal == null)
+          && (!pp.includes('AND TERMS_HASH = ?') || r.terms_hash === params[5]));
+        if (!row) return [{ affectedRows: 0 }, []];
+        Object.assign(row, { description: params[0], terms_recorded: 1, seal: params[1], seal_payload: params[2],
+          sealed_at: params[3] });
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('UPDATE MEMECLAW_COINS SET HIDDEN_AT = ?, HIDDEN_REASON = ? WHERE TOKEN = ?')) {
+        const row = this.memeclawCoins.find((r) => r.token === params[2]);
+        if (!row) return [{ affectedRows: 0 }, []];
+        row.hidden_at = params[0]; row.hidden_reason = params[1];
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('UPDATE MEMECLAW_COINS SET TRADE_COUNT = TRADE_COUNT + 1 WHERE TOKEN = ?')) {
+        const row = this.memeclawCoins.find((r) => r.token === params[0]);
+        if (!row) return [{ affectedRows: 0 }, []];
+        row.trade_count += 1;
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('UPDATE MEMECLAW_COINS SET DOGE_RESERVE = ?, TOKEN_RESERVE = ?, LAST_BLOCK = ?')) {
+        const [doge, tok, block, idx, at, token, b1, b2, i2] = params;
+        const guarded = pp.includes('(LAST_BLOCK IS NULL OR LAST_BLOCK < ? OR (LAST_BLOCK = ? AND LAST_LOG_INDEX < ?))');
+        const row = this.memeclawCoins.find((r) => r.token === token && (!guarded || r.last_block == null
+          || r.last_block < b1 || (r.last_block === b2 && r.last_log_index < i2)));
+        if (!row) return [{ affectedRows: 0 }, []];
+        Object.assign(row, { doge_reserve: doge, token_reserve: tok, last_block: block, last_log_index: idx,
+          last_trade_at: at });
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('SELECT SEAL FROM MEMECLAW_COINS WHERE SEALED_AT >= ? AND SEALED_AT < ?')) {
+        const lo = new Date(params[0]).getTime(); const hi = new Date(params[1]).getTime();
+        return [this.memeclawCoins.filter((r) => r.sealed_at && new Date(r.sealed_at).getTime() >= lo
+          && new Date(r.sealed_at).getTime() < hi).map((r) => ({ seal: r.seal })), []];
+      }
+      if (pp.startsWith('SELECT COUNT(*) AS N FROM MEMECLAW_COINS WHERE CREATOR = ?')) {
+        return [[{ n: this.memeclawCoins.filter((r) => r.creator === params[0]).length }], []];
+      }
+      if (pp.startsWith('SELECT TOKEN, CHAIN_ID,') && pp.includes('FROM MEMECLAW_COINS')) {
+        if (pp.includes('WHERE TOKEN = ?')) {
+          return [this.memeclawCoins.filter((r) => r.token === params[0]).map((r) => ({ ...r })), []];
+        }
+        if (pp.includes('WHERE SEAL = ?')) {
+          return [this.memeclawCoins.filter((r) => r.seal != null && r.seal === params[0]).map((r) => ({ ...r })), []];
+        }
+        if (pp.includes('ORDER BY BLOCK_NUMBER DESC LIMIT 500')) {
+          return [this.memeclawCoins.slice().sort((a, b) => b.block_number - a.block_number).slice(0, 500)
+            .map((r) => ({ ...r })), []];
+        }
+      }
+      if (pp.startsWith('INSERT IGNORE INTO MEMECLAW_TRADES')) {
+        const [tx_hash, log_index, token, trader, is_buy, doge_amount, token_amount, doge_reserve, token_reserve,
+          block_number, block_time] = params;
+        if (this.memeclawTrades.some((r) => r.tx_hash === tx_hash && r.log_index === log_index)) {
+          return [{ affectedRows: 0 }, []];
+        }
+        this.memeclawTrades.push({ tx_hash, log_index, token, trader, is_buy, doge_amount, token_amount,
+          doge_reserve, token_reserve, block_number, block_time });
+        return [{ affectedRows: 1 }, []];
+      }
+      if (pp.startsWith('SELECT TX_HASH, LOG_INDEX,') && pp.includes('FROM MEMECLAW_TRADES')) {
+        if (pp.includes('WHERE TOKEN = ? AND TRADER = ?')) {
+          return [this.memeclawTrades.filter((r) => r.token === params[0] && r.trader === params[1])
+            .map((r) => ({ ...r })), []];
+        }
+        if (pp.includes('WHERE TOKEN = ? ORDER BY BLOCK_NUMBER DESC, LOG_INDEX DESC LIMIT 50')) {
+          return [this.memeclawTrades.filter((r) => r.token === params[0])
+            .sort((a, b) => (b.block_number - a.block_number) || (b.log_index - a.log_index)).slice(0, 50)
+            .map((r) => ({ ...r })), []];
+        }
+      }
+    }
+
     // NO BRANCH MATCHED. This used to `return [[], []]` — the shim inventing
     // an answer it does not have, in the one shape this repository treats as
     // the founding defect: a failed read rendering as an empty result.
@@ -2865,6 +2987,9 @@ const EXPECTED_TABLES = Object.freeze([
   'siwf_nonces',
   'pi_payments',
   'pi_coach_usage',
+  'memeclaw_plans',
+  'memeclaw_coins',
+  'memeclaw_trades',
 ]);
 
 /**
@@ -4286,6 +4411,74 @@ async function migrate() {
         day CHAR(10) NOT NULL,
         count INT NOT NULL DEFAULT 0,
         PRIMARY KEY (user_id, day)
+      )
+    `);
+    // Memeclaw, the DogeOS-testnet launchpad (lib/memeclaw_store.js). No
+    // user id anywhere: the chain names the creator and every trader.
+    // Amounts are base-unit decimal strings, as the chain wrote them.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS memeclaw_plans (
+        terms_hash CHAR(66) NOT NULL PRIMARY KEY,
+        chain_id INT NOT NULL,
+        factory CHAR(42) NOT NULL,
+        creator CHAR(42) NOT NULL,
+        name VARCHAR(64) NOT NULL,
+        symbol VARCHAR(16) NOT NULL,
+        description VARCHAR(600) NOT NULL,
+        dev_buy VARCHAR(80) NOT NULL,
+        created_at DATETIME NOT NULL,
+        used_at DATETIME NULL,
+        INDEX idx_memeclaw_plans_created (created_at)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS memeclaw_coins (
+        token CHAR(42) NOT NULL PRIMARY KEY,
+        chain_id INT NOT NULL,
+        factory CHAR(42) NOT NULL,
+        creator CHAR(42) NOT NULL,
+        name VARCHAR(64) NOT NULL,
+        symbol VARCHAR(16) NOT NULL,
+        description VARCHAR(600) NULL,
+        terms_hash CHAR(66) NOT NULL,
+        terms_recorded TINYINT NOT NULL DEFAULT 0,
+        tx_hash CHAR(66) NOT NULL,
+        block_number BIGINT NOT NULL,
+        launched_at DATETIME NOT NULL,
+        doge_reserve VARCHAR(80) NOT NULL,
+        token_reserve VARCHAR(80) NOT NULL,
+        last_block BIGINT NULL,
+        last_log_index INT NULL,
+        trade_count INT NOT NULL DEFAULT 0,
+        last_trade_at DATETIME NULL,
+        seal CHAR(64) NULL,
+        seal_payload TEXT NULL,
+        sealed_at DATETIME NULL,
+        hidden_at DATETIME NULL,
+        hidden_reason VARCHAR(120) NULL,
+        created_at DATETIME NOT NULL,
+        INDEX idx_memeclaw_coins_creator (creator),
+        INDEX idx_memeclaw_coins_sealed (sealed_at),
+        INDEX idx_memeclaw_coins_seal (seal),
+        INDEX idx_memeclaw_coins_block (block_number)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS memeclaw_trades (
+        tx_hash CHAR(66) NOT NULL,
+        log_index INT NOT NULL,
+        token CHAR(42) NOT NULL,
+        trader CHAR(42) NOT NULL,
+        is_buy TINYINT NOT NULL,
+        doge_amount VARCHAR(80) NOT NULL,
+        token_amount VARCHAR(80) NOT NULL,
+        doge_reserve VARCHAR(80) NOT NULL,
+        token_reserve VARCHAR(80) NOT NULL,
+        block_number BIGINT NOT NULL,
+        block_time DATETIME NULL,
+        PRIMARY KEY (tx_hash, log_index),
+        INDEX idx_memeclaw_trades_token (token, block_number),
+        INDEX idx_memeclaw_trades_trader (token, trader)
       )
     `);
     return 'ddl';

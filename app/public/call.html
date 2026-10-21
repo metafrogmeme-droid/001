@@ -328,6 +328,44 @@ function sameAfterStorage(key, sealed, live) {
           appendAnchor(d);
           return;
         }
+        if (p && p.kind === 'memeclaw_launch') {
+          // Provable Calls v8 — a launch on the Memeclaw testnet launchpad.
+          // Coin units only, as base-unit strings; never an amount of money.
+          var mv = function (x) { return (x === null || x === undefined || x === '') ? '—' : String(x); };
+          var mrow = function (k, v) { return '<span class="k">' + esc(k) + '</span><span>' + v + '</span>'; };
+          var tx = d.explorer_tx ? '<a href="' + esc(d.explorer_tx + p.tx) + '" rel="noopener">' + esc(String(p.tx).slice(0, 14)) + '…</a>' : esc(mv(p.tx));
+          var bought = String(p.creator_bought || '0');
+          var boughtText = bought === '0' ? 'nothing in the launch transaction'
+            : esc((Number(BigInt(bought) * 1000000n / 1000000000000000000000000000n) / 10000).toFixed(4)) + '% of the supply, in the launch transaction';
+          html += '<div class="kv">'
+            + mrow('Receipt', 'Memeclaw · a launch on the DogeOS testnet')
+            + mrow('Coin', '<b>' + esc(mv(p.symbol)) + '</b> · ' + esc(mv(p.name)))
+            + mrow('Coin address', '<span class="hash">' + esc(mv(p.token)) + '</span>')
+            + mrow('Creator', '<span class="hash">' + esc(mv(p.creator)) + '</span>')
+            + mrow('Description', p.description ? esc(p.description) : '<span class="muted">none</span>')
+            + mrow('Terms hash', '<span class="hash">' + esc(mv(p.terms_hash)) + '</span>')
+            + mrow('Launch transaction', tx + ' · block ' + esc(mv(p.block_number)))
+            + mrow('Launched at', esc(mv(p.launched_at)) + ' <span class="muted">(the block’s time)</span>')
+            + mrow('Creator bought', boughtText)
+            + mrow('Sealed at', esc(d.sealed_at || ''))
+            + '</div>'
+            + '<p class="muted" style="margin-top:var(--s3)">The terms hash is SHA-256 of the terms as the page wrote them before the wallet was asked; the factory recorded it in its Launched event. A testnet coin has no value.</p>';
+          var mc = d.current || {};
+          var mdrift = [];
+          Object.keys(mc).forEach(function (k) {
+            if (!(k in p)) return;
+            // Addresses and hashes are one spelling in any case; words are compared as written.
+            var hexish = k === 'token' || k === 'creator' || k === 'terms_hash' || k === 'tx';
+            var a = String(p[k]); var b = String(mc[k]);
+            if (hexish ? a.toLowerCase() !== b.toLowerCase() : a !== b) mdrift.push(k + ': sealed ' + mv(p[k]) + ' → now ' + mv(mc[k]));
+          });
+          if (mdrift.length) html += '<div class="drift">⚠️ The live record DIFFERS from what was sealed: ' + esc(mdrift.join(' · ')) + '</div>';
+          html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
+          html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';
+          out.innerHTML = html;
+          appendAnchor(d);
+          return;
+        }
         if (p && p.kind === 'arena_trade') {
           // Provable Calls v2 — an Arena paper trade sealed at OPEN time.
           // §4: prices, leverage, percent and times only — no amounts.

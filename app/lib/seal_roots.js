@@ -49,6 +49,10 @@ async function sealsForDay(day) {
     'SELECT seal FROM duel_rounds WHERE created_at >= ? AND created_at < ?',
     'SELECT seal FROM duel_picks WHERE created_at >= ? AND created_at < ?',
     'SELECT settle_seal AS seal FROM duel_picks WHERE settled_at >= ? AND settled_at < ?',
+    // A Memeclaw launch (v8, 2026-10-21), sealed once the website read it
+    // from the chain: the day's root then commits to the terms each coin
+    // launched under, beside the block the chain itself dated them at.
+    'SELECT seal FROM memeclaw_coins WHERE sealed_at >= ? AND sealed_at < ?',
   ];
   for (const q of QUERIES) {
     try {
@@ -59,7 +63,15 @@ async function sealsForDay(day) {
         const leaf = q.includes('settle_seal') ? (r.settle_seal || r.seal) : r.seal;
         if (leaf) out.push(String(leaf));
       }
-    } catch (e) { /* surface not sealed yet on this deployment — skip */ }
+    } catch (e) {
+      // A table this deployment has not created yet holds no seals: skip it.
+      // Any other failure is a read that did not happen, and rootForDay
+      // stores a day's root once, for good: a root computed without this
+      // table's seals would leave them unprovable forever. So the day is
+      // not computed now, and is read again on the next ask.
+      if (e && (e.code === 'ER_NO_SUCH_TABLE' || e.errno === 1146)) continue;
+      throw e;
+    }
   }
   return canonicalLeaves(out);
 }
@@ -95,7 +107,9 @@ async function listRoots(limit = 30, scan = 7) {
   const today = dayOf(Date.now());
   for (let i = 1; i <= scan; i++) {
     const d = dayOf(new Date(today + 'T00:00:00.000Z').getTime() - i * 24 * 3600 * 1000);
-    await rootForDay(d);   // lazily fills any recent gap; empty days stay absent
+    // Lazily fills any recent gap; empty days stay absent, and a day whose
+    // seals could not all be read stays absent until they can.
+    try { await rootForDay(d); } catch (e) { /* not computed: read again next time */ }
   }
   let rows;
   try {

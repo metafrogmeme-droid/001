@@ -108,8 +108,8 @@
     "sha": "8aaaa6478d0e98e0"
   },
   "js/doge-app.js": {
-    "v": 2,
-    "sha": "64a7b78850670502"
+    "v": 3,
+    "sha": "563f368e7c7a92a7"
   },
   "js/doge-proof.js": {
     "v": 1,
@@ -163,6 +163,10 @@
     "v": 2,
     "sha": "5de9d612a36e126a"
   },
+  "js/evm-wallet.js": {
+    "v": 1,
+    "sha": "9c811018c3140e1d"
+  },
   "js/farcaster-ready.js": {
     "v": 3,
     "sha": "698644e78976a6da"
@@ -206,6 +210,10 @@
   "js/mascot3d.js": {
     "v": 7,
     "sha": "aa1978d097d8f1af"
+  },
+  "js/memeclaw.js": {
+    "v": 1,
+    "sha": "669538c3dd1c1804"
   },
   "js/metric-cluster-model.js": {
     "v": 1,
@@ -394,6 +402,10 @@
   "js/winrate-bar.js": {
     "v": 7,
     "sha": "e37f80e5f27cd89b"
+  },
+  "memeclaw.css": {
+    "v": 1,
+    "sha": "a3cea420fce2bb99"
   },
   "styles.css": {
     "v": 52,

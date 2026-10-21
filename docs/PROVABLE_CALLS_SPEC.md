@@ -200,6 +200,29 @@ verdict is given on; a disputed settlement keeps its `result` and says so on
 its surfaces. A receipt minted before this date carries none of the three,
 and verifies as it did. A match (`category: "sports"`) is never second-read.
 
+### 2.7 · `v: 8` — a Memeclaw launch, sealed when the chain has it
+
+```json
+{"v":8,"kind":"memeclaw_launch","chain_id":6281971,
+ "factory":"0x<40 hex>","token":"0x<40 hex>","creator":"0x<40 hex>",
+ "name":"Much Claw","symbol":"CLAW","description":"",
+ "terms_hash":"0x<64 hex>","tx":"0x<64 hex>","block_number":0,
+ "launched_at":"2026-10-21T12:00:00.000Z","creator_bought":"0"}
+```
+
+A launch on the Memeclaw testnet launchpad (`docs/memeclaw/MEMECLAW_PLAN.md`).
+Before the creator's wallet is asked, the page writes the terms as canonical
+JSON (`{"v":1,"kind":"memeclaw_terms","chain_id","factory","creator","name",
+"symbol","description"}`, in that order) and passes their SHA-256 to the
+factory's `launch`, which records it in its `Launched` event. So the chain
+itself dates the terms, at `block_number`, and this seal ties the website's
+copy of them to that block. `launched_at` is the block's time, not ours.
+`creator_bought` is the coin, in base units as a decimal string, that the
+creator bought in the launch transaction (`"0"` for none). The seal is minted
+only after the website has read the receipt from the chain, never from what a
+browser reported. A coin launched straight at the contract, without the page,
+has no terms on our side and no seal.
+
 ---
 
 ## 3 · Addressing
@@ -213,6 +236,8 @@ Receipts are served by an opaque key. Two forms are in use:
   hex characters nobody can derive from public data. A call's receipt names
   its round seal and, once there is one, its settlement; a settlement's names
   the call it settles.
+- `launch:<seal>` — a Memeclaw launch (§2.7). A launch is public on the chain,
+  so this key is a convenience, not a capability.
 
 A key is a capability, not a secret: knowing it lets you *verify* a receipt, not
 alter one. Implementations MUST NOT make a key guessable from public data if
@@ -315,6 +340,7 @@ surface into a disclosure surface.
 | 5 | A pre-signature scan |
 | 6 | A dealt duel round, the agent's stance committed before anyone calls |
 | 7 | A duel settlement: prices or score, outcome and verdict, naming the call |
+| 8 | A Memeclaw launch: the terms hash the chain recorded, the coin, the creator's buy |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

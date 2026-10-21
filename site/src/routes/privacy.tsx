@@ -46,7 +46,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Gap, H, L, P } from '../components/Prose'
 
-const UPDATED = '20 October 2026'
+const UPDATED = '21 October 2026'
 
 function Privacy() {
   return (
@@ -227,6 +227,31 @@ function Privacy() {
         transaction with a wallet you link — every wallet route accepts an
         address and a signature and only ever verifies them.
       </P>
+
+      <H>Memeclaw, the testnet launchpad</H>
+      <P>
+        Memeclaw (<code>/memeclaw</code>) lets anyone launch and trade coins on
+        the DogeOS <strong>testnet</strong>, where coins have no value. It needs
+        no account. Your wallet sends every transaction; we never sign one and
+        never hold a coin or a key.
+      </P>
+      <L items={[
+        <><strong>What we keep when you plan a launch:</strong> the wallet
+          address you launch from, and the name, symbol and description you
+          typed, so the launch can be matched to them when the chain confirms
+          it. A plan that is never launched is deleted after a day.</>,
+        <><strong>What we keep once the chain has it:</strong> the coin, its
+          creator&rsquo;s address, the launch transaction, and every buy and sell
+          on its curve, with the trading wallet&rsquo;s address. All of it is
+          already public on the DogeOS testnet, and a launch&rsquo;s terms are
+          sealed into the day&rsquo;s public proof, so they cannot be deleted
+          from it.</>,
+        <><strong>What is shown publicly:</strong> the coins, their names and
+          descriptions, creator and trader addresses, and trades, on the
+          Memeclaw page and its receipts.</>,
+        <><strong>Your IP address</strong> limits how fast plans and trades can
+          be asked for, as everywhere on the site.</>,
+      ]} />
 
       <H>Keeping and deleting your data</H>
       <P>

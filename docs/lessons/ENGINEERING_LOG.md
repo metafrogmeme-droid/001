@@ -27719,3 +27719,64 @@ sources are `<code>.pairs.json` now, and a test asks git (`git check-ignore
 --no-index`) whether any of them would be ignored, with the old name as its
 other arm. A gate that reads the working tree measures the working tree, not
 the commit.
+
+## A LAUNCHPAD THE AGENT CANNOT REACH: THE RULE MOVED FOR A PERSON'S WALLET, AND THE CHAIN, NOT THE BROWSER, SAYS WHAT HAPPENED
+
+21 October 2026. The owner chose two of three decisions put to them for
+"Memeclaw", a memecoin launchpad on DogeOS: lift "never launches tokens" for
+a user launchpad only (the agent still never launches or trades), and build
+it for the testnet only, on its own page, with no $RCLAW and no tokenized
+stocks. Mainnet was not decided, and nothing here reaches it
+(`docs/memeclaw/MEMECLAW_PLAN.md`).
+
+**The rule that moved is held where it still applies.** The agent's rule is
+structural: no bot module names Memeclaw, its routes, its contract or the
+DogeOS testnet, and the bot's operator-key signer has no DogeOS network
+(`tests/test_the_agent_never_reaches_memeclaw.py`, with the scan's other arm).
+The testnet is the contract's own: its constructor refuses every chain but
+6281971, the id the website's registry calls a testnet, and a test ties the
+two. A mainnet launchpad is a different contract, not a setting.
+
+**No account, because the chain already says who.** A launch is a
+transaction from the creator's wallet; `Launched.creator` is msg.sender. The
+terms the page writes (canonical JSON with the creator, the chain and the
+factory in it) are hashed into the launch call, so the chain dates them and
+terms planned for one wallet cannot be claimed by another: a launch whose
+creator is not the plan's is recorded and never sealed. The server records
+only what it read from a receipt or an event log (`app/lib/memeclaw.js`
+`readLaunch`, `readTrades`; `app/lib/memeclaw_indexer.js`), never what a
+browser reported, and a chain that did not answer is "could not be read",
+never "no such launch".
+
+**Production's ethers is a stub, so the website decodes the chain itself.**
+`app/lib/abi_decode.js` is `abi_call.js`'s twin for logs and return values,
+tested against real ethers, refusing any type it does not know. The page
+encodes nothing: the server writes every transaction a wallet is handed.
+
+**The contract is the curve, and every copy of it is checked against it.**
+The website's quote module (`app/lib/memeclaw_curve.js`) is driven against the
+contract's real bytecode trade after trade in the contracts suite, and the
+contract's name and symbol rules case by case against the website's. The
+factory carries no immutables, so the server can compare the code at an
+address with the committed artifact byte for byte before the page points
+anyone at it.
+
+**Two defects the build walked into.** The chain registry handed any RPC URL
+set in the environment, key and all, to every page and wallet, under a
+comment saying no override leaks; pages now get the keyless defaults. And
+the daily root skipped a seal table that failed to answer and stored the root
+without it for good; now only a table that does not exist is skipped, and
+any other failure leaves the day uncomputed
+(`app/test/a_chain_override_and_a_partial_read_stay_inside.test.js`).
+
+**A new npm package starts clean.** The Rune package's two advisories (solc's
+`tmp`) were not copied into a fresh baseline: solc 0.8.37 and an override to
+`tmp` 0.2.7 leave Memeclaw's tree with none.
+
+Driven: `app/test/memeclaw_records_only_what_the_chain_says.test.js` (a fake
+DogeOS RPC answering from logs real ethers encoded from the artifact's ABI),
+`app/test/memeclaw_page.test.js`,
+`app/test/the_memeclaw_page_launches_from_a_wallet.smoke.test.js` (Chromium,
+a stand-in wallet recording every request), `app/test/abi_decode.test.js`,
+`tests/test_memeclaw_reserves_what_the_repo_trades.py`, and the contracts
+suite in its own CI job.

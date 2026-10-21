@@ -59,7 +59,7 @@ test('the page is served, English, with the duel, the proof and the app', async 
   assert.match(r.body, /<html lang="en">/);
   const s = scriptsOf(r.body);
   // pi-receipt.js: the Duel block's receipts check themselves in place here too.
-  for (const need of ['/js/arena-session.js', '/js/duel.js', '/js/pi-receipt.js', '/js/pi-duel.js', '/js/anchor_cell.js', '/js/doge-proof.js', '/js/doge-app.js']) {
+  for (const need of ['/js/arena-session.js', '/js/duel.js', '/js/pi-receipt.js', '/js/pi-duel.js', '/js/anchor_cell.js', '/js/doge-proof.js', '/js/evm-wallet.js', '/js/doge-app.js']) {
     assert.ok(s.some((x) => x.startsWith(need + '?v=')), `${need} is not loaded`);
   }
   assert.strictEqual(s[s.length - 1].split('?')[0], '/js/doge-app.js', 'the app starts the session last, with every block loaded');
@@ -85,7 +85,10 @@ test('the chain is the registry\'s reading: no page script spells the DogeOS cha
     const src = codeOnly(fs.readFileSync(path.join(PUBLIC, 'js', f), 'utf8'));
     assert.ok(!/6281971/.test(src), `${f} carries the chain id as a literal; it must read /api/roots/chains`);
   }
-  const app = codeOnly(fs.readFileSync(path.join(PUBLIC, 'js', 'doge-app.js'), 'utf8'));
+  // The sign-in is doge-app.js and the wallet door it loads (evm-wallet.js,
+  // shared with /memeclaw): read both, and ask the page that it loads both.
+  const app = ['doge-app.js', 'evm-wallet.js']
+    .map((f) => codeOnly(fs.readFileSync(path.join(PUBLIC, 'js', f), 'utf8'))).join('\n');
   assert.match(app, /\/api\/roots\/chains/);
   assert.match(app, /wallet_switchEthereumChain/);
   assert.match(app, /wallet_addEthereumChain/);

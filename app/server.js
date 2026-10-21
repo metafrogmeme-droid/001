@@ -438,12 +438,17 @@ app.use('/pi', require('./routes/piapp'));
 // The DogeOS app (the Vibe Code on DOGE entry): the duel and the arena, signed
 // in with a DogeOS wallet, every day's root anchored on the DogeOS testnet.
 app.use('/doge', require('./routes/dogeapp'));
+// Memeclaw: a memecoin launchpad on the DogeOS TESTNET only, on its own page
+// with its own scripts; nothing of it is loaded by /doge or /pi
+// (docs/memeclaw/MEMECLAW_PLAN.md).
+app.use('/memeclaw', require('./routes/memeclaw_page'));
 app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
 app.use('/api/call', require('./routes/call'));
 app.use('/api/roots', require('./routes/roots'));
+app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
@@ -1078,4 +1083,9 @@ async function migrateWithRetry() {
   // flags mean a restart never replays a ceremony.
   require('./lib/season_watch').startSeasonWatch();
   require('./lib/pattern_watch').startPatternWatch();
+
+  // Memeclaw (the DogeOS-testnet launchpad): the factory's launches and
+  // trades, read from the chain once a minute. Skips at once while the
+  // factory is not set and checked (lib/memeclaw_config.js).
+  require('./lib/memeclaw_indexer').startMemeclawIndexer();
 })();

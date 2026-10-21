@@ -67,6 +67,8 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   fs.writeFileSync(path.join(repo, 'token', 'config', 'rclaw.mainnet.json'), '{"a":1}\n');
   fs.mkdirSync(path.join(repo, 'benchmark'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'benchmark', 'studies.json'), '{"studies":[]}\n');
+  fs.mkdirSync(path.join(repo, 'contracts', 'memeclaw', 'compiled'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'contracts', 'memeclaw', 'compiled', 'MemeclawFactory.json'), '{"contracts":{}}\n');
   fs.writeFileSync(path.join(repo, 'docs', 'learn', '01-x.md'), '# X\n');
   fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'SUMMARY.md'), '* [X](README.md)\n');
   fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'notes.txt'), 'not served\n');
@@ -78,7 +80,7 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   const content = tmp('content-');
 
   const before = sync.drift({ repo, content });
-  assert.strictEqual(before.length, 7, before.join('\n'));
+  assert.strictEqual(before.length, 8, before.join('\n'));
   assert.ok(before.every((l) => l.startsWith('missing ')));
 
   sync.write({ repo, content });

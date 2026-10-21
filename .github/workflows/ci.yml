@@ -879,6 +879,42 @@ jobs:
         working-directory: contracts/rune
         run: node ../../token/scripts/audit_gate.mjs .
 
+  memeclaw-contracts:
+    name: Memeclaw contracts (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: contracts/memeclaw/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/memeclaw
+        run: npm ci --no-audit --no-fund
+
+      # The website encodes every Memeclaw call from this artifact and checks a
+      # factory address against its runtime code byte for byte, so a source
+      # change that is not rebuilt would put a page in front of a contract
+      # the site does not describe.
+      - name: The committed artifact is the built artifact
+        working-directory: contracts/memeclaw
+        run: node scripts/build.mjs --check
+
+      # Compiles the real contracts (solc, pinned) and runs the real bytecode
+      # on an in-process EVM: testnet-only constructor, fixed supply, the
+      # curve paying every sale from what it received, re-entry, and the
+      # website's quotes against what the contract pays. Hermetic: no network.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/memeclaw
+        run: npm test
+
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/memeclaw
+        run: node ../../token/scripts/audit_gate.mjs .
+
   web-app:
     name: Web app (express)
     runs-on: ubuntu-latest
