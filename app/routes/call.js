@@ -97,6 +97,12 @@ async function lookupCall(key, viewer = {}) {
       const found = await require('../lib/duel_receipts').lookupDuel(key, { userId: viewer.userId || null });
       if (found) return found;
     }
+    // A Memeclaw launch (Provable Calls v8, lib/memeclaw_receipts.js).
+    if (key.startsWith('launch:')) {
+      const found = await require('../lib/memeclaw_receipts').lookupLaunch(key);
+      if (found) return found;
+      return { code: 400, body: { error: 'Invalid launch receipt id' } };
+    }
     if (key.startsWith('arena:')) {
       const found = await findArena(key);
       if (!found) {

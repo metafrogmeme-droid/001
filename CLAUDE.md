@@ -218,6 +218,12 @@ correct code to satisfy an analyser.
   `python3 -m bot.duel_bot` (the Daily Duel's own Telegram bot, health on
   :8081), runs only where `DUEL_BOT_TOKEN` is set; it builds no engine and
   touches none of the bot's state.
+- There are **two websites** and one web container: `humanoid-traders.com`
+  and Memeclaw's own domain (`MEMECLAW_HOSTS`, `app/lib/memeclaw_host.js`).
+  One publish of `app/` updates both. Their settings go in
+  `~/runeclaw-persist/web.env`, never the bot's `.env`. Check the second site
+  with the steps in `docs/DEPLOY_COMMANDS.md`, not with `verify_deploy.sh`
+  pointed at it.
 - Use `python3`, not `python`.
 - `scripts/launch_all.sh.template` is the launcher (copy it out of the repo
   before use) and `scripts/systemd/` holds the units; do not run both.

@@ -31,6 +31,13 @@ front so nothing hides behind a green number.
 - **Never launches tokens.** The agent minting a coin and then trading it is
   RUNECLAW's one hard "no" (token-launch retail extraction). This module has no
   creation path and the disclaimer says so on every surface.
+  - **The one exception is not the agent's (owner, 21 October 2026).**
+    Memeclaw (`/memeclaw`, `docs/memeclaw/MEMECLAW_PLAN.md`) lets a *person*
+    launch a coin from their *own* wallet on the DogeOS **testnet**, where
+    coins have no value. The agent has no path to it: no bot module names its
+    contract, its chain or its routes
+    (`tests/test_the_agent_never_reaches_memeclaw.py`), and the bot's own
+    on-chain signer has no DogeOS network. Mainnet is not decided.
 - **Read-only.** No execution, no signals fed to the engine, no bot behavior
   change — like the RWA radar.
 - **Honest by default.** Every surface states memecoins are extremely high risk

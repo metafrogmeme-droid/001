@@ -372,6 +372,41 @@ function sealScan(s) {
 }
 
 /** sha256 of the exact bytes a caller sent, for `input_sha256`. */
+/**
+ * v8 — a Memeclaw launch, sealed when the website has read it from the chain
+ * (lib/memeclaw.js, docs/memeclaw/MEMECLAW_PLAN.md). The terms the page
+ * sealed before the wallet was asked (`terms_hash`, which the chain recorded
+ * in the factory's Launched event at `block_number`), the coin the factory
+ * created, and what the creator bought in the same transaction. Amounts are
+ * base-unit decimal strings: an 18-decimal coin does not fit a JSON number.
+ * No outcome fields: what the coin did later is the chain's to say.
+ */
+function canonicalMemeclawLaunchPayload(c) {
+  const low = (x) => String(x == null ? '' : x).toLowerCase();
+  return JSON.stringify({
+    v: 8,
+    kind: 'memeclaw_launch',
+    chain_id: Number(c.chain_id),
+    factory: low(c.factory),
+    token: low(c.token),
+    creator: low(c.creator),
+    name: String(c.name),
+    symbol: String(c.symbol),
+    description: c.description == null ? '' : String(c.description),
+    terms_hash: low(c.terms_hash),
+    tx: low(c.tx),
+    block_number: Number(c.block_number),
+    launched_at: new Date(c.launched_at).toISOString(),
+    creator_bought: String(c.creator_bought == null ? '0' : c.creator_bought),
+  });
+}
+
+/** { seal_payload, seal } for one launch. */
+function sealMemeclawLaunch(c) {
+  const seal_payload = canonicalMemeclawLaunchPayload(c);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
 function inputDigest(text) {
   const buf = Buffer.from(String(text == null ? '' : text), 'utf8');
   return { sha256: crypto.createHash('sha256').update(buf).digest('hex'),
@@ -385,4 +420,5 @@ module.exports = {
   newRoundNonce, canonicalDuelRoundPayload, sealDuelRound,
   canonicalDuelSettlePayload, sealDuelSettle,
   canonicalScanPayload, sealScan, inputDigest,
+  canonicalMemeclawLaunchPayload, sealMemeclawLaunch,
 };

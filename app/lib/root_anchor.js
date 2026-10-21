@@ -37,7 +37,12 @@ const BASE_RPCS = ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'
 // DogeOS's own public testnet endpoint (docs.dogeos.com, read 2026-10-19).
 const DOGEOS_TESTNET_RPCS = ['https://rpc.testnet.dogeos.com/'];
 
-/** A comma list in the environment replaces a chain's default RPCs. */
+/**
+ * A comma list in the environment replaces a chain's default RPCs, for the
+ * SERVER's reads only. It may carry a key (a provider's URL often does), so
+ * it is never handed to a page or a wallet: those get `public_rpcs`, the
+ * keyless defaults below.
+ */
 function rpcList(envKey, defaults, env) {
   const raw = String((env || process.env)[envKey] || '').trim();
   const urls = raw ? raw.split(',').map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s)) : [];
@@ -54,6 +59,7 @@ function chains(env) {
     base: {
       key: 'base', chain_id: 8453, name: 'Base', testnet: false,
       rpcs: rpcList('WEB3_RPC_URL_BASE_ANCHOR', BASE_RPCS, env),
+      public_rpcs: BASE_RPCS.slice(),
       explorer_tx: 'https://basescan.org/tx/',
       native: { name: 'Ether', symbol: 'ETH', decimals: 18 },
       // QuickNode's name for this chain, through Flovia (lib/flovia.js): a
@@ -64,6 +70,7 @@ function chains(env) {
     'dogeos-testnet': {
       key: 'dogeos-testnet', chain_id: 6281971, name: 'DogeOS testnet', testnet: true,
       rpcs: rpcList('DOGEOS_TESTNET_RPC_URLS', DOGEOS_TESTNET_RPCS, env),
+      public_rpcs: DOGEOS_TESTNET_RPCS.slice(),
       explorer_tx: 'https://dogeos-testnet.l2scan.co/tx/',
       faucet: 'https://faucet.testnet.dogeos.com',
       native: { name: 'Dogecoin', symbol: 'DOGE', decimals: 18 },
@@ -78,11 +85,17 @@ function chainInfo(key, env) {
   return Object.prototype.hasOwnProperty.call(all, String(key || '')) ? all[String(key)] : null;
 }
 
-/** What a page or an app may be told about every chain: no RPC override leaks. */
+/**
+ * What a page or an app may be told about every chain. The RPCs are the
+ * keyless defaults, never the environment's override: until 21 October 2026
+ * this returned `c.rpcs`, so a provider URL set in DOGEOS_TESTNET_RPC_URLS or
+ * WEB3_RPC_URL_BASE_ANCHOR, key and all, was served on /api/roots/chains and
+ * handed to every wallet asked to add the chain.
+ */
 function publicChains(env) {
   return Object.values(chains(env)).map((c) => ({
     key: c.key, chain_id: c.chain_id, name: c.name, testnet: c.testnet,
-    rpcs: c.rpcs, explorer_tx: c.explorer_tx, native: c.native,
+    rpcs: c.public_rpcs.slice(), explorer_tx: c.explorer_tx, native: c.native,
     ...(c.faucet ? { faucet: c.faucet } : {}),
   }));
 }
@@ -113,7 +126,7 @@ function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
     instructions: [
       `Send a 0-value transaction FROM your own wallet TO the same address on ${chain.name}, `
         + 'with `data` set to the data field above. Any wallet that allows hex data works.',
-      `Or with foundry: cast send <YOUR_ADDRESS> --value 0 --rpc-url ${chain.rpcs[0]} `
+      `Or with foundry: cast send <YOUR_ADDRESS> --value 0 --rpc-url ${chain.public_rpcs[0]} `
         + `--private-key <YOUR_KEY_NEVER_SHARED_WITH_THE_SERVER> ${data}`,
       'Then submit the transaction hash back via POST /api/roots/anchor '
         + `{ day, tx_hash, chain: "${chain.key}" } — the server verifies the calldata `

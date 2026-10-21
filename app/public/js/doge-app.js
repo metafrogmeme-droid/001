@@ -14,6 +14,9 @@
  * and verifies anchors against; nothing here spells a chain id of its own, so
  * the wallet is asked for the chain the anchors are checked on and no other.
  *
+ * The wallet itself (finding it, switching its chain, telling a "no" from a
+ * failure) is evm-wallet.js, which Memeclaw's page uses too.
+ *
  * HONESTY. A wallet that is not there is said to be missing (the session's
  * 'no-host'); a person who declined is 'rejected' and gets no warning colour;
  * a server that could not answer is 'unavailable', which is ours to fix; and
@@ -41,33 +44,11 @@
     return chainPromise;
   }
 
-  /** The injected EVM wallet, or null when the page has none. */
-  function wallet() { return (typeof window !== 'undefined' && window.ethereum) || null; }
-
-  function hex(n) { return '0x' + Number(n).toString(16); }
-
-  /**
-   * Ask the wallet for the DogeOS testnet. A wallet that has never seen it
-   * answers 4902; it is then asked to add the chain, described from the
-   * registry's own entry (name, native DOGE, RPCs, explorer).
-   */
-  function switchTo(eth, c) {
-    var chainId = hex(c.chain_id);
-    return eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainId }] })
-      .catch(function (err) {
-        var unknownChain = err && (err.code === 4902 || /4902|unrecognized|not been added/i.test(String(err.message || '')));
-        if (!unknownChain) throw err;
-        var explorer = String(c.explorer_tx || '').replace(/\/tx\/?$/, '');
-        var params = { chainId: chainId, chainName: c.name, nativeCurrency: c.native, rpcUrls: c.rpcs };
-        if (explorer) params.blockExplorerUrls = [explorer];
-        return eth.request({ method: 'wallet_addEthereumChain', params: [params] });
-      });
-  }
-
-  /** True for the wallet's own "the person declined" answers (EIP-1193 4001 and its wordings). */
-  function declined(err) {
-    return !!(err && (err.code === 4001 || /rejected|denied|cancel/i.test(String(err.message || ''))));
-  }
+  // The wallet door, shared with Memeclaw (evm-wallet.js, loaded first).
+  var W = window.RCEvmWallet;
+  var wallet = W.wallet;
+  var switchTo = W.switchTo;
+  var declined = W.declined;
 
   function signIn(api) {
     var eth = wallet();

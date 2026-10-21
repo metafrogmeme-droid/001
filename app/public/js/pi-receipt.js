@@ -26,7 +26,8 @@
  * as stored, and each proof step hashes (sibling + h) when the sibling is on
  * the left, (h + sibling) when on the right.
  * app/test/the_pi_app_says_what_just_happened.smoke.test.js drives all of it
- * against a real seal and a real proof.
+ * against a real seal and a real proof. Memeclaw's page (memeclaw.js) runs
+ * the same check on its launch receipts.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -113,8 +114,11 @@
    *     seal, sealedAt, opensAt, facts, payload, anchor }
    * anchor: null (no root yet), or { state: 'reaches' | 'misses' | 'unchecked', day, root, count }.
    */
-  function check(api, key) {
-    if (!KEY_RE.test(String(key || ''))) return Promise.resolve({ state: 'bad_key' });
+  function check(api, key, opts) {
+    // Memeclaw checks its launch receipts with this same code, on its own
+    // key shape (opts.keyRe), and draws their facts itself.
+    var re = (opts && opts.keyRe) || KEY_RE;
+    if (!re.test(String(key || ''))) return Promise.resolve({ state: 'bad_key' });
     // KEY_RE allows a kind, a colon and hex only, so the key goes in the path
     // as it is: the receipt page addresses the same receipt the same way.
     return api('/api/call/' + key).then(function (r) {

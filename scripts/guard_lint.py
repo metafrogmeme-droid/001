@@ -458,6 +458,10 @@ RULES: list[Rule] = [
             "dogeapp",     # /doge — the DogeOS app: ONE HTML document, like
                            # /pi below; the API it calls is guarded where it
                            # lives (routes/duel.js, auth.js, roots.js).
+            "memeclaw_page",  # /memeclaw — the testnet launchpad: ONE HTML
+                           # document, like /doge above. Its API is
+                           # routes/memeclaw.js, counted under the mixed-module
+                           # rule below, route by route.
             "piapp",       # /pi — the Pi Browser app: ONE HTML document, like
                            # `miniapp` above and for the same reason. Every
                            # action it takes is an authenticated call to
@@ -570,6 +574,24 @@ RULES: list[Rule] = [
             # Provable Calls v3 — the daily Merkle seal-root feed is public by
             # design; mirroring it is what makes the timestamp independent.
             "roots.js:GET /", "roots.js:GET /chains", "roots.js:GET /anchor-plan/:day", "roots.js:GET /verify/:day",
+            # Memeclaw, the DogeOS-testnet launchpad (routes/memeclaw.js).
+            # Launching and trading need a WALLET, not a session: the chain
+            # names who launched and who traded, a plan is a transaction the
+            # person's own wallet sends, and the two recording doors write only
+            # what a receipt read from the chain says. Each is rate limited by
+            # IP. The operator's hide and deploy doors carry authMiddleware
+            # inline and isOperator inside, which is why the module is mixed.
+            "memeclaw.js:GET /config", "memeclaw.js:POST /launch-plan",
+            "memeclaw.js:POST /coins", "memeclaw.js:POST /trades",
+            "memeclaw.js:GET /tx/:hash", "memeclaw.js:POST /trade-plan",
+            # Its practice mode: no wallet and no account either. A practice
+            # player is a random key its browser keeps (the server holds only
+            # the hash), checked inside each route, and practice DOGE is a
+            # number in this database that nothing can withdraw.
+            "memeclaw.js:POST /paper/players", "memeclaw.js:GET /paper/me",
+            "memeclaw.js:DELETE /paper/me", "memeclaw.js:POST /paper/refill",
+            "memeclaw.js:POST /paper/launch", "memeclaw.js:POST /paper/quote",
+            "memeclaw.js:POST /paper/trade",
             # "public curated radar (no user data, IP-rate-limited)".
             "airdrops.js:GET /",
             # sync.js authenticates with its own botAuth (shared secret). Its

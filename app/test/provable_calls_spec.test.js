@@ -104,7 +104,7 @@ test('the settlement payload\'s field order (v7) matches the implementation exac
     round_id: 1, call_seal: 'a'.repeat(64), round_seal: 'b'.repeat(64), kind: 'mover', pick: 'first',
     settle_state: 'settled', settle_price: 1, settle_price_b: 2, outcome: 'first', result: 'correct', marks: 1, settled_at: AT,
   }));
-  const block = SPEC.slice(SPEC.indexOf('### 2.6'), SPEC.indexOf('## 3 '));
+  const block = SPEC.slice(SPEC.indexOf('### 2.6'), SPEC.indexOf('### 2.7'));
   let cursor = -1;
   for (const k of real) {
     const at = block.indexOf(`"${k}"`);
@@ -118,6 +118,51 @@ test('the settlement payload\'s field order (v7) matches the implementation exac
   assert.strictEqual(un.settle_price, null, 'an unresolved settlement seals a null, never a zero');
   assert.strictEqual(un.round_seal, null, 'a call on a round dealt before v6 names no round seal');
   assert.equal(un.marks, 0);
+});
+
+test('the Memeclaw launch payload\'s field order (v8) matches the implementation exactly', () => {
+  const real = keysOf(seal.canonicalMemeclawLaunchPayload({
+    chain_id: 6281971, factory: '0x' + 'a'.repeat(40), token: '0x' + 'b'.repeat(40), creator: '0x' + 'c'.repeat(40),
+    name: 'Much Claw', symbol: 'CLAW', description: '', terms_hash: '0x' + 'd'.repeat(64), tx: '0x' + 'e'.repeat(64),
+    block_number: 1, launched_at: AT, creator_bought: '0',
+  }));
+  const block = SPEC.slice(SPEC.indexOf('### 2.7'), SPEC.indexOf('## 3 '));
+  assert.ok(block.length > 100, 'the spec has a v8 section');
+  // Both ways: the spec's example payload has exactly the implementation's fields.
+  const example = JSON.parse(/```json\n([\s\S]*?)```/.exec(block)[1]);
+  assert.deepEqual(Object.keys(example), real, 'v8: the spec\'s payload and the sealed one name the same fields, in order');
+  let cursor = -1;
+  for (const k of real) {
+    const at = block.indexOf(`"${k}"`);
+    assert.ok(at > cursor, `v8: "${k}" is missing from the spec or out of order`);
+    cursor = at;
+  }
+  const p = JSON.parse(seal.canonicalMemeclawLaunchPayload({ chain_id: 6281971, factory: '0xAB', token: '0xCD',
+    creator: '0xEF', name: 'N', symbol: 'S', terms_hash: '0xAA', tx: '0xBB', block_number: 2, launched_at: AT }));
+  assert.equal(p.v, 8);
+  assert.equal(p.factory, '0xab', 'addresses and hashes are sealed lowercased, one spelling each');
+  assert.strictEqual(p.creator_bought, '0', 'no buy is a zero the creator made, stated as such');
+  assert.strictEqual(p.description, '');
+  for (const k of ['pnl', 'status', 'result', 'outcome', 'settle_price', 'price', 'reserve']) {
+    assert.ok(!(k in p), `a launch receipt carries no outcome field: ${k}`);
+  }
+  // The terms hash in the payload is the one the page computed and the chain recorded.
+  const mc = require('../lib/memeclaw');
+  const terms = { chain_id: 6281971, factory: '0x' + 'a'.repeat(40), creator: '0x' + 'c'.repeat(40),
+    name: 'Much Claw', symbol: 'CLAW', description: '' };
+  assert.equal(mc.termsHash(terms), '0x' + crypto.createHash('sha256').update(mc.canonicalTerms(terms), 'utf8').digest('hex'));
+  const termsKeys = keysOf(mc.canonicalTerms(terms));
+  const termsText = block.slice(block.indexOf('{"v":1,"kind":"memeclaw_terms"'));
+  assert.ok(termsText.length > 0 && termsText.length < block.length, 'the spec writes the terms out');
+  const specTerms = termsText.slice(0, termsText.indexOf('}') + 1).replace(/:"memeclaw_terms"|:1/g, '');
+  assert.deepEqual([...specTerms.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]), termsKeys,
+    'the terms the spec writes out are the terms the page hashes, field for field');
+  let at = -1;
+  for (const k of termsKeys) {
+    const i = termsText.indexOf(`"${k}"`, at + 1);
+    assert.ok(i > at, `terms: "${k}" is missing from the spec or out of order`);
+    at = i;
+  }
 });
 
 test('no CALL payload carries an outcome field, at any version; only the settlement receipt does', () => {

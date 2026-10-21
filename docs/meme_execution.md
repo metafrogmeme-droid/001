@@ -45,7 +45,9 @@ legs are `USDC → token`; sell legs are `token → USDC`.
 ## Discipline
 
 - **Custody-safe** — RUNECLAW never holds funds; the future execution slice
-  signs on the user's OWN key. The agent never mints tokens.
+  signs on the user's OWN key. The agent never mints tokens. (Memeclaw, the
+  testnet launchpad on `/memeclaw`, is a person's tool, not the agent's: this
+  planner cannot reach it, and its venue is Solana, not DogeOS.)
 - **Default-OFF, fail-closed** — nothing trades unless the flag is on, the
   envelope authorizes, and (for buys) the gate passes.
 - **Built before the money-path** — this planner is a pure function with no

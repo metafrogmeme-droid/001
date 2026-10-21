@@ -20,6 +20,9 @@ it with the other two.
 5. Publish `app/` using `~/runeclaw-persist/web.env`, not the bot `.env`.
    There is no install step unless a dependency manifest changed.
 6. Run `scripts/verify_deploy.sh` in a separate invocation.
+7. Once Memeclaw has its own domain, run the Memeclaw checks in
+   [Two websites, one web container](#two-websites-one-web-container), also
+   as their own commands.
 
 The generated web environment deliberately sets both web links to the same
 public named-tunnel origin:
@@ -52,6 +55,101 @@ nothing asked.
 
 So: fetch by **URL**, verify against the **URL**, and never reset to a
 remote-tracking ref.
+
+---
+
+## Two websites, one web container
+
+Since 21 October 2026 there are **two websites**, and the **same web
+container** serves both. There is no second app to publish and no new process
+on the bot box.
+
+| website | address | what it shows |
+|---|---|---|
+| RUNECLAW | `https://humanoid-traders.com` (and `www.`) | the whole site, as before; its `/memeclaw` page holds the operator's Memeclaw tools |
+| Memeclaw | its own domain, named in `MEMECLAW_HOSTS` | the launchpad only: `/` is the launchpad; its API, scripts and stylesheet, a launch receipt, `/privacy`, `/terms`, health. Everything else is a 404. |
+
+`app/lib/memeclaw_host.js` decides which site a request gets, from the host it
+arrived on. On a Memeclaw host it refuses every RUNECLAW page (the presale
+bar, `/token`, the dashboard, sign-in) and every write outside
+`/api/memeclaw`. With `MEMECLAW_HOSTS` unset, nothing changes.
+
+The bot box serves neither website and runs nothing for Memeclaw. No bot code
+reads Memeclaw, and `tests/test_the_agent_never_reaches_memeclaw.py` holds
+that.
+
+### Setting it up, once, in this order
+
+1. **The domain** is bought by the owner, after the trademark check
+   (`docs/memeclaw/MEMECLAW_PLAN.md`).
+2. **Point it at the web container**: add it, and its `www.` if used, as a
+   custom domain on the same host that serves `humanoid-traders.com`, with
+   TLS. Point it at neither the bot box nor the Cloudflare tunnel: the tunnel
+   carries only the bot's gateway and bridge.
+3. **Put the settings in the web environment**,
+   `~/runeclaw-persist/web.env`, and not in the bot's `.env`:
+
+   ```text
+   MEMECLAW_HOSTS=<domain>,www.<domain>
+   MEMECLAW_PUBLIC_URL=https://<domain>
+   ```
+
+   `deploy.sh` rebuilds `web.env` from the bot's `.env` on every deploy. It
+   copies only the five `SHARED_KEYS` and derives the two gateway URLs
+   (`scripts/prepare_web_env.py`). Every other key already in `web.env` is
+   kept, so a Memeclaw setting placed
+   there survives each deploy. One placed in the bot's `.env` never reaches
+   the website.
+4. **Publish `app/` with `web.env`**, exactly as in every deploy.
+5. **Run the checks below.** Do not announce the domain until they pass.
+
+**Later, when the operator has deployed the factory** from their own wallet on
+`https://www.humanoid-traders.com/memeclaw`: add the two values its check
+prints to `web.env` as well, then publish again.
+
+```text
+MEMECLAW_FACTORY=0x...
+MEMECLAW_FACTORY_BLOCK=<block>
+```
+
+**No secret is involved, at any step.** Memeclaw has no key, no wallet seed
+and no API token; the server never signs or sends a transaction. A step that
+asks for one is the wrong step.
+
+### Checking both websites after a publish
+
+```bash
+WEB_URL=https://humanoid-traders.com
+MEMECLAW_URL=https://<domain>
+
+curl -s "$WEB_URL/api/version"; echo; curl -s "$MEMECLAW_URL/api/version"; echo
+curl -s "$MEMECLAW_URL/" | grep -c 'id="mc-root"'
+curl -s -o /dev/null -w '%{http_code}\n' "$MEMECLAW_URL/token"
+curl -s -o /dev/null -w '%{http_code}\n' "$MEMECLAW_URL/dashboard"
+curl -s "$MEMECLAW_URL/api/memeclaw/config"; echo
+curl -s "$WEB_URL/" | grep -c 'id="mc-root"'
+```
+
+| check | passes when | if not |
+|---|---|---|
+| both `/api/version` | the same `build` and the same `assets` | the domain points at a different deployment from the one serving `humanoid-traders.com`: fix the domain on the host |
+| Memeclaw `/` | prints `1` | `0` with RUNECLAW's home page: `MEMECLAW_HOSTS` does not name this host (spelling, `www.`), or `web.env` was not the file published |
+| Memeclaw `/token`, `/dashboard` | both `404` | `200` means the **whole RUNECLAW site, presale included, is on Memeclaw's domain**. Same causes as the row above; fix it before anyone is sent there |
+| Memeclaw `/api/memeclaw/config` | JSON | `"enabled":false,"reason":"not_deployed"` is right until the factory is set; practice mode works without it. `"factory_unknown"` means the DogeOS testnet could not be read just now, not that anything is broken |
+| RUNECLAW `/` | prints `0` | the launchpad has replaced RUNECLAW's home: `MEMECLAW_HOSTS` names the main domain. Remove it |
+
+A connection or TLS error is **not a verdict on the code**: the domain or its
+certificate has not reached the web container yet. Nothing was checked.
+
+**Do not point `scripts/verify_deploy.sh` at the Memeclaw domain.** It asks
+`/api/public/status`, which Memeclaw's domain refuses by design, so it can
+only report "could not check" there. Run it as always, against
+`humanoid-traders.com`; the table above covers the second website.
+
+**Where the operator works.** The deploy, starter-coin and hide tools appear
+only on `https://www.humanoid-traders.com/memeclaw`, signed in as the
+operator. Sign-in is not served on Memeclaw's domain, so the tools never
+appear there.
 
 ---
 
