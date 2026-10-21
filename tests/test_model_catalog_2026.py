@@ -103,7 +103,12 @@ def test_every_routing_model_is_priced():
 
 
 def test_admin_tier_uses_current_sonnet():
+    from bot.llm.provider import LLMTier
     for tier, cfg in ADMIN_TIER_ROUTING.items():
+        if tier == LLMTier.CHAT:
+            # Chat runs on Claude Haiku 5.5 for every caller (2026-10-21).
+            assert cfg["model"] == "claude-haiku-5-5"
+            continue
         assert cfg["model"] == "claude-sonnet-5", (
             f"admin {tier} should use the current Sonnet, got {cfg['model']}")
 
@@ -117,11 +122,16 @@ def test_free_tier_routes_only_to_free_or_operator_funded_providers():
     # tier (Gemini/Groq/…) OR the operator-funded, quota-capped chat model (Grok) —
     # NEVER Alibaba's paid hackathon endpoint (the old SCAN/CHAT default that
     # silently required $30 of credits with no per-user quota fence).
-    from bot.llm.provider import LLMProvider
+    from bot.llm.provider import MEMBER_CHAT_ANTHROPIC_MODELS, LLMProvider, LLMTier
     allowed = {LLMProvider.GEMINI, LLMProvider.GROQ, LLMProvider.OLLAMA,
                LLMProvider.RUNECLAW, LLMProvider.TOGETHER, LLMProvider.OPENROUTER,
                LLMProvider.GROK}   # Grok is operator-funded + 5/day quota-bounded
     for tier, cfg in DEFAULT_TIER_ROUTING.items():
+        if tier == LLMTier.CHAT and cfg["provider"] == LLMProvider.ANTHROPIC:
+            # The operator-funded chat model since 2026-10-21: Claude Haiku
+            # 5.5 on prepaid credit, fenced by the same free-chat quota.
+            assert cfg["model"] in MEMBER_CHAT_ANTHROPIC_MODELS
+            continue
         assert cfg["provider"] in allowed, (
             f"free-tier {tier} routes to disallowed {cfg['provider']}")
         assert cfg["provider"] != LLMProvider.ALIBABA

@@ -238,11 +238,22 @@ class TestAnthropicOnlyInAdminTable:
                 f"{name} not found -- update this test's table list if it was renamed")
 
     def test_non_admin_tables_contain_no_anthropic(self):
+        """One named exception: DEFAULT_TIER_ROUTING's CHAT entry runs on
+        Claude Haiku 5.5 (MEMBER_CHAT_ANTHROPIC_MODELS) for every caller. It
+        may name ANTHROPIC once, inside the CHAT entry, beside the Haiku
+        constant; no other entry and no other non-admin table may."""
         src = _read(PROVIDER)
         for name in self._NON_ADMIN_TABLE_NAMES:
             start = src.index(f"{name}: dict[LLMTier, dict] = {{")
             end = src.index("\n}\n", start)
             table_body = src[start:end]
-            assert "ANTHROPIC" not in table_body, (
-                f"{name} references LLMProvider.ANTHROPIC -- Anthropic/Claude "
-                f"is reserved for ADMIN_TIER_ROUTING only")
+            if name != "DEFAULT_TIER_ROUTING":
+                assert "ANTHROPIC" not in table_body, (
+                    f"{name} references LLMProvider.ANTHROPIC -- Anthropic/Claude "
+                    f"is reserved for ADMIN_TIER_ROUTING only")
+                continue
+            assert table_body.count("LLMProvider.ANTHROPIC") == 1, (
+                "DEFAULT_TIER_ROUTING names Anthropic outside the chat exception")
+            chat = table_body[table_body.index("LLMTier.CHAT:"):]
+            chat = chat[:chat.index("},")]
+            assert "LLMProvider.ANTHROPIC" in chat and "CHAT_HAIKU_MODEL" in chat

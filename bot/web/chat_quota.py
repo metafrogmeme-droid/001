@@ -1,10 +1,12 @@
 """Free-tier chat quota — N questions/day per user, then an upgrade prompt.
 
 Free (basic-tier) web users get a small number of AI chat questions per UTC day
-on the operator-funded model (xAI Grok). Paid tiers (pro/elite) and the admin are
-exempt. This is the spend fence around the operator's prepaid Grok budget: at $20
-of grok-4.3 (~$1.25/$2.50 per MTok ≈ 16M in / 8M out), an uncapped free chat would
-drain it in a day — the per-user daily cap bounds it instead.
+on the operator-funded model: Claude Haiku 5.5 on the operator's prepaid
+Anthropic credit since 2026-10-21, xAI Grok before it (and Grok is its fallback
+now). Paid tiers (pro/elite) and the admin are exempt. This is the spend fence
+around that prepaid budget: at $20 of grok-4.3 (~$1.25/$2.50 per MTok ≈ 16M in
+/ 8M out), an uncapped free chat would drain it in a day — the per-user daily
+cap bounds it instead.
 
 State is a tiny JSON file ({uid: {"day": "YYYY-MM-DD", "n": int}}), written
 atomically. Counting is per UTC day and resets automatically when the day rolls.
@@ -63,18 +65,29 @@ def free_daily_limit() -> int:
 
 
 def quota_enabled() -> bool:
-    """Whether the free-chat quota is active. The cap exists ONLY to protect the
-    operator's prepaid Grok budget — so it turns on only when Grok is actually the
-    funded free-chat model (XAI_API_KEY set), or when the operator forces it on
-    (FREE_CHAT_QUOTA_ENABLED). With no funded budget there is nothing to protect:
-    free chat falls back to the genuinely-free Groq/Gemini tiers, uncapped."""
+    """Whether the free-chat quota is active. The cap exists ONLY to protect a
+    budget the operator pays for — so it turns on when chat runs on one: the
+    operator's Anthropic key (Claude Haiku 5.5, the chat model since
+    2026-10-21; see provider.member_chat_on_operator_key), a funded Grok key
+    (XAI_API_KEY, the chat model before it and its fallback now), or when the
+    operator forces it on (FREE_CHAT_QUOTA_ENABLED). With no funded budget there
+    is nothing to protect: free chat falls back to the genuinely-free
+    Groq/Gemini tiers, uncapped."""
     if str(os.getenv("FREE_CHAT_QUOTA_ENABLED", "")).strip().lower() in (
             "1", "true", "yes", "on"):
         return True
     if str(os.getenv("FREE_CHAT_QUOTA_ENABLED", "")).strip().lower() in (
             "0", "false", "no", "off"):
         return False                             # explicit off wins over key presence
-    return bool(str(os.getenv("XAI_API_KEY", "")).strip())
+    if bool(str(os.getenv("XAI_API_KEY", "")).strip()):
+        return True
+    try:
+        from bot.llm.provider import member_chat_on_operator_key
+        return member_chat_on_operator_key()
+    except Exception:
+        # Unread is not "unfunded": a quota that cannot tell whether the
+        # operator's key pays for chat stays on.
+        return True
 
 
 def is_quota_exempt(tier: Optional[str]) -> bool:

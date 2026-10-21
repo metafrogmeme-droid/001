@@ -67,11 +67,13 @@ def test_the_operators_anthropic_key_is_admin_only(kind):
 
 def test_the_order_each_caller_used_is_kept():
     """The move is a refactor: same providers, same order, same admin insert
-    position as the two literal lists had."""
+    position as the two literal lists had. Chat gained Grok at the head on
+    2026-10-21, when Claude Haiku 5.5 became the chat tier: Grok was the chat
+    model before it and answers first when it fails."""
     assert [p for p, _, _ in fallback_chain("chat", is_admin=True)] == [
-        LLMProvider.GEMINI, LLMProvider.ANTHROPIC, LLMProvider.ALIBABA]
+        LLMProvider.GROK, LLMProvider.GEMINI, LLMProvider.ANTHROPIC, LLMProvider.ALIBABA]
     assert [p for p, _, _ in fallback_chain("chat", is_admin=False)] == [
-        LLMProvider.GEMINI, LLMProvider.ALIBABA]
+        LLMProvider.GROK, LLMProvider.GEMINI, LLMProvider.ALIBABA]
     assert [p for p, _, _ in fallback_chain("analysis", is_admin=True)] == [
         LLMProvider.ALIBABA, LLMProvider.GEMINI, LLMProvider.GROQ,
         LLMProvider.ANTHROPIC, LLMProvider.DEEPSEEK]

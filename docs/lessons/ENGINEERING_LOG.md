@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **506 of 1358** reach for source text through `source_scan`, `code_only`
+Driven, **506 of 1359** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 506 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -27824,3 +27824,30 @@ coins launched from their own wallet.
   (`STARTER_COINS`, tested with `pageProblem`), and the page launches each
   from the connected wallet. It first reads which ones that wallet already
   launched, and when the list cannot be read it sends nothing.
+
+**CHAT RUNS ON CLAUDE HAIKU 5.5 FOR EVERY CALLER, AND THE ADMIN-ONLY KEY
+GAINED ONE NAMED EXCEPTION.** 21 October, the owner: "just the chat will do in
+this model; we keep our own runeclaw model for trades analysis and signals",
+with prepaid Anthropic credit to spend. Member chat had run on xAI Grok
+(operator-funded, five a day) and the admin's on Claude Sonnet 5; Haiku 5.5
+bills $0.10 / $0.50 per MTok, a twentieth of Sonnet. The admin-only rule on
+the operator's Claude key held at four places in `resolve_tier_config` and in
+three tests that pinned it, so the change is a narrowing, not a removal:
+`anthropic_route_allowed` admits a non-admin only on the chat tier and only on
+a model in `MEMBER_CHAT_ANTHROPIC_MODELS`, so a route naming Sonnet for
+members, or Haiku for a thesis, still falls through, and both arms are tested.
+Three things did not come with the model name. Haiku 5.5 thinks by default at
+medium and the thinking counts toward `max_tokens` (1024 here), and the effort
+field was sent to the Fable family only; the chat route now asks for `low`,
+Anthropic's recommendation for chat on that model, and the request carries it.
+Haiku is not on the dynamic-filtering web-search list, and the chat path
+attached `web_search_20260209` to every Claude 5 model; Haiku now gets
+`web_search_20250305`. And the free-chat cap turned on only when a Grok key
+funded chat, so moving chat off Grok would have left the new budget unfenced;
+it now turns on when the operator's Anthropic key funds chat too, and an
+operator who pins chat elsewhere is not counted as funding it. When Haiku fails
+(the credit runs out, the key is condemned), Grok, the model chat ran on
+before, now heads the chat fallback chain. Ten mutants, all killed.
+(`tests/test_chat_runs_on_claude_haiku_for_everyone.py`,
+`tests/test_anthropic_admin_only.py`, `bot/llm/provider.py`,
+`bot/web/chat_quota.py`.)

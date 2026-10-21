@@ -4950,8 +4950,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # the whole shared daily budget from the surface most of them actually
         # use, and the fence protected the door nobody was walking through.
         # Same store, same exemptions (paid tiers, admin), same refund when no
-        # model answered. Dormant unless the quota is enabled at all (a funded
-        # Grok key, or FREE_CHAT_QUOTA_ENABLED): see chat_quota.quota_enabled.
+        # model answered. Dormant unless the quota is enabled at all (chat
+        # funded by the operator's Anthropic key or a Grok key, or
+        # FREE_CHAT_QUOTA_ENABLED): see chat_quota.quota_enabled.
         from bot.web import chat_quota
         _is_admin_caller = self._is_admin(update)
         _tier: Optional[str]

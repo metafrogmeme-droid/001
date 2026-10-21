@@ -70,12 +70,31 @@ def test_hosted_provider_with_key_resolves(monkeypatch):
 
 def test_anthropic_override_never_reaches_non_admin(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    ok, _ = set_tier_override(LLMTier.THESIS, LLMProvider.ANTHROPIC)
+    assert ok
+    cfg = resolve_tier_config(LLMTier.THESIS, _primary(), is_admin=False)
+    assert cfg.provider != LLMProvider.ANTHROPIC   # guard holds through overrides
+    cfg_admin = resolve_tier_config(LLMTier.THESIS, _primary(), is_admin=True)
+    assert cfg_admin.provider == LLMProvider.ANTHROPIC
+
+
+def test_a_chat_override_reaches_members_only_on_the_haiku_exception(monkeypatch):
+    """An admin /settier chat anthropic names the catalogue default (Sonnet):
+    members never get it and keep the Haiku chat route. Naming Haiku reaches
+    them, because that is the member exception."""
+    from bot.llm.provider import CHAT_HAIKU_MODEL
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     ok, _ = set_tier_override(LLMTier.CHAT, LLMProvider.ANTHROPIC)
     assert ok
-    cfg = resolve_tier_config(LLMTier.CHAT, _primary(), is_admin=False)
-    assert cfg.provider != LLMProvider.ANTHROPIC   # guard holds through overrides
-    cfg_admin = resolve_tier_config(LLMTier.CHAT, _primary(), is_admin=True)
-    assert cfg_admin.provider == LLMProvider.ANTHROPIC
+    member = resolve_tier_config(LLMTier.CHAT, _primary(), is_admin=False)
+    assert member.model == CHAT_HAIKU_MODEL and member.source == "default-table"
+    admin = resolve_tier_config(LLMTier.CHAT, _primary(), is_admin=True)
+    assert admin.provider == LLMProvider.ANTHROPIC and admin.source == "runtime"
+    assert admin.model != CHAT_HAIKU_MODEL
+    ok, _ = set_tier_override(LLMTier.CHAT, LLMProvider.ANTHROPIC, CHAT_HAIKU_MODEL)
+    assert ok
+    member = resolve_tier_config(LLMTier.CHAT, _primary(), is_admin=False)
+    assert (member.model, member.source) == (CHAT_HAIKU_MODEL, "runtime")
 
 
 def test_override_state_is_module_global_and_snapshotable(monkeypatch):
