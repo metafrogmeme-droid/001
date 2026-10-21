@@ -125,8 +125,7 @@ def _pct_of(value, notional: float) -> Optional[float]:
 
 
 def _parity_section(engine) -> Optional[dict]:
-    from bot.backtest.parity import load_closed_trades, parity_summary
-    from bot.config import CONFIG
+    from bot.backtest.parity import load_closed_trades
     executor = getattr(engine, "live_executor", None)
     path = getattr(executor, "_closed_trades_file", None)
     if not path:
@@ -134,6 +133,16 @@ def _parity_section(engine) -> Optional[dict]:
     trades = load_closed_trades(path)
     if not trades:
         return None
+    return parity_public(trades)
+
+
+def parity_public(trades: list[dict]) -> dict:
+    """The dollar-free projection of `parity_summary` over ``trades``: the
+    reports panel serves it, and so does the weekly public record
+    (`bot/core/public_record.py`). One projection, so the two cannot drift
+    into publishing different fields."""
+    from bot.backtest.parity import parity_summary
+    from bot.config import CONFIG
     summary = parity_summary(trades, CONFIG.risk.commission_pct)
     # Headline stats only — the bucket breakdowns stay in Telegram /parity
     # (they're long) and the web panel links there for the full report.

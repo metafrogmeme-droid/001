@@ -184,8 +184,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 195,
-    "sha": "bf272b6149d53855"
+    "v": 196,
+    "sha": "bba97b88d7368448"
   },
   "js/icons.js": {
     "v": 6,
@@ -350,6 +350,10 @@
   "js/studies-panel.js": {
     "v": 1,
     "sha": "956628eed9c6ec33"
+  },
+  "js/record-panel.js": {
+    "v": 1,
+    "sha": "7598302bffe6f9af"
   },
   "js/swap-page.js": {
     "v": 3,

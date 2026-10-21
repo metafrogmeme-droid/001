@@ -647,3 +647,4 @@ about to change before changing it.
 ## A LAUNCHPAD THE AGENT CANNOT REACH: THE RULE MOVED FOR A PERSON'S WALLET, AND THE CHAIN, NOT THE BROWSER, SAYS WHAT HAPPENED (line 27723)
 
 - L27828: CHAT RUNS ON CLAUDE HAIKU 5.5 FOR EVERY CALLER, AND THE ADMIN-ONLY KEY GAINED ONE NAMED EXCEPTION — `tests/test_anthropic_admin_only.py`, `tests/test_chat_runs_on_claude_haiku_for_everyone.py`
+- L27855: THE WEEKLY PUBLIC RECORD IS A COMMITTED FILE, AND THE SLEEVE'S PART OF IT SAYS ONLY THAT ITS ROWS ARE KEPT — `app/test/letter.test.js`, `app/test/the_agents_page_shows_the_weekly_record.test.js`, `tests/test_the_weekly_public_record.py`

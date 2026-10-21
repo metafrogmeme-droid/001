@@ -29,7 +29,7 @@ const richData = {
   equity: { start: 10000, end: 10008.5 },
   signals: [{ direction: 'LONG', regime: 'trend_up' }, { direction: 'SHORT', regime: 'trend_up' }],
   openCount: 1,
-  reports: { parity: { verdict: 'aligned' }, arb: { total_accrued_usd: 3.2 } },
+  reports: { parity: { verdict: { edge: 'thin', ballpark: 'thin', n: 3, min_trades: 10 } }, arb: { total_accrued_usd: 3.2 } },
 };
 const flatData = { trades: [], equity: { start: null, end: null }, signals: [], openCount: 0, reports: null };
 
@@ -57,6 +57,8 @@ test('every tid either composer can emit exists in all 14 languages', () => {
     { ...richData, trades: richData.trades.map((t) => ({ ...t, pnl: '-4' })) },       // losing week
     { ...richData, trades: [richData.trades[0]] },                                    // clean week, no losers
     { ...richData, signals: [], openCount: 0 },                                       // quiet tape, flat ahead
+    // every parity verdict word the desk can say
+    ...Object.keys(L.PARITY_EDGE).map((edge) => ({ ...richData, reports: { parity: { verdict: { edge } } } })),
   ];
   const tids = new Set(['t.week', 't.performance', 't.equity', 't.alpha', 't.tape', 't.side', 't.ahead']);
   for (const fn of ['composeLetter', 'composePublicLetter']) {

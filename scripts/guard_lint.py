@@ -398,6 +398,11 @@ RULES: list[Rule] = [
                                    # counts by allowlist (app/lib/studies.js); no
                                    # account in scope, a dollar amount in the prose
                                    # refuses the registry; §4-tested.
+            "public_record",       # mounted under /api/public — the weekly
+                                   # record committed under benchmark/record/:
+                                   # percents, ratios and counts by allowlist
+                                   # (app/lib/weekly_record.js); no account in
+                                   # scope and nothing read from the bot.
             "public_duel",         # mounted under /api/public — the duel board and
                                    # squad standings. Opt-in handles only (a player
                                    # who never chose one cannot appear), and a duel
