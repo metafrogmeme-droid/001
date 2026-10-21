@@ -556,7 +556,7 @@
           + '<div id="mc-starter-note" class="mc-note"></div></div>';
       }
       return '<div class="mc-card mc-op"><h3>Operator: deploy the factory</h3>'
-        + '<p>Your own wallet sends the factory\'s creation code to the DogeOS testnet. The contract refuses every other chain. Then set the two values the check prints and restart.</p>'
+        + '<p>Your own wallet sends the factory\'s creation code to the DogeOS testnet. The contract refuses every other chain. Then put the two values the check prints in the website\'s environment (web.env) and publish it again.</p>'
         + '<button type="button" class="mc-btn" data-act="deploy">Deploy from my wallet</button>'
         + '<div id="mc-deploy-note" class="mc-note"></div></div>';
     }
@@ -745,7 +745,7 @@
             return settle('/api/memeclaw/deployment', tx).then(function (s) {
               if (s.ok && s.body && s.body.set) {
                 note(el, 'ok', 'The factory is deployed and its code checks out. Set MEMECLAW_FACTORY=' + esc(s.body.set.MEMECLAW_FACTORY)
-                  + ' and MEMECLAW_FACTORY_BLOCK=' + esc(s.body.set.MEMECLAW_FACTORY_BLOCK) + ', then restart.');
+                  + ' and MEMECLAW_FACTORY_BLOCK=' + esc(s.body.set.MEMECLAW_FACTORY_BLOCK) + ' in the website\'s environment (web.env), then publish it again.');
               } else note(el, 'warn', 'The deployment did not check out: ' + esc((s.body && s.body.reason) || ('HTTP ' + s.status)) + '.');
             });
           }, function (err) { declinedNote(el, err); });

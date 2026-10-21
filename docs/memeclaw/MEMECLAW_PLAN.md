@@ -161,15 +161,17 @@ chain says so, and the server only records what the chain says.
 ## For the owner, before people use it
 
 1. Deploy the factory on the DogeOS testnet from your own wallet (the
-   operator section of `/memeclaw` on the main site, signed in), then set
-   `MEMECLAW_FACTORY` and `MEMECLAW_FACTORY_BLOCK` to what the check prints
-   and restart. Testnet mode stays off until the server has checked the code
+   operator section of `/memeclaw` on the main site, signed in), then put
+   `MEMECLAW_FACTORY` and `MEMECLAW_FACTORY_BLOCK`, as the check prints them,
+   in `~/runeclaw-persist/web.env` and publish `app/` again. Testnet mode stays off until the server has checked the code
    at that address; practice mode works before.
 2. Launch the starter coins (CLAW, WOOF, PAW) from the same section: your
    wallet asks you to sign each one. A coin your wallet already launched is
    skipped.
-3. For the domain: point its DNS and TLS at this server, then set
-   `MEMECLAW_HOSTS` and `MEMECLAW_PUBLIC_URL` and restart.
+3. For the domain: follow `docs/DEPLOY_COMMANDS.md`, "Two websites, one web
+   container". It points the domain at the web container, puts
+   `MEMECLAW_HOSTS` and `MEMECLAW_PUBLIC_URL` in `web.env`, and checks both
+   sites after the publish.
 4. Read the page's notice and the privacy policy's Memeclaw section. The
    Terms of Service are unchanged: whether they need a launchpad section is
    for the legal check before any mainnet decision.
