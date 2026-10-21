@@ -27993,3 +27993,40 @@ check, a Bitcoin tip that could not be read is `null`, the depth comes out
 negative, and the day reads "0 of the 6 confirmations", a measurement nobody
 made, instead of "could not be read". No test had a header source that
 answered blocks but not the tip; one does now.
+
+## A TRACK RECORD COUNTS ONLY WHAT WAS SEALED BEFORE IT RESOLVED, AND SAYS WHEN ITS SAMPLE IS TOO SMALL TO MEAN ANYTHING
+
+21 October 2026. The Claw Record (`/claw-record`, `GET /api/public/claw-record`,
+`app/lib/claw_record.js`) is the agent's own calls as a public record, the
+"Agent Scorecard" the hackathon note promised, renamed because
+`app/public/js/agent-scorecard.js` already names the backtest card.
+
+**Sealed before the outcome, or not counted.** `/api/signals/stats` counts
+every resolved signal, including rows from before sealing began. This record
+counts a call only when it carries a seal whose time is not after its
+outcome: a seal after the fact proves nothing about foresight. The calls it
+leaves out are counted apart, by reason (`excluded.unsealed`,
+`excluded.sealed_after_outcome`), so the record never reads as larger or
+cleaner than it is.
+
+**No outcome is not a loss, flat is not a loss, nothing is not 0%.** A call
+with no outcome (live, expired, ambiguous) is counted under its own status
+word and left out of the rate. A break-even is its own count. Over nothing
+resolved the rate is `null`.
+
+**A floor before a verdict.** Below 350 resolved sealed calls the numbers
+are shown, muted, beside "Too few to judge"; the figure is the sample a power
+analysis for AI forecasting agents put on detecting a small edge (Foresight
+Arena, arXiv, May 2026). The rate is never painted green either way.
+
+**A live call is counted, never shown.** Its side is a member's
+(`lib/signal_access.js`); the record lists only resolved calls, each with its
+`/call/<key>` receipt, and the test checks a live call's market and key are
+absent from the payload.
+
+**An async throw is an unanswered request.** In the mutation round one
+mutant hung the test file instead of failing it: the computation threw, the
+route had no `try` around it, Express 4 does not catch an async throw, and
+the client waited forever. The route now answers 500 with the exception
+class, and a test drives a database answering in a shape the record cannot
+read. Fifteen mutants, all killed.

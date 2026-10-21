@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>The Claw Record — RUNECLAW</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/claw-record">
+<meta name="description" content="The agent's own calls, counted only where sealed before their outcome, with a sample floor before any verdict.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .cr-wrap { max-width: 760px; margin: 0 auto; padding: var(--s5) var(--s4); }
+  .topnav { display: flex; gap: var(--s3); margin-bottom: var(--s4); font-size: var(--fs-sm); flex-wrap: wrap; }
+  .cr-windows { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s4); }
+  .cr-windows button { font: inherit; font-size: var(--fs-xs); padding: 4px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+  .cr-windows button[aria-pressed="true"] { border-color: var(--gold-bright); color: var(--gold-bright); }
+  .cr-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--s3); margin-top: var(--s4); }
+  .cr-stat { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3); display: flex; flex-direction: column; gap: 2px; }
+  .cr-v { font-family: var(--font-data); font-size: var(--fs-lg); color: var(--text-1); font-variant-numeric: tabular-nums; }
+  .cr-v.cr-muted { color: var(--text-3); }
+  .cr-k { color: var(--text-3); font-size: var(--fs-xs); }
+  .cr-floor { margin-top: var(--s4); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+  .cr-bar { flex: 1 1 100%; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .cr-bar span { display: block; height: 100%; background: var(--text-3); }
+  .cr-chip { font-size: var(--fs-xs); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-2); }
+  .cr-note { color: var(--text-2); font-size: var(--fs-sm); margin-top: var(--s3); }
+  .cr-wrap h2 { font-family: var(--font-display); font-size: var(--fs-md); margin-top: var(--s5); }
+  .cr-scroll { overflow-x: auto; }
+  .cr-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  .cr-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .cr-out[data-outcome="win"] { color: var(--up); }
+  .cr-out[data-outcome="loss"] { color: var(--down); }
+  .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  .explain { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.65; border-top: 1px solid var(--line); margin-top: var(--s5); padding-top: var(--s3); }
+</style>
+</head>
+<body>
+<div class="cr-wrap" role="main">
+  <nav class="topnav"><a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a><span style="flex:1"></span><a href="/roots" data-i18n="cr.roots_nav">Daily roots</a><a href="/api/public/claw-record" data-i18n="rt.raw_json">Raw JSON feed</a></nav>
+  <h1 style="font-family:var(--font-display);letter-spacing:.03em" data-i18n="cr.h1">The Claw Record</h1>
+  <p class="muted" style="font-size:var(--fs-sm);margin:6px 0 0" data-i18n-html="cr.intro">
+    Every call the agent makes is <b>sealed</b> the moment it reaches us. This record counts only calls sealed <b>before</b> their outcome,
+    scores each by its own R, and leaves calls with no outcome out of the rate. Each sealed call is in its day's
+    <a href="/roots">Merkle root</a>, anchored on chains anyone can check.
+  </p>
+  <div class="cr-windows" role="group" aria-label="Window">
+    <button type="button" data-days="7">7d</button>
+    <button type="button" data-days="30">30d</button>
+    <button type="button" data-days="90">90d</button>
+    <button type="button" data-days="365">365d</button>
+  </div>
+  <div id="record"><p class="cr-note" data-i18n="cr.loading">Loading the record…</p></div>
+  <div class="explain" data-i18n-html="cr.explain">
+    A call sealed after its outcome, or never sealed, is counted apart and never in the rate. Below the floor the numbers are shown
+    and no verdict is drawn: a power analysis for AI forecasters put the sample needed to detect a small edge near 350 resolved
+    calls. A live call is counted here and shown only once it resolves. Counts, percent and R only.
+  </div>
+</div>
+<script src="/js/claw-record.js?v=1"></script>
+<script src="/js/i18n-core.js?v=197"></script>
+<script>
+(function () {
+  var box = document.getElementById('record');
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; } catch (e) { return en; }
+  };
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-days]'));
+  var current = 30;
+  function load(days) {
+    current = days;
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-days')) === days)); });
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, 15000) : null;
+    fetch('/api/public/claw-record?days=' + days, { headers: { Accept: 'application/json' }, signal: ctl ? ctl.signal : undefined })
+      // A refused or failed read must reach the catch, never render as an empty record.
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) { if (days === current) box.innerHTML = RCClawRecord.render(d, T); })
+      .catch(function () { if (days === current) box.innerHTML = RCClawRecord.render(null, T); })
+      .then(function () { if (timer) clearTimeout(timer); });
+  }
+  buttons.forEach(function (b) { b.addEventListener('click', function () { load(Number(b.getAttribute('data-days'))); }); });
+  load(current);
+})();
+</script>
+<script src="/js/palette.js?v=1" defer></script>
+</body>
+</html>

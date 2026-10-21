@@ -217,6 +217,31 @@
     "rt.stamp_done": { en: "Stamped on Base — checking…" },
     "rt.stamp_already": { en: "already stamped in EAS" },
     "rt.stamp_failed": { en: "Not stamped: {why}" },
+    "cr.h1": { en: "The Claw Record" },
+    "cr.roots_nav": { en: "Daily roots" },
+    "cr.intro": { en: "Every call the agent makes is <b>sealed</b> the moment it reaches us. This record counts only calls sealed <b>before</b> their outcome, scores each by its own R, and leaves calls with no outcome out of the rate. Each sealed call is in its day's <a href=\"/roots\">Merkle root</a>, anchored on chains anyone can check." },
+    "cr.explain": { en: "A call sealed after its outcome, or never sealed, is counted apart and never in the rate. Below the floor the numbers are shown and no verdict is drawn: a power analysis for AI forecasters put the sample needed to detect a small edge near 350 resolved calls. A live call is counted here and shown only once it resolves. Counts, percent and R only." },
+    "cr.loading": { en: "Loading the record…" },
+    "cr.unreadable": { en: "The record could not be read just now. Try again shortly." },
+    "cr.sealed": { en: "sealed calls" },
+    "cr.resolved": { en: "resolved" },
+    "cr.win_rate": { en: "win rate" },
+    "cr.avg_r": { en: "average R (gross)" },
+    "cr.too_few": { en: "Too few to judge" },
+    "cr.measured": { en: "Measured" },
+    "cr.floor": { en: "{n} of {floor} resolved calls before this record is a verdict" },
+    "cr.partial": { en: "This window hit the read limit: the counts are partial." },
+    "cr.no_outcome": { en: "No outcome yet, not in the rate" },
+    "cr.excluded": { en: "Not counted: {u} unsealed, {l} sealed after their outcome" },
+    "cr.empty": { en: "No sealed call was made in this window." },
+    "cr.days_h": { en: "By day" },
+    "cr.recent_h": { en: "Latest resolved calls" },
+    "cr.root_link": { en: "root & anchors" },
+    "cr.no_root": { en: "no root yet" },
+    "cr.receipt": { en: "receipt" },
+    "cr.win": { en: "win" },
+    "cr.loss": { en: "loss" },
+    "cr.flat": { en: "flat" },
     "rt.unanchored": { en: "not yet anchored on-chain" },
     "aw.h": { en: "Your Arena week" },
     "aw.t.week": { en: "The week" },
@@ -2374,7 +2399,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"325fd61a","zh":"4e1d1131","pt":"fbdbbaa1","fr":"cff17761","de":"8155129a","nl":"d37a4c82","ja":"9eb9bf1c","ko":"a3267223","ru":"8dadb375","tr":"aad751c0","it":"9d82c376","hi":"df4f3aa7","ar":"c442dab0"};
+  var CHUNKS = {"es":"4bbc9b09","zh":"fe2fc7ea","pt":"16fd4727","fr":"48dc65f2","de":"35c9f975","nl":"dd740fd5","ja":"de661251","ko":"f26dde88","ru":"394a48c9","tr":"933c2e28","it":"6b7a5502","hi":"3d4e8246","ar":"f8b90745"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

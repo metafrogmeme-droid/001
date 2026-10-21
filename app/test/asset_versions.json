@@ -75,6 +75,10 @@
     "v": 40,
     "sha": "c714e0d37fa78d3d"
   },
+  "js/claw-record.js": {
+    "v": 1,
+    "sha": "2d974fd10da45b24"
+  },
   "js/confidence-score.js": {
     "v": 2,
     "sha": "eae59726fc5089ab"
@@ -184,8 +188,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 196,
-    "sha": "84886ece29c35993"
+    "v": 197,
+    "sha": "2811c51f34f40928"
   },
   "js/icons.js": {
     "v": 6,
