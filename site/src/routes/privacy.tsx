@@ -228,12 +228,39 @@ function Privacy() {
         address and a signature and only ever verifies them.
       </P>
 
-      <H>Memeclaw, the testnet launchpad</H>
+      <H>Memeclaw, the practice and testnet launchpad</H>
       <P>
-        Memeclaw (<code>/memeclaw</code>) lets anyone launch and trade coins on
-        the DogeOS <strong>testnet</strong>, where coins have no value. It needs
-        no account. Your wallet sends every transaction; we never sign one and
-        never hold a coin or a key.
+        Memeclaw (<code>/memeclaw</code>, and on its own domain when we run one,
+        served by the same servers under this same policy) lets anyone launch
+        and trade coins that have no value, in one of two modes. Neither needs
+        an account.
+      </P>
+      <P>
+        <strong>Practice mode</strong> needs no wallet. Practice coins and
+        practice DOGE exist on this site only.
+      </P>
+      <L items={[
+        <><strong>What your browser keeps:</strong> a random practice key, in
+          its local storage. Clearing the browser&rsquo;s data loses it, and with
+          it the practice player.</>,
+        <><strong>What we keep:</strong> a hash of that key (never the key
+          itself), a random player id, its practice DOGE, the practice coins it
+          holds, how many coins it launched today and when it last topped up.
+          The practice coins launched (name, symbol, description) and every
+          practice trade are kept under the creator&rsquo;s or trader&rsquo;s
+          random id.</>,
+        <><strong>What is shown publicly:</strong> the practice coins, their
+          names and descriptions, and their trades, each under a random id that
+          names no person.</>,
+        <><strong>Forgetting it:</strong> &ldquo;Forget my practice
+          player&rdquo; on the page deletes the key&rsquo;s hash, the practice
+          DOGE and the holdings. The coins and trades stay, under the random
+          id.</>,
+      ]} />
+      <P>
+        <strong>Testnet mode</strong> runs on the DogeOS <strong>testnet</strong>.
+        Your wallet sends every transaction; we never sign one and never hold a
+        coin or a key.
       </P>
       <L items={[
         <><strong>What we keep when you plan a launch:</strong> the wallet

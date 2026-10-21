@@ -584,6 +584,14 @@ RULES: list[Rule] = [
             "memeclaw.js:GET /config", "memeclaw.js:POST /launch-plan",
             "memeclaw.js:POST /coins", "memeclaw.js:POST /trades",
             "memeclaw.js:GET /tx/:hash", "memeclaw.js:POST /trade-plan",
+            # Its practice mode: no wallet and no account either. A practice
+            # player is a random key its browser keeps (the server holds only
+            # the hash), checked inside each route, and practice DOGE is a
+            # number in this database that nothing can withdraw.
+            "memeclaw.js:POST /paper/players", "memeclaw.js:GET /paper/me",
+            "memeclaw.js:DELETE /paper/me", "memeclaw.js:POST /paper/refill",
+            "memeclaw.js:POST /paper/launch", "memeclaw.js:POST /paper/quote",
+            "memeclaw.js:POST /paper/trade",
             # "public curated radar (no user data, IP-rate-limited)".
             "airdrops.js:GET /",
             # sync.js authenticates with its own botAuth (shared secret). Its

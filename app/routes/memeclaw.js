@@ -12,6 +12,18 @@
  *   POST /api/memeclaw/trade-plan           { action: buy|sell, coin, wallet, amount, slippage_bps? }
  *   POST /api/memeclaw/trades               { tx_hash }: read a buy or sell from the chain, record it
  *   GET  /api/memeclaw/tx/:hash             pending, success, failed or missing, as the chain says
+ *
+ * PRACTICE MODE (lib/memeclaw_paper.js): practice DOGE, no wallet, no chain.
+ * A player is a random key the browser keeps, sent as X-Memeclaw-Practice.
+ *   POST   /api/memeclaw/paper/players         a new practice player: { key, player }
+ *   GET    /api/memeclaw/paper/me              practice DOGE, holdings, refill, launches left
+ *   DELETE /api/memeclaw/paper/me              forget this player
+ *   POST   /api/memeclaw/paper/refill          back to the start, once a day, when nearly empty
+ *   POST   /api/memeclaw/paper/launch          { name, symbol, description?, dev_buy? }
+ *   POST   /api/memeclaw/paper/quote           { coin, action, amount }
+ *   POST   /api/memeclaw/paper/trade           { coin, action, amount, min_out }
+ *   GET    /api/memeclaw/paper/coins, /paper/coins/:id
+ *   POST   /api/memeclaw/paper/coins/:id/hide  operator
  *   POST /api/memeclaw/coins/:address/hide  operator: { reason } hides, '' shows again
  *   GET  /api/memeclaw/deploy-plan          operator: the factory's creation transaction
  *   POST /api/memeclaw/deployment           operator: { tx_hash } of that deploy, checked
@@ -39,6 +51,7 @@ const memeclawConfig = require('../lib/memeclaw_config');
 const mc = require('../lib/memeclaw');
 const store = require('../lib/memeclaw_store');
 const record = require('../lib/memeclaw_record');
+const paper = require('../lib/memeclaw_paper');
 const curve = require('../lib/memeclaw_curve');
 const mchain = require('../lib/memeclaw_chain');
 
@@ -293,7 +306,9 @@ router.get('/deploy-plan', operatorLimit, authMiddleware, async (req, res) => {
   const chain = publicChains().find((c) => c.key === mchain.CHAIN_KEY);
   if (!chain || chain.testnet !== true) return res.status(503).json({ error: 'no_testnet' });
   return res.json({ ...mc.deployPlan(chain.chain_id), compiler: mc.ARTIFACT.compiler,
-    source_sha256: mc.ARTIFACT.source_sha256 });
+    source_sha256: mc.ARTIFACT.source_sha256,
+    // The first coins, for the operator's wallet to launch once the factory is on.
+    starters: mc.STARTER_COINS });
 });
 
 router.post('/deployment', operatorLimit, authMiddleware, async (req, res) => {
@@ -308,6 +323,173 @@ router.post('/deployment', operatorLimit, authMiddleware, async (req, res) => {
     console.error('Memeclaw deployment check failed:', className(err));
     return res.status(503).json({ error: 'check_unavailable', exception: className(err) });
   }
+});
+
+// ── practice mode: no wallet, no chain (lib/memeclaw_paper.js) ───────────────
+
+const paperNewLimit = rateLimit({ name: 'memeclaw.paper.new', windowMs: 3600000, max: 10, key: ipKey });
+const paperActLimit = rateLimit({ name: 'memeclaw.paper.act', windowMs: 60000, max: 60, key: ipKey });
+
+/** The practice player the request's key belongs to, or null with the 401 already sent. */
+async function practicePlayer(req, res) {
+  const p = await paper.playerFor(String(req.get('x-memeclaw-practice') || '').trim().toLowerCase());
+  if (!p) {
+    res.status(401).json({ error: 'practice_key' });
+    return null;
+  }
+  return p;
+}
+
+function paperRefused(res, err, what) {
+  if (err instanceof paper.PaperRefusal) {
+    const code = err.reason === 'unknown_player' ? 401 : 400;
+    return res.status(code).json({ error: err.reason === 'unknown_player' ? 'practice_key' : err.reason, ...err.extra });
+  }
+  console.error(`Memeclaw practice ${what} failed:`, className(err));
+  return res.status(503).json({ error: `${what}_unavailable`, exception: className(err) });
+}
+
+function paperCoinView(row) {
+  const state = { dogeReserve: BigInt(String(row.doge_reserve)), tokenReserve: BigInt(String(row.token_reserve)) };
+  return {
+    mode: 'practice',
+    id: row.id,
+    name: row.name,
+    symbol: row.symbol,
+    description: row.description || '',
+    creator: row.creator,
+    created_at: row.created_at,
+    doge_reserve: state.dogeReserve.toString(),
+    token_reserve: state.tokenReserve.toString(),
+    sold_bps: curve.soldBps(state),
+    price_doge: curve.priceText(state),
+    max_buy: curve.maxBuy(state).toString(),
+    trade_count: Number(row.trade_count || 0),
+    last_trade_at: row.last_trade_at || null,
+  };
+}
+
+function paperTradeView(t) {
+  return { id: Number(t.id), trader: t.player, side: Number(t.is_buy) ? 'buy' : 'sell',
+    doge_amount: String(t.doge_amount), token_amount: String(t.token_amount), at: t.created_at };
+}
+
+router.post('/paper/players', paperNewLimit, async (req, res) => {
+  try {
+    const out = await paper.newPlayer(now());
+    return res.json({ key: out.key, player: { id: out.player.id, practice_doge: out.player.doge } });
+  } catch (err) { return paperRefused(res, err, 'player'); }
+});
+
+router.get('/paper/me', readLimit, async (req, res) => {
+  try {
+    const p = await practicePlayer(req, res);
+    if (!p) return undefined;
+    const holdings = await paper.holdingsOf(p.id);
+    const t = now().getTime();
+    const nextAt = p.refilled_at ? new Date(new Date(p.refilled_at).getTime() + paper.REFILL_EVERY_MS) : null;
+    res.set('Cache-Control', 'no-store');
+    return res.json({
+      player: { id: p.id, practice_doge: String(BigInt(String(p.doge).split('.')[0])) },
+      holdings,
+      refill: { below: paper.REFILL_BELOW.toString(), to: paper.START_DOGE.toString(),
+        next_at: nextAt && nextAt.getTime() > t ? nextAt.toISOString() : null },
+      launches_left_today: p.launches_day === now().toISOString().slice(0, 10)
+        ? Math.max(0, paper.LAUNCHES_PER_DAY - Number(p.launches_today)) : paper.LAUNCHES_PER_DAY,
+    });
+  } catch (err) { return paperRefused(res, err, 'player'); }
+});
+
+router.delete('/paper/me', paperActLimit, async (req, res) => {
+  try {
+    const p = await practicePlayer(req, res);
+    if (!p) return undefined;
+    await paper.forget(p.id);
+    return res.json({ ok: true });
+  } catch (err) { return paperRefused(res, err, 'forget'); }
+});
+
+router.post('/paper/refill', paperActLimit, async (req, res) => {
+  try {
+    const p = await practicePlayer(req, res);
+    if (!p) return undefined;
+    return res.json({ ok: true, practice_doge: await paper.refill(p.id, now()) });
+  } catch (err) { return paperRefused(res, err, 'refill'); }
+});
+
+router.post('/paper/launch', paperActLimit, async (req, res) => {
+  try {
+    const p = await practicePlayer(req, res);
+    if (!p) return undefined;
+    const b = req.body || {};
+    const id = await paper.launch(p.id, {
+      name: typeof b.name === 'string' ? b.name : '', symbol: typeof b.symbol === 'string' ? b.symbol : '',
+      description: typeof b.description === 'string' ? b.description : '',
+      devBuy: b.dev_buy == null || b.dev_buy === '' ? '0' : String(b.dev_buy),
+    }, now());
+    return res.json({ coin: paperCoinView(await paper.coin(id)) });
+  } catch (err) { return paperRefused(res, err, 'launch'); }
+});
+
+router.post('/paper/quote', readLimit, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const row = await paper.coin(b.coin);
+    if (!row || row.hidden_at) return res.status(404).json({ error: 'unknown_coin' });
+    if (!mc.WEI_RE.test(String(b.amount)) || BigInt(b.amount) === 0n) return res.status(400).json({ error: 'amount' });
+    const state = { dogeReserve: BigInt(String(row.doge_reserve)), tokenReserve: BigInt(String(row.token_reserve)) };
+    const amount = BigInt(b.amount);
+    if (b.action === 'buy') {
+      const gets = curve.quoteBuy(state, amount);
+      if (gets === null) return res.status(400).json({ error: 'sold_out', max_buy: curve.maxBuy(state).toString() });
+      return res.json({ gets: gets.toString() });
+    }
+    if (b.action === 'sell') return res.json({ gets: curve.quoteSell(state, amount).toString() });
+    return res.status(400).json({ error: 'action' });
+  } catch (err) { return paperRefused(res, err, 'quote'); }
+});
+
+router.post('/paper/trade', paperActLimit, async (req, res) => {
+  try {
+    const p = await practicePlayer(req, res);
+    if (!p) return undefined;
+    const b = req.body || {};
+    const out = await paper.trade(p.id, { coin: b.coin, action: b.action, amount: b.amount == null ? '' : String(b.amount),
+      minOut: b.min_out == null ? '0' : String(b.min_out) }, now());
+    return res.json({ ok: true, gets: out.gets, practice_doge: out.doge, held: out.held });
+  } catch (err) { return paperRefused(res, err, 'trade'); }
+});
+
+router.get('/paper/coins', readLimit, optionalAuth, async (req, res) => {
+  try {
+    const operator = await isOperator(req);
+    const rows = await paper.coins();
+    const list = rows.filter((r) => operator || !r.hidden_at).slice(0, 200)
+      .map((r) => (operator ? { ...paperCoinView(r), hidden: r.hidden_at ? (r.hidden_reason || 'hidden') : null } : paperCoinView(r)));
+    res.set('Cache-Control', 'no-store');
+    return res.json({ coins: list, count: list.length });
+  } catch (err) { return paperRefused(res, err, 'coins'); }
+});
+
+router.get('/paper/coins/:id', readLimit, optionalAuth, async (req, res) => {
+  try {
+    const row = await paper.coin(req.params.id);
+    if (!row) return res.status(404).json({ error: 'unknown_coin' });
+    const operator = await isOperator(req);
+    if (row.hidden_at && !operator) return res.status(404).json({ error: 'hidden' });
+    res.set('Cache-Control', 'no-store');
+    return res.json({ coin: paperCoinView(row), trades: (await paper.trades(row.id)).map(paperTradeView) });
+  } catch (err) { return paperRefused(res, err, 'coin'); }
+});
+
+router.post('/paper/coins/:id/hide', operatorLimit, authMiddleware, async (req, res) => {
+  try {
+    if (!(await isOperator(req))) return res.status(403).json({ error: 'operator_only' });
+    const reason = String((req.body || {}).reason || '').trim();
+    const ok = await paper.setHidden(req.params.id, reason || null, now());
+    if (!ok) return res.status(404).json({ error: 'unknown_coin' });
+    return res.json({ ok: true, hidden: !!reason });
+  } catch (err) { return paperRefused(res, err, 'hide'); }
 });
 
 router.config = config;

@@ -213,7 +213,7 @@
   },
   "js/memeclaw.js": {
     "v": 1,
-    "sha": "669538c3dd1c1804"
+    "sha": "653826590341df2a"
   },
   "js/metric-cluster-model.js": {
     "v": 1,
@@ -260,8 +260,8 @@
     "sha": "c401aff666606a0d"
   },
   "js/pi-receipt.js": {
-    "v": 2,
-    "sha": "2df4aa454834ebb3"
+    "v": 3,
+    "sha": "759f0e52e2fbf694"
   },
   "js/pi-signals.js": {
     "v": 7,
@@ -405,7 +405,7 @@
   },
   "memeclaw.css": {
     "v": 1,
-    "sha": "a3cea420fce2bb99"
+    "sha": "e3239d42e6c63232"
   },
   "styles.css": {
     "v": 52,

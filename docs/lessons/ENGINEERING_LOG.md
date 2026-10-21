@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 278 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 279 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **505 of 1356** reach for source text through `source_scan`, `code_only`
+Driven, **506 of 1358** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 505 is a FLOOR and the honest shape is
+source scan that rule does not see, so 506 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -27780,3 +27780,47 @@ DogeOS RPC answering from logs real ethers encoded from the artifact's ABI),
 a stand-in wallet recording every request), `app/test/abi_decode.test.js`,
 `tests/test_memeclaw_reserves_what_the_repo_trades.py`, and the contracts
 suite in its own CI job.
+
+**Practice, a domain and the first coins (same day).** The owner then asked
+for "testnet and paper for now" and "a seperate website", and chose a
+no-wallet practice mode, a domain served by this same server, and starter
+coins launched from their own wallet.
+
+- **Practice prices with the testnet's curve.** A practice trade calls the
+  same `memeclaw_curve.js` the contracts suite drives against the bytecode,
+  so the two modes cannot drift in price. What practice adds is a ledger:
+  each trade is one database transaction that locks coin, then player, then
+  holding, and refuses below its `min_out`. The test that matters replays
+  random trading and asserts, after every step, that every practice DOGE
+  handed out is held or in a curve
+  (`app/test/memeclaw_practice_mode_keeps_every_practice_doge.test.js`). A
+  failing step half way must leave nothing changed, and a test makes one
+  fail.
+- **The practice key is the browser's, and the server keeps a hash.** It
+  travels as a header, never in a URL, and "forget" deletes the hash, the
+  balance and the holdings, while the coins and trades stay under a random
+  id. The page's view names the figure `practice_doge`, never `balance`, so
+  no reader can take it for money.
+- **A second domain is a narrower door, not a copy.** On a host named in
+  `MEMECLAW_HOSTS`, `app/lib/memeclaw_host.js` answers only an allowlist and
+  404s the rest, so the presale bar and sign-in are not one typed path away.
+  The test asks it both ways: Memeclaw's paths answer on its host, the
+  website's do not, and with the setting unset nothing changes
+  (`app/test/memeclaw_has_its_own_domain.test.js`). The allowlist is checked
+  against the page's own script and stylesheet lists, so a new bundle the
+  page loads cannot be 404'd on its own domain.
+- **A refusal no route needs yet is still a claim to test.** The gate also
+  refuses any write outside `/api/memeclaw`, and the mutation round showed
+  no test noticed it gone: the allowlist already 404'd every write the test
+  tried, and no route writes on an allowed path today. The test now stands
+  in for the route that might be added later (a write on the receipt path)
+  and asks for a 404 on Memeclaw's host and a 200 on the main one.
+- **A receipt is checked where it is shown.** The launch receipt is checked
+  on the coin's page with the Pi app's receipt check on a `launch:` key
+  (`js/pi-receipt.js` grew an optional key shape), so the domain needs no
+  copy of the receipt page.
+- **The operator's starter coins are the operator's own launches.** The
+  server lists three names that pass the same rules as anyone's
+  (`STARTER_COINS`, tested with `pageProblem`), and the page launches each
+  from the connected wallet. It first reads which ones that wallet already
+  launched, and when the list cannot be read it sends nothing.

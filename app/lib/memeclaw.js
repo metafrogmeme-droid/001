@@ -401,6 +401,17 @@ async function readDeployment(txHash) {
   return { status: 'verified', address: lower(rc.contractAddress), block_number: Number(BigInt(rc.blockNumber)) };
 }
 
+/**
+ * The first coins on the testnet, launched by the operator from their own
+ * wallet after deploying the factory (owner, 21 October 2026). Each passes
+ * the page's rules like any launch; the operator's wallet signs each one.
+ */
+const STARTER_COINS = Object.freeze([
+  Object.freeze({ name: 'Much Claw', symbol: 'CLAW', description: 'A starter coin on the Memeclaw testnet. It has no value.' }),
+  Object.freeze({ name: 'Testnet Woof', symbol: 'WOOF', description: 'A starter coin on the Memeclaw testnet. It has no value.' }),
+  Object.freeze({ name: 'Paw Print', symbol: 'PAW', description: 'A starter coin on the Memeclaw testnet. It has no value.' }),
+]);
+
 /** The deploy transaction the operator's wallet sends: the factory's creation code, nothing else. */
 function deployPlan(chainId) {
   return { chain_id: Number(chainId), value: '0x0', data: FACTORY.bytecode };
@@ -413,5 +424,6 @@ module.exports = {
   chainNameProblem, chainSymbolProblem, pageProblem, cleanDescription,
   canonicalTerms, termsHash, launchPlan, tradePlan,
   readCurve, readAllowance, readHeld, factoryEvents, txState, readTrades, readLaunch, checkFactory, readDeployment, deployPlan,
+  STARTER_COINS,
   lower,
 };

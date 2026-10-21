@@ -54,3 +54,8 @@ main#mc-root { padding: 12px 16px 24px; max-width: 760px; }
 .mc-prose p { color: var(--mc-text); }
 .mc-foot { padding: 12px 16px 28px; color: var(--mc-muted); font-size: 13px; }
 @media (max-width: 520px) { .mc-row-price { font-size: 13px; } .mc-kv { grid-template-columns: 1fr; } }
+.mc-modes { display: flex; gap: 8px; padding: 12px 16px 0; flex-wrap: wrap; }
+.mc-mode { background: transparent; color: var(--mc-text); border: 1px solid var(--mc-line); border-radius: 12px; padding: 8px 14px; font: inherit; cursor: pointer; }
+.mc-mode[aria-pressed="true"] { border-color: var(--mc-accent); background: #1a2030; }
+.mc-receipt { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--mc-line); border-radius: 10px; background: #0f1320; }
+.mc-hashish { font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }

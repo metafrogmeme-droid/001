@@ -41,11 +41,12 @@ test('the page is its own: its scripts, no presale, no token, no site navigation
     assert.equal(r.status, 200);
     const html = await r.text();
     assert.match(html, /<html lang="en">/);
-    assert.match(html, /Testnet only\./);
+    assert.match(html, /Practice and testnet only\./);
+    assert.match(html, /data-mode="practice" aria-pressed="true"/, 'practice is the page\'s first mode: it needs no wallet');
     assert.match(html, /never launches, buys or sells these coins/);
     assert.doesNotMatch(html, PRESALE, 'the page names the sale or the token');
     const scripts = scriptsOf(html);
-    assert.deepEqual(scripts.map((s) => s.split('?')[0]), ['/js/api-retry.js', '/js/evm-wallet.js', '/js/memeclaw.js']);
+    assert.deepEqual(scripts.map((s) => s.split('?')[0]), ['/js/api-retry.js', '/js/evm-wallet.js', '/js/pi-receipt.js', '/js/memeclaw.js']);
     for (const src of scripts) {
       const file = path.join(PUBLIC, src.split('?')[0]);
       assert.ok(fs.existsSync(file), `${src} is loaded but not shipped`);
@@ -53,7 +54,7 @@ test('the page is its own: its scripts, no presale, no token, no site navigation
     }
     assert.ok(!/<script>/.test(html), 'no inline script: the site\'s CSP allows none on a router-built page');
     const links = [...html.matchAll(/href="(\/[^"]*)"/g)].map((m) => m[1]).filter((h) => !/\.(css|svg)/.test(h));
-    assert.deepEqual(links.sort(), ['/call/', '/privacy', '/terms']);
+    assert.deepEqual(links.sort(), ['/privacy', '/terms'], 'a launch receipt is checked on the page, not on another site');
   } finally { server.close(); }
 });
 
@@ -101,6 +102,18 @@ test('every reason the server can give has a sentence on the page', () => {
     assert.doesNotMatch(page.offSentence(r), /not open right now/, `no sentence for ${r}`);
   }
   assert.match(page.offSentence('factory_unknown'), /could not be read/, 'unreadable is said as unreadable');
+  // Practice mode's refusals: the route sends each reason as it is, except an
+  // unknown player, which it sends as practice_key.
+  const practice = fs.readFileSync(path.join(__dirname, '..', 'lib', 'memeclaw_paper.js'), 'utf8');
+  const paperReasons = new Set([...codeOnly(practice).matchAll(/PaperRefusal\('([a-z_]+)'/g)].map((m) => m[1]));
+  for (const r of ['not_enough_doge', 'launches_today', 'refill_too_soon', 'slippage', 'unknown_player']) {
+    assert.ok(paperReasons.has(r), `practice mode no longer gives ${r}`);
+  }
+  paperReasons.delete('unknown_player');
+  paperReasons.add('practice_key');
+  for (const r of paperReasons) {
+    assert.doesNotMatch(page.refusal(r), /The server refused that/, `no sentence for the practice refusal ${r}`);
+  }
 });
 
 test('the operator hides a coin and reads the deploy plan; anyone else is refused', async () => {
@@ -133,6 +146,8 @@ test('the operator hides a coin and reads the deploy plan; anyone else is refuse
     const plan = await r.json();
     assert.equal(plan.data, require('../lib/memeclaw').FACTORY.bytecode, 'the deploy is the committed creation code, nothing else');
     assert.ok(!('to' in plan), 'a contract creation has no recipient');
+    assert.deepEqual(plan.starters, JSON.parse(JSON.stringify(require('../lib/memeclaw').STARTER_COINS)),
+      'the starter coins the operator\'s page offers are the server\'s one list');
     // The operator sees the hidden coin, with why; a visitor does not.
     const visitor = await (await fetch(`${base}/api/memeclaw/coins`)).json();
     assert.equal(visitor.coins.length, 0);
@@ -140,4 +155,40 @@ test('the operator hides a coin and reads the deploy plan; anyone else is refuse
     assert.equal(seen.coins.length, 1);
     assert.equal(seen.coins[0].hidden, 'spam');
   } finally { server.close(); }
+});
+
+test('the starter coins pass every rule a launch is held to, and say they have no value', () => {
+  const mc = require('../lib/memeclaw');
+  assert.ok(mc.STARTER_COINS.length >= 1);
+  for (const c of mc.STARTER_COINS) {
+    assert.strictEqual(mc.pageProblem(c), null, `${c.symbol} would be refused`);
+    assert.match(c.description, /no value/);
+  }
+  // The other arm: the same check refuses a starter that names the project.
+  assert.ok(mc.pageProblem({ name: 'Runeclaw Coin', symbol: 'RCC', description: '' }));
+});
+
+test('the page floors a quote by its slippage and draws a launch receipt\'s facts from the sealed payload', () => {
+  assert.equal(page.floorOf('1000000'), '990000');
+  assert.equal(page.floorOf('99'), '98', 'rounded down');
+  const facts = page.launchFacts({ kind: 'memeclaw_launch', symbol: 'CLAW', name: 'Much Claw', token: '0xt', creator: '0xc',
+    terms_hash: '0xh', tx: '0xx', block_number: 7, launched_at: '2026-10-21T00:00:00.000Z' });
+  assert.ok(facts.some(([k, v]) => k === 'Coin' && v === 'CLAW · Much Claw'));
+  assert.ok(facts.some(([k, v]) => k === 'Launch transaction' && /0xx · block 7/.test(v)));
+  assert.deepEqual(page.launchFacts({ kind: 'duel_round' }), [], 'another kind of receipt is not drawn as a launch');
+});
+
+test('the numbers the page tells a practice player are the practice library\'s own', () => {
+  const paper = require('../lib/memeclaw_paper');
+  const curve = require('../lib/memeclaw_curve');
+  const src = codeOnly(fs.readFileSync(path.join(PUBLIC, 'js', 'memeclaw.js'), 'utf8'));
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+  assert.match(src, new RegExp(`you start with ${page.formatUnits(paper.START_DOGE.toString(), 4)} practice DOGE`));
+  assert.match(src, new RegExp(`less than ${page.formatUnits(paper.REFILL_BELOW.toString(), 4)}\\.`));
+  assert.match(src, new RegExp(`That is ${words[paper.LAUNCHES_PER_DAY]} practice launches today`));
+  assert.match(src, new RegExp(`${words[paper.LAUNCHES_PER_DAY].replace(/^./, (c) => c.toUpperCase())} practice launches a day`));
+  // Buying out the whole supply from a fresh curve costs what the page says.
+  const fresh = { dogeReserve: 0n, tokenReserve: curve.SUPPLY };
+  assert.match(src, new RegExp(`whole supply costs ${page.formatUnits(curve.maxBuy(fresh).toString(), 4)} DOGE`));
+  assert.match(src, new RegExp(`supply costs \\(${page.formatUnits(curve.maxBuy(fresh).toString(), 4)} DOGE\\)`));
 });

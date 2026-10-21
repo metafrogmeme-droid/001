@@ -10,6 +10,10 @@
  * presale, no $RCLAW and no site navigation: a launchpad for testnet coins
  * beside a page about a real token would read as a sale.
  *
+ * ITS OWN DOMAIN, ONE SERVER. On a host named in MEMECLAW_HOSTS this page is
+ * the home page and the only page (lib/memeclaw_host.js); MEMECLAW_PUBLIC_URL
+ * is the address its link preview names.
+ *
  * NO ACCOUNT. A wallet launches and trades; the server hands it transactions
  * and reads the chain afterwards. The site's content security policy applies
  * unchanged: every script is ours, the wallet is a browser extension, and the
@@ -17,14 +21,19 @@
  */
 const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
+const { publicUrl } = require('../lib/memeclaw_host');
 
 const router = express.Router();
 router.use(rateLimit({ name: 'memeclaw.page', windowMs: 60000, max: 120, key: ipKey }));
 
 /** In the head: api-retry, as on every page. */
 const HEAD_SCRIPTS = ['/js/api-retry.js?v=3'];
-/** Deferred, in order: the wallet door, then the page. */
-const SCRIPTS = ['/js/evm-wallet.js?v=1', '/js/memeclaw.js?v=1'];
+/**
+ * Deferred, in order: the wallet door, the receipt check (the Pi app's,
+ * which checks a launch receipt in the browser so the page never sends
+ * anyone to the main site's receipt page), then the page.
+ */
+const SCRIPTS = ['/js/evm-wallet.js?v=1', '/js/pi-receipt.js?v=3', '/js/memeclaw.js?v=1'];
 const STYLES = ['/memeclaw.css?v=1'];
 
 function page() {
@@ -41,7 +50,7 @@ function page() {
 <meta property="og:description" content="Launch a memecoin from your own wallet on the DogeOS testnet. Fixed supply, no owner, no fee. Testnet coins have no value.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Humanoid Traders">
-<meta property="og:url" content="https://www.humanoid-traders.com/memeclaw">
+<meta property="og:url" content="${publicUrl()}">
 <meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -52,17 +61,21 @@ ${head}
 ${css}
 </head><body class="mc">
 <header class="mc-top">
-  <div class="mc-brand"><b>Memeclaw</b> <span class="mc-chip">DogeOS testnet</span></div>
+  <div class="mc-brand"><b>Memeclaw</b> <span class="mc-chip" id="mc-mode-chip">Practice</span></div>
   <div id="mc-wallet" class="mc-wallet"></div>
 </header>
-<div class="mc-notice" role="note"><b>Testnet only.</b> Coins here have no value, and testnet DOGE comes free from the faucet. Anyone can launch a coin: its name and words are its creator's, not ours. RUNECLAW's agent never launches, buys or sells these coins.</div>
+<div class="mc-modes" role="group" aria-label="Mode">
+  <button type="button" class="mc-mode" data-mode="practice" aria-pressed="true">Practice <span class="mc-muted">no wallet</span></button>
+  <button type="button" class="mc-mode" data-mode="testnet" aria-pressed="false">Testnet <span class="mc-muted">DogeOS</span></button>
+</div>
+<div class="mc-notice" role="note"><b>Practice and testnet only.</b> Practice coins and practice DOGE live on this site and nowhere else; testnet coins live on the DogeOS testnet. Neither has any value. Anyone can launch a coin: its name and words are its creator's, not ours. RUNECLAW's agent never launches, buys or sells these coins.</div>
 <nav class="mc-tabs" aria-label="Sections">
   <button type="button" class="mc-tab" data-view="coins" aria-pressed="true">Coins</button>
   <button type="button" class="mc-tab" data-view="launch" aria-pressed="false">Launch a coin</button>
   <button type="button" class="mc-tab" data-view="about" aria-pressed="false">How it works</button>
 </nav>
 <main id="mc-root" aria-live="polite"><div class="mc-load">Loading…</div></main>
-<footer class="mc-foot"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/call/">Receipts</a></footer>
+<footer class="mc-foot"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
 ${scripts}
 </body></html>`;
 }

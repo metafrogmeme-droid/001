@@ -9,6 +9,17 @@
 2. **Testnet only**, on its own page (`/memeclaw`), with **no $RCLAW** and
    **no tokenized stocks** in this version.
 
+Later the same day the owner asked for three more: "launch tokens on it and
+all just testnet and paper for now", and "we make seperate website for it".
+Asked how, they chose:
+
+3. **A no-wallet practice mode** beside the testnet, on the same curve
+   (below).
+4. **Its own domain, served by this same server** (`MEMECLAW_HOSTS`, below).
+5. **The first coins launched by the owner, from their own wallet**: a
+   one-press starter-coins flow in the operator's section. Nothing on the
+   server holds a key to do it for them.
+
 Not decided, and not built: **mainnet**. The recommendation stands that a
 mainnet launchpad comes only after an independent contract audit and a legal
 check. The contract enforces the testnet: its constructor refuses every chain
@@ -17,14 +28,24 @@ deployment needs a different contract, not a setting.
 
 ## What a person can do
 
+Two modes, switched at the top of the page; practice is the first.
+
+- **Practice** needs no wallet and no account. A browser starts a practice
+  player and gets 100 practice DOGE; it can launch practice coins (five a
+  day) and buy and sell any practice coin. A player with less than 1
+  practice DOGE can top back up to 100 once a day.
+- **Testnet** uses the person's own wallet on the DogeOS testnet:
+
 - **Launch a coin** from their own wallet: name (32 printable ASCII
   characters at most), symbol (A–Z, 0–9, 10 at most), an optional short
   description (no links). Optionally buy first, in the same transaction.
 - **Buy and sell** any Memeclaw coin on its bonding curve, in testnet DOGE.
 - **See every coin** the factory has launched, its price, how much of the
   supply has sold, its trades, and a reading of the launch (below).
-- **Check a launch's receipt:** the terms the page sealed, the hash the chain
-  recorded at launch, and the day's Merkle proof.
+- **Check a launch's receipt** on the page itself, in the browser: the terms
+  the page sealed, the hash the chain recorded at launch, and the day's
+  Merkle proof (the Pi app's receipt check, `js/pi-receipt.js`, on the
+  `launch:` key).
 
 No account is needed. The wallet that sends the launch is the creator; the
 chain says so, and the server only records what the chain says.
@@ -49,6 +70,39 @@ chain says so, and the server only records what the chain says.
   re-entering seller, every refusal with its other arm, and a check that the
   website's quotes equal what the contract pays.
 
+## Practice mode (`lib/memeclaw_paper.js`)
+
+- **The same curve.** A practice coin is priced by `lib/memeclaw_curve.js`,
+  the function the contract tests compare trade by trade with the real
+  bytecode. Practice and testnet differ in where the DOGE is, not in how a
+  price moves.
+- **Every practice DOGE is accounted for.** A trade moves DOGE and coins
+  between a player and a coin's curve in one database transaction, rows
+  locked coin, then player, then holding; a trade below its `min_out` is
+  refused, not filled. A test replays random trading and checks that every
+  player's DOGE plus every curve's DOGE adds up to what was handed out.
+- **The key.** A practice player is a random 32-byte key this browser keeps
+  in local storage and sends as `x-memeclaw-practice`. The server keeps its
+  SHA-256 only. "Forget my practice player" deletes the hash, the balance and
+  the holdings; coins and trades stay under the player's random id.
+- **The same names.** A practice launch is held to the page's rules for a
+  testnet launch (`pageProblem`): no project names, stocks, majors, money
+  words or links.
+- **No chain, no seal.** Practice coins are never on a chain and are not
+  sealed into the daily roots.
+
+## Its own domain (`lib/memeclaw_host.js`)
+
+- `MEMECLAW_HOSTS` names the hosts that are Memeclaw. On one of them, `/` is
+  the launchpad and only Memeclaw's own paths answer: its API, its scripts
+  and stylesheet, a `launch:` receipt, the two policies, health. Everything
+  else is a 404, so the presale bar, the token page and sign-in are not one
+  typed path away; no write outside `/api/memeclaw` is accepted.
+- `MEMECLAW_PUBLIC_URL` is the address its link preview names.
+- Unset, nothing changes, and the operator's tools (deploy, starter coins,
+  hide) stay on the main site's `/memeclaw`, where the operator is signed in.
+  Nothing on the main site links to the launchpad.
+
 ## The website
 
 | piece | what |
@@ -60,6 +114,8 @@ chain says so, and the server only records what the chain says.
 | `GET /api/memeclaw/coins`, `/coins/:address` | the list and one coin with its trades |
 | `POST /api/memeclaw/trade-plan` | buy, sell or approve: a live quote from the contract and the transaction for the wallet |
 | `POST /api/memeclaw/coins/:address/hide` | operator only: take a coin off the page |
+| `GET /api/memeclaw/deploy-plan` | operator only: the factory's creation code, and the starter coins |
+| `/api/memeclaw/paper/*` | practice mode: a player, its balance, launch, quote, trade, coins, forget |
 | indexer (`lib/memeclaw_indexer.js`) | reads the factory's events from the chain on the shared schedule |
 
 - **Non-custodial:** the server never signs or sends. It hands a wallet a
@@ -77,8 +133,8 @@ chain says so, and the server only records what the chain says.
   Words that present a coin as a stock (stock, share, equity, tokenized, ETF)
   are refused too.
 - **The proof:** each recorded launch is sealed (v8, `memeclaw_launch`) into
-  the daily root, with the terms hash the chain recorded. Receipts are at
-  `/call/launch:<seal>`.
+  the daily root, with the terms hash the chain recorded. A receipt is checked
+  on the coin's page; `/api/call/launch:<seal>` serves it.
 
 ## Not in this version
 
@@ -105,10 +161,16 @@ chain says so, and the server only records what the chain says.
 ## For the owner, before people use it
 
 1. Deploy the factory on the DogeOS testnet from your own wallet (the
-   operator section of `/memeclaw`), then set `MEMECLAW_FACTORY` to the
-   address and restart. The page stays off until the server has checked the
-   code at that address.
-2. Read the page's notice and the privacy policy's Memeclaw paragraph. The
+   operator section of `/memeclaw` on the main site, signed in), then set
+   `MEMECLAW_FACTORY` and `MEMECLAW_FACTORY_BLOCK` to what the check prints
+   and restart. Testnet mode stays off until the server has checked the code
+   at that address; practice mode works before.
+2. Launch the starter coins (CLAW, WOOF, PAW) from the same section: your
+   wallet asks you to sign each one. A coin your wallet already launched is
+   skipped.
+3. For the domain: point its DNS and TLS at this server, then set
+   `MEMECLAW_HOSTS` and `MEMECLAW_PUBLIC_URL` and restart.
+4. Read the page's notice and the privacy policy's Memeclaw section. The
    Terms of Service are unchanged: whether they need a launchpad section is
    for the legal check before any mainnet decision.
-3. A trademark check of the name "Memeclaw".
+5. A trademark check of the name "Memeclaw", before a domain is bought.
