@@ -307,6 +307,12 @@ app.get('/diagz', (req, res) => {
 // website is answered. After the probes, which answer on every host.
 app.use(require('./lib/memeclaw_host').gate());
 
+// The Daily Duel's API for a front end hosted elsewhere (the DogeOS hackathon
+// entry on Noah AI): only the origins in API_CORS_ORIGINS, only the duel's
+// routes, never cookies (lib/api_cors.js). Before the body parsers, so a
+// preflight is answered without reading a body.
+app.use(require('./lib/api_cors').cors());
+
 // WEB-VISION: the chat route accepts optional image attachments (chart /
 // position screenshots, base64), which exceed the 1mb default. Give ONLY
 // /api/chat a larger parser — it runs first for that path, so the global 1mb

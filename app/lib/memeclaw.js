@@ -307,6 +307,29 @@ async function txState(txHash) {
 }
 
 /**
+ * Null when the block `rc` is in is past the chain's documented reorg depth
+ * (17 blocks on the DogeOS testnet, lib/root_anchor.js), else why it is not
+ * yet: a transaction one block old can still be dropped, and a launch sealed
+ * into the day's root cannot be taken back. Throws when the head is unreadable.
+ */
+async function notDeepYet(rc) {
+  const depth = chain.chain().reorg_depth || 0;
+  if (!depth) return null;
+  const deep = (await chain.blockNumber()) - BigInt(rc.blockNumber);
+  return deep >= BigInt(depth) ? null : `${deep < 0n ? 0 : deep} of the ${depth} confirmations the chain needs`;
+}
+
+/** notDeepYet as an answer: null, or { status: 'unknown', reason }. */
+async function waitForDepth(rc) {
+  try {
+    const why = await notDeepYet(rc);
+    return why ? { status: 'unknown', reason: why } : null;
+  } catch (e) {
+    return { status: 'unknown', reason: `the chain could not be read (${e && e.name ? e.name : 'Error'})` };
+  }
+}
+
+/**
  * The Trade events of one mined transaction at the factory:
  *   { status: 'verified', trades, block_number, block_time } | mismatch | unknown.
  */
@@ -321,6 +344,8 @@ async function readTrades(txHash, factory) {
   if (rc.status !== '0x1') return { status: 'mismatch', reason: 'the transaction failed on chain' };
   const trades = factoryEvents(rc.logs, factory).filter((e) => e.name === 'Trade').map((e) => ({ ...e, tx_hash: tx }));
   if (!trades.length) return { status: 'mismatch', reason: 'no trade at the Memeclaw factory in this transaction' };
+  const shallow = await waitForDepth(rc);
+  if (shallow) return shallow;
   const blockNumber = Number(BigInt(rc.blockNumber));
   let blockTime = null;
   try {
@@ -356,6 +381,8 @@ async function readLaunch(txHash, factory) {
   const events = factoryEvents(rc.logs, factory).map((e) => ({ ...e, tx_hash: tx }));
   const launched = events.filter((e) => e.name === 'Launched');
   if (launched.length !== 1) return { status: 'mismatch', reason: 'no launch in this transaction' };
+  const shallow = await waitForDepth(rc);
+  if (shallow) return shallow;
   const blockNumber = Number(BigInt(rc.blockNumber));
   let blockTime = null;
   try {
@@ -398,6 +425,8 @@ async function readDeployment(txHash) {
   if (rc.status !== '0x1' || !rc.contractAddress) return { status: 'mismatch', reason: 'not a successful contract creation' };
   const check = await checkFactory(rc.contractAddress);
   if (check.status !== 'verified') return check;
+  const shallow = await waitForDepth(rc);
+  if (shallow) return shallow;
   return { status: 'verified', address: lower(rc.contractAddress), block_number: Number(BigInt(rc.blockNumber)) };
 }
 

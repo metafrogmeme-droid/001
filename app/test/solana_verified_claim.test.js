@@ -152,11 +152,11 @@ test('the wallet routes still VERIFY, which is the half worth keeping', () => {
   // a control. Each pattern below requires the verifier to be CALLED and its
   // result to go somewhere: assigned, or negated into a branch.
   const byPath = Object.fromEntries(walletRoutes().map((r) => [r.path, r.code]));
-  assert.match(byPath['/wallet/verify'], /=\s*_ethers\.verifyMessage\s*\(/,
+  assert.match(byPath['/wallet/verify'], /=\s*recoverPersonalSignAddress\s*\(/,
     'EVM sign-in stopped verifying the signature');
-  assert.match(byPath['/wallet/link'], /=\s*_ethers\.verifyMessage\s*\(/,
+  assert.match(byPath['/wallet/link'], /=\s*recoverPersonalSignAddress\s*\(/,
     'linking an EVM address stopped proving ownership');
-  assert.match(byPath['/wallet/link-by-code'], /=\s*_ethers\.verifyMessage\s*\(/,
+  assert.match(byPath['/wallet/link-by-code'], /=\s*recoverPersonalSignAddress\s*\(/,
     'the link-by-code path stopped proving ownership');
   assert.match(byPath['/wallet/solana'], /!\s*verifySignedMessage\s*\(/,
     'the Solana connect-and-sign path no longer refuses on a bad ed25519 signature');

@@ -383,6 +383,62 @@ test('trades move a coin\'s reserves forward only, and a trade read twice is one
   assert.equal(r.status, 400);
 });
 
+test('a launch or a trade a few blocks deep waits out the reorg depth before it is recorded or sealed', async () => {
+  // docs.dogeos.com: reorgs up to 17 blocks deep. A launch sealed into the
+  // day's root cannot be taken back, so a record waits for that depth.
+  freshState();
+  const depth = require('../lib/root_anchor').chainInfo('dogeos-testnet').reorg_depth;
+  assert.strictEqual(depth, 17);
+  const plan = (await call('POST', '/launch-plan', { creator: ALICE, name: 'Patience', symbol: 'WAIT', description: '' })).body;
+  const token = '0x' + '76'.repeat(20);
+  const { tx } = chainLaunch({ token, creator: ALICE, name: 'Patience', symbol: 'WAIT', terms: plan.terms_hash, block: 950 });
+  ledger.head = 955;
+  let r = await call('POST', '/coins', { tx_hash: tx });
+  assert.equal(r.status, 503, 'not yet a verdict');
+  assert.match(r.body.reason, /5 of the 17 confirmations/);
+  assert.equal(db.pool.memeclawCoins.length, 0, 'no coin recorded');
+  assert.equal(db.pool.memeclawTrades.length, 0, 'no trade recorded');
+  ledger.head = 950 + depth - 1;
+  r = await call('POST', '/coins', { tx_hash: tx });
+  assert.equal(r.status, 503, 'one block short is still short');
+  // The other arm: at the depth, recorded and sealed.
+  ledger.head = 950 + depth;
+  r = await call('POST', '/coins', { tx_hash: tx });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.sealed, true);
+  // A trade the same way.
+  const tT = txHash('shallow-trade');
+  ledger.receipts[tT] = { status: '0x1', to: FACTORY, blockNumber: hx(960),
+    logs: [logOf('Trade', [token, BOB, true, E18, 1000n, 2n * E18, curve.SUPPLY - 2000n], { block: 960, tx: tT })] };
+  ledger.head = 963;
+  r = await call('POST', '/trades', { tx_hash: tT });
+  assert.equal(r.status, 503);
+  assert.equal(db.pool.memeclawTrades.filter((t) => t.tx_hash === tT).length, 0);
+  ledger.head = 960 + depth;
+  r = await call('POST', '/trades', { tx_hash: tT });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(db.pool.memeclawTrades.filter((t) => t.tx_hash === tT).length, 1);
+  // The indexer reads that far behind the head too.
+  assert.strictEqual(require('../lib/memeclaw_indexer').CONFIRMATIONS, depth);
+});
+
+test('the factory\'s deploy is handed back as settings only once it is past the reorg depth', async () => {
+  // The operator copies MEMECLAW_FACTORY and MEMECLAW_FACTORY_BLOCK from this
+  // answer, so a deploy a reorg could still drop is not one to name yet.
+  freshState();
+  const depth = require('../lib/root_anchor').chainInfo('dogeos-testnet').reorg_depth;
+  const tx = txHash('deploy');
+  ledger.receipts[tx] = { status: '0x1', contractAddress: FACTORY, blockNumber: hx(990), logs: [], transactionHash: tx };
+  ledger.head = 1000;
+  let r = await mc.readDeployment(tx);
+  assert.strictEqual(r.status, 'unknown');
+  assert.match(r.reason, /10 of the 17 confirmations/);
+  assert.ok(!('address' in r), 'no address to copy while it is shallow');
+  ledger.head = 990 + depth;
+  r = await mc.readDeployment(tx);
+  assert.deepStrictEqual(r, { status: 'verified', address: FACTORY, block_number: 990 });
+});
+
 test('a trade plan prices against the live curve, asks for an approval only when one is missing, and refuses what the curve cannot fill', async () => {
   freshState();
   const token = '0x' + '76'.repeat(20);

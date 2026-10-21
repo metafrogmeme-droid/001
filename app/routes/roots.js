@@ -106,7 +106,10 @@ router.get('/verify/:day', async (req, res) => {
     const body = { day: row.day, root: row.root, chain: chain.key, chain_name: chain.name,
       anchor_tx: have.tx, explorer: chain.explorer_tx + have.tx,
       status: v.status, block_time: v.block_time || null,
-      from: v.from || null, reason: v.reason || null };
+      from: v.from || null, reason: v.reason || null,
+      // On a chain with a reorg depth: whether its `finalized` block has
+      // passed the anchor (null when that could not be read).
+      ...(v.final !== undefined ? { final: v.final } : {}) };
     // Cache verified results; an unknown answer is retried on the next ask.
     if (v.status === 'verified') _verifyCache.set(key, { at: Date.now(), body });
     res.set('Cache-Control', 'public, max-age=60');

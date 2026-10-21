@@ -34,8 +34,12 @@ const TX_RE = /^0x[0-9a-f]{64}$/i;
 
 // Same keyless Base endpoints the wallet mirror verified (lib/wallet.js).
 const BASE_RPCS = ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'];
-// DogeOS's own public testnet endpoint (docs.dogeos.com, read 2026-10-19).
-const DOGEOS_TESTNET_RPCS = ['https://rpc.testnet.dogeos.com/'];
+// DogeOS's own public testnet endpoint (docs.dogeos.com, read 2026-10-19):
+// the one pages and wallets are handed. The server also reads through dRPC's
+// keyless endpoint (it answered as chain 6281971 on 2026-10-21), so one
+// endpoint down is not "could not be read".
+const DOGEOS_TESTNET_PUBLIC_RPCS = ['https://rpc.testnet.dogeos.com/'];
+const DOGEOS_TESTNET_RPCS = [...DOGEOS_TESTNET_PUBLIC_RPCS, 'https://dogeos-testnet.drpc.org'];
 
 /**
  * A comma list in the environment replaces a chain's default RPCs, for the
@@ -70,8 +74,16 @@ function chains(env) {
     'dogeos-testnet': {
       key: 'dogeos-testnet', chain_id: 6281971, name: 'DogeOS testnet', testnet: true,
       rpcs: rpcList('DOGEOS_TESTNET_RPC_URLS', DOGEOS_TESTNET_RPCS, env),
-      public_rpcs: DOGEOS_TESTNET_RPCS.slice(),
+      public_rpcs: DOGEOS_TESTNET_PUBLIC_RPCS.slice(),
       explorer_tx: 'https://dogeos-testnet.l2scan.co/tx/',
+      // A second explorer with its own index (DogeOS runs both; L2Scan's API
+      // answers one call at a time, Blockscout's is keyless).
+      explorer_tx_alt: 'https://blockscout.testnet.dogeos.com/tx/',
+      // "Reorgs can be up to 17 blocks deep" (docs.dogeos.com, Ethereum and
+      // DogeOS differences, read 2026-10-21). Nothing read from this chain is
+      // recorded until its block is that deep; `finalized` (about 2.5 hours
+      // behind the head, measured the same day) is reported, not waited on.
+      reorg_depth: 17,
       faucet: 'https://faucet.testnet.dogeos.com',
       native: { name: 'Dogecoin', symbol: 'DOGE', decimals: 18 },
     },
@@ -97,6 +109,8 @@ function publicChains(env) {
     key: c.key, chain_id: c.chain_id, name: c.name, testnet: c.testnet,
     rpcs: c.public_rpcs.slice(), explorer_tx: c.explorer_tx, native: c.native,
     ...(c.faucet ? { faucet: c.faucet } : {}),
+    ...(c.explorer_tx_alt ? { explorer_tx_alt: c.explorer_tx_alt } : {}),
+    ...(c.reorg_depth ? { reorg_depth: c.reorg_depth } : {}),
   }));
 }
 
@@ -139,7 +153,9 @@ function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
 
 /**
  * Read the chain and answer: does this transaction anchor this day's root?
- * → { status: 'verified', block_time, from }    the calldata matches
+ * → { status: 'verified', block_time, from }    the calldata matches, and on a
+ *   chain with a reorg depth the block is that deep; there `final` says
+ *   whether the chain's `finalized` block has passed it (null: not read)
  * → { status: 'mismatch', reason }              the tx exists but does not anchor this root
  * → { status: 'unknown', reason }               the chain could not be read — NOT a verdict
  *
@@ -179,10 +195,26 @@ async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHA
       }
       const block = await call(url, 'eth_getBlockByHash', [tx.blockHash, false]);
       if (!block || !block.timestamp) return { status: 'unknown', reason: 'block unreadable' };
+      let final;
+      if (chain.reorg_depth) {
+        // In a block is not yet on the chain for good: wait out the
+        // documented reorg depth before calling the anchor verified.
+        const headHex = await call(url, 'eth_blockNumber', []);
+        if (!headHex || !tx.blockNumber) return { status: 'unknown', reason: 'the block height could not be read' };
+        const deep = BigInt(headHex) - BigInt(tx.blockNumber);
+        if (deep < BigInt(chain.reorg_depth)) {
+          return { status: 'unknown',
+            reason: `${deep < 0n ? 0 : deep} of the ${chain.reorg_depth} confirmations ${chain.name} needs` };
+        }
+        let fin = null;
+        try { fin = await call(url, 'eth_getBlockByNumber', ['finalized', false]); } catch (e) { fin = null; }
+        final = fin && fin.number ? BigInt(fin.number) >= BigInt(tx.blockNumber) : null;
+      }
       return {
         status: 'verified',
         block_time: new Date(parseInt(block.timestamp, 16) * 1000).toISOString(),
         from: String(tx.from || ''),
+        ...(chain.reorg_depth ? { final } : {}),
       };
     } catch (e) { lastErr = e; }
   }
@@ -239,5 +271,6 @@ async function verifyThroughQuickNode(txHash, day, root, chain) {
 
 module.exports = {
   buildAnchorPlan, verifyAnchor, verifyThroughQuickNode, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
+  DOGEOS_TESTNET_PUBLIC_RPCS,
   chains, chainInfo, publicChains, DEFAULT_CHAIN,
 };

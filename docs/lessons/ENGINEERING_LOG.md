@@ -27851,3 +27851,83 @@ before, now heads the chat fallback chain. Ten mutants, all killed.
 (`tests/test_chat_runs_on_claude_haiku_for_everyone.py`,
 `tests/test_anthropic_admin_only.py`, `bot/llm/provider.py`,
 `bot/web/chat_quota.py`.)
+
+## A TEST SUITE THAT IMPORTS THE REAL LIBRARY CANNOT SEE THE STUB PRODUCTION RUNS, A FRONT END ON ANOTHER ORIGIN NEEDS A DOOR, AND A CHAIN THAT REORGS 17 BLOCKS IS NOT CONFIRMED AT ONE
+
+21 October 2026. A read of DogeOS's own documentation and a probe of the live
+site for the Vibe Code on DOGE entry found four defects in code that had
+passed every test (`docs/hackathon/VIBE_CODE_ON_DOGE.md`).
+
+**Wallet sign-in had never worked in production.** `auth.js` called
+`ethers.verifyMessage` inside a `try`. Production resolves `ethers` to a stub
+with no such function (the stub `app/test/ethers_stub_calldata.test.js`
+reproduces, the same one that turned keccak256 into SHA-256 on 23 August), so
+the call threw and every signature, right or wrong, was answered 401
+"Signature verification failed". Every wallet test signed and verified with
+the real `ethers` installed on the build machine and passed. The probe that
+showed it was the one that tells a working check from a dead one: a
+well-formed signature from a *different* key, which a working check answers
+"Signature does not match the wallet". The verifier is now in-house
+(`app/lib/eth_signature.js`: EIP-191 hashing and secp256k1 recovery), the
+third module moved off the stub after `keccak256.js` and `abi_call.js`.
+- **Held to the reference, signature by signature.** The test signs with
+  real `ethers` on random keys and asks both for the address, both recovery
+  parities, v as 0/1 and EIP-2098's 64-byte compact form. Comparing found a
+  gap the first draft had: `ethers` accepts the compact form, and the draft
+  refused it. Every refusal case is also asserted refused by `ethers`, or it
+  proves nothing (`app/test/wallet_sign_in_works_without_ethers.test.js`).
+- **Then the stub, then the routes.** The same file installs production's
+  stub in the require cache and signs in through the routes, both arms: the
+  owner's key gets a session, another key gets "does not match".
+- **The lesson is the 23 August one, one call further.** A library the tests
+  import is not the library production resolves. A new call into `ethers` on
+  the server is a call into the stub until a test says otherwise.
+
+**A front end on another origin could not call the API.** The hackathon must
+be built with Noah AI, so the entry is a page hosted on Noah calling this
+server. The server sent no `Access-Control-Allow-Origin` header anywhere, so
+a browser would have blocked every call, and nothing here would have shown
+it: a same-origin page and a server-side test never send `Origin`.
+`app/lib/api_cors.js` opens a door only for the origins in `API_CORS_ORIGINS`
+(exact https origins, or `https://*.host`), only on the routes a duel front
+end calls, GET and POST, and never with credentials, so the site's session
+cookie never crosses; a hosted page signs in with a wallet and sends the
+token as a Bearer header, as `/doge` does. The test holds the prefixes to the
+`/api` calls the duel's own scripts make, so a new call on `/doge` without a
+door fails, and refuses a second file that sets the header itself
+(`app/test/a_hosted_front_end_can_call_the_duel_api.test.js`).
+
+**An anchor one block deep was recorded as final, on a chain that documents
+17-block reorgs.** DogeOS's documentation says its testnet can reorg up to 17
+blocks and that `finalized` trails the head by about 3,000 blocks (about 2.5
+hours). The anchor route recorded a root as soon as its transaction had a
+receipt, and the Memeclaw indexer waited 3 blocks. The registry now carries
+`reorg_depth: 17` for the DogeOS testnet (one reading, cited), and:
+- `verifyAnchor` answers "unknown" until the transaction is that deep, with
+  the count in words, and "unknown" when the head itself cannot be read; past
+  it, it reads `finalized` and says `final` true, false, or nothing when the
+  chain could not say (`app/lib/root_anchor.js`; `/api/roots/verify` carries
+  it).
+- Memeclaw's receipt reads wait the same depth before a launch or a trade is
+  recorded (`app/lib/memeclaw.js` `waitForDepth`), and the indexer's
+  confirmation count is read from the registry, not written twice
+  (`app/lib/memeclaw_indexer.js`).
+- The registry also lists dRPC's public endpoint as a server-side fallback
+  (pages and wallets are still handed only DogeOS's own) and Blockscout as a
+  second explorer.
+
+**A note for a contest is a claim about the code too.** The hackathon note's
+prompt pack, written before the duel's API settled, named fields the API
+does not have (`question`, `status`, `settles_at`, `round_seal`). A Noah build
+from it would have rendered blanks. The note now names the fields the routes
+answer, read from `publicRound`, `publicPick`, `placePick` and `/me`, and the
+prize it listed ("Community & Social") was not one the rules offer.
+
+**Mutation round.** Thirty-one mutants across the verifier, the sign-in
+routes, the CORS door, the depth checks and the indexer constant: thirty
+killed, one equivalent (accepting `r = 0`, which the curve check refuses
+anyway, because secp256k1 has no point with x = 0). The first pass left
+two real survivors, each a missing case rather than a wrong one: no test read
+`final` off the route, and no signature had an `r` off the curve. Placing the
+mutants also showed the factory's deployment check had no test at all. Each
+now has one.
