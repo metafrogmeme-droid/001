@@ -19,6 +19,7 @@
 const { pool } = require('../db');
 const ots = require('./opentimestamps');
 const { listRoots } = require('./seal_roots');
+const { requiredOf } = require('./reader_agreement');
 
 const JOB = 'seal_root_ots';
 const health = require('./watch_health').register(JOB);
@@ -47,18 +48,24 @@ async function stampDay(day, root, { fetchImpl, now = new Date() } = {}) {
   return Boolean(res && res.affectedRows === 1);
 }
 
-/** The Bitcoin tip height, or null when no header source answered. */
+/**
+ * The Bitcoin tip height, read from every header source: the LOWEST of the
+ * answers, and null unless as many sources answered as a verdict needs
+ * (lib/reader_agreement.js). One source that reports a higher tip than the
+ * chain has would otherwise make a shallow block look six deep.
+ */
 async function bitcoinTip(fetchImpl) {
   const f = fetchImpl || global.fetch;
-  for (const api of ots.BITCOIN_HEADER_APIS) {
+  const apis = ots.BITCOIN_HEADER_APIS;
+  const tips = (await Promise.all(apis.map(async (api) => {
     try {
       const r = await f(`${api}/blocks/tip/height`, { method: 'GET' });
-      if (r.status !== 200) continue;
+      if (r.status !== 200) return null;
       const n = Number(String(await r.text()).trim());
-      if (Number.isInteger(n) && n > 0) return n;
-    } catch (e) { /* next source */ }
-  }
-  return null;
+      return Number.isInteger(n) && n > 0 ? n : null;
+    } catch (e) { return null; }
+  }))).filter((n) => n !== null);
+  return tips.length >= requiredOf(apis.length) ? Math.min(...tips) : null;
 }
 
 /**

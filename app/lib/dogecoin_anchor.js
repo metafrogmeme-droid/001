@@ -13,13 +13,15 @@
  *
  * NOTHING HERE SIGNS, FUNDS OR BROADCASTS. buildPlan hands out the payload and
  * the Dogecoin Core console commands; the wallet's owner runs them. verify()
- * READS the transaction from BlockCypher's keyless API (it returns an
- * OP_RETURN output's bytes as `data_hex`; free tier "up to 3 requests/sec and
- * 100 requests/hr", blockcypher.com/dev, read 2026-10-21). Blockchair blocks
- * keyless callers and Trezor's Blockbook challenges them (same day), so there
- * is no second keyless reader: when BlockCypher does not answer, the verdict
- * is "unknown", never a guess.
+ * READS the transaction from two keyless readers and requires them to agree
+ * (BlockCypher: OP_RETURN bytes as `data_hex`, "up to 3 requests/sec and 100
+ * requests/hr"; SoChain v3: the output script, read here; both 2026-10-21).
+ * One reader that lies, lags or is down never turns a day green or refuses a
+ * real anchor: the verdict is "unknown". Blockchair blocks keyless callers and
+ * Trezor's Blockbook challenges them (same day).
  */
+
+const { agree, requiredOf, unread } = require('./reader_agreement');
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ROOT_RE = /^[0-9a-f]{64}$/;
@@ -61,50 +63,111 @@ function buildPlan(day, root, chain) {
 }
 
 /**
- * Read Dogecoin and answer: does transaction `txid` anchor this day's root?
- * → { status: 'verified', block_time, from }   one OP_RETURN, exactly the payload, `depth` blocks deep
- * → { status: 'mismatch', reason }             the transaction exists and does not anchor this root
- * → { status: 'unknown', reason }              not readable, not mined, or not deep enough yet
+ * The data of a script that is exactly OP_RETURN and one push, as hex; null
+ * for any other script. A payload buried in a longer script is not this
+ * anchor.
  */
-async function verify(txid, day, root, chain, fetchImpl) {
+function opReturnData(scriptHex) {
+  const h = String(scriptHex || '').toLowerCase();
+  if (!/^6a([0-9a-f]{2})+$/.test(h)) return null;
+  const op = parseInt(h.slice(2, 4), 16);
+  let len; let at;
+  if (op >= 0x01 && op <= 0x4b) { len = op; at = 4; }
+  else if (op === 0x4c) { len = parseInt(h.slice(4, 6), 16); at = 6; }
+  else if (op === 0x4d) { len = parseInt(h.slice(6, 8) + h.slice(4, 6), 16); at = 8; }
+  else return null;
+  const data = h.slice(at);
+  return data.length === len * 2 ? data : null;
+}
+
+/**
+ * Two keyless readers of a Dogecoin transaction, each answering
+ * { found: false } (it said there is no such transaction), the transaction
+ * as { found: true, hash, confirmations, block_hash, time, op_returns, payer },
+ * or throwing when it could not be read. The second (SoChain, 2026-10-21)
+ * answered from this server's egress where Blockchair and Trezor's Blockbook
+ * did not.
+ */
+const READERS = Object.freeze([
+  {
+    name: 'blockcypher',
+    url: (id) => TX_API + id,
+    parse(status, j) {
+      if (status === 404) return { found: false };
+      if (status !== 200 || !j || !Array.isArray(j.outputs)) throw new Error(`blockcypher answered ${status}`);
+      const conf = Number(j.confirmations);
+      return {
+        found: true, hash: String(j.hash || '').toLowerCase(),
+        confirmations: Number(j.block_height) > 0 && Number.isFinite(conf) ? conf : 0,
+        block_hash: j.block_hash ? String(j.block_hash).toLowerCase() : null,
+        time: Number.isFinite(Date.parse(j.confirmed)) ? new Date(Date.parse(j.confirmed)).toISOString() : null,
+        op_returns: j.outputs.filter((o) => o && o.script_type === 'null-data').map((o) => String(o.data_hex || '').toLowerCase()),
+        payer: j.inputs && j.inputs[0] && Array.isArray(j.inputs[0].addresses) ? String(j.inputs[0].addresses[0] || '') : '',
+      };
+    },
+  },
+  {
+    name: 'sochain',
+    url: (id) => `https://sochain.com/api/v3/transaction/DOGE/${id}`,
+    parse(status, j) {
+      if (status === 404) return { found: false };
+      const d = j && j.data;
+      if (status !== 200 || !j || j.status !== 'success' || !d || !Array.isArray(d.outputs)) throw new Error(`sochain answered ${status}`);
+      const conf = Number(d.confirmations);
+      return {
+        found: true, hash: String(d.hash || '').toLowerCase(),
+        confirmations: Number(d.block_height) > 0 && Number.isFinite(conf) ? conf : 0,
+        block_hash: d.block_hash ? String(d.block_hash).toLowerCase() : null,
+        time: Number.isFinite(Number(d.time)) && Number(d.time) > 0 ? new Date(Number(d.time) * 1000).toISOString() : null,
+        op_returns: d.outputs.filter((o) => o && o.type === 'nulldata').map((o) => opReturnData(o.script && o.script.hex) || ''),
+        payer: d.inputs && d.inputs[0] ? String(d.inputs[0].address || '') : '',
+      };
+    },
+  },
+]);
+
+/** One reader's verdict on one transaction. */
+function judge(tx, id, expected, chain) {
+  if (!tx.found) return { status: 'mismatch', reason: 'no such transaction on Dogecoin' };
+  if (tx.hash !== id) return { status: 'unknown', reason: 'the Dogecoin reader answered another transaction' };
+  if (tx.op_returns.length !== 1) {
+    return { status: 'mismatch', reason: tx.op_returns.length ? 'more than one OP_RETURN output' : 'no OP_RETURN output' };
+  }
+  // Exact equality is the claim: a payload buried in a longer push is not this anchor.
+  if (tx.op_returns[0] !== expected) return { status: 'mismatch', reason: 'the OP_RETURN bytes are not this day\'s root' };
+  if (tx.confirmations < 1) return { status: 'unknown', reason: 'transaction not yet mined' };
+  if (tx.confirmations < chain.reorg_depth) {
+    return { status: 'unknown', reason: `${tx.confirmations} of the ${chain.reorg_depth} confirmations ${chain.name} needs` };
+  }
+  if (!tx.time) return { status: 'unknown', reason: 'block time unreadable' };
+  return { status: 'verified', block_time: tx.time, same: tx.block_hash, from: tx.payer };
+}
+
+/**
+ * Read Dogecoin and answer: does transaction `txid` anchor this day's root?
+ * Every reader is asked; the answer is the readers' agreement:
+ * → { status: 'verified', block_time, from, readers }   every reader answered, each
+ *     saw exactly the payload `depth` blocks deep, in the same block
+ * → { status: 'mismatch', reason }   every reader answered that it does not anchor this root
+ * → { status: 'unknown', reason }    a reader could not be read, it is not deep enough
+ *     yet, or the readers disagree (`disagreement: true`): one reader that lies
+ *     or lags must not turn a day green, nor refuse a real anchor.
+ */
+async function verify(txid, day, root, chain, fetchImpl, readers = READERS) {
   const id = String(txid || '').toLowerCase();
   if (!TXID_RE.test(id)) return { status: 'mismatch', reason: 'malformed transaction id' };
   const expected = payloadHex(day, root);
   if (!expected) return { status: 'mismatch', reason: 'malformed day or root' };
   const f = fetchImpl || global.fetch;
-  let r;
-  try {
-    r = await f(TX_API + id, { headers: { accept: 'application/json' } });
-  } catch (e) {
-    return { status: 'unknown', reason: `Dogecoin could not be read (${e && e.name ? e.name : 'Error'})` };
-  }
-  if (r.status === 404) return { status: 'mismatch', reason: 'no such transaction on Dogecoin' };
-  if (!r.ok) return { status: 'unknown', reason: `the Dogecoin reader answered ${r.status}` };
-  let tx;
-  try { tx = await r.json(); } catch (e) { return { status: 'unknown', reason: 'the Dogecoin reader answered no JSON' }; }
-  if (!tx || String(tx.hash || '').toLowerCase() !== id || !Array.isArray(tx.outputs)) {
-    return { status: 'unknown', reason: 'the Dogecoin reader answered another shape' };
-  }
-  const data = tx.outputs.filter((o) => o && o.script_type === 'null-data');
-  if (data.length !== 1) {
-    return { status: 'mismatch', reason: data.length ? 'more than one OP_RETURN output' : 'no OP_RETURN output' };
-  }
-  // data_hex is the pushed bytes; exact equality is the claim (a payload
-  // buried in a longer push is not this anchor).
-  if (String(data[0].data_hex || '').toLowerCase() !== expected) {
-    return { status: 'mismatch', reason: 'the OP_RETURN bytes are not this day\'s root' };
-  }
-  const confs = Number(tx.confirmations);
-  if (!(Number(tx.block_height) > 0) || !Number.isFinite(confs) || confs < 1) {
-    return { status: 'unknown', reason: 'transaction not yet mined' };
-  }
-  if (confs < chain.reorg_depth) {
-    return { status: 'unknown', reason: `${confs} of the ${chain.reorg_depth} confirmations ${chain.name} needs` };
-  }
-  const when = Date.parse(tx.confirmed);
-  if (!Number.isFinite(when)) return { status: 'unknown', reason: 'block time unreadable' };
-  const payer = tx.inputs && tx.inputs[0] && Array.isArray(tx.inputs[0].addresses) ? tx.inputs[0].addresses[0] : '';
-  return { status: 'verified', block_time: new Date(when).toISOString(), from: String(payer || '') };
+  const answers = await Promise.all(readers.map(async (rd) => {
+    try {
+      const r = await f(rd.url(id), { headers: { accept: 'application/json' } });
+      let j = null;
+      try { j = await r.json(); } catch (e) { j = null; }
+      return { reader: rd.name, ...judge(rd.parse(r.status, j), id, expected, chain) };
+    } catch (e) { return unread(rd.name, e); }
+  }));
+  return agree(answers, requiredOf(readers.length), 'the Dogecoin readers');
 }
 
-module.exports = { payloadHex, buildPlan, verify, TAG, MAX_OP_RETURN_BYTES, TX_API, TXID_RE };
+module.exports = { payloadHex, buildPlan, verify, opReturnData, READERS, TAG, MAX_OP_RETURN_BYTES, TX_API, TXID_RE };

@@ -210,6 +210,12 @@
     "rt.btc_pending": { en: "Bitcoin: waiting for a block (OpenTimestamps)" },
     "rt.btc_verified": { en: "in Bitcoin block {n}" },
     "rt.btc_mismatch": { en: "Bitcoin proof does NOT match this root" },
+    "rt.q_multi": { en: "Multi-anchored: {n} independent chains" },
+    "rt.q_short": { en: "{n} of {k} independent chains" },
+    "rt.q_unknown": { en: "{n} of {k} independent chains so far; some could not be checked" },
+    "rt.q_meaning": { en: "time-proven, not performance" },
+    "rt.q_mismatch": { en: "a recorded anchor no longer checks out" },
+    "rt.q_unread": { en: "quorum could not be checked" },
     "rt.btc_unknown": { en: "Bitcoin proof recorded — not reachable to confirm" },
     "rt.btc_proof": { en: "proof file" },
     "rt.stamp_eas": { en: "Stamp on Base (EAS)" },
@@ -2399,7 +2405,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"4bbc9b09","zh":"fe2fc7ea","pt":"16fd4727","fr":"48dc65f2","de":"35c9f975","nl":"dd740fd5","ja":"de661251","ko":"f26dde88","ru":"394a48c9","tr":"933c2e28","it":"6b7a5502","hi":"3d4e8246","ar":"f8b90745"};
+  var CHUNKS = {"es":"ca50235e","zh":"417d377a","pt":"ea0dd32c","fr":"75f47e9d","de":"febc4c1c","nl":"dfb45ba8","ja":"2f4b32cd","ko":"1270fa63","ru":"26c743a1","tr":"1a8d09a5","it":"c084b9b6","hi":"eca8cf20","ar":"bec54935"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

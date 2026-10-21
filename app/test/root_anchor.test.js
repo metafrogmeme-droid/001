@@ -73,10 +73,14 @@ test('a wrong root, a missing tx and an unmined tx each answer honestly', async 
 });
 
 test('an unreadable chain answers UNKNOWN — never a guess', async () => {
-  const down = async () => { throw new Error('ECONNREFUSED'); };
+  const down = async () => { const e = new Error('connect ECONNREFUSED https://rpc.example/KEY123'); e.name = 'ConnectionError'; throw e; };
   const v = await verifyAnchor(TX, DAY, ROOT, down);
   assert.equal(v.status, 'unknown');
-  assert.match(v.reason, /ECONNREFUSED/);
+  // Each reader is named, with the exception's class: its message can carry
+  // a URL, and a configured URL can carry a key.
+  assert.match(v.reason, /mainnet\.base\.org could not be read \(ConnectionError\)/);
+  assert.match(v.reason, /base-rpc\.publicnode\.com could not be read \(ConnectionError\)/);
+  assert.doesNotMatch(v.reason, /KEY123|ECONNREFUSED/);
 });
 
 test('the routes gate on chain verification, and the first anchor wins', () => {
@@ -101,16 +105,8 @@ test('the shim honours the anchor UPDATE with first-write-wins', () => {
     'the per-chain table is first-write-wins per (day, chain) under the shim too');
 });
 
-test('the verify endpoint is the public self-audit — cached only when verified', () => {
-  const src = read('routes', 'roots.js');
-  const at = src.indexOf("router.get('/verify/:day'");
-  assert.ok(at > -1);
-  const slice = src.slice(at, at + 1600);
-  assert.match(slice, /status: 'unanchored'/, 'an unanchored day answers honestly, not 404');
-  assert.match(slice, /verifyAnchor\(have\.tx, row\.day, row\.root, undefined, chain\.key\)/);
-  assert.match(slice, /if \(v\.status === 'verified'\) _verifyCache\.set/,
-    'caching an UNKNOWN answer would freeze a transient RPC failure into fact');
-});
+// The verify route keeping a verdict and never an unknown is driven through
+// the route in a_day_is_proven_only_by_readers_and_chains_that_agree.test.js.
 
 test('the call page states the on-chain leg — present or honestly absent', () => {
   const page = read('public', 'call.html');
@@ -154,9 +150,9 @@ test('the roots feed and page carry the anchor honestly', () => {
   // now follows the seam rather than asserting the strings are still inline:
   // pointing it back at the page would either fail on the fix or, worse, pass
   // on a page that had reverted to the database claim.
-  const page = read('public', 'roots.html');
+  const page = require('./helpers/code_only').codeOnly(read('public', 'roots.html'));
   assert.match(page, /RCAnchorCell\.anchorCell\(/, 'the page no longer uses the tested renderer');
-  assert.match(page, /api\/roots\/verify\//, 'the page never asks the chain');
+  assert.match(page, /fetch\('\/api\/roots\/quorum\/'/, 'the page never asks the chain');
 
   const cell = read('public', 'js', 'anchor_cell.js');
   assert.match(cell, /rt\.anchored/);

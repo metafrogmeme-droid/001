@@ -144,7 +144,7 @@ exactly the failure a receipt exists to surface.
 ```json
 {"v":6,"kind":"duel_round","day":"YYYY-MM-DD","idx":0,"category":"direction",
  "symbol":"…","symbol_b":null,"threshold_pct":null,"agent_direction":"long",
- "match":null,"nonce":"0123456789abcdef","dealt_at":"2026-10-19T00:00:05.000Z"}
+ "match":null,"nonce":"0123456789abcdef0123456789abcdef","dealt_at":"2026-10-19T00:00:05.000Z"}
 ```
 
 A commitment. The classic round's rule is that the agent's own call is hidden
@@ -155,8 +155,9 @@ open to calls: it opens for a signed-in player who has called that round, and
 for everyone once the round's UTC day has ended. `sha256(payload) == seal` over
 the opened payload proves the stance was fixed before the call, not after.
 
-`nonce` is sixteen random hex characters: a three-way stance behind a bare
-hash would be a three-guess secret. `match` is the football round's event
+`nonce` is thirty-two random hex characters (128 bits): a three-way stance
+behind a bare hash would be a three-guess secret. A round dealt before
+2026-10-21 carries sixteen (64 bits); the check is the same. `match` is the football round's event
 (`{event_id, home, away, kickoff}`) and `null` elsewhere; a round that hides
 nothing (range, mover, back/fade, football) opens at once, nonce and all. A
 round dealt before 2026-10-19 has no seal; its receipt does not exist rather

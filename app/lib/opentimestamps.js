@@ -28,6 +28,7 @@
  */
 const crypto = require('crypto');
 const { keccak256 } = require('./keccak256');
+const { agree, requiredOf, unread } = require('./reader_agreement');
 
 /**
  * The calendars the reference client uses by default
@@ -301,45 +302,58 @@ async function upgrade(t, { fetchImpl, timeoutMs = 15000 } = {}) {
   return upgraded;
 }
 
+/** One header source's reading of block `height` against the message the proof leads to (header order reversed). */
+async function readHeader(f, api, height, expected, timeoutMs) {
+  let reader = api;
+  try { reader = new URL(api).hostname; } catch (e) { /* keep the url */ }
+  try {
+    const h = await fetchBytes(f, `${api}/block-height/${height}`, { method: 'GET' }, timeoutMs);
+    if (h.status !== 200) return { reader, status: 'unread', reason: `${reader} answered ${h.status}` };
+    const hash = h.body.toString('utf8').trim();
+    if (!/^[0-9a-f]{64}$/.test(hash)) return { reader, status: 'unread', reason: `${reader} answered no block hash` };
+    const b = await fetchBytes(f, `${api}/block/${hash}`, { method: 'GET' }, timeoutMs);
+    if (b.status !== 200) return { reader, status: 'unread', reason: `${reader} answered ${b.status}` };
+    const block = JSON.parse(b.body.toString('utf8'));
+    if (!block || block.height !== height || typeof block.merkle_root !== 'string') {
+      return { reader, status: 'unread', reason: `${reader} answered another block` };
+    }
+    if (block.merkle_root.toLowerCase() !== expected) {
+      return { reader, status: 'mismatch', reason: `the proof does not lead to block ${height}'s Merkle root` };
+    }
+    return { reader, status: 'verified', same: hash, height,
+      block_time: new Date(Number(block.timestamp) * 1000).toISOString() };
+  } catch (e) { return unread(reader, e); }
+}
+
 /**
- * Check the tree's Bitcoin attestations against Bitcoin block headers.
- * → { status: 'verified', height, block_time }   the earliest attested block's
- *     Merkle root equals the message the proof leads to
+ * Check the tree's Bitcoin attestations against Bitcoin block headers, read
+ * from every header source and judged by their agreement
+ * (lib/reader_agreement.js): one source that lies or lags cannot complete a
+ * day, nor refuse a real proof.
+ * → { status: 'verified', height, block_time, readers }   the earliest attested
+ *     block's Merkle root equals the message the proof leads to, by two sources
  * → { status: 'pending' }                         no Bitcoin attestation yet
- * → { status: 'mismatch', reason }                a header was read and does not match
- * → { status: 'unknown', reason }                 no header could be read — not a verdict
+ * → { status: 'mismatch', reason }                the sources read the header and it does not match
+ * → { status: 'unknown', reason }                 too few sources answered, or they disagree — not a verdict
  */
 async function verifyBitcoin(t, { fetchImpl, apis = BITCOIN_HEADER_APIS, timeoutMs = 15000 } = {}) {
   const f = fetchImpl || global.fetch;
   const btc = attestationsOf(t).filter((x) => x.attestation.kind === 'bitcoin')
     .sort((a, b) => a.attestation.height - b.attestation.height);
   if (!btc.length) return { status: 'pending' };
-  let lastReason = 'no Bitcoin header source answered';
+  let last = { status: 'unknown', reason: 'no Bitcoin header source answered' };
   for (const { attestation, msg } of btc) {
     if (msg.length !== 32) return { status: 'mismatch', reason: 'the attested message is not 32 bytes' };
-    for (const api of apis) {
-      try {
-        const h = await fetchBytes(f, `${api}/block-height/${attestation.height}`, { method: 'GET' }, timeoutMs);
-        if (h.status !== 200) { lastReason = `header source answered ${h.status}`; continue; }
-        const hash = h.body.toString('utf8').trim();
-        if (!/^[0-9a-f]{64}$/.test(hash)) { lastReason = 'header source answered no block hash'; continue; }
-        const b = await fetchBytes(f, `${api}/block/${hash}`, { method: 'GET' }, timeoutMs);
-        if (b.status !== 200) { lastReason = `header source answered ${b.status}`; continue; }
-        const block = JSON.parse(b.body.toString('utf8'));
-        if (!block || block.height !== attestation.height || typeof block.merkle_root !== 'string') {
-          lastReason = 'header source answered another block'; continue;
-        }
-        // The header's Merkle root is shown byte-reversed; the proof's message is in header order.
-        const expected = Buffer.from(msg).reverse().toString('hex');
-        if (block.merkle_root.toLowerCase() !== expected) {
-          return { status: 'mismatch', reason: `the proof does not lead to block ${attestation.height}'s Merkle root` };
-        }
-        return { status: 'verified', height: attestation.height,
-          block_time: new Date(Number(block.timestamp) * 1000).toISOString() };
-      } catch (e) { lastReason = `header source unreachable (${e && e.name ? e.name : 'Error'})`; }
-    }
+    // The header's Merkle root is shown byte-reversed; the proof's message is in header order.
+    const expected = Buffer.from(msg).reverse().toString('hex');
+    const answers = await Promise.all(apis.map((api) => readHeader(f, api, attestation.height, expected, timeoutMs)));
+    const v = agree(answers, requiredOf(apis.length), 'the Bitcoin header sources');
+    // A verdict, or sources that contradict each other, is the answer; too
+    // few answers for this attestation leaves the next one to try.
+    if (v.status !== 'unknown' || v.disagreement) return v;
+    last = v;
   }
-  return { status: 'unknown', reason: lastReason };
+  return last;
 }
 
 module.exports = {

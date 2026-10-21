@@ -20,8 +20,8 @@
     "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "v": 3,
-    "sha": "8f4e25eae9ba57fe"
+    "v": 4,
+    "sha": "109f43551ad06e65"
   },
   "js/api-retry.js": {
     "v": 3,
@@ -188,8 +188,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 197,
-    "sha": "2811c51f34f40928"
+    "v": 198,
+    "sha": "0221f818b0545feb"
   },
   "js/icons.js": {
     "v": 6,

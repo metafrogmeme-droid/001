@@ -28030,3 +28030,93 @@ route had no `try` around it, Express 4 does not catch an async throw, and
 the client waited forever. The route now answers 500 with the exception
 class, and a test drives a database answering in a shape the record cannot
 read. Fifteen mutants, all killed.
+
+## A VERDICT NEEDS TWO READERS THAT AGREE, AND A DAY NEEDS TWO CHAINS THAT DO NOT SHARE A FATE
+
+21 October 2026, acting on the multichain report's first gaps (reader
+diversity, an anchor quorum). The April 2026 bridge loss it cites was a
+verifier fed by one set of poisoned RPCs, not a contract bug.
+
+**Silence was handled; a lie was not.** Every anchor check asked its readers
+in turn and believed the first that answered: Base's two RPCs, Bitcoin's two
+header sources, Dogecoin's one explorer, and QuickNode, which since #96
+verified a Base anchor alone when both RPCs were down. "Unreadable is never a
+verdict" kept a dead reader from turning a day green. It did nothing about a
+reader that answered wrongly. `app/lib/reader_agreement.js::agree` is now the
+one rule for all of them: every reader is asked; a verdict needs two giving
+the same one, in the same block (`same`, the block hash), with none
+contradicting; anything less is `unknown`, and readers that contradict each
+other are `disagreement: true`, never settled by counting. `requiredOf` is
+two, or every reader when fewer are configured: a list of one URL is one
+reader deciding alone, which `.env.example` now says beside the variables.
+
+**QuickNode became a seat, not the bench.** The test that pinned "RPCs down,
+QuickNode answers: verified, from QuickNode" was rewritten, because the rule
+it pinned is the one this chapter retires: QuickNode alone is one reader. It
+now fills the seat of an RPC that did not answer and must agree with the one
+that did, in the same block; two RPCs that disagree are not settled by
+asking a third.
+
+**The Bitcoin tip is the lowest the sources report.** Depth is tip minus
+height. One source reporting a higher tip than the chain has would make a
+shallow block look six deep, so `app/lib/root_ots.js::bitcoinTip` asks both
+and takes the lower, and answers nothing when only one answered.
+
+**A reader's name can carry a key.** The old reasons carried exception
+messages, and `app/test/root_anchor.test.js` asserted that one did
+(`ECONNREFUSED`). A fetch error's message can carry its URL, and a configured
+RPC URL often carries a provider key. A verdict now names a keyless default by
+its host, a configured URL by its place (`configured rpc 1`), and a failure by
+its class; the test asserts the message and the URL are absent.
+
+**Two chains that share a fate are one witness.**
+`app/lib/anchor_quorum.js::quorumOf` calls a day multi-anchored when at least
+two independence groups verify it live (`GET /api/roots/quorum/:day`, one
+request per day on `/roots`). A Base calldata anchor and an EAS stamp on Base
+are one group (`ethereum-l2`), and so would another Ethereum L2 be; the DogeOS
+testnet is shown and never counted, because a testnet can be reset. Three
+values: `multi_anchored`, `short`, and `unknown` only when an unreadable
+witness, in a group not already verified, could have made up the difference.
+Beside the badge, always: time-proven, not performance. The DogeOS testnet's
+two readers are DogeOS's own RPC and dRPC's; whether dRPC's nodes are
+independent of DogeOS's is not measured, which is one more reason the testnet
+does not count.
+
+**Two source scans were passing on the wrong thing.** The verify route's
+"cached only when verified" test sliced 1,600 characters after the route
+string; extracting the check into a function moved the line out of the
+slice. It is now driven through the route: a 3-confirmation answer is not
+kept, a verdict is. And two pins that `/roots` "asks the chain" matched
+`/api/roots/verify/`, which after the page moved to the quorum route was
+still present only in the page's own comment. They now read `codeOnly` and
+match the quorum fetch.
+
+**The Claw Record page missed four site rules**, none of which its own
+tests could see, all found by running the whole app suite on this branch: it
+did not load `api-retry.js` first, did not load the sale bar every page with
+the i18n runtime carries, was linked from nowhere on the landing page, and
+its window buttons' `aria-label` was English in every language. A new page's
+own test file is not the gate; the suite of rules every page answers to is.
+
+**The privacy page now says what the proof publishes.** A wallet that
+anchors or stamps a day has its address and transaction shown on `/roots`
+and in the API, and kept on the chain where nobody can delete it; each day's
+root goes to public OpenTimestamps calendars as a digest; checking an anchor
+asks public blockchain services about a transaction id. The page had said
+none of it. The roadmap lists this as a gate before Base goes live; the
+wording is a factual update, and legal sign-off stays with the owner.
+
+**The Duel round nonce is 128 bits.** A round's stance is hidden behind
+sha256(payload) for up to a day; sixteen hex characters (64 bits) is a bill a
+determined guesser can pay in that time, thirty-two is not. Rounds dealt
+before keep their sixteen; the check is the same.
+
+**The mutation round found a seat nobody could fill.** Twenty-nine mutants,
+one survivor: making QuickNode count toward nothing (`required` from the RPCs
+alone) changed no test, because with Base's two default RPCs two readers are
+needed either way. The case it hid was real: with one configured RPC and
+QuickNode, two readers are needed, but QuickNode was asked only when an RPC
+had failed, so that setup could never verify anything. QuickNode is now asked
+whenever fewer readers answered than are needed, and a test drives one
+configured RPC with QuickNode both ways. A mutant restoring the old condition
+is the thirtieth; thirty of thirty killed.

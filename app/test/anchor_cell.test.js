@@ -153,19 +153,46 @@ test('a hostile block_time cannot inject either', () => {
   assert.ok(!html.includes('<img'), `unescaped block_time reached the DOM:\n  ${html}`);
 });
 
+// ── the day's quorum line ──────────────────────────────────────────────────
+
+test('the quorum line is green only for multi-anchored, and always says it proves time, not performance', () => {
+  const { quorumCell } = require('../public/js/anchor_cell.js');
+  const multi = quorumCell({ status: 'multi_anchored', k: 2, groups: ['bitcoin', 'ethereum-l2'], mismatched: [] }, T);
+  assert.match(multi, /data-state="multi" style="color:var\(--up\)"/);
+  assert.match(multi, /Multi-anchored: 2 independent chains · Bitcoin \+ Base/);
+  assert.match(multi, /time-proven, not performance/);
+  // The other arms are never green.
+  const short = quorumCell({ status: 'short', k: 2, groups: ['ethereum-l2'], mismatched: [] }, T);
+  assert.match(short, /data-state="short">⛓ 1 of 2 independent chains · Base</);
+  const unknown = quorumCell({ status: 'unknown', k: 2, groups: [], mismatched: [] }, T);
+  assert.match(unknown, /0 of 2 independent chains so far; some could not be checked/);
+  for (const html of [short, unknown, quorumCell(null, T), quorumCell({ error: 'x' }, T)]) {
+    assert.doesNotMatch(html, /var\(--up\)/);
+  }
+  assert.match(quorumCell(null, T), /data-state="unreadable">quorum could not be checked/, 'unreadable is said, not drawn as none');
+  const bad = quorumCell({ status: 'multi_anchored', k: 2, groups: ['bitcoin', 'dogecoin'], mismatched: ['base'] }, T);
+  assert.match(bad, /var\(--down\)[^>]*>⚠ a recorded anchor no longer checks out: base/);
+  assert.match(quorumCell({ status: 'short', k: 2, groups: ['<x>'], mismatched: [] }, T), /&lt;x&gt;/, 'escaped');
+});
+
 // ── the page uses the seam rather than reimplementing it ───────────────────
 
 test('roots.html renders its anchor cell through this module', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'roots.html'), 'utf8');
+  // Comments blanked: the page's own comment names the routes it reads.
+  const html = require('./helpers/code_only').codeOnly(fs.readFileSync(path.join(__dirname, '..', 'public', 'roots.html'), 'utf8'));
 
   assert.match(html, /RCAnchorCell\.anchorCell\(/,
     'the page no longer calls the tested renderer');
   assert.match(html, /js\/anchor_cell\.js\?v=/,
     'the module is not loaded by the page, so RCAnchorCell will be undefined');
-  assert.match(html, /api\/roots\/verify\//,
+  // Each anchor is re-checked live through the day's quorum, which runs the
+  // same check /api/roots/verify runs (driven in
+  // a_day_is_proven_only_by_readers_and_chains_that_agree.test.js).
+  assert.match(html, /fetch\('\/api\/roots\/quorum\/'/,
     'nothing asks the chain — the cell would be painted from our own column again');
+  assert.match(html, /RCAnchorCell\.quorumCell\(/, 'the quorum line comes from the tested renderer');
 
   // The exact expression that was the bug. If it comes back, the page is
   // asserting an on-chain fact from a database field again.

@@ -116,7 +116,8 @@ test('a real Base EAS stamp verifies; any other root, contract, outcome or time 
   const day = '2026-10-21';
   let w = easWorld();
   let v = await anchor.verifyAnchor(tx, day, root, evm(w), 'base-eas');
-  assert.deepStrictEqual(v, { status: 'verified', block_time: '2026-10-21T15:30:17.000Z', from: EAS_FIX.tx.from });
+  assert.deepStrictEqual(v, { status: 'verified', block_time: '2026-10-21T15:30:17.000Z', from: EAS_FIX.tx.from,
+    readers: ['mainnet.base.org', 'base-rpc.publicnode.com'] });
 
   v = await anchor.verifyAnchor(tx, day, 'cd'.repeat(32), evm(w), 'base-eas');
   assert.strictEqual(v.status, 'mismatch', 'the transaction stamps another root');
@@ -169,13 +170,88 @@ test('the Dogecoin payload fits an OP_RETURN, where the EVM chains\' text would 
   assert.strictEqual(anchor.chainInfo('dogecoin').reorg_depth, 6);
 });
 
-function dogeFetch(answer) {
+const SOCHAIN = 'https://sochain.com/api/v3/transaction/DOGE/';
+const SOCHAIN_TX = fixture('sochain_op_return_tx.json');
+const SOCHAIN_404 = fixture('sochain_not_found.json');
+
+/** The same transaction as SoChain shows it: the output script, not its data. */
+function asSoChain(bc) {
+  const push = (hex) => { const n = hex.length / 2; return (n <= 0x4b ? n.toString(16).padStart(2, '0') : '4c' + n.toString(16).padStart(2, '0')) + hex; };
+  return { status: 'success', data: {
+    hash: bc.hash, confirmations: bc.confirmations, block_hash: bc.block_hash, block_height: bc.block_height,
+    time: Math.floor(Date.parse(bc.confirmed) / 1000),
+    inputs: [{ address: bc.inputs[0].addresses[0] }],
+    outputs: bc.outputs.map((o, i) => ({ index: i, value: String(o.value), type: o.script_type === 'null-data' ? 'nulldata' : 'pubkeyhash',
+      script: { hex: o.script_type === 'null-data' ? '6a' + push(o.data_hex) : o.script } })),
+  } };
+}
+
+/**
+ * Both Dogecoin readers. `answer(id)` gives BlockCypher's reply; SoChain
+ * answers the same transaction in its own shape, unless `so` overrides it.
+ */
+function dogeFetch(answer, so) {
   return async (url, opts) => {
     asked.push({ url, method: (opts && opts.method) || 'GET' });
+    if (url.startsWith(SOCHAIN)) {
+      const id = url.slice(SOCHAIN.length);
+      if (so) return so(id);
+      const bc = await answer(id);
+      if (bc.status !== 200) return reply(bc.status, bc.status === 404 ? SOCHAIN_404.body : { status: 'fail' });
+      return reply(200, asSoChain(await bc.json()));
+    }
     assert.ok(url.startsWith(doge.TX_API), url);
     return answer(url.slice(doge.TX_API.length));
   };
 }
+
+test('the two Dogecoin readers read the same real transaction the same way', () => {
+  // Real answers from both services for one transaction (fixtures): the data
+  // SoChain's script carries is the data BlockCypher reports.
+  const bcData = DOGE_TX.outputs.find((o) => o.script_type === 'null-data').data_hex;
+  const soOut = SOCHAIN_TX.data.outputs.find((o) => o.type === 'nulldata');
+  assert.strictEqual(doge.opReturnData(soOut.script.hex), bcData);
+  const [bc, so] = doge.READERS;
+  const a = bc.parse(200, DOGE_TX);
+  const b = so.parse(200, SOCHAIN_TX);
+  assert.strictEqual(a.hash, b.hash);
+  assert.deepStrictEqual(a.op_returns, b.op_returns);
+  assert.strictEqual(a.block_hash, b.block_hash);
+  assert.deepStrictEqual(so.parse(404, SOCHAIN_404.body), { found: false });
+  // A script that is more than OP_RETURN and one exact push carries no anchor.
+  assert.strictEqual(doge.opReturnData('6a30' + 'ab'.repeat(47)), null);
+  assert.strictEqual(doge.opReturnData('6a30' + 'ab'.repeat(48) + '00'), null);
+  assert.strictEqual(doge.opReturnData('76a914' + 'ab'.repeat(20) + '88ac'), null);
+});
+
+test('one Dogecoin reader that lies, lags or is down never turns a day green, nor refuses a real anchor', async () => {
+  const day = '2026-10-20';
+  const root = 'ab'.repeat(32);
+  const id = DOGE_TX.hash;
+  const good = { ...DOGE_TX, confirmations: 9,
+    outputs: DOGE_TX.outputs.map((o) => (o.script_type === 'null-data' ? { ...o, data_hex: doge.payloadHex(day, root) } : o)) };
+  // Both agree: verified, and the verdict names both.
+  let v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(200, good)), 'dogecoin');
+  assert.strictEqual(v.status, 'verified');
+  assert.deepStrictEqual(v.readers, ['blockcypher', 'sochain']);
+  // SoChain shows other bytes: disagreement, not a verdict either way.
+  v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(200, good), () => reply(200, asSoChain(DOGE_TX))), 'dogecoin');
+  assert.deepStrictEqual([v.status, v.disagreement], ['unknown', true]);
+  // SoChain has not seen it yet (404) while BlockCypher has: lag, not "no such transaction".
+  v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(200, good), () => reply(404, SOCHAIN_404.body)), 'dogecoin');
+  assert.deepStrictEqual([v.status, v.disagreement], ['unknown', true]);
+  // SoChain down: one reader alone is not enough.
+  v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(200, good), () => { throw new TypeError('fetch failed'); }), 'dogecoin');
+  assert.strictEqual(v.status, 'unknown');
+  assert.match(v.reason, /sochain could not be read/);
+  // The readers place it in different blocks: a reorg or a lie, not a verdict.
+  const other = asSoChain(good); other.data.block_hash = 'ff'.repeat(32);
+  v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(200, good), () => reply(200, other)), 'dogecoin');
+  assert.deepStrictEqual([v.status, v.disagreement], ['unknown', true]);
+  // Both say there is no such transaction: that is a verdict.
+  v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(404, { error: 'not found' })), 'dogecoin');
+  assert.strictEqual(v.status, 'mismatch');
+});
 
 test('a Dogecoin anchor verifies only with exactly the payload, once, six blocks deep', async () => {
   const day = '2026-10-20';
@@ -191,7 +267,7 @@ test('a Dogecoin anchor verifies only with exactly the payload, once, six blocks
   // The other arm: the same transaction carrying this day's payload, deep enough.
   v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(200, withPayload({ confirmations: 6 }))), 'dogecoin');
   assert.deepStrictEqual(v, { status: 'verified', block_time: new Date(DOGE_TX.confirmed).toISOString(),
-    from: DOGE_TX.inputs[0].addresses[0] });
+    from: DOGE_TX.inputs[0].addresses[0], readers: ['blockcypher', 'sochain'] });
 
   v = await anchor.verifyAnchor(id, day, root, dogeFetch(() => reply(200, withPayload({ confirmations: 5 }))), 'dogecoin');
   assert.strictEqual(v.status, 'unknown', 'one block short is still short');
@@ -246,7 +322,8 @@ test('the OpenTimestamps project\'s own proof reads back byte for byte and leads
   assert.ok(ots.writeProofFile(f.digest, f.timestamp).equals(HELLO_OTS), 'written back exactly as read');
   const world = { blocks: { 358391: BTC_BLOCK }, tip: 958391 };
   let v = await ots.verifyBitcoin(f.timestamp, { fetchImpl: headers(world) });
-  assert.deepStrictEqual(v, { status: 'verified', height: 358391, block_time: new Date(BTC_BLOCK.timestamp * 1000).toISOString() });
+  assert.deepStrictEqual(v, { status: 'verified', height: 358391, block_time: new Date(BTC_BLOCK.timestamp * 1000).toISOString(),
+    readers: ['blockstream.info', 'mempool.space'] });
   // Another Merkle root at that height: the proof does not lead there.
   const other = { blocks: { 358391: { ...BTC_BLOCK, merkle_root: '00'.repeat(32) } }, tip: 958391 };
   v = await ots.verifyBitcoin(f.timestamp, { fetchImpl: headers(other) });

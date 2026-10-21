@@ -179,5 +179,42 @@
     return '<span class="n">₿ ' + esc(T('rt.btc_unknown', 'Bitcoin proof recorded — not reachable to confirm')) + '</span>' + proof();
   }
 
-  return { anchorState: anchorState, anchorCell: anchorCell, anchorCells: anchorCells, otsCell: otsCell, esc: esc, BASE: BASE };
+  /** What each independence group is called on the page (lib/anchor_quorum.js names the groups). */
+  var GROUP_NAMES = { bitcoin: 'Bitcoin', dogecoin: 'Dogecoin', 'ethereum-l2': 'Base' };
+
+  /**
+   * A day's Anchor Quorum (GET /api/roots/quorum/:day) as one line. Green
+   * only for "multi-anchored", which the server says only when k independent
+   * chains verified the root live; and beside it, always, what it is not: a
+   * timestamp proves when, never how well. An answer this cannot read is
+   * said, never drawn as "not anchored".
+   */
+  function quorumCell(q, t) {
+    var T = typeof t === 'function' ? t : function (k, en) { return en; };
+    if (!q || typeof q !== 'object' || !Array.isArray(q.groups) || typeof q.k !== 'number') {
+      return '<span class="n q-cell" data-state="unreadable">' + esc(T('rt.q_unread', 'quorum could not be checked')) + '</span>';
+    }
+    var fill = function (s) { return String(s).replace('{n}', String(q.groups.length)).replace('{k}', String(q.k)); };
+    var names = q.groups.map(function (g) { return GROUP_NAMES[g] || g; }).join(' + ');
+    var out;
+    if (q.status === 'multi_anchored') {
+      out = '<span class="n q-cell" data-state="multi" style="color:var(--up)">⛓ '
+        + esc(fill(T('rt.q_multi', 'Multi-anchored: {n} independent chains'))) + ' · ' + esc(names) + '</span>'
+        + ' <span class="n">(' + esc(T('rt.q_meaning', 'time-proven, not performance')) + ')</span>';
+    } else if (q.status === 'unknown') {
+      out = '<span class="n q-cell" data-state="unknown">⛓ '
+        + esc(fill(T('rt.q_unknown', '{n} of {k} independent chains so far; some could not be checked'))) + '</span>';
+    } else {
+      out = '<span class="n q-cell" data-state="short">⛓ '
+        + esc(fill(T('rt.q_short', '{n} of {k} independent chains'))) + (names ? ' · ' + esc(names) : '') + '</span>';
+    }
+    if (Array.isArray(q.mismatched) && q.mismatched.length) {
+      out += ' <span class="n" style="color:var(--down);font-weight:600">⚠ '
+        + esc(T('rt.q_mismatch', 'a recorded anchor no longer checks out')) + ': ' + esc(q.mismatched.join(', ')) + '</span>';
+    }
+    return out;
+  }
+
+  return { anchorState: anchorState, anchorCell: anchorCell, anchorCells: anchorCells, otsCell: otsCell, quorumCell: quorumCell,
+    esc: esc, BASE: BASE };
 }));

@@ -24,7 +24,8 @@ const { buildAnchorPlan, verifyAnchor, publicChains, chainInfo, DEFAULT_CHAIN, e
 const { authMiddleware } = require('../auth');
 const rootOts = require('../lib/root_ots');
 const ots = require('../lib/opentimestamps');
-const { rateLimit, userKey } = require('../lib/rate_limit');
+const { rateLimit, userKey, ipKey } = require('../lib/rate_limit');
+const { quorumOf, BITCOIN_WITNESS } = require('../lib/anchor_quorum');
 
 const router = express.Router();
 
@@ -80,27 +81,31 @@ async function otsSummary(day) {
 // The proof and the statement it timestamps download beside it, for
 // `ots verify RCROOT1-<day>.txt` against your own Bitcoin node.
 const _otsCache = new Map();             // day -> { at, body }, verified answers only
+
+/** The live Bitcoin check of a day's root: the body /ots/:day answers, kept six hours once verified. */
+async function bitcoinCheck(row) {
+  const base = { day: row.day, root: row.root, statement: ots.statementFor(row.day, row.root),
+    digest: ots.digestFor(row.day, row.root).toString('hex'),
+    proof_url: `/api/roots/ots/${row.day}/proof`, statement_url: `/api/roots/ots/${row.day}/statement` };
+  const hit = _otsCache.get(row.day);
+  if (hit && Date.now() - hit.at < 6 * 3600 * 1000) return hit.body;
+  const rec = await rootOts.rowFor(row.day);
+  if (!rec) return { ...base, status: 'not_submitted', proof_url: null };
+  if (rec.root !== row.root) return { ...base, status: 'mismatch', reason: 'the stored proof is for another root' };
+  const v = await rootOts.checkProof(rec);
+  const body = { ...base, status: v.status, bitcoin_height: v.height || null, block_time: v.block_time || null,
+    reason: v.reason || null, calendars: String(rec.calendars || '').split(',').filter(Boolean),
+    ...(v.readers ? { readers: v.readers } : {}), ...(v.disagreement ? { disagreement: true } : {}) };
+  if (v.status === 'verified') _otsCache.set(row.day, { at: Date.now(), body });
+  return body;
+}
+
 router.get('/ots/:day', async (req, res) => {
   try {
-    const day = String(req.params.day || '');
-    const row = await rootForDay(day);
+    const row = await rootForDay(String(req.params.day || ''));
     if (!row) return res.status(404).json({ error: 'No root for that day' });
-    const base = { day: row.day, root: row.root, statement: ots.statementFor(row.day, row.root),
-      digest: ots.digestFor(row.day, row.root).toString('hex'),
-      proof_url: `/api/roots/ots/${row.day}/proof`, statement_url: `/api/roots/ots/${row.day}/statement` };
-    const hit = _otsCache.get(row.day);
-    if (hit && Date.now() - hit.at < 6 * 3600 * 1000) {
-      res.set('Cache-Control', 'public, max-age=300');
-      return res.json(hit.body);
-    }
-    const rec = await rootOts.rowFor(row.day);
-    if (!rec) return res.json({ ...base, status: 'not_submitted', proof_url: null });
-    if (rec.root !== row.root) return res.json({ ...base, status: 'mismatch', reason: 'the stored proof is for another root' });
-    const v = await rootOts.checkProof(rec);
-    const body = { ...base, status: v.status, bitcoin_height: v.height || null, block_time: v.block_time || null,
-      reason: v.reason || null, calendars: String(rec.calendars || '').split(',').filter(Boolean) };
-    if (v.status === 'verified') _otsCache.set(row.day, { at: Date.now(), body });
-    res.set('Cache-Control', 'public, max-age=60');
+    const body = await bitcoinCheck(row);
+    res.set('Cache-Control', body.status === 'verified' ? 'public, max-age=300' : 'public, max-age=60');
     res.json(body);
   } catch (err) {
     console.error('Bitcoin timestamp check error:', err.name || 'Error');
@@ -175,38 +180,74 @@ router.get('/anchor-plan/:day', async (req, res) => {
 // ask the server to re-check its own claim, and the server reports exactly
 // what the chain said, unknown included.
 const _verifyCache = new Map();          // `${day}|${chain}` -> { at, body }
+
+/** The live check of a day's recorded anchor `have` on `chain`: the body /verify/:day answers. */
+async function anchorCheck(row, chain, have) {
+  const key = `${row.day}|${chain.key}`;
+  const hit = _verifyCache.get(key);
+  if (hit && Date.now() - hit.at < (chain.verify_cache_ms || 5 * 60000)) return hit.body;
+  const v = await verifyAnchor(have.tx, row.day, row.root, undefined, chain.key);
+  const body = { day: row.day, root: row.root, chain: chain.key, chain_name: chain.name,
+    anchor_tx: have.tx, explorer: chain.explorer_tx + have.tx, method: chain.method || 'calldata',
+    status: v.status, block_time: v.block_time || null,
+    from: v.from || null, reason: v.reason || null,
+    // On a chain with a reorg depth: whether its `finalized` block has
+    // passed the anchor (null when that could not be read).
+    ...(v.final !== undefined ? { final: v.final } : {}),
+    // Which readers agreed (lib/reader_agreement.js), or that they did not.
+    ...(v.readers ? { readers: v.readers } : {}),
+    ...(v.disagreement ? { disagreement: true } : {}) };
+  // Cache verified results; an unknown answer is retried on the next ask.
+  if (v.status === 'verified') _verifyCache.set(key, { at: Date.now(), body });
+  return body;
+}
+
 router.get('/verify/:day', async (req, res) => {
   try {
     const chain = chainOf(req);
     if (!chain) return res.status(400).json({ error: 'Unknown chain' });
-    const day = String(req.params.day || '');
-    const row = await rootForDay(day);
+    const row = await rootForDay(String(req.params.day || ''));
     if (!row) return res.status(404).json({ error: 'No root for that day' });
     const have = (await anchorsFor(row.day, row)).find((a) => a.chain === chain.key);
     if (!have) {
       return res.json({ day: row.day, root: row.root, chain: chain.key, chain_name: chain.name, status: 'unanchored' });
     }
-    const key = `${day}|${chain.key}`;
-    const hit = _verifyCache.get(key);
-    if (hit && Date.now() - hit.at < (chain.verify_cache_ms || 5 * 60000)) {
-      res.set('Cache-Control', 'public, max-age=60');
-      return res.json(hit.body);
-    }
-    const v = await verifyAnchor(have.tx, row.day, row.root, undefined, chain.key);
-    const body = { day: row.day, root: row.root, chain: chain.key, chain_name: chain.name,
-      anchor_tx: have.tx, explorer: chain.explorer_tx + have.tx, method: chain.method || 'calldata',
-      status: v.status, block_time: v.block_time || null,
-      from: v.from || null, reason: v.reason || null,
-      // On a chain with a reorg depth: whether its `finalized` block has
-      // passed the anchor (null when that could not be read).
-      ...(v.final !== undefined ? { final: v.final } : {}) };
-    // Cache verified results; an unknown answer is retried on the next ask.
-    if (v.status === 'verified') _verifyCache.set(key, { at: Date.now(), body });
+    const body = await anchorCheck(row, chain, have);
     res.set('Cache-Control', 'public, max-age=60');
     res.json(body);
   } catch (err) {
     console.error('Anchor verify error:', err.stack || err.message);
     res.status(500).json({ error: 'Anchor verify unavailable' });
+  }
+});
+
+// GET /api/roots/quorum/:day — the day's Anchor Quorum (lib/anchor_quorum.js):
+// every recorded anchor and the Bitcoin timestamp, each checked live by the
+// same checks /verify and /ots answer, and whether at least k INDEPENDENT
+// chains hold the root. One request per day for a page or an app; time-
+// proven, not performance.
+router.get('/quorum/:day', rateLimit({ name: 'roots.quorum', windowMs: 60000, max: 30, key: ipKey }), async (req, res) => {
+  try {
+    const row = await rootForDay(String(req.params.day || ''));
+    if (!row) return res.status(404).json({ error: 'No root for that day' });
+    const recorded = await anchorsFor(row.day, row);
+    const anchors = await Promise.all(recorded.map(async (a) => {
+      const chain = chainInfo(a.chain);
+      if (!chain) return { day: row.day, chain: a.chain, anchor_tx: a.tx, status: 'unknown', reason: 'a chain this build does not know' };
+      return { ...(await anchorCheck(row, chain, a)),
+        independence_group: chain.independence_group, counts_toward_quorum: chain.counts_toward_quorum !== false };
+    }));
+    const bitcoin = await bitcoinCheck(row);
+    const q = quorumOf([
+      ...anchors.map((a) => ({ key: a.chain, group: a.independence_group, counts: !!a.counts_toward_quorum, status: a.status })),
+      { ...BITCOIN_WITNESS, status: bitcoin.status },
+    ]);
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({ day: row.day, root: row.root, ...q, anchors,
+      bitcoin: { ...bitcoin, independence_group: BITCOIN_WITNESS.group, counts_toward_quorum: true } });
+  } catch (err) {
+    console.error('Anchor quorum error:', err.name || 'Error');
+    res.status(500).json({ error: 'Anchor quorum unavailable', exception: err.name || 'Error' });
   }
 });
 

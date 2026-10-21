@@ -43,7 +43,7 @@
     scores each by its own R, and leaves calls with no outcome out of the rate. Each sealed call is in its day's
     <a href="/roots">Merkle root</a>, anchored on chains anyone can check.
   </p>
-  <div class="cr-windows" role="group" aria-label="Window">
+  <div class="cr-windows" role="group" aria-label="Period" data-i18n-attr="aria-label:aria.period">
     <button type="button" data-days="7">7d</button>
     <button type="button" data-days="30">30d</button>
     <button type="button" data-days="90">90d</button>
@@ -56,8 +56,10 @@
     calls. A live call is counted here and shown only once it resolves. Counts, percent and R only.
   </div>
 </div>
+<script src="/js/api-retry.js?v=3"></script>
 <script src="/js/claw-record.js?v=1"></script>
-<script src="/js/i18n-core.js?v=197"></script>
+<script src="/js/i18n-core.js?v=198"></script>
+<script src="/js/presale.js?v=2"></script>
 <script>
 (function () {
   var box = document.getElementById('record');
