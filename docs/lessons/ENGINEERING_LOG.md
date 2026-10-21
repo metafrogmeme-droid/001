@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **506 of 1359** reach for source text through `source_scan`, `code_only`
+Driven, **506 of 1360** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 506 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -27851,3 +27851,55 @@ before, now heads the chat fallback chain. Ten mutants, all killed.
 (`tests/test_chat_runs_on_claude_haiku_for_everyone.py`,
 `tests/test_anthropic_admin_only.py`, `bot/llm/provider.py`,
 `bot/web/chat_quota.py`.)
+
+**THE WEEKLY PUBLIC RECORD IS A COMMITTED FILE, AND THE SLEEVE'S PART OF IT
+SAYS ONLY THAT ITS ROWS ARE KEPT.** 21 October, Evidence E3: a record a
+stranger can read each week, in percent, ratio and count. The owner chose the
+cadence: a script run on the server, its file committed, no automation.
+`bot/core/public_record.py` builds three sections, each read on its own so one
+dead source leaves the others standing: the live book's daily equity as
+day-over-day returns, maximum drawdown and, from 30 daily returns, a Sharpe
+ratio annualised on 365 days; live exits against the backtest; and the daily
+trend sleeve. `scripts/weekly_record.py` writes `benchmark/record/<YYYY>-W<ww>.json`
+and refuses to replace a written week without `--force`; `sync_content.js`
+copies the weeks into `app/content/record/`; `/api/public/record` serves them
+through an allowlist (`app/lib/weekly_record.js`); the panel sits on `/agents`
+under the studies (`/agents#record`); `verify_evidence.py` checks
+every committed week. Four things the first design had wrong, each found by
+reading the source the record reads:
+- **A weekly look at the sleeve's rows would have broken its seal.** The plan
+  was to publish the latest day's holdings, "already public on the hourly
+  scan". The pre-registration says the measurement is "not by anyone who has
+  looked at the rows before then: the first reading of the record is the
+  measurement". A weekly public row is a look. The sleeve section reads each
+  row's `day` and nothing else, publishes days, first and last day and gaps,
+  and the verifier fails a committed week that carries a weight, a holding, a
+  gross or a return for the sleeve before 2027-10-17.
+- **`load_closed_trades` cannot tell a broken file from an empty one.** It
+  answers `[]` for both, so a truncated trades file would have published "no
+  live trades yet". The record parses the file first: a parse failure is
+  unreadable, and only a readable empty list is absent.
+- **`parity_summary` states a 0.0 win rate over no strategy exit.** A book
+  of non-fills only would have printed a 0% hit rate. The dashboard hides it
+  behind `!p.trades`; the record answers absent with the counts that say why.
+  The dollar-free projection moved out of `_parity_section` into
+  `web_reports.parity_public`, which both now call, and a test holds the two
+  field for field.
+- **Both letters printed the parity verdict as "[object Object]".** The bot
+  pushes `parity.verdict` as an object (`parity_verdict`), and `letter.js` put
+  `${verdict}` into the private and the public letter, with test fixtures
+  that used a string no producer sends. The edge word now picks a whole
+  translated sentence (`lt.side_parity_<edge>`); a verdict with no known edge
+  is left out. Letters already stored keep their old text.
+The equity log does not separate deposits and withdrawals from trading, and
+the panel says so beside the figures. A Python fixture of what the builder
+writes (`app/test/fixtures/public_record_week.json`, held to the builder by a
+test) is what the Node suite holds the allowlist to, so a field renamed on one
+side fails on the other. The panel's keys are `wkr.*`: `rec.*` was taken by the
+strategy page's paper record, and a second `rec.h` would have retitled it.
+Twenty-nine mutants, twenty-eight killed; the survivor (a bare string verdict
+passed through as its own edge word) is equivalent, since no producer sends
+one.
+(`tests/test_the_weekly_public_record.py`,
+`app/test/the_agents_page_shows_the_weekly_record.test.js`,
+`app/test/letter.test.js`.)

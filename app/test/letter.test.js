@@ -103,7 +103,7 @@ test('composeLetter: a winning week reads like one, every figure real', () => {
       { symbol: 'SOL/USDT', direction: 'SHORT', regime: 'TREND_UP', created_at: '2026-07-08T09:00:00Z' },
     ],
     openCount: 2,
-    reports: { arb: { total_accrued_usd: 12.5 }, parity: { verdict: 'ALIGNED' } },
+    reports: { arb: { total_accrued_usd: 12.5 }, parity: { verdict: { edge: 'straddles', ballpark: 'in', n: 40, min_trades: 10 } } },
   });
   assert.equal(L.week_key, '2026-W28');
   assert.equal(L.period.start, '2026-07-06');
@@ -118,9 +118,36 @@ test('composeLetter: a winning week reads like one, every figure real', () => {
   assert.match(all, /2 signals generated \(1 long \/ 1 short\)/);
   assert.match(all, /TREND_UP/);
   assert.match(all, /\$12\.5.*hypothetical carry/);
-  assert.match(all, /ALIGNED/);
+  assert.match(all, /live↔backtest parity: <b>no edge measurable either way<\/b>/);
   assert.match(all, /<b>2<\/b> open positions/);
   assert.match(L.footer, /nothing hand-written/i);
+});
+
+// The bot pushes the parity verdict as an object (bot/backtest/parity.py
+// parity_verdict), and both letters printed it as `${verdict}`:
+// "[object Object]". The edge word picks a sentence now; anything else is
+// left out, never printed raw.
+test('the parity desk says the verdict in words, and leaves out what it cannot word', () => {
+  const base = { trades: [], equity: { start: null, end: null }, signals: [], openCount: 0 };
+  for (const fn of ['composeLetter', 'composePublicLetter']) {
+    for (const [edge, words] of Object.entries(letter.PARITY_EDGE)) {
+      const l = letter[fn](
+        { key: '2026-W28', start: new Date('2026-07-06T00:00:00Z'), end: new Date('2026-07-13T00:00:00Z') },
+        { ...base, reports: { parity: { verdict: { edge, ballpark: 'thin' } } } });
+      const side = l.sections.find((x) => x.title_tid === 'side');
+      assert.ok(side, `${fn} ${edge}: no side desk`);
+      assert.ok(side.html.includes(words), `${fn} ${edge}`);
+      assert.ok(side.parts.some((p) => p.tid.endsWith('_' + edge)), `${fn} ${edge}: tid`);
+    }
+    for (const verdict of ['ALIGNED', { edge: 'constructor' }, { ballpark: 'in' }, null]) {
+      const l = letter[fn](
+        { key: '2026-W28', start: new Date('2026-07-06T00:00:00Z'), end: new Date('2026-07-13T00:00:00Z') },
+        { ...base, reports: { parity: { verdict } } });
+      const all = l.sections.map((x) => x.html).join('\n');
+      assert.ok(!/parity/.test(all), `${fn} ${JSON.stringify(verdict)}: printed`);
+      assert.ok(!all.includes('[object Object]'));
+    }
+  }
 });
 
 test('composeLetter: a losing week is called a losing week', () => {

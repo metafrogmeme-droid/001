@@ -27,6 +27,28 @@ function money(v) {
 const { esc } = require('./esc');
 
 /**
+ * The parity desk's one line, from the verdict's `edge` word.
+ *
+ * The bot pushes `parity.verdict` as an object (`parity_verdict` in
+ * bot/backtest/parity.py: {edge, ballpark, n, ...}), and both letters printed
+ * it as `${verdict}`, which is "[object Object]". The edge word now picks a
+ * whole sentence, translated by its own template; a verdict with no edge
+ * this table knows is left out of the letter, never printed raw.
+ */
+const PARITY_EDGE = {
+  nothing: 'no strategy exit on record yet',
+  thin: 'too few exits to judge',
+  positive: 'a positive live edge (95% interval above zero)',
+  negative: 'a negative live edge (95% interval below zero)',
+  straddles: 'no edge measurable either way',
+};
+function parityEdge(parity) {
+  const v = parity && parity.verdict;
+  const e = v && typeof v === 'object' ? v.edge : null;
+  return typeof e === 'string' && Object.prototype.hasOwnProperty.call(PARITY_EDGE, e) ? e : null;
+}
+
+/**
  * The week's figures, computed once for both composers.
  *
  * Both used to open with
@@ -344,10 +366,10 @@ function composeLetter({ key, start, end }, data) {
         bits.push(`the funding-arb PAPER tracker has accrued ${money(arb.total_accrued_usd)} of hypothetical carry`);
         sideParts.push({ tid: 'side_arb', params: { m: money(arb.total_accrued_usd) } });
       }
-      const parity = reports.parity || {};
-      if (parity.verdict) {
-        bits.push(`live↔backtest parity reads <b>${esc(parity.verdict)}</b>`);
-        sideParts.push({ tid: 'side_parity', params: { v: parity.verdict } });
+      const edge = parityEdge(reports.parity);
+      if (edge) {
+        bits.push(`live↔backtest parity: <b>${esc(PARITY_EDGE[edge])}</b>`);
+        sideParts.push({ tid: 'side_parity_' + edge, params: {} });
       }
     } catch (e) { /* skip */ }
     if (bits.length) {
@@ -535,11 +557,12 @@ function composePublicLetter({ key, start, end }, data) {
 
   // Side desks: parity verdict only — the funding-arb tracker's dollar accrual
   // stays operator-private.
-  if (reports && reports.parity && reports.parity.verdict) {
+  const edge = parityEdge(reports && reports.parity);
+  if (edge) {
     sections.push({
       title: 'Side desks', title_tid: 'side', sep: ' ',
-      html: `Live↔backtest parity reads <b>${esc(reports.parity.verdict)}</b>.`,
-      parts: [{ tid: 'side_parity_pub', params: { v: reports.parity.verdict } }],
+      html: `Live↔backtest parity: <b>${esc(PARITY_EDGE[edge])}</b>.`,
+      parts: [{ tid: 'side_parity_pub_' + edge, params: {} }],
     });
   }
 
@@ -744,6 +767,7 @@ async function letterChatCard() {
 }
 
 module.exports = {
+  PARITY_EDGE,
   // Exported for the read-state contract: `reads` is the difference
   // between a quiet week and an unreadable one, and asserting it through
   // getLetter alone would couple those tests to persistence.

@@ -61,7 +61,7 @@ const RICH_DATA = {
     { symbol: 'SOL/USDT', direction: 'SHORT', regime: 'TREND_UP', created_at: '2026-07-08T09:00:00Z' },
   ],
   openCount: 2,
-  reports: { arb: { total_accrued_usd: 12.5 }, parity: { verdict: 'ALIGNED' } },
+  reports: { arb: { total_accrued_usd: 12.5 }, parity: { verdict: { edge: 'straddles', ballpark: 'in', n: 40, min_trades: 10 } } },
 };
 
 // ── weekRangeFromKey (inverse of weekKey) ────────────────────────────────────
@@ -103,7 +103,7 @@ test('public letter keeps the size-agnostic substance', () => {
   assert.match(all, /\+1\.4%/);                           // equity percent only
   assert.match(all, /2 signals generated \(1 long \/ 1 short\)/);
   assert.match(all, /TREND_UP/);
-  assert.match(all, /ALIGNED/);                           // parity verdict kept
+  assert.match(all, /Live↔backtest parity: <b>no edge measurable either way<\/b>\./);  // parity verdict kept, in words
   assert.ok(!/hypothetical carry/.test(all), 'arb dollar accrual stays private');
   assert.match(all, /<b>2<\/b> open positions/);
   assert.match(pub.footer, /account size is never published/i);

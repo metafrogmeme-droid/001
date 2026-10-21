@@ -140,14 +140,14 @@ class TestTheCarryRowIsPercent:
 
 class TestTheParityHeadlineIsRatios:
     def test_the_operator_s_dollars_are_not_on_the_keep_list(self):
-        src = inspect.getsource(web_reports._parity_section)
+        src = inspect.getsource(web_reports.parity_public)
         keep = src[src.index("keep = ("):src.index(")", src.index("keep = ("))]
         for banned in ("net_pnl", "total_fees", "gross_pnl"):
             assert f'"{banned}"' not in keep, (
                 f"{banned} is an account dollar figure on a route with no auth")
 
     def test_the_ratio_that_carries_what_the_dollars_said_is_kept(self):
-        src = inspect.getsource(web_reports._parity_section)
+        src = inspect.getsource(web_reports.parity_public)
         keep = src[src.index("keep = ("):src.index(")", src.index("keep = ("))]
         # `pf` is the net as a ratio; fee drag is what `total_fees` was for.
         for kept in ("pf", "fee_drag_of_gross", "win_rate", "fee_vs_model"):
@@ -156,7 +156,7 @@ class TestTheParityHeadlineIsRatios:
     def test_every_kept_key_is_one_parity_summary_produces(self):
         # A keep-list naming a key the producer does not emit publishes None
         # under a name, which reads as a measured absence.
-        src = inspect.getsource(web_reports._parity_section)
+        src = inspect.getsource(web_reports.parity_public)
         keep = src[src.index("keep = ("):src.index(")", src.index("keep = ("))]
         produced = inspect.getsource(parity.parity_summary)
         for m in [s.strip().strip('"') for s in keep.split("(", 1)[1].split(",")]:

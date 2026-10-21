@@ -86,6 +86,21 @@
   .st-more dt { color: var(--text-3); margin-top: var(--s2); }
   .st-more dd { margin: 2px 0 0; line-height: 1.55; overflow-wrap: anywhere; }
   .st-sha { font-family: var(--font-data); color: var(--text-3); }
+  /* Weekly public record (js/record-panel.js) */
+  .rec-lede { color: var(--text-2); max-width: 70ch; line-height: 1.6; margin: 0 0 var(--s3); }
+  .rec-head { color: var(--text-3); font-size: var(--fs-xs); margin-bottom: var(--s3); font-variant-numeric: tabular-nums; }
+  .rec-week { color: var(--text-2); font-weight: 600; }
+  .rec-pick select { margin-left: 4px; background: var(--surface-2, #1a1d28); color: var(--text-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+  .rec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s3); }
+  .rec-part { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); }
+  .rec-part h3 { margin: 0 0 var(--s2); font-size: var(--fs-lg); }
+  .rec-meta, .rec-empty { color: var(--text-2); font-size: var(--fs-sm); margin: 0 0 var(--s2); }
+  .rec-table { border-collapse: collapse; width: 100%; font-size: var(--fs-xs); }
+  .rec-table th, .rec-table td { padding: 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .rec-table th { text-align: left; font-weight: 500; color: var(--text-3); padding-right: var(--s2); }
+  .rec-table td { text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  .rec-na, .rec-wait { color: var(--text-3); }
+  .rec-note, .rec-unread { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.5; margin: var(--s2) 0 0; }
 </style>
 </head>
 <body>
@@ -117,11 +132,17 @@
     <h2 id="st-h" data-i18n="studies.h">Pre-registered studies</h2>
     <div id="st-root"><div class="empty" data-i18n="studies.loading">Loading the studies…</div></div>
   </section>
+
+  <section class="st-wrap" id="record" aria-labelledby="rec-h">
+    <h2 id="rec-h" data-i18n="wkr.h">Weekly public record</h2>
+    <div id="rec-root"><div class="empty" data-i18n="wkr.loading">Loading the weekly record…</div></div>
+  </section>
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
 <script src="/js/agent-scorecard.js?v=9"></script>
 <script src="/js/studies-panel.js?v=1"></script>
+<script src="/js/record-panel.js?v=1"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -317,6 +338,30 @@
       .catch(function () { st.innerHTML = StudiesPanel.unreadable(null, T); });
   })();
 
+  // The weekly public record: its own panel, beside the studies. Each week is
+  // a committed file; the picker reads another one (js/record-panel.js).
+  (function () {
+    var rec = document.getElementById('rec-root');
+    if (!rec || !window.RecordPanel) return;
+    function load(week) {
+      var url = '/api/public/record' + (week ? '?week=' + encodeURIComponent(week) : '');
+      fetch(url, { headers: { Accept: 'application/json' } })
+        .then(function (r) {
+          return r.json().catch(function () { return null; }).then(function (body) {
+            if (r.ok && body) {
+              rec.innerHTML = RecordPanel.render(body, T);
+              var pick = document.getElementById('rec-week');
+              if (pick) pick.addEventListener('change', function () { load(pick.value); });
+              return;
+            }
+            rec.innerHTML = RecordPanel.unreadable(body && body.exception ? String(body.exception) : null, T);
+          });
+        })
+        .catch(function () { rec.innerHTML = RecordPanel.unreadable(null, T); });
+    }
+    load(null);
+  })();
+
   // The engine catalogue AND the published community strategies, side by side.
   Promise.all([getJSON('/api/public/strategies'), getJSON('/api/public/user-strategies')])
     .then(function (res) {
@@ -364,7 +409,7 @@
     });
 })();
 </script>
-<script src="/js/i18n-core.js?v=195"></script>
+<script src="/js/i18n-core.js?v=196"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
