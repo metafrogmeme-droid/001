@@ -52,6 +52,30 @@
  *                   ctx.toast(kind, text) shows a short notice above the bar
  *                   for a few seconds (a recorded call); a failure belongs in
  *                   the block itself, where it stays until it is read.
+ *
+ *                   A tab with `bar: false` is not in the bottom bar: the
+ *                   header's button with its label opens it (the Pi app's
+ *                   About sheet). ctx also carries season() (the last
+ *                   /api/arena/season answer, or null when it could not be
+ *                   read), me() (who signed in), setHandle(h) (a leaderboard
+ *                   name was saved), go(tab), and ask(text, about): hand a
+ *                   question to the block that answers questions (the Pi
+ *                   app's coach, an extra with an `ask` member) and open
+ *                   its tab; false when no block answers questions.
+ *   view            optional, the host's options for RCMiniView ({ unit }),
+ *                   so the Pi app can say "credits" where Farcaster says vUSDT
+ *   noHandle        optional, the footer's sentence for an account with no
+ *                   leaderboard name, and `noHandleTab`, the tab that sets one
+ *   legal           optional, true to show Privacy and Terms links under the
+ *                   sign-in, our own pages, which carry no presale
+ *
+ * WHAT AN ACTION SAYS, AND FOR HOW LONG. A filled open and a done close are
+ * toasts that name the position and go away; a refusal is a note on the arena
+ * tab that stays until the next action or a change of tab. The note used to
+ * hold the success too, and it outlived everything after it: a close, then a
+ * trade opened from the Signals tab, and the arena tab still read "Position
+ * closed." over the position just opened (the Pi submission recording,
+ * 2026-10-20, at 0:45 and 1:02).
  */
 (function () {
   'use strict';
@@ -64,11 +88,12 @@
     var V = window.RCArenaView;
     var M = window.RCMiniView;
     var host = opts.host;
+    var view = opts.view || {};
 
     /** The bearer token. In memory, for the life of this page. */
     var token = null;
     var me = null;          // { handle, ... } as the host's sign-in returned it
-    var lastNote = '';      // the last action's message, cleared on the next one
+    var lastNote = '';      // the last refusal, cleared by the next action or a change of tab
     var busy = false;
     var extras = opts.extras || [];
     var tab = 'arena';      // the active tab, for the life of this page
@@ -80,6 +105,11 @@
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
       });
     }
+
+    /** The Pi app's translation where it is loaded (pi-i18n.js), the English otherwise. */
+    function T(en, vars) { return M.T(en, vars); }
+    /** A host's sentence given as text, or as a function of the language. */
+    function said(x) { return typeof x === 'function' ? x() : x; }
 
     function state(kind, text, detail) {
       return '<div class="e-state e-state--' + kind + '" role="status">'
@@ -128,7 +158,7 @@
     }
     function toastHtml() {
       if (!toast || toast.until <= Date.now()) return '';
-      return '<button type="button" class="p-toast p-toast--' + esc(toast.kind) + '" role="status" aria-label="Dismiss">' + esc(toast.text) + '</button>';
+      return '<button type="button" class="p-toast p-toast--' + esc(toast.kind) + '" role="status" aria-label="' + esc(T('Dismiss')) + '">' + esc(toast.text) + '</button>';
     }
 
     var extraCtx = {
@@ -136,7 +166,33 @@
       render: function () { render(); },
       refresh: function () { return refresh(); },
       toast: showToast,
+      // The whole season answer (rows and their counts with it), or null when
+      // it could not be read: a Leaders tab must not draw "nobody yet" over a
+      // read that failed.
+      season: function () { return seasonBody; },
+      me: function () { return me; },
+      setHandle: function (h) {
+        if (me) me.handle = h || null;
+        render();
+      },
+      go: function (name) { goTab(name); },
+      ask: function (text, about) {
+        var coach = extras.filter(function (x) { return typeof x.ask === 'function'; })[0];
+        if (!coach) return false;
+        if (coach.tab) goTab(coach.tab);
+        coach.ask(text, about || null, extraCtx);
+        return true;
+      },
     };
+
+    /** Open a tab. A refusal on the arena tab belongs to what was done there. */
+    function goTab(name) {
+      var next = name || 'arena';
+      if (next !== tab) lastNote = '';
+      tab = next;
+      render();
+      if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
+    }
 
     function tabOf(x) { return x.tab || 'arena'; }
     function extrasHtml(place, tabName) {
@@ -151,12 +207,23 @@
       return names;
     }
     function tabMeta(name) {
-      if (name === 'arena') return { label: 'Arena', icon: '\u25CE' };
+      if (name === 'arena') return { label: T('Arena'), icon: '\u25CE', bar: true };
       var x = extras.filter(function (e) { return e.tab === name; })[0] || {};
-      return { label: x.label || name, icon: x.icon || '', badge: x.badge };
+      return { label: x.label ? T(x.label) : name, icon: x.icon || '', badge: x.badge, bar: x.bar !== false };
+    }
+    /** The header's buttons for the tabs that are not in the bar (About). */
+    function offBarHtml(names) {
+      return names.filter(function (n) { return !tabMeta(n).bar; }).map(function (name) {
+        var m = tabMeta(name);
+        return '<button type="button" class="p-off-b" data-tab="' + esc(name) + '"'
+          + ' aria-pressed="' + (name === tab ? 'true' : 'false') + '">'
+          + (m.icon ? '<span aria-hidden="true">' + m.icon + '</span> ' : '') + esc(m.label) + '</button>';
+      }).join('');
     }
     function tabsHtml(names) {
-      return '<nav class="p-tabs" aria-label="Sections">' + names.map(function (name) {
+      return '<nav class="p-tabs" aria-label="' + esc(T('Sections')) + '">' + names.filter(function (n) {
+        return tabMeta(n).bar;
+      }).map(function (name) {
         var m = tabMeta(name);
         var n = typeof m.badge === 'function' ? Number(m.badge()) : 0;
         return '<button type="button" class="p-tab-b" data-tab="' + esc(name) + '"'
@@ -192,7 +259,7 @@
             extras.forEach(function (x) { if (x.signedIn) x.signedIn(extraCtx); });
             return refresh();
           }
-          signInNote = M.signInProblemHtml(outcome.status, outcome.reason, host);
+          signInNote = M.signInProblemHtml(outcome.status, outcome.reason, host, view);
           return render();
         })
         .catch(function () {
@@ -206,6 +273,7 @@
 
     var account = null;     // { equity, balance, return_pct, limits, positions }
     var season = null;
+    var seasonBody = null;  // the whole answer (rows, counts), or null when unread
     var loadError = false;
     var readAt = null;      // when the account on screen was read
     var refreshing = false; // the Refresh button's read, in flight
@@ -234,7 +302,9 @@
         // The season is CONTEXT, not the subject of this page. A failed read of
         // it must not blank an account that loaded perfectly well — omit, not
         // guard, exactly as the tape is treated on the public board.
-        season = (seas.ok && seas.body && 'season' in seas.body) ? seas.body.season : null;
+        var readable = !!(seas.ok && seas.body && 'season' in seas.body);
+        season = readable ? seas.body.season : null;
+        seasonBody = readable ? seas.body : null;
         loadError = false;
         render();
       }).catch(function () {
@@ -251,12 +321,23 @@
      * after the last action, and the screen did not say how old they were.
      * The time is when the account on screen was read, in the reader's clock.
      */
-    function refreshBarHtml() {
+    function refreshBarHtml(extra) {
       return '<div class="m-refresh-row">'
-        + '<span class="m-updated">' + (readAt ? 'Updated ' + pad2(readAt.getHours()) + ':'
-          + pad2(readAt.getMinutes()) + ':' + pad2(readAt.getSeconds()) : '') + '</span>'
+        + '<span class="m-updated">' + (readAt ? esc(T('Updated {time}', { time: pad2(readAt.getHours()) + ':'
+          + pad2(readAt.getMinutes()) + ':' + pad2(readAt.getSeconds()) })) : '') + '</span>'
+        + (extra || '')
         + '<button type="button" class="m-refresh"' + (refreshing ? ' disabled' : '') + '>'
-        + (refreshing ? 'Refreshing…' : '↻ Refresh') + '</button></div>';
+        + esc(refreshing ? T('Refreshing…') : '↻ ' + T('Refresh')) + '</button></div>';
+    }
+
+    /**
+     * Privacy and Terms, our own pages (built from site/, served without the
+     * presale bar or any script: app/test/the_pi_app_is_the_arena_and_nothing_else.test.js).
+     * A new tab, because this page's session is held in memory and following
+     * a link in place would sign the person out.
+     */
+    function legalHtml() {
+      return opts.legal ? M.legalHtml() : '';
     }
 
     /**
@@ -312,29 +393,34 @@
 
     function render() {
       if (busy && !token) {
-        root.innerHTML = state('load', opts.waiting[0], opts.waiting[1]);
+        var w = said(opts.waiting) || [];
+        root.innerHTML = state('load', w[0], w[1]);
         return;
       }
 
       if (!token) {
-        root.innerHTML = V.seasonHtml(season)
+        // A host with a first screen of its own (view.intro) puts it first,
+        // and the season under it; the season heads the plain gate.
+        root.innerHTML = (view.intro ? '' : V.seasonHtml(season))
           + signInNote
-          + M.signedOutHtml(season, host)
-          + '<p class="e-src">Paper trading · virtual balance</p>';
+          + M.signedOutHtml(season, host, view)
+          + (view.intro ? V.seasonHtml(season) : '')
+          + '<p class="e-src">' + esc(M.sourceLine(view)) + '</p>'
+          + legalHtml();
         return;
       }
 
       if (loadError) {
         root.innerHTML = V.seasonHtml(season)
-          + state('error', 'Your account could not be loaded.',
-            'This is a fault on our side, not a statement that it is empty.')
-          + refreshBarHtml()
-          + '<p class="e-src">Paper trading · virtual balance</p>';
+          + state('error', T('Your account could not be loaded.'),
+            T('This is a fault on our side, not a statement that it is empty.'))
+          + refreshBarHtml('')
+          + '<p class="e-src">' + esc(M.sourceLine(view)) + '</p>';
         return;
       }
 
       if (!account) {
-        root.innerHTML = state('load', 'Loading your account…');
+        root.innerHTML = state('load', T('Loading your account…'));
         return;
       }
 
@@ -344,16 +430,30 @@
       if (hasTabs && names.indexOf(tab) < 0) tab = 'arena';
       var footer = '<p class="e-src">'
         + (me && me.handle
-          ? 'Trading as ' + esc(me.handle)
+          ? esc(T('Trading as {name}', { name: me.handle }))
           // A null handle is a real answer: this account is invisible on the
           // board until it picks one, and saying so is more useful than a blank.
-          : 'No leaderboard handle yet — set one on the web to appear in standings')
+          // A host that can set one in the app says where; "on the web" sent
+          // a Pi user to a site the Pi app does not link to.
+          : opts.noHandle
+            ? esc(said(opts.noHandle)) + (opts.noHandleTab && names.indexOf(opts.noHandleTab) >= 0
+              ? ' <button type="button" class="p-goto" data-tab="' + esc(opts.noHandleTab) + '">'
+                + esc(tabMeta(opts.noHandleTab).label) + '</button>' : '')
+            : esc(T('No leaderboard handle yet — set one on the web to appear in standings')))
         + '</p>';
-      root.innerHTML = '<div class="p-top">' + V.seasonHtml(season) + M.accountHtml(account) + refreshBarHtml() + '</div>'
+      // The season and the account head the arena tab only. On the Duel or
+      // Signals tab they repeated a balance that tab is not about, and the
+      // season's name over every tab read as that tab's title (the Pi review,
+      // 2026-10-20: "FARCASTER · SEASON LIVE" over the Duel).
+      var onArena = !hasTabs || tab === 'arena';
+      var off = hasTabs ? offBarHtml(names) : '';
+      root.innerHTML = (onArena
+        ? '<div class="p-top">' + V.seasonHtml(season) + M.accountHtml(account, view) + refreshBarHtml(off) + '</div>'
+        : '<div class="p-top p-top--slim">' + refreshBarHtml(off) + '</div>')
         + panel('arena', lastNote
           + M.positionsHtml(account.positions)
           + extrasHtml('main', 'arena')
-          + M.openFormHtml(account.limits)
+          + M.openFormHtml(account.limits, view)
           + extrasHtml('end', 'arena')
           + footer, hasTabs)
         + names.slice(1).map(function (name) {
@@ -384,7 +484,7 @@
       api('/api/arena/open', { method: 'POST', body: body }).then(function (r) {
         busy = false;
         if (r.ok) {
-          lastNote = M.actionNoteHtml('ok', 'Position opened.');
+          showToast('ok', M.openedText(r.body && r.body.filled));
           clearForm();
           return refresh();
         }
@@ -397,7 +497,7 @@
       }).catch(function () {
         busy = false;
         lastNote = M.actionNoteHtml('warn',
-          'The position could not be opened — we could not reach the server.');
+          T('The position could not be opened — we could not reach the server.'));
         render();
       });
     }
@@ -410,19 +510,34 @@
      * live price, and it gave nobody anything to go on.
      */
     function refusal(verb, r) {
+      var b = r.body || {};
+      // The one refusal that names a unit: the server's sentence says vUSDT,
+      // which a host that calls the balance credits does not print. Its code
+      // and the limit it quotes are the server's; only the unit is the host's.
+      var min = account && account.limits ? account.limits.min_margin : null;
+      if (b.code === 'min_margin' && view.unit && min != null && isFinite(Number(min))) {
+        return T('The amount must be at least {min} {unit}.', { min: Number(min), unit: M.unitLabel(view) });
+      }
       if (r.body && r.body.error) return r.body.error;
-      return 'The position could not be ' + verb + ' (the server answered ' + r.status + ').';
+      return verb === 'opened'
+        ? T('The position could not be opened (the server answered {status}).', { status: r.status })
+        : T('The position could not be closed (the server answered {status}).', { status: r.status });
     }
 
     function closePosition(id) {
       if (busy || !token) return;
       busy = true;
       lastNote = '';
+      // Which position, read before the close: the answer names the symbol
+      // and the result, not the side.
+      var held = ((account && account.positions) || []).filter(function (p) {
+        return String(p.id) === String(id);
+      })[0] || null;
       api('/api/arena/close', { method: 'POST', body: { position_id: Number(id) } })
         .then(function (r) {
           busy = false;
           if (r.ok) {
-            lastNote = M.actionNoteHtml('ok', 'Position closed.');
+            showToast('ok', M.closedText(r.body && r.body.closed, held, view));
             return refresh();
           }
           lastNote = M.actionNoteHtml('warn',
@@ -431,9 +546,27 @@
         }).catch(function () {
           busy = false;
           lastNote = M.actionNoteHtml('warn',
-            'The position could not be closed — we could not reach the server.');
+            T('The position could not be closed — we could not reach the server.'));
           render();
         });
+    }
+
+    /**
+     * Copy the page's link (the no-wallet note's box). The clipboard is
+     * refused by many in-app browsers; then the box is selected, so a long
+     * press copies it, and the button says to.
+     */
+    function copyLink(btn) {
+      var box = root.querySelector('.m-copy-url');
+      if (!box) return;
+      var put = function (text) { btn.textContent = text; };
+      var select = function () {
+        try { box.focus(); box.select(); } catch (e) { /* nothing to select into */ }
+        put(T('Selected, copy it'));
+      };
+      var clip = typeof navigator !== 'undefined' && navigator.clipboard;
+      if (!clip || typeof clip.writeText !== 'function') return void select();
+      clip.writeText(box.value).then(function () { put(T('Copied')); }, select);
     }
 
     // One delegated listener: the view is replaced wholesale on every render, so
@@ -447,6 +580,7 @@
       var close = t.closest('.m-close');
       if (close) return void closePosition(close.getAttribute('data-close-id'));
       if (t.closest('.m-refresh')) return void refreshAll();
+      if (t.closest('.m-copy-b')) return void copyLink(t.closest('.m-copy-b'));
       if (t.closest('.p-toast')) {
         toast = null;
         if (toastTimer) clearTimeout(toastTimer);
@@ -454,13 +588,10 @@
         return void render();
       }
       if (!token) return;
-      var tb = t.closest('.p-tab-b');
-      if (tb) {
-        tab = tb.getAttribute('data-tab') || 'arena';
-        render();
-        if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
-        return;
-      }
+      // The bar, the header's off-bar buttons (About) and a sentence's own
+      // button ("Choose one in Leaders") all open a tab the same way.
+      var tb = t.closest('.p-tab-b, .p-off-b, .p-goto');
+      if (tb) return void goTab(tb.getAttribute('data-tab'));
       for (var i = 0; i < extras.length; i++) {
         if (extras[i].click && extras[i].click(t, extraCtx)) return;
       }
@@ -477,7 +608,10 @@
     // of this screen and must appear whether or not the season could be read.
     api('/api/arena/season')
       .then(function (r) {
-        if (r.ok && r.body && 'season' in r.body) season = r.body.season;
+        if (r.ok && r.body && 'season' in r.body) {
+          season = r.body.season;
+          seasonBody = r.body;
+        }
       })
       .catch(function () { /* the gate renders without a season name */ })
       .then(function () {

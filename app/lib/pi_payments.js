@@ -41,6 +41,8 @@ const TXID_RE = /^[A-Za-z0-9]{1,128}$/;
 /** What the tip is called on the person's Pi payment screen. */
 const TIP_MEMO = 'Support RUNECLAW';
 const TIP_KIND = 'tip';
+/** What Coach Plus is called on the person's Pi payment screen. */
+const COACH_PLUS_MEMO = 'RUNECLAW Coach Plus';
 
 /** The amounts a person may choose, in Pi, unless PI_TIP_AMOUNTS says otherwise. */
 const DEFAULT_TIP_AMOUNTS = Object.freeze([1, 3, 5]);
@@ -152,6 +154,6 @@ function mismatches(payment, order, piUid) {
 module.exports = {
   getPayment, approvePayment, completePayment, mismatches, sameAmount,
   tipAmounts, configured, apiKey, PaymentsNotConfigured,
-  API_BASE, TIMEOUT_MS, PAYMENT_ID_RE, TXID_RE, TIP_MEMO, TIP_KIND,
+  API_BASE, TIMEOUT_MS, PAYMENT_ID_RE, TXID_RE, TIP_MEMO, TIP_KIND, COACH_PLUS_MEMO,
   DEFAULT_TIP_AMOUNTS, MAX_TIP,
 };

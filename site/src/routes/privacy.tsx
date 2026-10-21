@@ -46,7 +46,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Gap, H, L, P } from '../components/Prose'
 
-const UPDATED = '17 October 2026'
+const UPDATED = '20 October 2026'
 
 function Privacy() {
   return (
@@ -86,12 +86,19 @@ function Privacy() {
           placeholder address rather than a real one.</>,
         <><strong>Your Pi uid</strong>, if you sign in with Pi in the Pi
           Browser. Pi gives each app its own uid for a person, and it is the one
-          thing we keep from that sign-in: your Pi username is not stored.</>,
+          thing we keep from that sign-in: your Pi username is not stored. The
+          Pi app offers it as a name for the leaderboard, and it is kept only if
+          you choose it there.</>,
         <><strong>Your Farcaster ID (fid)</strong>, if you sign in with
           Farcaster. It is the one thing we keep from that sign-in.</>,
-        <><strong>A record of each Pi tip</strong>, if you send one from the Pi
-          app: the amount, Pi&rsquo;s payment id and blockchain transaction id,
-          whether it completed, and when.</>,
+        <><strong>A record of each Pi payment</strong>, a tip or Coach Plus, if
+          you make one from the Pi app: the amount, Pi&rsquo;s payment id and
+          blockchain transaction id, whether it completed, and when.</>,
+        <><strong>How many questions you ask the Pi app&rsquo;s coach</strong>{' '}
+          each day, to keep its daily allowance. The count only: your questions
+          and its answers are not stored, except that a question the
+          prompt-injection check flags leaves a short excerpt of itself in the
+          operator&rsquo;s audit log.</>,
         <><strong>Your Telegram ID</strong>, and username where Telegram supplies
           it, once you link the bot.</>,
         <><strong>A wallet address</strong>, if you connect one. The signature
@@ -140,8 +147,10 @@ function Privacy() {
         context the agent needs to answer usefully — which can include your open
         positions, your saved profile (your stated risk appetite and watchlist),
         and a one-line summary of which assets you have recently asked the agent
-        about. The previous policy said no user data reached these providers.
-        That was not correct.
+        about. In the Pi app, Ask the Claw sends your question with a summary of
+        your practice positions, your recent practice trades and your Duel calls,
+        read for that question and not kept. The previous policy said no user
+        data reached these providers. That was not correct.
       </P>
       <P>
         Which provider handles a given request is set by the operator&rsquo;s
@@ -163,7 +172,7 @@ function Privacy() {
       <P>
         <strong>Pi Network.</strong> Signing in with Pi sends the access token
         Pi&rsquo;s own SDK gives the app to Pi&rsquo;s App Studio, which checks
-        it and answers your uid. If you tip, our server sends Pi&rsquo;s payment
+        it and answers your uid. If you tip or buy Coach Plus, our server sends Pi&rsquo;s payment
         id, and later the transaction id, to the Pi Platform to approve and
         complete the payment, and reads Pi&rsquo;s record of it. A tip is a
         transfer on the Pi blockchain, which is public: neither we nor anyone
@@ -235,7 +244,8 @@ function Privacy() {
       <P>
         It removes your trades, positions, snapshots, alerts, watchlist,
         strategies, profile, diary, notification subscriptions, wallet links,
-        the record of any Pi tips, and any exchange credentials on either side.
+        the record of any Pi tips and Coach Plus payments, the count of your
+        coach questions, and any exchange credentials on either side.
         Your sessions end immediately. A tip itself stays on the Pi blockchain,
         which no one can erase.
       </P>

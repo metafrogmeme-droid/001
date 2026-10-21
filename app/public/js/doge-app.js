@@ -112,6 +112,8 @@
       waiting: ['Waiting for your wallet…',
         'Approve the connection, switch to the DogeOS testnet, and sign the message. It is not a transaction and costs no gas.'],
       signIn: signIn,
+      // The page's own link, offered when no wallet is found (miniapp-view.js).
+      view: { pageUrl: location.origin + location.pathname },
       extras: [
         // The Daily Duel's card first: quick to play.
         window.RCPiDuel.create(),

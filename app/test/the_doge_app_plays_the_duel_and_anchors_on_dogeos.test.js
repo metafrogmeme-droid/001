@@ -58,7 +58,8 @@ test('the page is served, English, with the duel, the proof and the app', async 
   assert.match(r.headers['content-type'], /text\/html/);
   assert.match(r.body, /<html lang="en">/);
   const s = scriptsOf(r.body);
-  for (const need of ['/js/arena-session.js', '/js/duel.js', '/js/pi-duel.js', '/js/anchor_cell.js', '/js/doge-proof.js', '/js/doge-app.js']) {
+  // pi-receipt.js: the Duel block's receipts check themselves in place here too.
+  for (const need of ['/js/arena-session.js', '/js/duel.js', '/js/pi-receipt.js', '/js/pi-duel.js', '/js/anchor_cell.js', '/js/doge-proof.js', '/js/doge-app.js']) {
     assert.ok(s.some((x) => x.startsWith(need + '?v=')), `${need} is not loaded`);
   }
   assert.strictEqual(s[s.length - 1].split('?')[0], '/js/doge-app.js', 'the app starts the session last, with every block loaded');

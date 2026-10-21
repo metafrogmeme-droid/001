@@ -139,3 +139,25 @@ test('the open and close instants and the book are relayed when valid, refused w
     assert.equal(r.status, qs === 'closed_at=' ? 200 : 400, qs);
   }
 });
+
+test('a plan card (kind=plan) is relayed with its target, leverage and instant, and junk is a 400', async () => {
+  let r = await req('GET', '/api/share/card?kind=plan&symbol=QNTSTOCK&direction=SHORT&target_pct=3.84'
+    + '&leverage=5&at=2026-10-20T19%3A19%3A00%2B02%3A00', { token });
+  assert.equal(r.status, 200);
+  assert.match(lastGatewayPath, /^\/share-card\?kind=plan&/);
+  assert.match(lastGatewayPath, /target_pct=3\.84/);
+  assert.match(lastGatewayPath, /leverage=5/);
+  assert.match(lastGatewayPath, /at=2026-10-20T17%3A19%3A00\.000Z/, 'normalised to UTC');
+  assert.doesNotMatch(lastGatewayPath, /pnl_pct/, 'a plan carries no return');
+  r = await req('GET', '/api/share/card?kind=plan&symbol=BTC&direction=LONG&target_pct=-1.5', { token });
+  assert.equal(r.status, 200);
+  assert.doesNotMatch(lastGatewayPath, /leverage=|at=/, 'nothing invented for an absent field');
+  for (const qs of ['target_pct=', 'target_pct=abc', 'target_pct=1&leverage=0', 'target_pct=1&leverage=201',
+    'target_pct=1&leverage=x', 'target_pct=1&at=tomorrow']) {
+    r = await req('GET', `/api/share/card?kind=plan&symbol=BTC&direction=LONG&${qs}`, { token });
+    assert.equal(r.status, 400, qs);
+  }
+  // A result card still needs its return: kind absent is the result path.
+  r = await req('GET', '/api/share/card?symbol=BTC&direction=LONG&target_pct=3', { token });
+  assert.equal(r.status, 400, 'a result card without pnl_pct');
+});

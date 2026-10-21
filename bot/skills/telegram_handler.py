@@ -2800,7 +2800,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         surface: str = "telegram",
                         reply_mode: str = "",
                         on_event=None,
-                        ask_text: str = ""):
+                        ask_text: str = "",
+                        coach_context: str = ""):
         """Send a free-text question to the LLM with multi-turn context.
 
         ``on_event(dict)`` — optional, sync or async — receives the turn as it
@@ -2832,6 +2833,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         which read-only TOOLS the model is offered — the web's reachable set
         is narrower (bot/skills/skill_permissions.py). Tools ride the
         signed-in path only; public chat gets none, by construction.
+
+        ``surface="pi_coach"`` with ``public=True`` is the Pi app's coach
+        (bot/web/pi_coach.py): the same account-free, tool-free turn with the
+        coach's own prompt and ``coach_context``, the facts the website read
+        for the person. The FAQ is not consulted there: its answers are the
+        website's pitch, with exchanges and signing up in them.
         """
         import asyncio
 
@@ -2841,9 +2848,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # no LLM, no cost, and it ALWAYS works, including before any provider is
         # connected (the public-web default). Only CLOSE matches answer here;
         # free-form questions fall through to the model below.
+        _coach = public and surface == "pi_coach"
         try:
             from bot.core.faq_kb import faq_answer as _faq_answer
-            _canned = _faq_answer(question)
+            _canned = None if _coach else _faq_answer(question)
         except Exception:
             _canned = None
         if _canned is not None:
@@ -2876,7 +2884,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # real security boundary is upstream on the gateway — this is the
         # model-layer defense-in-depth.
         if public:
-            system_prompt = self._PUBLIC_CHAT_SYSTEM_PROMPT
+            if _coach:
+                from bot.web.pi_coach import build_prompt as _coach_prompt
+                system_prompt = _coach_prompt(coach_context)
+            else:
+                system_prompt = self._PUBLIC_CHAT_SYSTEM_PROMPT
             is_admin = False
             history: list = []
         else:

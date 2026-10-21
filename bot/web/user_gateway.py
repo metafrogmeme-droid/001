@@ -1450,6 +1450,68 @@ async def handle_public_chat_stream(request: web.Request) -> web.StreamResponse:
     return await _sse_turn(request, _public_chat_turn)
 
 
+async def handle_pi_coach(request: web.Request) -> web.Response:
+    """POST /chat/pi-coach: Ask the Claw, the coach in the Pi Browser app.
+
+    Called by the website only (behind `secret_middleware`, like every route
+    here), for a signed-in Pi user whose daily allowance the website counts
+    and refunds. The turn is the public one: account-free and tool-free
+    (`_llm_chat(public=True)`), with the coach's prompt and the facts the
+    website read for the person (bot/web/pi_coach.py). Two fixed answers come
+    before any model (a token or sale question; a question that needs a live
+    price), and the model's reply passes the coach's output check or is
+    withheld. `answered` says whether a model answered, which is what the
+    website counts: a fixed sentence or an outage spends nothing.
+    """
+    from bot.nlp.intent_router import detect_reply_mode, needs_live_market_data
+    from bot.web import pi_coach
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "text required"}, status=400)
+    if len(text) > pi_coach.MAX_TEXT:
+        return web.json_response({"error": "message too long"}, status=400)
+    reply_lang = str(body.get("lang") or "").strip()[:12]
+
+    if pi_coach.token_ask(text):
+        return web.json_response({"reply_html": pi_coach.TOKEN_ANSWER,
+                                  "intent": "pi_coach_token", "answered": False})
+    if needs_live_market_data(text):
+        return web.json_response({"reply_html": pi_coach.NO_FEED_ANSWER,
+                                  "intent": "pi_coach_no_feed", "answered": False})
+
+    # The same provenance scan the public turn runs, fail-open to the
+    # denylist exactly as there.
+    _engine = request.app.get("engine")
+    _verdict = None
+    try:
+        if _engine is not None:
+            _verdict = _engine.firewall_scan(text, source="pi_coach", user_id="")
+    except Exception:
+        _verdict = None
+    from bot.guardian.firewall import hardened_prompt as _harden
+    _res = await tg_handler._llm_chat(
+        _harden(text, _verdict), user_id="", user_name="", is_admin=False,
+        public=True, surface="pi_coach",
+        coach_context=pi_coach.clean_context(body.get("context")),
+        reply_lang=reply_lang, return_meta=True,
+        reply_mode=detect_reply_mode(text))
+    answer, meta = _res if isinstance(_res, tuple) else (_res, None)
+    if not meta:
+        # No model answered: a budget refusal or an outage. Its own wording
+        # names the website's doors, so the coach says its own sentence.
+        return web.json_response({"reply_html": pi_coach.UNAVAILABLE_ANSWER,
+                                  "intent": "pi_coach_unavailable", "answered": False})
+    why = pi_coach.withheld_reason(answer)
+    if why is not None:
+        system_log.warning("Pi coach reply withheld (%s)", why)
+        return web.json_response({"reply_html": pi_coach.WITHHELD_ANSWER,
+                                  "intent": "pi_coach_withheld", "answered": True,
+                                  "withheld": why})
+    return web.json_response({"reply_html": answer, "intent": "pi_coach", "answered": True})
+
+
 #: The most `client_capabilities` rows the card will print, and the longest
 #: any one of them may be. The web route sends its own intercept table's
 #: sentences (fifteen today, all short); these bounds exist because the field
@@ -3739,6 +3801,47 @@ async def handle_agent_card_public(request: web.Request) -> web.Response:
 _SHARE_SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,15}$")
 
 
+def _share_plan_card(request: web.Request, symbol: str, direction: str) -> web.Response:
+    """kind=plan: the decision picture's card. target_pct (the price move to
+    the take-profit) is required and finite; leverage (a multiple, 0 < x <= 200)
+    and at (an ISO instant) are optional and either parse or are a 400."""
+    try:
+        target_pct = float(request.query.get("target_pct") or "")
+    except (TypeError, ValueError):
+        return web.json_response({"error": "bad_target"}, status=400)
+    if not math.isfinite(target_pct):
+        return web.json_response({"error": "bad_target"}, status=400)
+    data: dict = {"symbol": symbol, "direction": direction,
+                  "target_pct": max(-100000.0, min(100000.0, target_pct))}
+    raw_lev = (request.query.get("leverage") or "").strip()
+    if raw_lev:
+        try:
+            lev = float(raw_lev)
+        except ValueError:
+            return web.json_response({"error": "bad_leverage"}, status=400)
+        if not math.isfinite(lev) or lev <= 0 or lev > 200:
+            return web.json_response({"error": "bad_leverage"}, status=400)
+        data["leverage"] = lev
+    raw_at = (request.query.get("at") or "").strip()
+    if raw_at:
+        try:
+            dt = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
+        except ValueError:
+            return web.json_response({"error": "bad_time"}, status=400)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        data["at"] = dt.astimezone(timezone.utc).isoformat()
+    try:
+        from bot.formatters.signal_card import render_plan_card
+        png = render_plan_card(data)
+    except Exception:
+        png = b""
+    if not png:
+        return web.json_response({"error": "render_unavailable"}, status=503)
+    return web.Response(body=png, content_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+
 async def handle_share_card(request: web.Request) -> web.Response:
     """GET /gateway/share-card?symbol=&direction=&pnl_pct=[&opened_at=&closed_at=&book=] — PNG bytes.
 
@@ -3753,6 +3856,8 @@ async def handle_share_card(request: web.Request) -> web.Response:
     direction = (request.query.get("direction") or "").upper().strip()
     if not _SHARE_SYMBOL_RE.match(symbol) or direction not in ("LONG", "SHORT"):
         return web.json_response({"error": "invalid"}, status=400)
+    if (request.query.get("kind") or "").strip().lower() == "plan":
+        return _share_plan_card(request, symbol, direction)
     try:
         pnl_pct = float(request.query.get("pnl_pct") or "")
     except (TypeError, ValueError):
@@ -5773,6 +5878,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_post("/chat/stream", handle_chat_stream)
     app.router.add_post("/chat/public", handle_public_chat)
     app.router.add_post("/chat/public/stream", handle_public_chat_stream)
+    app.router.add_post("/chat/pi-coach", handle_pi_coach)
     app.router.add_post("/contract/studio", handle_contract_studio)
     app.router.add_post("/contract/compile", handle_contract_compile)
     app.router.add_post("/contract/deploy", handle_contract_deploy)

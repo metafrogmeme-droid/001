@@ -164,11 +164,19 @@ test('the Pi sign-in keeps only the uid, and the page says the username is not s
   // The only write: the uid App Studio confirmed, and nothing else from Pi.
   assert.match(route, /findOrCreateOAuthUser\(\{ provider: 'pi', providerId: verdict\.uid \}\)/,
     'the Pi sign-in now stores more than the uid — the page must say what')
-  assert.doesNotMatch(route, /verdict\.username|UPDATE users/,
+  assert.doesNotMatch(route, /UPDATE users|INSERT INTO/,
     'the Pi sign-in writes something besides the uid')
+  // The username is read once, to be offered back to the person it names as a
+  // leaderboard name (2026-10-20); it is saved only by the board's own route,
+  // when they choose it, and the page says so.
+  assert.deepStrictEqual(route.match(/verdict\.username/g), ['verdict.username'],
+    'the Pi sign-in reads the username for something new — the page must say what')
+  assert.match(route, /suggested_handle: handle \? null : piAuth\.handleSuggestion\(verdict\.username\)/)
   const t = text()
   assert.match(t, /Pi uid/)
   assert.match(t, /Pi username is not stored/)
+  assert.match(t, /offers it as a name for the leaderboard/)
+  assert.match(t, /kept only if you choose it/)
 })
 
 test('the Farcaster sign-in keeps only the fid', () => {
@@ -196,6 +204,33 @@ test('a Pi tip is disclosed field by field, and its record is erased with the ac
   assert.match(t, /the record of any Pi tips/)
   // And the half deletion cannot reach, stated rather than implied away.
   assert.match(t, /stays on the Pi blockchain/)
+})
+
+test('the Pi coach keeps a count, not the conversation, and the page says what it sends', () => {
+  const ddl = repo('app', 'db.js').match(/CREATE TABLE IF NOT EXISTS pi_coach_usage \(([\s\S]*?)\n\s*\)/)
+  assert.ok(ddl, 'the coach count table is gone — the page still describes it')
+  const cols = [...ddl[1].matchAll(/^\s*([a-z_]+) [A-Z]/gm)].map((c) => c[1])
+  assert.deepStrictEqual(cols.sort(), ['count', 'day', 'user_id'],
+    'the coach now stores more than a count a day — say on the page what, then list it here')
+  assert.match(repo('app', 'lib', 'account_erasure.js'), /'pi_coach_usage'/,
+    'account deletion no longer erases the coach count — the page says it does')
+  // What the coach is handed: the person's question and the facts the
+  // website read for it (lib/pi_coach.js facts), the readers the page names.
+  const lib = repo('app', 'lib', 'pi_coach.js')
+  for (const reader of [/loadPositions\(userId\)/, /FROM arena_trades WHERE user_id = \?/, /cardFor\(userId\)/]) {
+    assert.match(lib, reader, `the coach's facts no longer come from ${reader} — say on the page what they are`)
+  }
+  const t = text()
+  assert.match(t, /How many questions you ask the Pi app’s coach/)
+  assert.match(t, /your questions and its answers are not stored, except that a question the prompt-injection check flags leaves a short excerpt/)
+  // That exception is the firewall's own record (bot/core/engine.py
+  // firewall_scan): an excerpt of a flagged text, on the audit chain.
+  const gw = repo('bot', 'web', 'user_gateway.py')
+  assert.match(gw, /firewall_scan\(text, source="pi_coach"/,
+    'the coach no longer runs the firewall — drop the exception from the page')
+  assert.match(t, /practice positions, your recent practice trades and your Duel calls/)
+  assert.match(t, /the count of your coach questions/)
+  assert.match(t, /a tip or Coach Plus/)
 })
 
 test('the in-app sessions are memory only, as the page says', () => {

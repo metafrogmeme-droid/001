@@ -428,6 +428,11 @@ app.use('/miniapp', require('./routes/miniapp'));
 // Pi tips mount first: pi_auth's router limits every request it sees by IP,
 // and a tip's approve/complete retries are not sign-in attempts.
 app.use('/api/pi/payments', require('./routes/pi_payments'));
+// Ask the Claw, the Pi app's coach (a Pi account, a daily allowance, facts
+// read here; the model turn is the bot's /chat/pi-coach).
+app.use('/api/pi/coach', require('./routes/pi_coach'));
+// Season prizes in Pi: the table and the operator's payout plan. Off unless set; pays nothing.
+app.use('/api/pi/prizes', require('./routes/pi_prizes'));
 app.use('/api/pi', require('./routes/pi_auth'));
 app.use('/pi', require('./routes/piapp'));
 // The DogeOS app (the Vibe Code on DOGE entry): the duel and the arena, signed

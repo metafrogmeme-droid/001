@@ -151,6 +151,42 @@ test('a vouched token signs in, the session works on the arena, and the same Pi 
   }
 });
 
+test('a new account is offered the username Pi verified as a board name; nothing is saved, and a named account is offered none', async () => {
+  const { server, post } = await serve({ status: 200, body: { sessionToken: 'st', user: { uid: 'pi-uid-suggest-1', username: 'Pi.o-neer!' } } });
+  try {
+    // The page's own copy of the username is never the suggestion.
+    const first = await post({ accessToken: TOKEN, username: 'impostor' });
+    assert.strictEqual(first.status, 200, JSON.stringify(first.body));
+    assert.strictEqual(first.body.handle, null);
+    assert.strictEqual(first.body.suggested_handle, 'Pioneer', 'the suggestion is not Pi\'s username cut to the board\'s rule');
+    const jwt = require('jsonwebtoken');
+    const id = jwt.decode(first.body.token).user_id;
+    const row = require('../db').pool.users.find((u) => u.id === id);
+    assert.strictEqual(row.leaderboard_handle == null, true, 'the username was saved without the person choosing it');
+    // Once a name is chosen, sign-in answers it and offers nothing.
+    row.leaderboard_handle = 'chosen_one';
+    const second = await post({ accessToken: TOKEN });
+    assert.strictEqual(second.body.handle, 'chosen_one');
+    assert.strictEqual(second.body.suggested_handle, null);
+  } finally {
+    server.close();
+  }
+});
+
+test('the suggestion is cut to what the board accepts, or there is none', () => {
+  const { handleSuggestion } = require('../lib/pi_auth');
+  assert.strictEqual(handleSuggestion('pioneer'), 'pioneer');
+  assert.strictEqual(handleSuggestion('a'.repeat(30)), 'a'.repeat(20));
+  assert.strictEqual(handleSuggestion('x.y'), null, 'two characters is not a name');
+  assert.strictEqual(handleSuggestion('日本語'), null);
+  assert.strictEqual(handleSuggestion(null), null);
+  assert.strictEqual(handleSuggestion(42), null);
+  // Whatever it offers, the board's own rule accepts (routes/leaderboard.js).
+  for (const u of ['pioneer', 'Pi.o-neer!', 'a'.repeat(30), 'under_score_9']) {
+    assert.match(handleSuggestion(u), /^[A-Za-z0-9_]{3,20}$/);
+  }
+});
+
 test('a token App Studio refuses is a 401 and creates no account', async () => {
   const { server, post } = await serve({ status: 401, body: {} });
   try {

@@ -782,12 +782,16 @@ def test_every_general_chat_surface_delivers_the_turns_shape():
 
     # The fifth is a Telegram group's free text (`_public_room_turn`): the
     # public chat, on Telegram, so it carries the turn's shape as the
-    # website's public chat does.
-    assert len(carriers) == 5, (
-        "telegram chat + web authed + public + api facade + telegram room", carriers)
+    # website's public chat does. The sixth is the Pi app's coach
+    # (`handle_pi_coach`): the public turn with the coach's prompt, a general
+    # chat surface, so it carries the shape too.
+    assert len(carriers) == 6, (
+        "telegram chat + web authed + public + api facade + telegram room + pi coach", carriers)
+    assert sum(c.startswith("bot.web.user_gateway:") for c in carriers) == 3, (
+        "web authed + public + pi coach", carriers)
     assert len(plain) == 4, (
         "two vision handlers + contract studio + research", plain)
     # And the total is pinned, because the failure this whole test is about is
     # a caller nobody enumerated. A new `_llm_chat` call site fails here until
     # somebody decides which list it belongs in.
-    assert len(carriers) + len(plain) == 9, "a new caller appeared -- decide"
+    assert len(carriers) + len(plain) == 10, "a new caller appeared -- decide"

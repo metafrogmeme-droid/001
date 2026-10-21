@@ -408,6 +408,23 @@ test('an open classic round shows the commitment beside the hidden stance; a ran
   }
 });
 
+test('in the Pi app a receipt is a button that checks it in place, never a link to the site', () => {
+  const a = 'a'.repeat(64);
+  const c = 'c'.repeat(64);
+  const open = D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, null, null, { verify: true });
+  say(open, ['<button type="button" class="d-rc d-rc-v" data-receipt="round:' + a + '"', 'data-label="Dealt sealed aaaaaaaa…"', '>Check</span>'], ['href=']);
+  const called = D.roundCard({ id: 2, kind: 'range', symbol: 'BNBUSDT', callable: false, seal: a, threshold_pct: 2,
+    my_call: { pick: 'hold', seal: c } }, null, null, { verify: true });
+  say(called, ['data-receipt="duel:' + c + '"', 'data-receipt="round:' + a + '"'], ['href=']);
+  // The website keeps its links; verify wins over links when both are asked.
+  say(D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, null, null, { links: true }), ['href="/call/round:' + a + '"'], ['d-rc-v']);
+  say(D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, null, null, { links: true, verify: true }), ['d-rc-v'], ['href=']);
+  const t = (k, en) => 'XX' + k + '|' + en;
+  assert.ok(D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, t, null, { verify: true }).includes('XXduel.rc_check|'));
+  const i18n = require('../public/js/i18n.js');
+  for (const l of i18n.LANGS) assert.ok(i18n.STRINGS['duel.rc_check'] && i18n.STRINGS['duel.rc_check'][l.code], `duel.rc_check is missing ${l.code}`);
+});
+
 // ── the 19 Oct review: a match settles after full time, a kick-off names its
 // zone and its day, a mark says what it is ───────────────────────────────────
 

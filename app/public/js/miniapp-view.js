@@ -28,6 +28,16 @@
     });
   }
 
+  /**
+   * A sentence in the reader's language where the Pi app's table is loaded
+   * (pi-i18n.js); the English here everywhere else, placeholders filled.
+   */
+  function T(en, vars) {
+    var I = typeof window !== 'undefined' && window.RCPiI18n;
+    if (I) return I.t(en, vars);
+    return !vars ? en : en.replace(/\{(\w+)\}/g, function (m, k) { return vars[k] != null ? String(vars[k]) : m; });
+  }
+
   function num(v) {
     if (v === null || v === undefined || v === '') return null;
     var n = Number(v);
@@ -39,6 +49,67 @@
     var n = num(v);
     if (n === null) return '—';
     return n.toFixed(2);
+  }
+
+  /**
+   * What the host calls the virtual balance. The Farcaster Mini App says
+   * vUSDT, as the website does. The Pi app says credits: "USDT" beside a Pi
+   * app reads as a second currency to a reviewer and means nothing to most
+   * Pioneers, and nothing is transacted in either. One number, two names;
+   * the amount is the same everywhere.
+   */
+  function unitLabel(opts) {
+    return opts && opts.unit === 'credits' ? T('credits') : 'vUSDT';
+  }
+
+  /** The line under the screen that says what kind of money this is. */
+  function sourceLine(opts) {
+    return opts && opts.unit === 'credits'
+      ? T('Practice trading · credits, not money')
+      : T('Paper trading · virtual balance');
+  }
+
+  /**
+   * Privacy and Terms: our own pages, built from site/ and served with no
+   * presale bar and no script. A new tab, because a framed app's session is
+   * held in memory and following a link in place would sign the person out.
+   */
+  function legalHtml() {
+    return '<p class="p-legal">'
+      + '<a href="/privacy" target="_blank" rel="noopener noreferrer">' + esc(T('Privacy')) + '</a>'
+      + '<span aria-hidden="true"> · </span>'
+      + '<a href="/terms" target="_blank" rel="noopener noreferrer">' + esc(T('Terms')) + '</a></p>';
+  }
+
+  /** "Position opened: BTCUSDT LONG at 65010, 2×." from the server's fill. */
+  function openedText(filled) {
+    var f = filled || {};
+    if (!f.symbol) return T('Position opened.');
+    var dir = String(f.direction || '').toUpperCase();
+    var lev = num(f.leverage);
+    var v = { what: f.symbol + (dir ? ' ' + dir : ''), price: price(f.entry), lev: lev };
+    if (num(f.entry) === null) return lev === null ? T('Position opened: {what}.', v) : T('Position opened: {what}, {lev}×.', v);
+    return lev === null ? T('Position opened: {what} at {price}.', v) : T('Position opened: {what} at {price}, {lev}×.', v);
+  }
+
+  /**
+   * "Position closed: BTCUSDT LONG at 65500. Result +12.34 credits." from the
+   * server's answer, with the side read from the position as it was held.
+   * A result the server did not send is left out, never printed as zero.
+   */
+  function closedText(closed, held, opts) {
+    var c = closed || {};
+    var h = held || {};
+    var sym = c.symbol || h.symbol;
+    if (!sym) return T('Position closed.');
+    var dir = String(h.direction || '').toUpperCase();
+    var pnl = num(c.pnl);
+    var v = { what: sym + (dir ? ' ' + dir : ''), price: price(c.exit_price) };
+    var at = num(c.exit_price) !== null;
+    var head = c.liquidated === true
+      ? (at ? T('Position liquidated: {what} at {price}.', v) : T('Position liquidated: {what}.', v))
+      : (at ? T('Position closed: {what} at {price}.', v) : T('Position closed: {what}.', v));
+    return head + (pnl === null ? '' : ' ' + T('Result {pnl} {unit}.', { pnl: (pnl > 0 ? '+' : '') + vusdt(pnl), unit: unitLabel(opts) }));
   }
 
   /**
@@ -84,19 +155,43 @@
    * Names what signing in DOES before asking for it. A bare "Sign in" button
    * in a trading app is a request to trust it with something unnamed.
    */
-  function signedOutHtml(season, host) {
+  function signedOutHtml(season, host, opts) {
     // The host is who signs the person in: Farcaster for the Mini App, Pi for
     // the Pi Browser app, a wallet for the DogeOS app. One sentence each, and
     // nothing else differs.
-    var who = host === 'Pi' ? 'Pi' : host === 'DogeOS' ? 'a DogeOS wallet' : 'Farcaster';
+    var who = host === 'Pi' ? 'Pi' : host === 'DogeOS' ? T('a DogeOS wallet') : 'Farcaster';
+    var intro = opts && opts.intro;
+    if (intro) return introHtml(intro, who);
     var name = season && season.name ? season.name : null;
     return '<section class="m-gate">'
       + '<p class="m-gate-lead">'
-      + (name ? 'Trade ' + esc(name) + ' with a virtual balance.' : 'Trade the season with a virtual balance.')
+      + (name ? esc(T('Trade {name} with a virtual balance.', { name: name })) : esc(T('Trade the season with a virtual balance.')))
       + '</p>'
-      + '<p class="m-gate-sub">Signing in with ' + who + ' creates a paper account. '
-      + 'No exchange keys, no real funds — everyone starts on the same balance.</p>'
-      + '<button type="button" class="m-signin">Sign in with ' + who + '</button>'
+      + '<p class="m-gate-sub">' + esc(T('Signing in with {who} creates a paper account. No exchange keys, no real funds — everyone starts on the same balance.', { who: who })) + '</p>'
+      + '<button type="button" class="m-signin">' + esc(T('Sign in with {who}', { who: who })) + '</button>'
+      + '</section>';
+  }
+
+  /**
+   * A host's own first screen: a picture, a promise, what is inside, then the
+   * button, and what signing in does under it. The Pi app's gate was a
+   * season name, a sentence and a button over two thirds of an empty screen.
+   * The copy is the host's (`intro`); the shape and the button are shared.
+   */
+  function introHtml(intro0, who) {
+    // A function, so a language chosen after the app started is followed.
+    var intro = typeof intro0 === 'function' ? intro0() : intro0;
+    var points = Array.isArray(intro.points) ? intro.points : [];
+    return '<section class="m-gate m-gate--intro">'
+      + (intro.image ? '<img class="m-gate-pic" src="' + esc(intro.image) + '" alt="" width="144" height="144" decoding="async">' : '')
+      + (intro.title ? '<h1 class="m-gate-title">' + esc(intro.title) + '</h1>' : '')
+      + (intro.lead ? '<p class="m-gate-lead">' + esc(intro.lead) + '</p>' : '')
+      + (points.length ? '<ul class="m-gate-points">' + points.map(function (p) {
+        return '<li><span class="m-gate-i" aria-hidden="true">' + esc(p.icon || '•') + '</span>'
+          + '<span>' + esc(p.text) + '</span></li>';
+      }).join('') + '</ul>' : '')
+      + '<button type="button" class="m-signin">' + esc(T('Sign in with {who}', { who: who })) + '</button>'
+      + '<p class="m-gate-sub">' + esc(intro.note || T('Signing in creates a practice account. No exchange keys, no real funds.')) + '</p>'
       + '</section>';
   }
 
@@ -107,24 +202,39 @@
    * error — the person was asked and said no. Telling them something failed
    * would be describing their own decision back to them as a fault.
    */
-  function signInProblemHtml(status, reason, host) {
+  function signInProblemHtml(status, reason, host, opts) {
     var text;
-    if (status === 'rejected') text = 'Sign-in cancelled.';
+    if (status === 'rejected') text = T('Sign-in cancelled.');
     else if (status === 'no-host') {
-      text = host === 'Pi' ? 'Open this in the Pi Browser to sign in.'
+      text = host === 'Pi' ? T('Open this in the Pi Browser to sign in.')
         // The DogeOS app signs in with a browser wallet; none was found on the page.
-        : host === 'DogeOS' ? 'No wallet found. Open this page in a browser with an EVM wallet (MetaMask, Rabby or the DogeOS wallet) to sign in.'
-          : 'Open this from a Farcaster app to sign in.';
+        : host === 'DogeOS' ? T('No wallet found. Open this page in a browser with an EVM wallet (MetaMask, Rabby or the DogeOS wallet) to sign in.')
+          : T('Open this from a Farcaster app to sign in.');
     }
-    else if (status === 'unknown') text = 'Sign-in did not come back. You can try again.';
-    else if (reason === 'domain_mismatch') text = 'That signature was for a different app.';
-    else if (reason === 'unknown_or_used_nonce') text = 'That sign-in expired. Try again.';
-    else if (reason === 'token_rejected') text = 'Pi did not confirm that sign-in. Try again.';
-    else if (status === 'unavailable') text = 'Sign-in is unavailable right now — this is on our side.';
-    else text = 'Sign-in could not be completed.';
+    else if (status === 'unknown') text = T('Sign-in did not come back. You can try again.');
+    else if (reason === 'domain_mismatch') text = T('That signature was for a different app.');
+    else if (reason === 'unknown_or_used_nonce') text = T('That sign-in expired. Try again.');
+    else if (reason === 'token_rejected') text = T('Pi did not confirm that sign-in. Try again.');
+    else if (status === 'unavailable') text = T('Sign-in is unavailable right now — this is on our side.');
+    else text = T('Sign-in could not be completed.');
     // No accent colour on a cancellation: nothing went wrong.
     var kind = (status === 'rejected') ? 'note' : 'warn';
-    return '<p class="m-problem m-problem--' + kind + '">' + esc(text) + '</p>';
+    return '<p class="m-problem m-problem--' + kind + '">' + esc(text) + '</p>'
+      + (status === 'no-host' && host === 'DogeOS' && opts && opts.pageUrl ? copyLinkHtml(opts.pageUrl) : '');
+  }
+
+  /**
+   * The page's own link, to carry into a wallet. A link to the DogeOS app
+   * opened from X or Telegram lands in that app's own browser, which has no
+   * wallet (the operator's phone, 2026-10-20), and "open this in a browser
+   * with a wallet" left the person to find the address themselves. The box
+   * is selectable when the clipboard is refused, as in-app browsers often do.
+   */
+  function copyLinkHtml(url) {
+    return '<div class="m-copy">'
+      + '<p class="m-copy-how">' + esc(T('Inside X or Telegram there is no wallet. Copy the link and open it in your wallet app’s browser.')) + '</p>'
+      + '<div class="m-copy-row"><input class="m-copy-url" type="text" readonly value="' + esc(url) + '" aria-label="' + esc(T('This page’s link')) + '">'
+      + '<button type="button" class="m-copy-b">' + esc(T('Copy link')) + '</button></div></div>';
   }
 
   /**
@@ -133,16 +243,16 @@
    * `return_pct` is the number that ranks you, so it is the one that gets size
    * and colour. Balance is context.
    */
-  function accountHtml(acct) {
+  function accountHtml(acct, opts) {
     var a = acct || {};
     return '<section class="m-acct">'
       + '<div class="m-eq">'
-      + '<span class="m-eq-label">equity</span>'
+      + '<span class="m-eq-label">' + esc(T('equity')) + '</span>'
       + '<b class="m-eq-val">' + esc(vusdt(a.equity)) + '</b>'
-      + '<span class="m-eq-unit">vUSDT</span>'
+      + '<span class="m-eq-unit">' + esc(unitLabel(opts)) + '</span>'
       + '<span class="m-eq-ret ' + toneFor(a.return_pct) + '">' + esc(pct(a.return_pct)) + '</span>'
       + '</div>'
-      + '<p class="m-free">' + esc(vusdt(a.balance)) + ' free</p>'
+      + '<p class="m-free">' + esc(T('{amount} free', { amount: vusdt(a.balance) })) + '</p>'
       + '</section>';
   }
 
@@ -169,12 +279,12 @@
       + '</span>'
       + '</div>'
       + '<div class="m-pos-foot">'
-      + '<span>entry ' + esc(price(pos.entry)) + '</span>'
+      + '<span>' + esc(T('entry {price}', { price: price(pos.entry) })) + '</span>'
       // Said out loud rather than left as a dash to puzzle over: the number is
       // missing because the feed is, not because the position is worthless.
-      + '<span>' + (unreadable ? 'mark unavailable' : 'mark ' + esc(price(pos.mark))) + '</span>'
-      + '<span>' + esc(vusdt(pos.margin)) + ' margin</span>'
-      + '<button type="button" class="m-close" data-close-id="' + esc(pos.id) + '">Close</button>'
+      + '<span>' + esc(unreadable ? T('mark unavailable') : T('mark {price}', { price: price(pos.mark) })) + '</span>'
+      + '<span>' + esc(T('{amount} margin', { amount: vusdt(pos.margin) })) + '</span>'
+      + '<button type="button" class="m-close" data-close-id="' + esc(pos.id) + '">' + esc(T('Close')) + '</button>'
       + '</div>'
       + '</li>';
   }
@@ -188,7 +298,7 @@
    */
   function positionsHtml(rows) {
     if (!rows || !rows.length) {
-      return '<p class="m-none">No open positions.</p>';
+      return '<p class="m-none">' + esc(T('No open positions.')) + '</p>';
     }
     return '<ul class="m-pos-list">' + rows.map(positionHtml).join('') + '</ul>';
   }
@@ -200,31 +310,43 @@
    * repeated here. A cap written into the UI drifts from the one that is
    * enforced, and then the form either rejects what the server allows or
    * offers what it refuses.
+   *
+   * Each field has a visible label above it. The three boxes had screen-reader
+   * labels only, and placeholders ("BTC", "10", "lev") that looked like values
+   * already filled in; a newcomer could not tell the form was empty. The
+   * placeholders now read as examples, and one line says what long, short
+   * and leverage do.
    */
-  function openFormHtml(limits) {
+  function openFormHtml(limits, opts) {
     var l = limits || {};
     var maxLev = num(l.max_leverage);
     var minMargin = num(l.min_margin);
+    var unit = unitLabel(opts);
     return '<section class="m-open">'
-      + '<h2>Open a position</h2>'
-      + '<div class="m-row">'
+      + '<h2>' + esc(T('Open a position')) + '</h2>'
+      + '<div class="m-row m-row--fields">'
+      + '<label class="m-field"><span class="m-label">' + esc(T('Market')) + '</span>'
       + '<input class="m-sym" type="text" inputmode="latin" autocapitalize="characters" '
-      + 'placeholder="BTC" aria-label="Symbol">'
+      + 'placeholder="' + esc(T('e.g. BTC')) + '"></label>'
+      + '<label class="m-field"><span class="m-label">' + esc(T('Amount ({unit})', { unit: unit })) + '</span>'
       + '<input class="m-margin" type="number" inputmode="decimal" '
-      + 'placeholder="' + esc(minMargin === null ? 'margin' : String(minMargin)) + '" '
+      + 'placeholder="' + esc(minMargin === null ? T('e.g. 100') : T('min {n}', { n: minMargin })) + '" '
       + (minMargin === null ? '' : 'min="' + esc(minMargin) + '" ')
-      + 'aria-label="Margin in vUSDT">'
-      + '<input class="m-lev" type="number" inputmode="numeric" placeholder="lev" '
-      + (maxLev === null ? '' : 'max="' + esc(maxLev) + '" ') + 'min="1" aria-label="Leverage">'
+      + '></label>'
+      + '<label class="m-field"><span class="m-label">' + esc(T('Leverage')) + '</span>'
+      + '<input class="m-lev" type="number" inputmode="numeric" '
+      + 'placeholder="' + esc(maxLev === null ? T('e.g. 2') : '1–' + maxLev) + '" '
+      + (maxLev === null ? '' : 'max="' + esc(maxLev) + '" ') + 'min="1"></label>'
       + '</div>'
       + '<div class="m-row m-row--go">'
-      + '<button type="button" class="m-long">Long</button>'
-      + '<button type="button" class="m-short">Short</button>'
+      + '<button type="button" class="m-long">' + esc(T('Long')) + '</button>'
+      + '<button type="button" class="m-short">' + esc(T('Short')) + '</button>'
       + '</div>'
+      + '<p class="m-open-how">' + esc(T('Long gains if the price rises, short if it falls. Leverage multiplies the move, the loss as much as the gain.')) + '</p>'
       + '<p class="m-open-note">'
-      + (minMargin === null ? '' : 'min ' + esc(minMargin) + ' vUSDT · ')
-      + (maxLev === null ? '' : 'up to ' + esc(maxLev) + '× · ')
-      + 'virtual funds only</p>'
+      + (minMargin === null ? '' : esc(T('min {n} {unit}', { n: minMargin, unit: unit })) + ' · ')
+      + (maxLev === null ? '' : esc(T('up to {n}×', { n: maxLev })) + ' · ')
+      + esc(T('virtual funds only')) + '</p>'
       + '</section>';
   }
 
@@ -249,6 +371,12 @@
     positionHtml: positionHtml,
     openFormHtml: openFormHtml,
     actionNoteHtml: actionNoteHtml,
+    openedText: openedText,
+    closedText: closedText,
+    unitLabel: unitLabel,
+    T: T,
+    sourceLine: sourceLine,
+    legalHtml: legalHtml,
     vusdt: vusdt,
     price: price,
     pct: pct,

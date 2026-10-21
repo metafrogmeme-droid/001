@@ -67,3 +67,19 @@ test('share attaches the server-rendered card when the browser can take files', 
   assert.match(after, /navigator\.share\(\{ text, url \}\)/, 'text share still follows');
   assert.match(after, /t\.me\/share\/url/, 'Telegram fallback still follows');
 });
+
+test('the decision picture shares a PLAN card: the target as a price move, the leverage, no return', () => {
+  // 2026-10-20: this Share sent text and a link only, so the post's preview
+  // was the home page's banner. It now asks for kind=plan with the numbers
+  // levelMove returned, attaches the PNG, and keeps the text-only fallbacks.
+  const block = blockBetween(DASH, 'a RUNECLAW decision picture', 'Star toggle',
+    { before: 2400, pad: 0, label: 'decision picture share' });
+  assert.match(block, /kind=plan/, 'asks for the plan card');
+  assert.match(block, /target_pct=\$\{encodeURIComponent\(mv\.pct\.toFixed\(2\)\)\}/, 'the PRICE move, not the leveraged text');
+  assert.match(block, /mv\.leverage \? `&leverage=/, 'a leverage only when levelMove knew one');
+  assert.doesNotMatch(block, /pnl_pct|pnl_usd|size_usd|margin_usd|equity/, 'a plan carries no return and no dollars');
+  assert.match(block, /files: \[file\]/, 'attaches the card');
+  const after = block.slice(block.indexOf('navigator.canShare'));
+  assert.match(after, /navigator\.share\(\{ text, url \}\)/, 'text share still follows');
+  assert.match(after, /t\.me\/share\/url/, 'Telegram fallback still follows');
+});

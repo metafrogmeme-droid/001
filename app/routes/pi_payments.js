@@ -7,6 +7,15 @@
  *   POST /api/pi/payments/approve     { paymentId }          -> { ok, status: 'approved' }
  *   POST /api/pi/payments/complete    { paymentId, txid }    -> { ok, status: 'completed' }
  *   POST /api/pi/payments/incomplete  { paymentId }          -> { ok, status }
+ *   GET  /api/pi/payments/coach-plus  { enabled, amount?, days?, daily?, memo? }
+ *   POST /api/pi/payments/coach-plus  {}                     -> { orderId, amount, memo, metadata }
+ *
+ * COACH PLUS is the one payment that grants something: more questions a day
+ * for Ask the Claw (lib/pi_coach.js), for PI_COACH_PLUS_DAYS from the moment
+ * the payment COMPLETES. It is off unless PI_COACH_PLUS_PI sets its price.
+ * It settles through the same approve and complete as a tip, matched on its
+ * own kind; the grant is the row reaching `completed`, which is exactly
+ * what Pi allows to be delivered, and nothing is granted before it.
  *
  * Every route needs the session the Pi sign-in issued (authMiddleware), and the
  * account must be a Pi account: a tip is matched to the person through the
@@ -43,6 +52,7 @@ const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const pay = require('../lib/pi_payments');
+const coach = require('../lib/pi_coach');
 
 const router = express.Router();
 
@@ -103,6 +113,37 @@ router.post('/tips', authMiddleware, limit, async (req, res) => {
     });
   } catch (err) {
     console.error('Pi tip order error:', err.constructor.name);
+    return res.status(500).json({ error: 'order_failed' });
+  }
+});
+
+router.get('/coach-plus', authMiddleware, limit, (req, res) => {
+  const offer = coach.plusOffer(env());
+  if (!isConfigured() || !offer) return res.json({ enabled: false });
+  return res.json({ enabled: true, amount: offer.amount, days: offer.days,
+    daily: coach.limits(env()).plus, memo: pay.COACH_PLUS_MEMO });
+});
+
+router.post('/coach-plus', authMiddleware, limit, async (req, res) => {
+  if (!isConfigured()) return res.status(503).json({ error: 'payments_not_configured' });
+  const offer = coach.plusOffer(env());
+  if (!offer) return res.status(404).json({ error: 'not_offered' });
+  try {
+    if (!(await piUidOf(req.user.user_id))) return res.status(403).json({ error: 'pi_account_required' });
+    const id = crypto.randomBytes(12).toString('hex');
+    const now = new Date();
+    // The price is the server's, read now; the page sends nothing but the ask.
+    await pool.execute(
+      'INSERT INTO pi_payments (id, user_id, kind, amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, req.user.user_id, coach.COACH_PLUS_KIND, offer.amount, 'created', now, now]);
+    return res.json({
+      orderId: id,
+      amount: offer.amount,
+      memo: pay.COACH_PLUS_MEMO,
+      metadata: { orderId: id, kind: coach.COACH_PLUS_KIND },
+    });
+  } catch (err) {
+    console.error('Pi Coach Plus order error:', err.constructor.name);
     return res.status(500).json({ error: 'order_failed' });
   }
 });
@@ -220,8 +261,11 @@ async function complete(req, res, m, paymentId, txid) {
       return unavailable(res, err, 'complete');
     }
   }
-  // The one transition a tip has. A tip grants nothing, so this is the whole
-  // of fulfilment, and `status <> 'completed'` keeps it to once.
+  // The one transition a payment has. A tip grants nothing, so this is the
+  // whole of its fulfilment; Coach Plus is granted BY this row reaching
+  // `completed` (lib/pi_coach.js plusUntil reads it), so nothing is granted
+  // before Pi has confirmed the completion. `status <> 'completed'` keeps it
+  // to once.
   await pool.execute(
     'UPDATE pi_payments SET status = ?, updated_at = ? WHERE id = ? AND status <> ?',
     ['completed', new Date(), order.id, 'completed']);

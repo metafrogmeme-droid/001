@@ -8,6 +8,7 @@ Matches the dark-themed, grid-layout design with colored accents.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Dict, Optional
 
@@ -2236,6 +2237,103 @@ def _share_when(opened_at, closed_at) -> str:
     if c:
         parts.append("Closed " + c)
     return " · ".join(parts)
+
+
+def leverage_on_record(v: object) -> Optional[float]:
+    """A leverage the caller stated (a finite multiple above zero), or None.
+
+    None is "nobody sized it": the plan card then prints the price move alone
+    and no multiplier, the rule `chartread.js::levelMove` follows on the site.
+    """
+    if v is None or isinstance(v, bool) or v == "":
+        return None
+    try:
+        x = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) and x > 0 else None
+
+
+def render_plan_card(data: Dict[str, Any]) -> bytes:
+    """Render the social card for a PLAN (the dashboard's decision picture).
+
+    The result card says what a closed trade returned; this one says what a
+    plan aims at, and must never read like the other. So: a PLAN chip, the
+    word TARGET over the figure, the figure in the accent colour and never
+    the winning green (colour is a claim, and a target has won nothing), and
+    "A plan, not a result." in the footer.
+
+    PRIVACY CONTRACT, the result card's: symbol, direction and percent only.
+    Never a dollar figure, a size, a margin or a price.
+
+    Args:
+        data: symbol, direction ("LONG"|"SHORT"), target_pct (the PRICE move
+            from entry to the take-profit, signed by direction); optionally
+            leverage (a multiple: the hero is then the move on margin, with
+            the price move beside it) and at (the ISO instant it was shared).
+
+    Returns:
+        PNG bytes, or b"" if Pillow is unavailable.
+    """
+    if not _T.pillow_available():
+        log.warning("Pillow not installed, cannot render plan card")
+        return b""
+
+    W, H = 800, 418
+    PAD = 44
+    img, draw = _T.new_card(W, H)
+    _font = _T.font
+    f_tag = _font(13)
+    f_badge = _font(20, bold=True)
+    f_symbol = _font(44, bold=True)
+    f_label = _font(15, bold=True)
+    f_hero = _font(88, bold=True)
+    f_small = _font(13)
+
+    symbol = str(data.get("symbol", "???")).replace(":USDT", "").replace("/USDT", "")
+    direction = str(data.get("direction", "LONG")).upper()
+    move = pct_on_record(data.get("target_pct"))
+    lev = leverage_on_record(data.get("leverage"))
+    dir_color = _GREEN if direction == "LONG" else _RED
+
+    draw.asset("mascot", W - H, 0, H)
+    draw.rectangle([0, 0, W, 4], fill=_ACCENT_GOLD)
+    draw.rectangle([0, H - 4, W, H], fill=_ACCENT_GOLD)
+
+    y = PAD - 8
+    draw.logotype(PAD, y, 40)
+    draw.text((PAD, y + 50), "AUTONOMOUS AI TRADING AGENT", fill=_GRAY, font=f_tag)
+
+    draw.text((PAD, y + 86), symbol, fill=_WHITE, font=f_symbol)
+    sym_w = draw.textlength(symbol, font=f_symbol)
+    chip_x = PAD + sym_w + 14
+    chip_x += draw.pill(chip_x, y + 98, direction, dir_color, f_badge, h=32, filled=True, pad=12) + 10
+    draw.pill(chip_x, y + 98, "PLAN", _ACCENT_GOLD, f_badge, h=32, pad=12)
+
+    when = _utc_text(data.get("at"))
+    if when:
+        draw.text((PAD, y + 144), "Planned " + when, fill=_GRAY, font=f_small)
+
+    # TARGET, then the figure: on margin when a leverage was stated, with the
+    # price move beside it; the price move alone when none was.
+    draw.text((PAD, 206), "TARGET", fill=_ACCENT_GOLD, font=f_label)
+    if move is None:
+        hero, hero_color, sub = "target unread", _GRAY, ""
+    elif lev is not None:
+        hero, hero_color = f"{move * lev:+.2f}%", _ACCENT_GOLD
+        lev_txt = f"{lev:g}"
+        sub = f"on margin at {lev_txt}\u00d7 \u00b7 a {move:+.2f}% price move"
+    else:
+        hero, hero_color, sub = f"{move:+.2f}%", _ACCENT_GOLD, "the price move to the take-profit"
+    draw.text((PAD - 4, 220), hero, fill=hero_color, font=f_hero)
+    if sub:
+        draw.text((PAD, 320), sub, fill=_GRAY, font=f_small)
+
+    draw.text((PAD, H - 62), "A plan, not a result. Shared without account size \u2014 percent only.",
+              fill=_GRAY, font=f_small)
+    draw.wordmark(W, H, PAD, f_small, height=26)
+    draw.text((PAD, H - 36), "Not investment advice.", fill=_GRAY, font=f_small)
+    return _T.export(img)
 
 
 def render_share_card(data: Dict[str, Any]) -> bytes:

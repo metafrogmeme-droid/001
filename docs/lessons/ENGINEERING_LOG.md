@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **504 of 1355** reach for source text through `source_scan`, `code_only`
+Driven, **505 of 1356** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 504 is a FLOOR and the honest shape is
+source scan that rule does not see, so 505 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -27425,3 +27425,297 @@ rows, which no tap reaches, are held to the one reading by an AST walk over
 `positions_data.append({...})`
 (`tests/test_the_position_buttons_spell_one_pair.py`). Six mutants, each
 killed.
+
+## A SLOT THAT SHOWS NOTHING WHEN ITS RENDERER DOES NOT RUN IS AN EMPTY CLAIM, AND A SHARE WITH NO IMAGE BORROWS THE HOME PAGE'S
+
+20 October 2026, two screenshots from the operator. The dashboard's Agent
+Hub showed an empty 112-pixel box where the new 3D owl belonged, on a phone.
+And a post shared from the decision picture ("SHORT QNTSTOCK · target
++19.2% @5×") previewed the site's old banner, not the card the share flow
+had been redesigned to carry.
+
+**The box.** The page loads the 3D viewer only when the visitor has not
+asked for reduced motion (Android's "Remove animations", which a power
+saving mode can also switch on), and the avatar host held nothing else: no
+viewer, no owl. Reproduced in Chromium at phone width with `reducedMotion:
+'reduce'`; without it the owl rendered. The same box stayed empty in two
+more cases nobody had driven: a browser with no WebGL (the renderer's
+constructor throws, uncaught, inside a promise) and a model still loading.
+Every avatar host now starts with a still of the owl (the same model,
+rendered by the viewer itself to a 21 KB WebP), the viewer keeps its canvas
+hidden until the model is loaded and framed, then removes the still, and a
+constructor that throws sets the state to `failed` and leaves the still.
+
+**The crop.** When the viewer did run, the avatar framed the upper 60% of
+the model, lifted toward the chest emblem: a head-and-chest bust, written
+for the humanoid mascot the owl replaced on 19 October. On a round owl that
+slice is the badge on its forehead, with the ears and the eyes cut off at
+the edges. Nobody had looked at the avatar after the model changed; the
+assets test pinned the model's glow and weight, not what the frame showed.
+Both modes now frame the whole character; the test paints the box behind
+the transparent canvas and reads its edge ring (mostly background, or the
+owl was cropped).
+
+**The page one over.** `/agent` skips the 3D below 900px, by design, and
+its placeholder said "the 3D model appears once `/mascot/agent.glb` is
+added" (a file that has not been the model for months) under a title
+naming "The AI Viking Agent" over an owl, with "Drag to orbit the agent"
+beneath a still. The placeholder is the still, the title and the page's
+meta name RUNECLAW (fourteen languages), and the drag hint is hidden unless
+the 3D is on screen.
+
+**The share.** The closed-trade Share attaches a server-rendered card; the
+decision picture's Share, the one the operator used, sent text and a link
+and nothing else, so X built the preview from the link's `og:image`: the
+home page's banner. The fix is not to reuse the result card, which would
+print a target in the voice of a return. It is a PLAN card
+(`signal_card.py::render_plan_card`, `kind=plan` on both relays): a PLAN
+chip, TARGET over the figure, the figure in the accent colour and never
+the winning green, the leverage and the underlying price move spelled out
+("on margin at 5× · a +3.84% price move"), "A plan, not a result." in the
+footer, and the result card's privacy contract (percent only). The page
+sends the price move `levelMove` computed, not its leveraged label, and the
+card multiplies only by a leverage the caller stated.
+
+The rule under all four: a surface that depends on something optional (a
+renderer, a capability, a file) has to say what it shows when that thing
+is absent, and the answer is never nothing, because nothing on a phone
+reads as "broken" and nothing in a link preview is filled by somebody
+else's image. Driven in Chromium
+(`app/test/the_owl_is_on_screen_even_when_the_3d_cannot_run.smoke.test.js`:
+reduced motion, no WebGL, WebGL and the framing ring, the agent page on a
+phone and a desktop) and through the card's drawn text and both relays
+(`tests/test_share_card.py`, `app/test/share_card.test.js`,
+`app/test/dashboard_social.test.js`). Twelve mutants, each killed.
+
+## A NOTE THAT OUTLIVES ITS ACTION DESCRIBES THE NEXT ONE, AND A DOOR THE APP DOES NOT HAVE IS NOT A DIRECTION
+
+*2026-10-20, the Pi app, from the owner's review of a submission recording.*
+
+**"Position closed." over a trade just opened.** The recording for the Pi
+hackathon showed it twice, at 0:45 and 1:02, right after a one-tap paper
+trade on the Signals tab. Nothing closed anything. The shared session
+(`arena-session.js`) kept one note for the arena tab, `lastNote`, and set it
+on a filled open ("Position opened.") and on a done close ("Position
+closed."); only the arena's own next action cleared it. A close, then a
+follow from the Signals tab (which said "Opened BTCUSDT LONG" in its own
+panel and never touched the arena's note), then back to the arena: the tab
+read "Position closed." above the position that had just opened. A note
+with no lifetime but "until the next thing done here" is a claim about
+whatever comes next, on any tab.
+
+The fix gives each kind of message its own lifetime. A done open or close
+is a toast that names the position from the server's answer ("Position
+opened: BTCUSDT LONG at 65010, 2×.", "Position closed: BTCUSDT LONG at
+65500. Result +46.88 credits.") and goes away; the signal follow is a toast
+too, so it replaces an older one instead of sitting under it. A refusal is
+still a note, because it has to be read, and it goes with a change of tab.
+A result the server did not send is left out of the sentence, never printed
+as zero; a real zero is printed.
+
+**A door the app does not have.** The arena's footer told a Pi user with no
+leaderboard name to "set one on the web". The Pi app links nowhere on the
+site (the presale lives there), so the sentence pointed at a door the app
+does not have, and a listing reviewer reads it as a redirect out of the
+app. The name is chosen in a Leaders tab, through the website's own
+`/api/leaderboard/opt-in`, with the session's token; the footer's sentence
+opens that tab. Sign-in offers the username Pi verified as the box's first
+value (`lib/pi_auth.js::handleSuggestion`), never the page's copy of it,
+and it is saved only on a tap: a username identifies a person, and putting
+it on a public board is theirs to do. The privacy page says both halves,
+and its truth test now pins that the route reads the username once, to
+offer it back, and writes nothing.
+
+**The same shape, one surface over each time.**
+- The receipt. The Duel tab quoted each seal and nothing more, because the
+  receipt page is on the site. The check now runs in the app
+  (`pi-receipt.js`): the payload hashed in the browser, the day's proof
+  replayed to its root, a sealed round shown as sealed with no verdict, an
+  unreadable receipt as ours. The DogeOS app runs the same Duel block, so it
+  loads the same module, and a page without the module quotes the hash
+  instead of offering a button that would throw.
+- The unit. vUSDT is the website's word; the Pi app says credits. The one
+  server refusal that names a unit (`code: min_margin`) is re-said in the
+  host's unit from its code and the server's own limit; every other refusal
+  is the server's sentence.
+- The header. The season's name and the balance headed every tab, so the
+  season read as the Duel's title ("FARCASTER · SEASON LIVE" over the Duel).
+  They head the arena tab only. The name itself is data: the operator
+  renames the current season on `/arena`, and every host follows.
+- No wallet. The DogeOS app opened from X lands in X's browser, which has
+  no wallet; "open this page in a browser with a wallet" left the person to
+  find the address. The note now carries the page's link with a Copy
+  button, which selects the box when the browser refuses the clipboard.
+
+Driven in Chromium (`app/test/the_pi_app_says_what_just_happened.smoke.test.js`,
+on a harness shared with the older Pi smoke test,
+`app/test/helpers/pi_app_harness.js`), with a real seal and a real one-step
+proof for the receipt; by the views (`miniapp_arena.test.js`), the sign-in
+route (`pi_auth.test.js`), the Duel renderer (`duel_scenarios.test.js`) and
+the page guard, which now pins the app's only links to the two policies and
+names the one shared link it never reaches. Eighteen mutants, each killed;
+the policy-text mutant had to be aimed at the built page, which is what the
+truth test reads.
+
+## A COACH THAT CAN BE TOLD WHAT TO SAY IS NOT ONE THAT CANNOT SAY IT: THE RULE IS STRUCTURAL, AND THE FACTS ARE THE SERVER'S
+
+*2026-10-20, Ask the Claw in the Pi app.*
+
+The Pi app has three rules a reviewer will test: no token or sale, no link
+out, no live price the app cannot read. A coach that answers in free text is
+the one surface that could break all three in a sentence, and the repo had
+already watched a model ignore an order (the public chat that published a
+"full analysis" around an invented price, which is why the public scan gate
+is a branch and not a sentence in a prompt).
+
+So the prompt states the rules and nothing depends on it:
+
+- **Before the model**, two fixed answers: a question about a token, a sale
+  or an airdrop, and a question the router says needs live market data. No
+  model runs, nothing is counted.
+- **After the model**, an output check (`bot/web/pi_coach.py::withheld_reason`):
+  a reply carrying a link in any form, the project's token or a sale,
+  signing up, or exchange keys is withheld and replaced, and the turn still
+  counts, because a model ran. The page also draws the reply as escaped text
+  with five bare inline tags put back, so no link can be drawn whatever the
+  bot sends.
+- **No model answering** (a budget refusal, an outage) is the coach's own
+  sentence, because the public turn's refusals name the website's doors
+  ("sign in", a dashboard link) and the Pi app has none.
+- **The website's FAQ is not consulted** on the coach: its starter answers
+  are the site's pitch, with exchanges and signing up in them. A test
+  drives `_llm_chat` with a stand-in provider and reads the prompt the model
+  was handed, which is the only place the difference is visible.
+
+**The facts are the server's, and so is the stance.** The page sends a
+question and the name of the card it asked "Why?" about; the website reads
+the person's practice positions, their last closed trades, today's Duel card
+and that card itself. A `context` the page sends is ignored. The Duel facts
+are built from `cardFor`, the same reader `/api/duel/today` answers with, so
+a stance still sealed on the person's card is absent from the coach's facts
+too: the coach cannot reveal what the person has not yet earned. A source
+that cannot be read is said to be unreadable in the facts, never handed to
+the model as an empty list.
+
+**The allowance is a row, not a counter in memory.** One row per Pi account
+per UTC day, capped in the UPDATE's own `count < ?` (two requests at the
+limit cannot both pass), given back when no model answered. Coach Plus
+raises the cap for a window that starts when its payment COMPLETES: the
+grant is the payment row reaching `completed`, which is exactly what Pi
+allows to be delivered, so there is no second grant to forget or to race.
+It is paid through the tip's path (`payOrder`), on the server's price and
+kind, and is off until the operator sets a price.
+
+**The policy says what is sent and what is kept, including the exception.**
+The coach stores a count, not the conversation, except that the
+prompt-injection check keeps a short excerpt of a question it flags on the
+audit chain. The first draft of the sentence said nothing was stored; the
+firewall's own docstring said otherwise, and the page now says both halves,
+pinned by a truth test to the call that makes the exception true.
+
+Driven: `tests/test_the_pi_coach_says_nothing_the_pi_app_must_not.py` (the
+gates, the check, the handler with a stand-in model, the prompt a stand-in
+provider was handed), `app/test/the_pi_coach_answers_from_facts_it_read.test.js`
+(the route on the in-memory database: the facts as sent, the sealed stance,
+the cap, the give-back, Coach Plus's window, the order's price) and
+`app/test/the_pi_coach_answers_in_the_app.smoke.test.js` (Chromium: every
+door into the coach, no link drawn, a used-up day, Coach Plus paid as
+ordered). Eighteen mutants, each killed; the first sanitiser mutant restored
+only a bare `<a>` and survived, which measured the mutant, not the guard,
+and was replaced with one that draws the reply raw.
+
+## A SENTENCE IS ITS OWN KEY, A LIST OF SENTENCES IS READ FROM THE CODE, AND ONE WORD WITH TWO JOBS IS TWO SENTENCES
+
+*2026-10-20, the Pi app in seventeen languages, and season prizes behind a switch.*
+
+The Pi app could not borrow the site's dictionary: `i18n-core.js` carries
+every page's strings, the presale's among them, and the Pi app may load
+none of it. So it has its own small table, and three choices decided whether
+that table could drift.
+
+**English is the key.** A sentence is written once, in English, where it is
+drawn: `T('Position opened: {what} at {price}.', { … })`. There is no key
+name to keep in step with a second file, and a language that lacks a
+sentence shows the English that is already on the line, never a key or a
+blank. Spliced sentences were rewritten whole: "rises toward" and "falls
+toward" are two sentences, because a translator cannot reorder a verb the
+code glued in.
+
+**The list is read from the code, not written beside it.**
+`app/scripts/build_pi_i18n.js` reads exactly the scripts the page loads
+(`routes/piapp.js` SCRIPTS, the one list), comments blanked, and collects
+three shapes: `T('…')`, a tab block's `label:` (the session draws it
+through `T`), and the Duel renderer's `tr('duel.key', 'English')`, whose
+lookup on the Pi page is `T(English)`. A `T` on a variable is a sentence no
+table can hold, so each one is named in a test with what supplies its
+English, and a new one fails. The build fails on a sentence a language
+lacks, on an entry no screen says any more, and on a translation whose
+`{placeholders}` differ from the English: one that dropped `{price}` would
+print a price-less sentence, one that misspelt it would print the braces.
+A Duel sentence a language's file leaves out borrows the site's translation
+of the same key, but only while the site's English for that key is the
+renderer's English: a translation of another sentence is not one of this.
+
+**One word with two jobs is two sentences.** The first list had "Close"
+once: the button that closes a position and the receipt's row for the
+closing price. English reads both; Spanish and Portuguese need a verb for
+one and a noun for the other, and the translator who said so was right.
+The receipt row is "Close price" now. The same review found the site's own
+German and Dutch for the Duel's marks were "Male" and "Merken" ("times",
+"brands"); they are "Punkte" and "Punten".
+
+**Sixteen translators, one rule sheet.** The translations were written in
+parallel, two languages each, against one brief: the placeholders, the
+claims that must not soften ("Nothing was taken", "not credited to the
+call"), the names that stay, and the site's own terms for each language.
+The code changed while they worked (the receipt row, the prize sentences);
+the build's `--missing` reported each new sentence to whoever ran it next,
+which is the check doing its job across people, not only across commits.
+
+**The server picks, the page switches in place.** `/pi` reads `?lang=`
+then the Pi Browser's `Accept-Language` (q-order, `q=0` refused, `pt-BR`
+is pt, `in` is id, `tl` is fil), sets `<html lang dir>` (Arabic is right to
+left) and loads that language's chunk right after the runtime, before
+anything draws. Each chunk is addressed by the first eight hex of its own
+SHA-256, as the site's chunks are, so a translation that changes is a new
+address with no number to remember. About loads another language in place:
+a link would end the in-memory session. The coach is told the language on
+screen and answers in it.
+
+**Prizes are a table and a plan, and pay nothing.** `lib/pi_prizes.js`
+reads a prize table that is off unless `PI_SEASON_PRIZES_ENABLED` is exactly
+`1`, and a table that does not read (a bad amount, more than ten places, a
+lower place paying more) is off with its reason, never a different prize.
+The operator's plan is read from the season's closed trades, not from the
+board's rows: the board reads an unreadable pnl as 0, a fair shortcut for a
+ranking and the wrong one for paying people, so the plan holds a name with
+an unreadable close and is not final until someone looks. Ties share the
+prizes of the places they span. No route moves Pi and no key is read:
+paying from the app needs the app wallet's seed on our server, which is the
+owner's decision (`docs/hackathon/SEASON_PRIZES_PLAN.md`). The route test
+caught one defect before it shipped: the plan's own `final` spread over the
+route's "the season is still running", so a preview read as final.
+
+Driven: `app/test/the_pi_app_speaks_the_readers_language.test.js` (the
+build against doctored copies of the sources, the collector, the server's
+pick, the page's order, the runtime),
+`app/test/the_pi_app_speaks_the_readers_language.smoke.test.js` (Chromium:
+a Spanish browser from the first screen to the Duel renderer's words and
+the card's labels, About switching in place, the coach told the language,
+Arabic right to left, prizes on and off) and
+`app/test/season_prizes_are_a_table_and_a_plan_and_pay_nothing.test.js`.
+Thirty mutants, each killed: the runtime, the server's pick and order, the
+build's four checks, the client switches, the renderer's and the card's
+words, and the prize table and plan.
+
+**A file git ignores passes every local gate.** Indonesian's source was
+`id.json` in `app/i18n/pi/`, and `id.json` is the name of a Solana keypair, which
+the repo's .gitignore denies everywhere with no exception, as it should.
+`git add app/i18n/` added fifteen languages and said nothing about the
+sixteenth; the build, the tests and a 21-of-22 preflight all read the
+untracked copy in the working tree, and CI, which checks out only what was
+committed, had no Indonesian at all. The keypair rule stays as it is: the
+sources are `<code>.pairs.json` now, and a test asks git (`git check-ignore
+--no-index`) whether any of them would be ignored, with the old name as its
+other arm. A gate that reads the working tree measures the working tree, not
+the commit.

@@ -57,7 +57,7 @@ cryptography==50.0.0
 # main (fastapi needs a server to be worth pinning), `redis` from this branch
 # (bot/api/token_store.py imports it bare). Neither list was wrong; each was
 # missing what the other found, which is its own argument for the guard.
-Pillow==12.3.0
+Pillow==13.0.0
 fastapi==0.141.1
 uvicorn==0.52.3
 redis==8.1.0
