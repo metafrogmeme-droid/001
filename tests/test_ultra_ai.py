@@ -68,12 +68,13 @@ class TestUltraRouting:
         assert learn.model == "claude-fable-5"
         assert learn.effort == "max"
 
-    def test_ultra_scan_and_chat_stay_on_sonnet(self, anthropic_env):
+    def test_ultra_scan_stays_on_sonnet_and_chat_on_haiku(self, anthropic_env):
         set_ultra_mode(True, _primary())
-        for tier in (LLMTier.SCAN, LLMTier.CHAT):
-            cfg = resolve_tier_config(tier, _primary(), is_admin=True)
-            assert cfg.model == "claude-sonnet-5", tier
-            assert cfg.effort == ""
+        cfg = resolve_tier_config(LLMTier.SCAN, _primary(), is_admin=True)
+        assert cfg.model == "claude-sonnet-5"
+        assert cfg.effort == ""
+        cfg = resolve_tier_config(LLMTier.CHAT, _primary(), is_admin=True)
+        assert (cfg.model, cfg.effort) == ("claude-haiku-5-5", "low")
 
     def test_ultra_off_keeps_existing_admin_routing(self, anthropic_env):
         set_ultra_mode(False)

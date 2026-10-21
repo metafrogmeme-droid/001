@@ -1257,7 +1257,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         return web.json_response({"reply_html": _news, "intent": "news"})
 
     # Fallback: LLM chat — same append-around-call pattern as _handle_message.
-    # Free-tier chat quota: bound the operator-funded xAI Grok budget. Only the
+    # Free-tier chat quota: bound the operator-funded chat budget (Claude Haiku
+    # 5.5 on the operator's credit; Grok as its fallback). Only the
     # LLM fallback (this path) consumes a "question" — skill/news/trade intents
     # above are free. Admin + paid tiers (pro/elite) are exempt; a free user gets
     # N questions/day (default 5) then an upgrade prompt instead of an LLM call.

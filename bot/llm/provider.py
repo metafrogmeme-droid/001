@@ -247,6 +247,37 @@ class LLMTier(str, Enum):
 # reasoning tiers (most generous free tier, 1M context). Anthropic stays reserved
 # for admin. Model ids refreshed 2026-07: Groq retired llama-3.3/3.1-instant (use
 # the GPT-OSS open-weight models), and Gemini 2.5 was superseded by the 3.x line.
+#: THE CHAT MODEL, for every caller (owner's call, 2026-10-21: "just the chat
+#: will do in this model; we keep our own runeclaw model for trades analysis
+#: and signals"). Claude Haiku 5.5 bills $0.10 / $0.50 per MTok, a twentieth of
+#: Sonnet 5, and the operator holds prepaid credit for it. Scan, thesis and
+#: learning keep their own routes; only LLMTier.CHAT moves.
+#:
+#: `low` effort is Anthropic's recommendation for chat on this model: thinking
+#: is on by default (medium) and counts toward max_tokens, and a chat reply
+#: does not repay the deeper default.
+CHAT_HAIKU_MODEL = "claude-haiku-5-5"
+CHAT_HAIKU_EFFORT = "low"
+
+#: THE ONE EXCEPTION TO "THE OPERATOR'S CLAUDE KEY IS ADMIN-ONLY". A non-admin
+#: caller may resolve to Anthropic only on the CHAT tier and only on a model
+#: named here, so a table edit or /settier that names Sonnet or Fable for
+#: members, or Haiku for a thesis, still falls through to the cheap routes.
+#: The spend stays fenced by the free-chat quota (bot/web/chat_quota.py turns
+#: on when this route is funded) and by the combined daily LLM cap.
+MEMBER_CHAT_ANTHROPIC_MODELS = frozenset({CHAT_HAIKU_MODEL})
+
+
+def anthropic_route_allowed(tier: "LLMTier", model: str, is_admin: bool) -> bool:
+    """Whether a caller may be handed the operator's Anthropic key for
+    ``tier`` on ``model``: always for an admin, and for anyone else only on
+    the chat tier with a model in MEMBER_CHAT_ANTHROPIC_MODELS."""
+    if is_admin:
+        return True
+    return (tier == LLMTier.CHAT
+            and (model or "").strip().lower() in MEMBER_CHAT_ANTHROPIC_MODELS)
+
+
 DEFAULT_TIER_ROUTING: dict[LLMTier, dict] = {
     LLMTier.SCAN: {
         "provider": LLMProvider.GROQ,
@@ -264,19 +295,23 @@ DEFAULT_TIER_ROUTING: dict[LLMTier, dict] = {
         "reason": "1M+ context, strong at reflection/analysis, free tier for occasional use",
     },
     LLMTier.CHAT: {
-        "provider": LLMProvider.GROK,
-        "model": os.getenv("XAI_MODEL", "grok-4.5"),
-        "reason": "Free-user chat runs on operator-funded xAI Grok (quota-capped 5/day); falls back to Groq/primary if XAI_API_KEY is unset",
+        "provider": LLMProvider.ANTHROPIC,
+        "model": CHAT_HAIKU_MODEL,
+        "effort": CHAT_HAIKU_EFFORT,
+        "reason": ("Chat runs on Claude Haiku 5.5 on the operator's key — the one "
+                   "Anthropic route a non-admin may take (MEMBER_CHAT_ANTHROPIC_MODELS); "
+                   "the free-chat cap still applies, and Grok answers when it fails"),
     },
 }
 
 
 # Admin tier routing — premium models for all tasks.
 # Used when the requesting user is in ADMIN_TELEGRAM_IDS. This is the ONLY
-# routing table that should ever reference LLMProvider.ANTHROPIC — the
-# operator's Claude key is reserved for admin use, and resolve_tier_config()
-# enforces this with a hard guard regardless of what any other table or env
-# override says.
+# routing table that should ever reference LLMProvider.ANTHROPIC, save the one
+# named exception in DEFAULT_TIER_ROUTING (chat on Claude Haiku 5.5, see
+# MEMBER_CHAT_ANTHROPIC_MODELS) — the operator's Claude key is otherwise
+# reserved for admin use, and resolve_tier_config() enforces this with a hard
+# guard regardless of what any other table or env override says.
 ADMIN_TIER_ROUTING: dict[LLMTier, dict] = {
     LLMTier.SCAN: {
         "provider": LLMProvider.ANTHROPIC,
@@ -295,8 +330,9 @@ ADMIN_TIER_ROUTING: dict[LLMTier, dict] = {
     },
     LLMTier.CHAT: {
         "provider": LLMProvider.ANTHROPIC,
-        "model": "claude-sonnet-5",
-        "reason": "Admin premium: Sonnet for user Q&A — best quality responses",
+        "model": CHAT_HAIKU_MODEL,
+        "effort": CHAT_HAIKU_EFFORT,
+        "reason": "Admin: Claude Haiku 5.5 for chat, the same model every caller gets",
     },
 }
 
@@ -332,8 +368,9 @@ ULTRA_TIER_ROUTING: dict[LLMTier, dict] = {
     },
     LLMTier.CHAT: {
         "provider": LLMProvider.ANTHROPIC,
-        "model": "claude-sonnet-5",
-        "reason": "Ultra: Sonnet keeps chat responsive",
+        "model": CHAT_HAIKU_MODEL,
+        "effort": CHAT_HAIKU_EFFORT,
+        "reason": "Ultra: chat stays on Claude Haiku 5.5, the same model every caller gets",
     },
 }
 
@@ -367,10 +404,11 @@ def set_ultra_mode(enabled: bool, primary_config=None) -> tuple[bool, str]:
                            "/setllm anthropic <key> first")
         _ULTRA_MODE = True
         return True, ("ULTRA ON — admin thesis/learning → claude-fable-5 "
-                      "(effort high/max), scan/chat → claude-sonnet-5. "
-                      "Fable 5 bills $10/$50 per MTok.")
+                      "(effort high/max), scan → claude-sonnet-5, chat → "
+                      f"{CHAT_HAIKU_MODEL}. Fable 5 bills $10/$50 per MTok.")
     _ULTRA_MODE = False
-    return True, "ULTRA OFF — admin routing back to claude-sonnet-5."
+    return True, ("ULTRA OFF — admin routing back to claude-sonnet-5 "
+                  f"(chat stays on {CHAT_HAIKU_MODEL}).")
 
 
 def _admin_routing() -> dict:
@@ -413,6 +451,28 @@ USER_TIER_ROUTING: dict[str, dict] = {
     "elite": ELITE_TIER_ROUTING,
     "pro": PRO_TIER_ROUTING,
 }
+
+
+def member_chat_on_operator_key() -> bool:
+    """True when members' chat runs on the operator's Anthropic key: the
+    default chat route is a member-allowed Anthropic model, no
+    LLM_TIER_CHAT_PROVIDER pins chat elsewhere, and a key exists in the
+    candidate order resolve_tier_config uses. bot/web/chat_quota turns the
+    free-chat cap on when this is True, because that key's credit is what the
+    cap protects now, as it protected the Grok budget before."""
+    if os.getenv("LLM_TIER_CHAT_PROVIDER", "").strip():
+        return False
+    route = DEFAULT_TIER_ROUTING.get(LLMTier.CHAT, {})
+    if (route.get("provider") != LLMProvider.ANTHROPIC
+            or not anthropic_route_allowed(LLMTier.CHAT, route.get("model", ""), False)):
+        return False
+    from types import SimpleNamespace
+
+    from bot.llm import key_health as _kh
+    primary = SimpleNamespace(provider=os.getenv("LLM_PROVIDER", "").strip().lower(),
+                              api_key=os.getenv("LLM_API_KEY", ""))
+    _src, key = _kh.pick_anthropic_key(primary, BYOK._runtime_config)
+    return bool(key)
 
 
 def routing_for_user_tier(user_tier) -> "Optional[dict]":
@@ -539,8 +599,13 @@ def settable_key_envs() -> frozenset[str]:
 #: `admin_only` marks the operator's reserved Anthropic key: a non-admin
 #: caller never falls through to it, matching `resolve_tier_config`.
 FALLBACK_CHAINS: dict[str, tuple[tuple[LLMProvider, Optional[str], bool], ...]] = {
-    # Chat: the free/cheap tiers first; Claude Haiku for the operator only.
+    # Chat: Claude Haiku 5.5 is the chat tier itself (DEFAULT_TIER_ROUTING);
+    # when it fails — the prepaid credit runs out, the key is condemned —
+    # Grok, the model chat ran on before, answers first, then the free and
+    # cheap tiers. The admin-only Haiku 4.5 step stays for an admin whose
+    # chat tier is pinned elsewhere.
     "chat": (
+        (LLMProvider.GROK, None, False),
         (LLMProvider.GEMINI, None, False),
         (LLMProvider.ANTHROPIC, "claude-haiku-4-5-20251001", True),
         (LLMProvider.ALIBABA, None, False),
@@ -758,11 +823,12 @@ def resolve_tier_config(
     everyone else gets the cheapest route.
 
     Hard non-admin guard: the operator's Anthropic/Claude key is reserved for
-    admin use ONLY. When is_admin is False, ANY step above that would
-    otherwise resolve to LLMProvider.ANTHROPIC (an explicit env tier
-    override, a routing-table entry, or the final primary_config fallback)
-    is skipped in favor of the next step, so a non-admin caller can never be
-    handed the admin's Claude key regardless of how routing is configured.
+    admin use, with ONE named exception: the chat tier on a model in
+    MEMBER_CHAT_ANTHROPIC_MODELS (Claude Haiku 5.5), which is how every
+    caller's chat runs. Any other step that would resolve a non-admin to
+    LLMProvider.ANTHROPIC (an explicit env tier override, a routing-table
+    entry for another tier or model, or the final primary_config fallback)
+    is skipped in favor of the next step — see anthropic_route_allowed.
     """
     # 0. Runtime override (admin /settier) — highest priority, applies to
     # every caller of the tier. The non-admin Anthropic guard still holds:
@@ -771,7 +837,8 @@ def resolve_tier_config(
     _rt = _RUNTIME_TIER_OVERRIDES.get(tier)
     if _rt is not None:
         _rt_provider = _rt["provider"]
-        if is_admin or _rt_provider != LLMProvider.ANTHROPIC:
+        if (_rt_provider != LLMProvider.ANTHROPIC
+                or anthropic_route_allowed(tier, _rt["model"], is_admin)):
             if _rt_provider == LLMProvider.ANTHROPIC:
                 from bot.llm import key_health as _kh
                 _src, _rt_key = _kh.pick_anthropic_key(
@@ -902,9 +969,14 @@ def resolve_tier_config(
     #
     # Reached only when no explicit tier pin resolved above — see the ordering
     # note there. An admin with no pin still lands here on the first pass.
-    if is_admin and routing_override is None:
+    #
+    # The member chat route (Claude Haiku 5.5, see MEMBER_CHAT_ANTHROPIC_MODELS)
+    # resolves its key here too, through the same candidate order, so a
+    # condemned key heals for members exactly as it does for the admin.
+    if routing_override is None:
         _route = routing.get(tier, {})
-        if _route.get("provider") == LLMProvider.ANTHROPIC:
+        if (_route.get("provider") == LLMProvider.ANTHROPIC
+                and anthropic_route_allowed(tier, _route.get("model", ""), is_admin)):
             from bot.llm import key_health as _kh
             _src, _key = _kh.pick_anthropic_key(
                 primary_config, BYOK._runtime_config)
@@ -917,7 +989,7 @@ def resolve_tier_config(
                                      _catalog.get("default_model", "")),
                     base_url=_catalog.get("base_url", ""),
                     effort=_route.get("effort", ""),
-                    source="admin-table",
+                    source="admin-table" if is_admin else "default-table",
                 )
             # No Anthropic key anywhere → fall through to the generic steps.
 
@@ -1049,8 +1121,9 @@ class LLMConfig:
     #: Read here rather than from CONFIG because provider.py is imported BY
     #: config.py — the note on `_env_top_p` records the same constraint.
     timeout_seconds: float = field(default_factory=_env_timeout)
-    # Fable/Mythos-family reasoning depth (output_config.effort): "" omits the
-    # parameter; "low"/"medium"/"high"/"max" only sent for that family.
+    # Reasoning depth (output_config.effort): "" omits the parameter. Sent to
+    # the Fable/Mythos family and to the Claude 5 Haiku/Sonnet models (see
+    # _anthropic_reasoning_extras); the chat route sets "low".
     effort: str = ""
     #: WHICH BRANCH OF `resolve_tier_config` PRODUCED THIS. Stamped by the code
     #: that actually decides, because the alternative is a second function
@@ -1236,6 +1309,18 @@ _TEMPERATURE_DEPRECATED_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-[a-z]+-5-")
 # would take the brain down exactly like the temperature deprecation did.
 _THINKING_ALWAYS_ON_RE = re.compile(r"^claude-(?:fable|mythos)-5(?:$|[.-])")
 
+# Haiku and Sonnet of the Claude 5 family take output_config.effort with
+# adaptive thinking on by default, and the `thinking` field is left out for
+# them as before. Claude Haiku 5.5 defaults to `medium`; the chat route asks
+# for `low` (Anthropic's recommendation for chat on that model).
+_EFFORT_RE = re.compile(r"^claude-(?:haiku|sonnet)-5(?:$|[.-])")
+
+# Claude Haiku is not among the models the dynamic-filtering web search
+# (web_search_20260209) lists, so it carries the basic tool, which every
+# model with web search accepts.
+_BASIC_WEB_SEARCH_RE = re.compile(r"^claude-haiku-")
+BASIC_WEB_SEARCH_TOOL_TYPE = "web_search_20250305"
+
 # AI-2: models that accept schema-constrained JSON via output_config.format
 # (structured outputs) — the whole Claude 5 family plus Opus 4.6+. Older
 # models (claude-3-opus, Sonnet 4.5, Haiku …) reject the parameter with 400,
@@ -1252,6 +1337,14 @@ _WEB_SEARCH_RE = re.compile(
     r"^claude-[a-z]+-5(?:$|[.-])|^claude-opus-4-[6-9](?:$|[.-])"
     r"|^claude-sonnet-4-6(?:$|[.-])")
 WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
+
+
+def web_search_tool_type(model: str) -> str:
+    """The web_search tool version to attach for ``model``: the dynamic-
+    filtering one where the model takes it, the basic one for Haiku."""
+    if _BASIC_WEB_SEARCH_RE.match((model or "").strip().lower()):
+        return BASIC_WEB_SEARCH_TOOL_TYPE
+    return WEB_SEARCH_TOOL_TYPE
 
 
 def model_accepts_temperature(model: str) -> bool:
@@ -1459,7 +1552,7 @@ async def llm_complete(
             # decides whether the chosen model can carry the tool at all.
             if web_search and _WEB_SEARCH_RE.match(model_l):
                 extra["tools"] = [{
-                    "type": WEB_SEARCH_TOOL_TYPE,
+                    "type": web_search_tool_type(model_l),
                     "name": "web_search",
                     "max_uses": max(1, int(web_search_max_uses)),
                 }]
@@ -1718,6 +1811,8 @@ def _anthropic_reasoning_extras(config: LLMConfig) -> dict:
             extra["output_config"] = {"effort": config.effort}
     elif "opus" in model_l:
         extra["thinking"] = {"type": "adaptive"}
+    elif config.effort and _EFFORT_RE.match(model_l):
+        extra["output_config"] = {"effort": config.effort}
     return extra
 
 
@@ -1948,7 +2043,7 @@ async def llm_complete_with_tools(
         model_l = (config.model or "").strip().lower()
         search_tool = None
         if web_search and _WEB_SEARCH_RE.match(model_l):
-            search_tool = {"type": WEB_SEARCH_TOOL_TYPE, "name": "web_search",
+            search_tool = {"type": web_search_tool_type(model_l), "name": "web_search",
                            "max_uses": max(1, int(web_search_max_uses))}
         extra = _anthropic_reasoning_extras(config)
 

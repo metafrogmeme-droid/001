@@ -133,9 +133,14 @@ def test_a_pin_that_cannot_resolve_still_reaches_the_admin_key_health_path(
 def test_a_non_admin_is_still_never_handed_the_anthropic_key(clean_env, primary):
     """CONTROL, and the one that must never regress: the operator's Claude key
     is admin-only regardless of how routing is configured."""
-    clean_env.setenv("LLM_TIER_CHAT_PROVIDER", "anthropic")
-    cfg = resolve_tier_config(LLMTier.CHAT, primary, is_admin=False)
+    clean_env.setenv("LLM_TIER_THESIS_PROVIDER", "anthropic")
+    cfg = resolve_tier_config(LLMTier.THESIS, primary, is_admin=False)
     assert not cfg.api_key, "a non-admin was handed an Anthropic key"
+    # The one exception (chat on Claude Haiku 5.5) is the only Claude model a
+    # pin can bring a member to.
+    clean_env.setenv("LLM_TIER_CHAT_PROVIDER", "anthropic")
+    chat = resolve_tier_config(LLMTier.CHAT, primary, is_admin=False)
+    assert not chat.api_key or chat.model == "claude-haiku-5-5"
 
 
 def test_a_per_user_routing_table_is_untouched(clean_env, primary):
@@ -189,7 +194,8 @@ def test_each_branch_stamps_where_it_came_from(clean_env, primary, kind):
     else:
         # Nothing else can win: non-admin (no premium table), and no key for
         # the default table's provider, so the primary is all that is left.
-        for env in ("XAI_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY"):
+        for env in ("XAI_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY",
+                    "ANTHROPIC_API_KEY"):
             clean_env.delenv(env, raising=False)
         openai_primary = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-o")
         cfg = resolve_tier_config(LLMTier.CHAT, openai_primary)

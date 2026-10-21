@@ -16,6 +16,12 @@ resolve_tier_config() now hard-refuses to resolve to Anthropic for any
 non-admin caller at every one of its 3 resolution steps (explicit env tier
 override, routing-table lookup, final primary-config fallback), and both
 hardcoded fallback chains only include Anthropic when is_admin is True.
+
+ONE NAMED EXCEPTION (owner's call, 2026-10-21: chat on Claude Haiku 5.5 for
+everyone, on the operator's prepaid credit): the CHAT tier may hand a
+non-admin the operator's key on a model in MEMBER_CHAT_ANTHROPIC_MODELS, and
+on nothing else. Every other tier, and chat on any other Claude model, is
+still refused, and the tests below hold both arms.
 """
 
 import asyncio
@@ -24,6 +30,8 @@ from unittest.mock import AsyncMock
 
 from bot.llm.provider import (
     ADMIN_TIER_ROUTING,
+    CHAT_HAIKU_MODEL,
+    MEMBER_CHAT_ANTHROPIC_MODELS,
     DEFAULT_TIER_ROUTING,
     ELITE_TIER_ROUTING,
     PRO_TIER_ROUTING,
@@ -43,10 +51,16 @@ class TestNonAdminRoutingTablesExcludeAnthropic:
     Anthropic — resolve_tier_config's guard is defense-in-depth, not the
     only line of defense."""
 
-    def test_default_routing_has_no_anthropic(self):
+    def test_default_routing_reaches_anthropic_only_for_chat_on_haiku(self):
         for tier, route in DEFAULT_TIER_ROUTING.items():
-            assert route["provider"] != LLMProvider.ANTHROPIC, (
-                f"DEFAULT_TIER_ROUTING[{tier}] routes non-admin users to Anthropic")
+            if route["provider"] == LLMProvider.ANTHROPIC:
+                assert tier == LLMTier.CHAT, (
+                    f"DEFAULT_TIER_ROUTING[{tier}] routes non-admin users to Anthropic")
+                assert route["model"] in MEMBER_CHAT_ANTHROPIC_MODELS
+        # The other arm: chat is that route.
+        chat = DEFAULT_TIER_ROUTING[LLMTier.CHAT]
+        assert chat["provider"] == LLMProvider.ANTHROPIC
+        assert chat["model"] == CHAT_HAIKU_MODEL == "claude-haiku-5-5"
 
     def test_pro_routing_has_no_anthropic(self):
         for tier, route in PRO_TIER_ROUTING.items():
@@ -55,6 +69,9 @@ class TestNonAdminRoutingTablesExcludeAnthropic:
     def test_elite_routing_has_no_anthropic(self):
         for tier, route in ELITE_TIER_ROUTING.items():
             assert route["provider"] != LLMProvider.ANTHROPIC
+
+    def test_the_member_exception_is_one_haiku_model(self):
+        assert MEMBER_CHAT_ANTHROPIC_MODELS == frozenset({"claude-haiku-5-5"})
 
     def test_admin_routing_still_uses_anthropic(self):
         """Confirms the guard didn't accidentally neuter the admin path too."""
@@ -86,10 +103,16 @@ class TestResolveTierConfigHardGuard:
             monkeypatch.delenv(k, raising=False)
         primary = LLMConfig(provider=LLMProvider.ANTHROPIC, api_key="claude-primary-key")
 
-        cfg = resolve_tier_config(LLMTier.CHAT, primary, is_admin=False)
+        cfg = resolve_tier_config(LLMTier.THESIS, primary, is_admin=False)
 
         assert cfg.provider != LLMProvider.ANTHROPIC or not cfg.is_configured()
         assert not cfg.is_configured()
+
+        # Chat, the one exception, reaches the same key — on Haiku only.
+        chat = resolve_tier_config(LLMTier.CHAT, primary, is_admin=False)
+        assert chat.provider == LLMProvider.ANTHROPIC
+        assert chat.model == CHAT_HAIKU_MODEL
+        assert chat.effort == "low"
 
     def test_admin_primary_config_fallback_can_still_be_anthropic(self, monkeypatch):
         for k in ("GEMINI_API_KEY", "GROQ_API_KEY", "DEEPSEEK_API_KEY",
@@ -224,3 +247,46 @@ class TestAnalyzerFallbackChainAdminGate:
 
         assert result is not None
         assert result.get("direction") == "LONG"
+
+
+class TestTheMemberChatException:
+    """The exception is the chat tier on a named Haiku model, and nothing
+    wider: a route that names another Claude model for members, or Haiku for
+    another tier, still never reaches the operator's key."""
+
+    def _env(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "claude-key")
+        for k in ("GEMINI_API_KEY", "GROQ_API_KEY", "DEEPSEEK_API_KEY", "XAI_API_KEY",
+                  "OPENAI_API_KEY", "ALIBABA_API_KEY", "LLM_TIER_CHAT_PROVIDER"):
+            monkeypatch.delenv(k, raising=False)
+        return LLMConfig(provider=LLMProvider.OPENAI, api_key="")
+
+    def test_member_chat_runs_on_haiku_with_the_operator_key(self, monkeypatch):
+        primary = self._env(monkeypatch)
+        cfg = resolve_tier_config(LLMTier.CHAT, primary, is_admin=False)
+        assert (cfg.provider, cfg.model, cfg.api_key, cfg.effort, cfg.source) == (
+            LLMProvider.ANTHROPIC, "claude-haiku-5-5", "claude-key", "low", "default-table")
+
+    def test_a_member_route_naming_another_claude_model_is_refused(self, monkeypatch):
+        primary = self._env(monkeypatch)
+        monkeypatch.setitem(DEFAULT_TIER_ROUTING, LLMTier.CHAT, {
+            "provider": LLMProvider.ANTHROPIC, "model": "claude-sonnet-5"})
+        cfg = resolve_tier_config(LLMTier.CHAT, primary, is_admin=False)
+        assert cfg.provider != LLMProvider.ANTHROPIC
+        assert not cfg.api_key
+
+    def test_haiku_on_another_tier_is_refused(self, monkeypatch):
+        primary = self._env(monkeypatch)
+        monkeypatch.setitem(DEFAULT_TIER_ROUTING, LLMTier.THESIS, {
+            "provider": LLMProvider.ANTHROPIC, "model": "claude-haiku-5-5"})
+        cfg = resolve_tier_config(LLMTier.THESIS, primary, is_admin=False)
+        assert cfg.provider != LLMProvider.ANTHROPIC
+        assert not cfg.api_key
+
+    def test_with_no_anthropic_key_member_chat_is_not_handed_a_blank_claude_config(
+            self, monkeypatch):
+        primary = self._env(monkeypatch)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+        cfg = resolve_tier_config(LLMTier.CHAT, primary, is_admin=False)
+        assert cfg.provider != LLMProvider.ANTHROPIC
