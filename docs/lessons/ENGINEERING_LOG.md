@@ -27931,3 +27931,65 @@ two real survivors, each a missing case rather than a wrong one: no test read
 `final` off the route, and no signature had an `r` off the curve. Placing the
 mutants also showed the factory's deployment check had no test at all. Each
 now has one.
+
+## THREE MAINNETS, NO KEY OF OURS: A STAMP IS READ BACK FROM THE REGISTRY, A BITCOIN PROOF FROM THE HEADER, AND A PAYLOAD THAT DOES NOT FIT IS GIVEN ITS OWN TAG
+
+21 October 2026. The owner: "Go mainnet included", then "Build the mainnet
+ones too". Each completed day's seal root can now be put on three mainnets,
+each without a key, a wallet or a transaction of the server's
+(`app/test/a_day_is_stamped_on_mainnets.test.js`).
+
+**EAS on Base: the registry, not the calldata, is the final word.** A
+visitor's wallet calls `timestamp(root)` on the Ethereum Attestation Service
+at Base's OP Stack predeploy (`0x4200…0021`, version 1.0.1, read live). EAS
+keeps one stamp per root, so a call whose calldata is exactly right can still
+have stamped nothing: a second stamp reverts. `verifyEasStamp`
+(`app/lib/root_anchor.js`) therefore checks the transaction's target and
+calldata, then its receipt, then asks EAS itself (`getTimestamp(root)`) and
+requires that answer to equal the block's time. Calldata alone is the claim
+the self-send anchors make; here it would accept a reverted transaction. The
+plan route asks EAS first and answers `already_stamped` rather than hand a
+wallet a transaction that would revert, and the page refuses a plan whose
+target is not the registry's EAS. Tested against a real Base transaction
+found by its `Timestamped` event.
+
+**Bitcoin through OpenTimestamps: a hash goes out, a header comes back.**
+The server POSTs SHA-256 of the same statement the chains carry
+(`RCROOT1:<day>:<root>`) to the four public calendars; they pay for and send
+the Bitcoin transaction. The proof format is parsed and written in-house
+(`app/lib/opentimestamps.js`), held to the OpenTimestamps project's own
+example proof byte for byte, whose path leads to block 358391's Merkle root.
+A height is written only after this server read that block's header from a
+Bitcoin header API, compared the root, and saw the block six deep
+(`app/lib/root_ots.js` `checkProof`); the page re-checks it live before
+painting it green. The proof and the statement download from the roots page
+for `ots verify` against one's own node.
+
+**Dogecoin: the text did not fit, so it is a different format.** Dogecoin
+Core relays one OP_RETURN of at most 80 bytes; `RCROOT1:<day>:<64 hex>` is 83.
+Rather than shorten the shared text (every EVM anchor and the Bitcoin
+statement use it), Dogecoin gets its own tag, `RCD1:<day>:` followed by the
+root's 32 raw bytes, 48 bytes in all (`app/lib/dogecoin_anchor.js`), so no
+reader parses one as the other. The owner's own Dogecoin Core sends it from
+four console commands the plan prints; the server reads the transaction back
+through BlockCypher's keyless API, the only keyless reader that answered
+(Blockchair blacklisted the address, Trezor's Blockbook challenged it), so a
+silent BlockCypher is "unknown", never a verdict, and a verdict is cached for
+six hours against its 100-reads-an-hour limit. A browser path (MyDoge's
+`requestPsbt`) needs a page-built transaction and a live wallet test first.
+
+**A stand-in calendar cut its own answer at the wrong place.** The first
+fake calendar sliced a whole proof file at a fixed offset to get a timestamp,
+which is right for a 32-byte digest and wrong for a commitment of 57: the
+upgrade parsed garbage, swallowed the error, and the test read "not
+upgraded". The library's own writer (`writeTimestamp`) is now exported and
+the stand-in uses it. A hand-written stand-in forgets the next attribute; a
+hand-written offset forgets the next length.
+
+**Mutation round.** Twenty-seven mutants across the EAS verifier, the plan
+route, the stamp button, the Dogecoin reader, the proof library, the job and
+the Bitcoin cell, all killed. The first pass left one alive: without the
+check, a Bitcoin tip that could not be read is `null`, the depth comes out
+negative, and the day reads "0 of the 6 confirmations", a measurement nobody
+made, instead of "could not be read". No test had a header source that
+answered blocks but not the tip; one does now.

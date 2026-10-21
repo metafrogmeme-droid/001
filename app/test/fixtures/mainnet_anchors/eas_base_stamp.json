@@ -1,0 +1,26 @@
+{
+ "_source": "Base mainnet (mainnet.base.org / base-rpc.publicnode.com), read 2026-10-21. A real EAS timestamp(bytes32) call found by its Timestamped event; not a RUNECLAW root.",
+ "root": "90708fdb472762807459327325f85f85e13d272e59225b48cdbc451c5a065c0c",
+ "tx": {
+  "hash": "0x14a5b84d2ec909d501d9af410da34b34770f6d970df941603d0decc3519d33a4",
+  "blockHash": "0x0268d2b0e9dcd913ce07d2f94354843a6dac158f3d3c8d0f8fa0746b4931854d",
+  "blockNumber": "0x3273ed3",
+  "from": "0x5af1522279e9bb12a121342db3557df380477a84",
+  "to": "0x4200000000000000000000000000000000000021",
+  "input": "0x4d00307090708fdb472762807459327325f85f85e13d272e59225b48cdbc451c5a065c0c",
+  "value": "0x0"
+ },
+ "receipt": {
+  "transactionHash": "0x14a5b84d2ec909d501d9af410da34b34770f6d970df941603d0decc3519d33a4",
+  "blockHash": "0x0268d2b0e9dcd913ce07d2f94354843a6dac158f3d3c8d0f8fa0746b4931854d",
+  "blockNumber": "0x3273ed3",
+  "status": "0x1",
+  "to": "0x4200000000000000000000000000000000000021"
+ },
+ "block": {
+  "hash": "0x0268d2b0e9dcd913ce07d2f94354843a6dac158f3d3c8d0f8fa0746b4931854d",
+  "number": "0x3273ed3",
+  "timestamp": "0x6ad8da89"
+ },
+ "getTimestamp": "0x000000000000000000000000000000000000000000000000000000006ad8da89"
+}

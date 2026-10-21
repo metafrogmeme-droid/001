@@ -20,8 +20,8 @@
     "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "v": 2,
-    "sha": "4c6d90bed0c90a30"
+    "v": 3,
+    "sha": "8f4e25eae9ba57fe"
   },
   "js/api-retry.js": {
     "v": 3,
@@ -184,8 +184,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 195,
-    "sha": "bf272b6149d53855"
+    "v": 196,
+    "sha": "84886ece29c35993"
   },
   "js/icons.js": {
     "v": 6,
@@ -298,6 +298,10 @@
   "js/risk-backstop-model.js": {
     "v": 1,
     "sha": "6e482731fe53921c"
+  },
+  "js/roots-stamp.js": {
+    "v": 1,
+    "sha": "ef6f3c9751edd98c"
   },
   "js/rr-words.js": {
     "v": 1,

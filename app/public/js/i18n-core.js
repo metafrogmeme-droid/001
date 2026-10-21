@@ -206,6 +206,17 @@
     "rt.anchored_on": { en: "verified on {chain}" },
     "rt.anchor_mismatch": { en: "recorded anchor does NOT match this root" },
     "rt.anchor_unverified": { en: "anchor recorded — chain not reachable to confirm" },
+    "rt.btc_none": { en: "not yet in Bitcoin" },
+    "rt.btc_pending": { en: "Bitcoin: waiting for a block (OpenTimestamps)" },
+    "rt.btc_verified": { en: "in Bitcoin block {n}" },
+    "rt.btc_mismatch": { en: "Bitcoin proof does NOT match this root" },
+    "rt.btc_unknown": { en: "Bitcoin proof recorded — not reachable to confirm" },
+    "rt.btc_proof": { en: "proof file" },
+    "rt.stamp_eas": { en: "Stamp on Base (EAS)" },
+    "rt.stamp_busy": { en: "Confirm in your wallet, then wait for Base…" },
+    "rt.stamp_done": { en: "Stamped on Base — checking…" },
+    "rt.stamp_already": { en: "already stamped in EAS" },
+    "rt.stamp_failed": { en: "Not stamped: {why}" },
     "rt.unanchored": { en: "not yet anchored on-chain" },
     "aw.h": { en: "Your Arena week" },
     "aw.t.week": { en: "The week" },
@@ -2363,7 +2374,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"00dac250","zh":"9006944b","pt":"1de181a0","fr":"448b00fe","de":"bbc29173","nl":"0ae8ccf8","ja":"43d013db","ko":"cc8f1ed9","ru":"e8be8de6","tr":"1d172083","it":"6e3f362e","hi":"b2a724ba","ar":"5cd28b97"};
+  var CHUNKS = {"es":"325fd61a","zh":"4e1d1131","pt":"fbdbbaa1","fr":"cff17761","de":"8155129a","nl":"d37a4c82","ja":"9eb9bf1c","ko":"a3267223","ru":"8dadb375","tr":"aad751c0","it":"9d82c376","hi":"df4f3aa7","ar":"c442dab0"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

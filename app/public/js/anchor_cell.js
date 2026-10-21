@@ -143,5 +143,41 @@
       return anchorCell({ anchor_tx: a.tx }, v, T, c);
     }).join(' <span class="n">·</span> ');
   }
-  return { anchorState: anchorState, anchorCell: anchorCell, anchorCells: anchorCells, esc: esc, BASE: BASE };
+  /**
+   * The day's Bitcoin cell (OpenTimestamps). `summary` is the feed row's `ots`
+   * ({ submitted, bitcoin_height } from our own table, or null when it could
+   * not be read); `verdict` is the parsed body of /api/roots/ots/:day, the
+   * live re-check, or null when it has not run. Green only on the live
+   * check's word, exactly as the chain cells: our column alone never paints
+   * a day as in Bitcoin.
+   */
+  function otsCell(summary, verdict, t, day) {
+    var T = typeof t === 'function' ? t : function (k, en) { return en; };
+    var proof = function () {
+      return ' <a class="n" href="/api/roots/ots/' + esc(day) + '/proof" download>'
+        + esc(T('rt.btc_proof', 'proof file')) + '</a>';
+    };
+    var s = verdict && typeof verdict === 'object' ? verdict.status : null;
+    if (s === 'verified' && verdict.bitcoin_height) {
+      return '<span class="n" style="color:var(--up)">₿ '
+        + esc(T('rt.btc_verified', 'in Bitcoin block {n}').replace('{n}', String(verdict.bitcoin_height)))
+        + '</span>' + proof();
+    }
+    if (s === 'mismatch') {
+      return '<span class="n" style="color:var(--down);font-weight:600">⚠ '
+        + esc(T('rt.btc_mismatch', 'Bitcoin proof does NOT match this root')) + '</span>';
+    }
+    if (!summary || typeof summary !== 'object') {
+      return '<span class="n">₿ ' + esc(T('rt.btc_unknown', 'Bitcoin proof recorded — not reachable to confirm')) + '</span>';
+    }
+    if (!summary.submitted) return '<span class="n">₿ ' + esc(T('rt.btc_none', 'not yet in Bitcoin')) + '</span>';
+    // Submitted. Our row may already name a height; until the live check
+    // agrees, that is "recorded, not confirmed", never green.
+    if (s === 'pending' || (!s && summary.bitcoin_height == null)) {
+      return '<span class="n">₿ ' + esc(T('rt.btc_pending', 'Bitcoin: waiting for a block (OpenTimestamps)')) + '</span>' + proof();
+    }
+    return '<span class="n">₿ ' + esc(T('rt.btc_unknown', 'Bitcoin proof recorded — not reachable to confirm')) + '</span>' + proof();
+  }
+
+  return { anchorState: anchorState, anchorCell: anchorCell, anchorCells: anchorCells, otsCell: otsCell, esc: esc, BASE: BASE };
 }));

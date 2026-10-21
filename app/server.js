@@ -1099,4 +1099,10 @@ async function migrateWithRetry() {
   // trades, read from the chain once a minute. Skips at once while the
   // factory is not set and checked (lib/memeclaw_config.js).
   require('./lib/memeclaw_indexer').startMemeclawIndexer();
+
+  // Each completed day's seal root, timestamped in Bitcoin through
+  // OpenTimestamps: submitted to the public calendars (an HTTP POST of a
+  // hash; nothing signed, no transaction sent here), then completed once a
+  // calendar reaches a Bitcoin block (lib/root_ots.js).
+  require('./lib/root_ots').startRootOts();
 })();
