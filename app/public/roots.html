@@ -19,11 +19,13 @@
   .root-hash.copied { border-color: var(--up); color: var(--up); }
   .explain { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.65; border-top: 1px solid var(--line); margin-top: var(--s5); padding-top: var(--s3); }
   .mirror-btn { margin-top: var(--s4); }
+  .stamp-eas { font: inherit; font-size: var(--fs-xs); padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+  .stamp-eas:disabled { opacity: .6; cursor: default; }
 </style>
 </head>
 <body>
 <div class="roots-wrap" role="main">
-  <nav class="topnav"><a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a><span style="flex:1"></span><a href="/provable" data-i18n="lp.prov1_h">Verify it yourself</a><a href="/proof" data-i18n="nav.proof">Proof of PnL</a><a href="/api/roots" data-i18n="rt.raw_json">Raw JSON feed</a></nav>
+  <nav class="topnav"><a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a><span style="flex:1"></span><a href="/provable" data-i18n="lp.prov1_h">Verify it yourself</a><a href="/proof" data-i18n="nav.proof">Proof of PnL</a><a href="/claw-record" data-i18n="cr.h1">The Claw Record</a><a href="/api/roots" data-i18n="rt.raw_json">Raw JSON feed</a></nav>
   <h1 style="font-family:var(--font-display);letter-spacing:.03em" data-i18n="rt.h1">🌳 Daily Seal Roots</h1>
   <p class="muted" style="font-size:var(--fs-sm);margin:6px 0 0" data-i18n-html="rt.intro">
     Every trading call and Arena paper trade is <a href="/dashboard#signals">sealed the moment it's made</a>.
@@ -97,31 +99,88 @@
         }).join(' <span class="n">·</span> ');
       };
       var verdicts = {};
+      // Bitcoin, through OpenTimestamps: from the feed's own line until the
+      // live re-check (/api/roots/ots/:day) answers. Never green before it.
+      var btc = function (r, v) {
+        return window.RCAnchorCell && RCAnchorCell.otsCell ? RCAnchorCell.otsCell(r.ots, v, T, r.day) : '';
+      };
+      // "Stamp on Base (EAS)": only with a wallet in this browser, only where
+      // the registry describes EAS, and only on a day not yet stamped there.
+      var eas = chainsByKey['base-eas'];
+      var canStamp = function (r) {
+        return !!(eas && window.ethereum && window.RCRootsStamp && window.RCEvmWallet)
+          && !anchorsOf(r).some(function (a) { return a.chain === 'base-eas'; });
+      };
+      var stampButton = function (r) {
+        return canStamp(r) ? ' <button type="button" class="stamp-eas" data-stamp-day="' + esc(r.day) + '">'
+          + esc(T('rt.stamp_eas', 'Stamp on Base (EAS)')) + '</button><span class="n stamp-note"></span>' : '';
+      };
       box.innerHTML = roots.map(function (r) {
         return '<div class="root-row" data-day="' + esc(r.day) + '">'
           + '<div class="hd"><span class="day">' + esc(r.day) + '</span>'
           + '<span class="n">' + (Number(r.seal_count) || 0) + ' seals committed</span>'
-          + '<span class="anchor-cell">' + cell(r, {}) + '</span></div>'
+          + '<span class="anchor-cell">' + cell(r, {}) + '</span>'
+          + '<span class="btc-cell">' + btc(r, null) + '</span>' + stampButton(r)
+          + '<span class="quorum-cell"></span></div>'
           + '<div class="root-hash" data-root="' + esc(r.root) + '" title="Click to copy" role="button" tabindex="0">' + esc(r.root) + '</div>'
           + '</div>';
       }).join('');
 
-      // Live re-verify, one request per ANCHORED day AND CHAIN only. Unanchored
-      // days have nothing to check and asking would be 30 pointless requests.
+      // Live re-check, ONE request per day that has something to check: the
+      // day's quorum (/api/roots/quorum/:day) runs the same live check
+      // /api/roots/verify/:day runs for each recorded anchor, and the
+      // Bitcoin check /api/roots/ots/:day runs, so each cell is painted from
+      // what its chain said and the quorum line from all of them together.
+      // A day with no anchor and nothing sent to Bitcoin is not asked.
       roots.forEach(function (r) {
-        anchorsOf(r).forEach(function (a) {
-          fetch('/api/roots/verify/' + encodeURIComponent(r.day) + '?chain=' + encodeURIComponent(a.chain),
-            { headers: { Accept: 'application/json' } })
-            .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-            .then(function (v) {
-              verdicts[r.day] = verdicts[r.day] || {};
-              verdicts[r.day][a.chain] = v;
-              var host = box.querySelector('[data-day="' + CSS.escape(r.day) + '"] .anchor-cell');
-              if (host) host.innerHTML = cell(r, verdicts[r.day]);
-            })
-            // A failed lookup leaves the row exactly as drawn — "recorded, not
-            // confirmed". It must never fall through to green.
-            .catch(function () { /* stays unknown, which is the truth */ });
+        if (!anchorsOf(r).length && !(r.ots && r.ots.submitted)) return;
+        var row = function () { return box.querySelector('[data-day="' + CSS.escape(r.day) + '"]'); };
+        fetch('/api/roots/quorum/' + encodeURIComponent(r.day), { headers: { Accept: 'application/json' } })
+          .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+          .then(function (q) {
+            var host = row();
+            if (!host) return;
+            verdicts[r.day] = {};
+            (q.anchors || []).forEach(function (v) { verdicts[r.day][v.chain] = v; });
+            host.querySelector('.anchor-cell').innerHTML = cell(r, verdicts[r.day]);
+            if (q.bitcoin) host.querySelector('.btc-cell').innerHTML = btc(r, q.bitcoin);
+            host.querySelector('.quorum-cell').innerHTML = ' ' + RCAnchorCell.quorumCell(q, T);
+          })
+          // A failed lookup leaves every cell exactly as drawn — "recorded,
+          // not confirmed" — and says the quorum was not checked. Never green.
+          .catch(function () {
+            var host = row();
+            if (host && window.RCAnchorCell) host.querySelector('.quorum-cell').innerHTML = ' ' + RCAnchorCell.quorumCell(null, T);
+          });
+      });
+
+      box.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('[data-stamp-day]');
+        if (!btn || btn.disabled) return;
+        var day = btn.getAttribute('data-stamp-day');
+        var note = btn.nextElementSibling;
+        var say = function (t) { if (note) note.textContent = ' ' + t; };
+        var json = function (res) { return res.json().catch(function () { return null; }).then(function (b) { return { status: res.status, body: b }; }); };
+        btn.disabled = true;
+        RCRootsStamp.stamp(day, {
+          eth: window.ethereum, wallet: RCEvmWallet, chain: eas,
+          getJSON: function (u) { return fetch(u, { headers: { Accept: 'application/json' } }).then(json); },
+          postJSON: function (u, b) {
+            return fetch(u, { method: 'POST', credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(b) }).then(json);
+          },
+          onState: function (s) { say(T(s === 'wallet' ? 'rt.stamp_busy' : 'rt.stamp_done', s === 'wallet' ? 'Confirm in your wallet, then wait for Base…' : 'Stamped on Base — checking…')); },
+        }).then(function (out) {
+          if (out.state === 'already') { btn.remove(); say(T('rt.stamp_already', 'already stamped in EAS')); return; }
+          btn.remove();
+          if (out.state === 'recorded') { say(T('rt.stamp_done', 'Stamped on Base — checking…')); setTimeout(function () { location.reload(); }, 1500); return; }
+          // In EAS on Base, but not in our feed yet (not signed in here, or
+          // Base not confirmed in time): the stamp stands either way.
+          say(T('rt.stamp_done', 'Stamped on Base — checking…') + ' ' + String(out.tx || ''));
+        }).catch(function (err) {
+          btn.disabled = false;
+          if (RCEvmWallet.declined(err)) { say(''); return; }
+          say(T('rt.stamp_failed', 'Not stamped: {why}').replace('{why}', String((err && err.message) || 'error').slice(0, 160)));
         });
       });
     })
@@ -141,8 +200,10 @@
   }
 })();
 </script>
-<script src="/js/anchor_cell.js?v=2"></script>
-<script src="/js/i18n-core.js?v=196"></script>
+<script src="/js/anchor_cell.js?v=4"></script>
+<script src="/js/evm-wallet.js?v=1"></script>
+<script src="/js/roots-stamp.js?v=1"></script>
+<script src="/js/i18n-core.js?v=199"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

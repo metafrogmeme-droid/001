@@ -143,5 +143,78 @@
       return anchorCell({ anchor_tx: a.tx }, v, T, c);
     }).join(' <span class="n">·</span> ');
   }
-  return { anchorState: anchorState, anchorCell: anchorCell, anchorCells: anchorCells, esc: esc, BASE: BASE };
+  /**
+   * The day's Bitcoin cell (OpenTimestamps). `summary` is the feed row's `ots`
+   * ({ submitted, bitcoin_height } from our own table, or null when it could
+   * not be read); `verdict` is the parsed body of /api/roots/ots/:day, the
+   * live re-check, or null when it has not run. Green only on the live
+   * check's word, exactly as the chain cells: our column alone never paints
+   * a day as in Bitcoin.
+   */
+  function otsCell(summary, verdict, t, day) {
+    var T = typeof t === 'function' ? t : function (k, en) { return en; };
+    var proof = function () {
+      return ' <a class="n" href="/api/roots/ots/' + esc(day) + '/proof" download>'
+        + esc(T('rt.btc_proof', 'proof file')) + '</a>';
+    };
+    var s = verdict && typeof verdict === 'object' ? verdict.status : null;
+    if (s === 'verified' && verdict.bitcoin_height) {
+      return '<span class="n" style="color:var(--up)">₿ '
+        + esc(T('rt.btc_verified', 'in Bitcoin block {n}').replace('{n}', String(verdict.bitcoin_height)))
+        + '</span>' + proof();
+    }
+    if (s === 'mismatch') {
+      return '<span class="n" style="color:var(--down);font-weight:600">⚠ '
+        + esc(T('rt.btc_mismatch', 'Bitcoin proof does NOT match this root')) + '</span>';
+    }
+    if (!summary || typeof summary !== 'object') {
+      return '<span class="n">₿ ' + esc(T('rt.btc_unknown', 'Bitcoin proof recorded — not reachable to confirm')) + '</span>';
+    }
+    if (!summary.submitted) return '<span class="n">₿ ' + esc(T('rt.btc_none', 'not yet in Bitcoin')) + '</span>';
+    // Submitted. Our row may already name a height; until the live check
+    // agrees, that is "recorded, not confirmed", never green.
+    if (s === 'pending' || (!s && summary.bitcoin_height == null)) {
+      return '<span class="n">₿ ' + esc(T('rt.btc_pending', 'Bitcoin: waiting for a block (OpenTimestamps)')) + '</span>' + proof();
+    }
+    return '<span class="n">₿ ' + esc(T('rt.btc_unknown', 'Bitcoin proof recorded — not reachable to confirm')) + '</span>' + proof();
+  }
+
+  /** What each independence group is called on the page (lib/anchor_quorum.js names the groups). */
+  var GROUP_NAMES = { bitcoin: 'Bitcoin', dogecoin: 'Dogecoin', 'ethereum-l2': 'Base' };
+
+  /**
+   * A day's Anchor Quorum (GET /api/roots/quorum/:day) as one line. Green
+   * only for "multi-anchored", which the server says only when k independent
+   * chains verified the root live; and beside it, always, what it is not: a
+   * timestamp proves when, never how well. An answer this cannot read is
+   * said, never drawn as "not anchored".
+   */
+  function quorumCell(q, t) {
+    var T = typeof t === 'function' ? t : function (k, en) { return en; };
+    if (!q || typeof q !== 'object' || !Array.isArray(q.groups) || typeof q.k !== 'number') {
+      return '<span class="n q-cell" data-state="unreadable">' + esc(T('rt.q_unread', 'quorum could not be checked')) + '</span>';
+    }
+    var fill = function (s) { return String(s).replace('{n}', String(q.groups.length)).replace('{k}', String(q.k)); };
+    var names = q.groups.map(function (g) { return GROUP_NAMES[g] || g; }).join(' + ');
+    var out;
+    if (q.status === 'multi_anchored') {
+      out = '<span class="n q-cell" data-state="multi" style="color:var(--up)">⛓ '
+        + esc(fill(T('rt.q_multi', 'Multi-anchored: {n} independent chains'))) + ' · ' + esc(names) + '</span>'
+        + ' <span class="n">(' + esc(T('rt.q_meaning', 'time-proven, not performance')) + ')</span>';
+    } else if (q.status === 'unknown') {
+      out = '<span class="n q-cell" data-state="unknown">⛓ '
+        + esc(fill(T('rt.q_unknown', '{n} of {k} independent chains so far; some could not be checked'))) + '</span>';
+    } else {
+      out = '<span class="n q-cell" data-state="short">⛓ '
+        + esc(fill(T('rt.q_short', '{n} of {k} independent chains'))) + (names ? ' · ' + esc(names) : '') + '</span>';
+    }
+    if (Array.isArray(q.mismatched) && q.mismatched.length) {
+      out += ' <span class="n" style="color:var(--down);font-weight:600">⚠ '
+        + esc(T('rt.q_mismatch', 'a recorded anchor no longer checks out')) + ': ' + esc(q.mismatched.join(', ')) + '</span>';
+    }
+    return out;
+  }
+
+  return { anchorState: anchorState, anchorCell: anchorCell, anchorCells: anchorCells, otsCell: otsCell, quorumCell: quorumCell,
+    esc: esc, BASE: BASE };
 }));

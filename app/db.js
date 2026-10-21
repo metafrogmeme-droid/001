@@ -362,6 +362,7 @@ class MemoryDB {
     this.watchlist = [];      // { user_id, symbol, created_at } (starred symbols)
     this.sealRoots = [];      // { day, root, seal_count, computed_at } — immutable daily Merkle roots
     this.sealRootAnchors = []; // { day, chain, tx, from_addr, block_time, verified_at } — one per (day, chain), first write wins
+    this.sealRootOts = [];    // { day, root, proof, calendars, bitcoin_height, block_time, submitted_at, checked_at } — one per day
     this.duelRounds = [];     // Daily Duel rounds, unique on (day, idx)
     this._nextDuelRoundId = 1;
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
@@ -1369,6 +1370,32 @@ class MemoryDB {
     }
     if (cmd.includes('FROM SEAL_ROOT_ANCHORS')) {
       return [this.sealRootAnchors.filter(r => r.day === params[0]).map(r => ({ ...r })), []];
+    }
+
+    // -- SEAL ROOT OTS (the day's root timestamped in Bitcoin through OpenTimestamps, 2026-10-21) --
+    if (cmd.includes('INSERT IGNORE INTO SEAL_ROOT_OTS')) {
+      // params: day, root, proof, calendars, submitted_at — first write per day wins
+      const dup = this.sealRootOts.some(r => r.day === params[0]);
+      if (!dup) {
+        this.sealRootOts.push({ day: params[0], root: params[1], proof: params[2], calendars: params[3],
+          bitcoin_height: null, block_time: null, submitted_at: params[4], checked_at: null });
+      }
+      return [{ affectedRows: dup ? 0 : 1 }, []];
+    }
+    if (cmd.includes('UPDATE SEAL_ROOT_OTS')) {
+      // params: proof, bitcoin_height, block_time, checked_at, day, root
+      const r = this.sealRootOts.find(x => x.day === params[4] && x.root === params[5]);
+      if (!r) return [{ affectedRows: 0 }, []];
+      Object.assign(r, { proof: params[0], bitcoin_height: params[1], block_time: params[2], checked_at: params[3] });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM SEAL_ROOT_OTS WHERE DAY = ?')) {
+      return [this.sealRootOts.filter(r => r.day === params[0]).map(r => ({ ...r })), []];
+    }
+    if (cmd.includes('FROM SEAL_ROOT_OTS')) {
+      // the job's list: not yet in a Bitcoin block, newest first
+      return [this.sealRootOts.filter(r => r.bitcoin_height == null)
+        .sort((a, b) => (a.day < b.day ? 1 : -1)).slice(0, 14).map(r => ({ ...r })), []];
     }
 
     // -- SEAL ROOTS (Provable Calls v3 — one immutable Merkle root per UTC day) --
@@ -3086,6 +3113,7 @@ const EXPECTED_TABLES = Object.freeze([
   'learn_progress',
   'seal_roots',
   'seal_root_anchors',
+  'seal_root_ots',
   'arena_seasons',
   'arena_follows',
   'user_watchlist',
@@ -4325,6 +4353,22 @@ async function migrate() {
         block_time TIMESTAMP NULL,
         verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (day, chain)
+      )
+    `);
+    // The day's root timestamped in Bitcoin through OpenTimestamps
+    // (lib/root_ots.js): the proof file as base64, growing from "pending at
+    // the calendars" to a path into a Bitcoin block. bitcoin_height is
+    // written only after this server checked that block's header itself.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS seal_root_ots (
+        day VARCHAR(10) NOT NULL PRIMARY KEY,
+        root CHAR(64) NOT NULL,
+        proof MEDIUMTEXT NOT NULL,
+        calendars VARCHAR(512) NULL,
+        bitcoin_height INT NULL,
+        block_time TIMESTAMP NULL,
+        submitted_at TIMESTAMP NULL,
+        checked_at TIMESTAMP NULL
       )
     `);
     await pool.query(`

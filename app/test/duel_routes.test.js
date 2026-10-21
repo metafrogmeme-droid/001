@@ -698,7 +698,7 @@ test('a classic round’s receipt is locked to a visitor, opens for the player w
   assert.equal(p.v, 6);
   assert.equal(p.kind, 'duel_round');
   assert.strictEqual(p.agent_direction, picked.body.agent_direction, 'the stance revealed by the call is the one sealed when dealt');
-  assert.match(p.nonce, /^[0-9a-f]{16}$/);
+  assert.match(p.nonce, /^[0-9a-f]{32}$/, '128 bits: a day is too long for 64 to hide three stances');
   assert.equal(p.symbol, target.symbol);
   assert.equal(p.day, card.body.day);
   assert.strictEqual(open.body.current.agent_direction, picked.body.agent_direction);

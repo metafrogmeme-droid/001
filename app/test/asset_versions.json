@@ -20,8 +20,8 @@
     "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "v": 2,
-    "sha": "4c6d90bed0c90a30"
+    "v": 4,
+    "sha": "109f43551ad06e65"
   },
   "js/api-retry.js": {
     "v": 3,
@@ -74,6 +74,10 @@
   "js/chat.js": {
     "v": 40,
     "sha": "c714e0d37fa78d3d"
+  },
+  "js/claw-record.js": {
+    "v": 1,
+    "sha": "2d974fd10da45b24"
   },
   "js/confidence-score.js": {
     "v": 2,
@@ -184,8 +188,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 196,
-    "sha": "bba97b88d7368448"
+    "v": 199,
+    "sha": "1862ae2521fcdf40"
   },
   "js/icons.js": {
     "v": 6,
@@ -298,6 +302,10 @@
   "js/risk-backstop-model.js": {
     "v": 1,
     "sha": "6e482731fe53921c"
+  },
+  "js/roots-stamp.js": {
+    "v": 1,
+    "sha": "ef6f3c9751edd98c"
   },
   "js/rr-words.js": {
     "v": 1,

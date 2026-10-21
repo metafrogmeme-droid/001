@@ -422,6 +422,28 @@ unreachable is the exact circumstance this exists for. With `DIAG_TOKEN` unset
 the route 404s as though unmounted, and a wrong token 404s identically — a
 distinct code would confirm the route exists.
 
+**The daily proof's anchors** are in the same answer, under `anchors`: the
+last pass of the anchor watch (`app/lib/anchor_watch.js`, every 30 minutes
+over the last three completed days). Read `counts` first, then `findings`:
+
+```bash
+curl -s -H "X-Diag-Token: $DIAG_TOKEN" https://YOUR_HOST/diagz | jq '.anchors'
+```
+
+- `alarm` — `reader_disagreement` (one anchor's readers contradict each other:
+  a reader lying, lagging or on the far side of a reorg) or `anchor_mismatch`
+  (a recorded anchor no longer checks out). Look before anything else.
+- `warn` — `ots_stuck` (a Bitcoin proof a day old and still pending),
+  `ots_missing` (a completed day never sent: the `seal_root_ots` job is not
+  working; its state is under `watchers`), `unreadable`, `check_failed`.
+- `todo` — `quorum_short`: a day not yet in two independent chains a day and
+  a half after it ended. Anchor or stamp it from a wallet on `/roots`.
+- `findings: null` with an `error` class means the pass could not read the
+  roots: nothing was checked, which is not the same as nothing wrong.
+
+Nothing is pushed to a chat yet; which channel the findings go to is the
+owner's choice.
+
 **When the reason is `db_error`,** the driver's own code appears beside the
 category in both stdout and that file — one word, no stack-reading. Send it and
 it can be classified properly, so the next occurrence names itself instead of

@@ -27,6 +27,8 @@
  * Payload format, self-describing and greppable on-chain:
  *   utf8("RCROOT1:" + day + ":" + root)   as the tx `data`, hex-encoded.
  */
+const { agree, requiredOf, unread } = require('./reader_agreement');
+
 const PREFIX = 'RCROOT1';
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ROOT_RE = /^[0-9a-f]{64}$/;
@@ -40,6 +42,22 @@ const BASE_RPCS = ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'
 // endpoint down is not "could not be read".
 const DOGEOS_TESTNET_PUBLIC_RPCS = ['https://rpc.testnet.dogeos.com/'];
 const DOGEOS_TESTNET_RPCS = [...DOGEOS_TESTNET_PUBLIC_RPCS, 'https://dogeos-testnet.drpc.org'];
+
+/**
+ * The Ethereum Attestation Service on Base: an OP Stack predeploy, so the
+ * same address on every OP Stack chain. Read on 2026-10-21: code at the
+ * address, version() "1.0.1", getTimestamp of an unknown hash 0, and a
+ * simulated timestamp() answering the block's time.
+ *   timestamp(bytes32)    0x4d003070   records block.timestamp for the hash,
+ *                                      once; a second call reverts
+ *                                      (AlreadyTimestamped)
+ *   getTimestamp(bytes32) 0xd45c4435   that time, or 0
+ * Selectors are keccak256 of the signatures (lib/keccak256.js), pinned by
+ * app/test/a_day_is_stamped_on_mainnets.test.js.
+ */
+const EAS_BASE = '0x4200000000000000000000000000000000000021';
+const EAS_TIMESTAMP = '0x4d003070';
+const EAS_GET_TIMESTAMP = '0xd45c4435';
 
 /**
  * A comma list in the environment replaces a chain's default RPCs, for the
@@ -66,6 +84,10 @@ function chains(env) {
       public_rpcs: BASE_RPCS.slice(),
       explorer_tx: 'https://basescan.org/tx/',
       native: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      // What a witness on this chain is independent OF (lib/anchor_quorum.js):
+      // Base settles to Ethereum, so another Ethereum L2 joins this group
+      // rather than counting as a second witness.
+      independence_group: 'ethereum-l2',
       // QuickNode's name for this chain, through Flovia (lib/flovia.js): a
       // second reader of a transaction when every RPC above fails to answer.
       // A chain without one (the DogeOS testnet) has no fallback.
@@ -84,8 +106,44 @@ function chains(env) {
       // recorded until its block is that deep; `finalized` (about 2.5 hours
       // behind the head, measured the same day) is reported, not waited on.
       reorg_depth: 17,
+      // A testnet can be reset and its blocks rewritten: shown, never counted
+      // toward a day's quorum.
+      independence_group: 'dogeos-testnet', counts_toward_quorum: false,
       faucet: 'https://faucet.testnet.dogeos.com',
       native: { name: 'Dogecoin', symbol: 'DOGE', decimals: 18 },
+    },
+    // The same day's root, stamped in EAS's own registry on Base mainnet by a
+    // player's wallet: a call to timestamp(root) instead of a self-send. The
+    // stamp is then readable BY THE ROOT (getTimestamp), with no transaction
+    // hash needed, and only the first stamp of a root ever lands.
+    'base-eas': {
+      key: 'base-eas', chain_id: 8453, name: 'Base (EAS timestamp)', testnet: false,
+      method: 'eas_timestamp', eas: EAS_BASE,
+      // The same chain as `base`: a calldata anchor and an EAS stamp there are one witness.
+      independence_group: 'ethereum-l2',
+      rpcs: rpcList('WEB3_RPC_URL_BASE_ANCHOR', BASE_RPCS, env),
+      public_rpcs: BASE_RPCS.slice(),
+      explorer_tx: 'https://basescan.org/tx/',
+      native: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    },
+    // Dogecoin itself (mainnet, the owner's go on 2026-10-21): the root as an
+    // OP_RETURN output a wallet's owner sends from Dogecoin Core, read back
+    // through a keyless explorer API (lib/dogecoin_anchor.js). Not an EVM
+    // chain: no chain id and no RPCs to hand a wallet.
+    dogecoin: {
+      key: 'dogecoin', chain_id: null, name: 'Dogecoin', testnet: false,
+      method: 'dogecoin_op_return',
+      independence_group: 'dogecoin',
+      rpcs: [], public_rpcs: [],
+      explorer_tx: 'https://blockchair.com/dogecoin/transaction/',
+      // Six confirmations, about six minutes at Dogecoin's one-minute blocks:
+      // the customary Bitcoin-family depth, a convention and not a protocol
+      // parameter. Nothing is recorded before it.
+      reorg_depth: 6,
+      // BlockCypher's keyless tier allows 100 reads an hour, so a verdict
+      // past the depth is kept for six hours rather than five minutes.
+      verify_cache_ms: 6 * 3600 * 1000,
+      native: { name: 'Dogecoin', symbol: 'DOGE', decimals: 8 },
     },
   };
 }
@@ -111,11 +169,22 @@ function publicChains(env) {
     ...(c.faucet ? { faucet: c.faucet } : {}),
     ...(c.explorer_tx_alt ? { explorer_tx_alt: c.explorer_tx_alt } : {}),
     ...(c.reorg_depth ? { reorg_depth: c.reorg_depth } : {}),
+    // How a root is put on this chain: a self-send whose calldata is the
+    // tagged root, or a call to EAS's timestamp() at `eas`.
+    method: c.method || 'calldata',
+    ...(c.eas ? { eas: c.eas } : {}),
+    independence_group: c.independence_group,
+    counts_toward_quorum: c.counts_toward_quorum !== false,
   }));
 }
 
 function payloadFor(day, root) {
   return '0x' + Buffer.from(`${PREFIX}:${day}:${root}`, 'utf8').toString('hex');
+}
+
+/** The call that stamps `root` in EAS: timestamp(bytes32 root). The root is SHA-256, 32 bytes. */
+function easStampCalldata(root) {
+  return EAS_TIMESTAMP + String(root).toLowerCase();
 }
 
 /**
@@ -127,6 +196,26 @@ function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
   if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) return null;
   const chain = chainInfo(chainKey);
   if (!chain) return null;
+  if (chain.method === 'dogecoin_op_return') return require('./dogecoin_anchor').buildPlan(day, root, chain);
+  if (chain.method === 'eas_timestamp') {
+    const data = easStampCalldata(root);
+    return {
+      dry_run: true, chain_id: chain.chain_id, chain: chain.name, chain_key: chain.key,
+      method: chain.method, to: chain.eas, value: '0', data, day, root,
+      instructions: [
+        `Send a 0-value transaction FROM your own wallet TO ${chain.eas} (the Ethereum Attestation `
+          + `Service on ${chain.name.replace(/ \(.*\)$/, '')}), with \`data\` set to the data field above: `
+          + 'timestamp(root). Only the first stamp of a root lands; a second one reverts.',
+        `Or with foundry: cast send ${chain.eas} "timestamp(bytes32)" 0x${root} --rpc-url `
+          + `${chain.public_rpcs[0]} --private-key <YOUR_KEY_NEVER_SHARED_WITH_THE_SERVER>`,
+        'Then submit the transaction hash back via POST /api/roots/anchor '
+          + `{ day, tx_hash, chain: "${chain.key}" } — the server reads the stamp back from EAS `
+          + 'before recording anything.',
+      ],
+      non_custodial_note: 'The server never holds a key and never sends a '
+        + 'transaction. This is a plan, not an action.',
+    };
+  }
   const data = payloadFor(day, root);
   return {
     dry_run: true,
@@ -151,26 +240,9 @@ function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
   };
 }
 
-/**
- * Read the chain and answer: does this transaction anchor this day's root?
- * → { status: 'verified', block_time, from }    the calldata matches, and on a
- *   chain with a reorg depth the block is that deep; there `final` says
- *   whether the chain's `finalized` block has passed it (null: not read)
- * → { status: 'mismatch', reason }              the tx exists but does not anchor this root
- * → { status: 'unknown', reason }               the chain could not be read — NOT a verdict
- *
- * `fetchImpl` is injectable for tests; production uses global fetch against
- * the chain's keyless RPCs with one rotation, like the wallet mirror.
- */
-async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHAIN) {
-  if (!TX_RE.test(String(txHash))) return { status: 'mismatch', reason: 'malformed transaction hash' };
-  if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) {
-    return { status: 'mismatch', reason: 'malformed day or root' };
-  }
-  const chain = chainInfo(chainKey);
-  if (!chain) return { status: 'mismatch', reason: 'unknown chain' };
-  const f = fetchImpl || global.fetch;
-  const call = async (url, method, params) => {
+/** A JSON-RPC caller over `f`; throws on a transport or RPC error. */
+function rpcCaller(f) {
+  return async (url, method, params) => {
     const r = await f(url, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
@@ -180,53 +252,191 @@ async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHA
     if (j.error) throw new Error(`rpc ${j.error.code}: ${j.error.message}`);
     return j.result;
   };
+}
+
+/** EAS's stamp of `root` as seconds (a BigInt), 0n when it has none; throws when unreadable. */
+async function readEasStamp(call, url, chain, root) {
+  const out = await call(url, 'eth_call', [{ to: chain.eas, data: EAS_GET_TIMESTAMP + root }, 'latest']);
+  if (typeof out !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(out)) throw new Error('getTimestamp answered no uint64');
+  return BigInt(out);
+}
+
+/**
+ * Whether `root` is stamped in EAS on `chainKey`, read by the root alone:
+ * → { status: 'stamped', stamped_at }   EAS holds a time for it
+ * → { status: 'unstamped' }             EAS answered 0
+ * → { status: 'unknown', reason }       no RPC answered — not a verdict
+ */
+async function easStampOf(root, fetchImpl, chainKey = 'base-eas') {
+  const chain = chainInfo(chainKey);
+  if (!chain || chain.method !== 'eas_timestamp') return { status: 'unknown', reason: 'not an EAS chain' };
+  if (!ROOT_RE.test(String(root))) return { status: 'unknown', reason: 'malformed root' };
+  const call = rpcCaller(fetchImpl || global.fetch);
   let lastErr = null;
   for (const url of chain.rpcs) {
     try {
-      const tx = await call(url, 'eth_getTransactionByHash', [txHash]);
-      if (!tx) return { status: 'mismatch', reason: `no such transaction on ${chain.name}` };
-      if (!tx.blockHash) return { status: 'unknown', reason: 'transaction not yet mined' };
-      const expected = payloadFor(day, root).toLowerCase();
-      const data = String(tx.input || tx.data || '').toLowerCase();
-      if (data !== expected) {
-        // includes() would accept a payload buried in unrelated calldata —
-        // exact equality is the claim being made.
-        return { status: 'mismatch', reason: 'calldata does not equal the tagged root payload' };
-      }
-      const block = await call(url, 'eth_getBlockByHash', [tx.blockHash, false]);
-      if (!block || !block.timestamp) return { status: 'unknown', reason: 'block unreadable' };
-      let final;
-      if (chain.reorg_depth) {
-        // In a block is not yet on the chain for good: wait out the
-        // documented reorg depth before calling the anchor verified.
-        const headHex = await call(url, 'eth_blockNumber', []);
-        if (!headHex || !tx.blockNumber) return { status: 'unknown', reason: 'the block height could not be read' };
-        const deep = BigInt(headHex) - BigInt(tx.blockNumber);
-        if (deep < BigInt(chain.reorg_depth)) {
-          return { status: 'unknown',
-            reason: `${deep < 0n ? 0 : deep} of the ${chain.reorg_depth} confirmations ${chain.name} needs` };
-        }
-        let fin = null;
-        try { fin = await call(url, 'eth_getBlockByNumber', ['finalized', false]); } catch (e) { fin = null; }
-        final = fin && fin.number ? BigInt(fin.number) >= BigInt(tx.blockNumber) : null;
-      }
-      return {
-        status: 'verified',
-        block_time: new Date(parseInt(block.timestamp, 16) * 1000).toISOString(),
-        from: String(tx.from || ''),
-        ...(chain.reorg_depth ? { final } : {}),
-      };
+      const t = await readEasStamp(call, url, chain, root);
+      return t === 0n ? { status: 'unstamped' } : { status: 'stamped', stamped_at: new Date(Number(t) * 1000).toISOString() };
     } catch (e) { lastErr = e; }
   }
-  // Every RPC failed to ANSWER (a "no such transaction" above is an answer
-  // and returns before this). A chain QuickNode serves gets one more reader,
-  // through Flovia, so a day's anchor is not unverifiable because two public
-  // endpoints were down. The verdict says which reader gave it.
-  if (chain.quicknode) {
-    const second = await verifyThroughQuickNode(txHash, day, root, chain);
-    if (second) return second;
+  return { status: 'unknown', reason: lastErr ? `${chain.name} could not be read (${lastErr.name || 'Error'})` : 'rpc unreachable' };
+}
+
+/**
+ * The EAS leg of verifyAnchor, as one reader (`url`) sees it: the
+ * transaction is a call to EAS's timestamp(root) that succeeded, and EAS's
+ * own record of the root is that transaction's block time. The registry is
+ * the final word: a transaction that reverted (the root was stamped first by
+ * someone else) did not stamp it, whatever its calldata says. Throws when
+ * the reader does not answer.
+ */
+async function readEasStampAnchor(call, url, chain, txHash, root) {
+  const tx = await call(url, 'eth_getTransactionByHash', [txHash]);
+  if (!tx) return { status: 'mismatch', reason: `no such transaction on ${chain.name}` };
+  if (!tx.blockHash) return { status: 'unknown', reason: 'transaction not yet mined' };
+  if (String(tx.to || '').toLowerCase() !== chain.eas.toLowerCase()) {
+    return { status: 'mismatch', reason: 'the transaction is not a call to the Ethereum Attestation Service' };
   }
-  return { status: 'unknown', reason: lastErr ? String(lastErr.message || lastErr).slice(0, 120) : 'rpc unreachable' };
+  if (String(tx.input || tx.data || '').toLowerCase() !== easStampCalldata(root)) {
+    return { status: 'mismatch', reason: 'the transaction does not stamp this root' };
+  }
+  const rc = await call(url, 'eth_getTransactionReceipt', [txHash]);
+  if (!rc || !rc.status) return { status: 'unknown', reason: 'the receipt could not be read' };
+  if (rc.status !== '0x1') {
+    return { status: 'mismatch', reason: 'the transaction reverted: the root may already have been stamped by another' };
+  }
+  const block = await call(url, 'eth_getBlockByHash', [tx.blockHash, false]);
+  if (!block || !block.timestamp) return { status: 'unknown', reason: 'block unreadable' };
+  const stamped = await readEasStamp(call, url, chain, root);
+  if (stamped === 0n) return { status: 'unknown', reason: 'EAS does not hold the stamp yet' };
+  if (stamped !== BigInt(block.timestamp)) {
+    return { status: 'mismatch', reason: 'EAS holds an earlier stamp of this root than this transaction' };
+  }
+  return {
+    status: 'verified', same: String(tx.blockHash).toLowerCase(),
+    block_time: new Date(Number(stamped) * 1000).toISOString(),
+    from: String(tx.from || ''),
+  };
+}
+
+/**
+ * The calldata leg of verifyAnchor, as one reader (`url`) sees it: the
+ * transaction's calldata is exactly the tagged root payload, and on a chain
+ * with a reorg depth its block is that deep. Throws when the reader does not
+ * answer.
+ */
+async function readCalldataAnchor(call, url, chain, txHash, day, root) {
+  const tx = await call(url, 'eth_getTransactionByHash', [txHash]);
+  if (!tx) return { status: 'mismatch', reason: `no such transaction on ${chain.name}` };
+  if (!tx.blockHash) return { status: 'unknown', reason: 'transaction not yet mined' };
+  const expected = payloadFor(day, root).toLowerCase();
+  const data = String(tx.input || tx.data || '').toLowerCase();
+  if (data !== expected) {
+    // includes() would accept a payload buried in unrelated calldata —
+    // exact equality is the claim being made.
+    return { status: 'mismatch', reason: 'calldata does not equal the tagged root payload' };
+  }
+  const block = await call(url, 'eth_getBlockByHash', [tx.blockHash, false]);
+  if (!block || !block.timestamp) return { status: 'unknown', reason: 'block unreadable' };
+  let final;
+  if (chain.reorg_depth) {
+    // In a block is not yet on the chain for good: wait out the
+    // documented reorg depth before calling the anchor verified.
+    const headHex = await call(url, 'eth_blockNumber', []);
+    if (!headHex || !tx.blockNumber) return { status: 'unknown', reason: 'the block height could not be read' };
+    const deep = BigInt(headHex) - BigInt(tx.blockNumber);
+    if (deep < BigInt(chain.reorg_depth)) {
+      return { status: 'unknown',
+        reason: `${deep < 0n ? 0 : deep} of the ${chain.reorg_depth} confirmations ${chain.name} needs` };
+    }
+    let fin = null;
+    try { fin = await call(url, 'eth_getBlockByNumber', ['finalized', false]); } catch (e) { fin = null; }
+    final = fin && fin.number ? BigInt(fin.number) >= BigInt(tx.blockNumber) : null;
+  }
+  return {
+    status: 'verified', same: String(tx.blockHash).toLowerCase(),
+    block_time: new Date(parseInt(block.timestamp, 16) * 1000).toISOString(),
+    from: String(tx.from || ''),
+    ...(chain.reorg_depth ? { final } : {}),
+  };
+}
+
+/** The keyless defaults, named by host in a verdict. */
+const KEYLESS_RPCS = new Set([...BASE_RPCS, ...DOGEOS_TESTNET_RPCS]);
+
+/** A reader's name in a verdict: a keyless default by its host; a configured URL, which may carry a key, by its place only. */
+function readerName(url, i) {
+  if (KEYLESS_RPCS.has(url)) {
+    try { return new URL(url).hostname; } catch (e) { /* by place */ }
+  }
+  return `configured rpc ${i + 1}`;
+}
+
+/** Whether QuickNode, through Flovia, can be asked as one more reader of `chain`. */
+function quickNodeReady(chain) {
+  if (!chain.quicknode) return false;
+  try { return require('./flovia').configured(); } catch (e) { return false; }
+}
+
+/**
+ * Read the chain and answer: does this transaction anchor this day's root?
+ * Every RPC in the chain's list is asked, and the answer is their agreement
+ * (lib/reader_agreement.js): two readers must give the same verdict, in the
+ * same block, and none may contradict it. One RPC that lies, lags or is
+ * down cannot turn a day green, nor refuse a real anchor.
+ * → { status: 'verified', block_time, from, readers }    the calldata matches, and on a
+ *   chain with a reorg depth the block is that deep; there `final` says
+ *   whether the chain's `finalized` block has passed it (null: not read)
+ * → { status: 'mismatch', reason, readers }      the readers agree the tx does not anchor this root
+ * → { status: 'unknown', reason, disagreement? } too few readers answered, or they disagree — NOT a verdict
+ *
+ * `fetchImpl` is injectable for tests; production uses global fetch against
+ * the chain's RPCs. A chain QuickNode serves gets it, through Flovia, as one
+ * more reader when an RPC does not answer.
+ */
+async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHAIN) {
+  const chain = chainInfo(chainKey);
+  if (!chain) return { status: 'mismatch', reason: 'unknown chain' };
+  // Dogecoin's transaction ids have no 0x; the module checks its own shape.
+  if (chain.method === 'dogecoin_op_return') {
+    return require('./dogecoin_anchor').verify(txHash, day, root, chain, fetchImpl);
+  }
+  if (!TX_RE.test(String(txHash))) return { status: 'mismatch', reason: 'malformed transaction hash' };
+  if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) {
+    return { status: 'mismatch', reason: 'malformed day or root' };
+  }
+  const call = rpcCaller(fetchImpl || global.fetch);
+  const readOne = chain.method === 'eas_timestamp'
+    ? (url) => readEasStampAnchor(call, url, chain, txHash, root)
+    : (url) => readCalldataAnchor(call, url, chain, txHash, day, root);
+  const answers = await Promise.all(chain.rpcs.map(async (url, i) => {
+    const reader = readerName(url, i);
+    try { return { reader, ...(await readOne(url)) }; } catch (e) { return unread(reader, e); }
+  }));
+  const quickNode = chain.method !== 'eas_timestamp' && quickNodeReady(chain);
+  const required = requiredOf(chain.rpcs.length + (quickNode ? 1 : 0));
+  const what = `the ${chain.name} readers`;
+  let v = agree(answers, required, what);
+  // QuickNode takes a seat no RPC filled: one that did not answer, or one
+  // never configured (a list of one URL). Readers that answered and differ
+  // are not settled by asking another.
+  const answered = answers.filter((a) => a.status !== 'unread').length;
+  if (v.status === 'unknown' && !v.disagreement && quickNode && answered < required) {
+    const second = await verifyThroughQuickNode(txHash, day, root, chain);
+    if (second) {
+      const { source, ...rest } = second;
+      answers.push({ reader: 'quicknode', ...rest });
+    } else {
+      answers.push({ reader: 'quicknode', status: 'unread', reason: 'quicknode could not be read' });
+    }
+    v = agree(answers, required, what);
+  }
+  if (v.status === 'verified' && chain.reorg_depth) {
+    // Final only when every reader that verified it saw it final.
+    const finals = answers.filter((a) => a.status === 'verified').map((a) => a.final);
+    v.final = finals.includes(false) ? false : finals.every((x) => x === true) ? true : null;
+  }
+  return v;
 }
 
 /**
@@ -264,6 +474,8 @@ async function verifyThroughQuickNode(txHash, day, root, chain) {
   if (!Number.isFinite(secs) || secs <= 0) return { status: 'unknown', reason: 'block unreadable', source: 'quicknode' };
   return {
     status: 'verified', source: 'quicknode',
+    // The block it saw, so its verdict can be held against the RPCs'.
+    same: tx.blockHash ? String(tx.blockHash).toLowerCase() : null,
     block_time: new Date(secs * 1000).toISOString(),
     from: String(tx.from || ''),
   };
@@ -271,6 +483,6 @@ async function verifyThroughQuickNode(txHash, day, root, chain) {
 
 module.exports = {
   buildAnchorPlan, verifyAnchor, verifyThroughQuickNode, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
-  DOGEOS_TESTNET_PUBLIC_RPCS,
+  DOGEOS_TESTNET_PUBLIC_RPCS, EAS_BASE, EAS_TIMESTAMP, EAS_GET_TIMESTAMP, easStampCalldata, easStampOf,
   chains, chainInfo, publicChains, DEFAULT_CHAIN,
 };

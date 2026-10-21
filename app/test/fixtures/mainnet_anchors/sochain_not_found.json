@@ -1,0 +1,10 @@
+{
+ "_source": "SoChain answer for an unknown txid, read 2026-10-21; HTTP 404",
+ "status_code": 404,
+ "body": {
+  "status": "fail",
+  "data": {
+   "error_message": "Transaction data not found."
+  }
+ }
+}

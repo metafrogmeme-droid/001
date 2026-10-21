@@ -453,6 +453,8 @@ const SWEPT_PAGES = {
   'status.html': [],
   'agent-card.html': [],
   'reset.html': [],
+  // The Claw Record (2026-10-21): its window buttons are numbers (7d, 30d…).
+  'claw-record.html': [],
   'verify.html': [],
   // The last page in. Both chips are written over by JS on every refresh
   // (updateConnChip / updateModeChip), so a data-i18n here would be clobbered
