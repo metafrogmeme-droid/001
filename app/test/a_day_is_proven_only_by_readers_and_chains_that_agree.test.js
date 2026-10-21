@@ -297,6 +297,23 @@ test('a configured RPC is named by its place in a verdict, never by its URL: a U
   } finally { delete process.env.WEB3_RPC_URL_BASE_ANCHOR; }
 });
 
+test('an anchors table that cannot be read is a 500 naming its class, never a day short of witnesses', async () => {
+  const real = pool.execute;
+  pool.execute = async (sql, params) => {
+    if (/FROM seal_root_anchors/i.test(sql)) { const e = new Error('connect ECONNREFUSED 10.0.0.1'); e.name = 'ConnectionError'; throw e; }
+    return real.call(pool, sql, params);
+  };
+  try {
+    const r = await get(`/api/roots/quorum/${DAY}`);
+    assert.deepStrictEqual([r.status, r.body.exception], [500, 'ConnectionError']);
+    assert.ok(!JSON.stringify(r.body).includes('10.0.0.1'));
+  } finally { pool.execute = real; }
+  // The other arm: the same day, readable, answers its quorum.
+  const ok = await get(`/api/roots/quorum/${DAY}`);
+  assert.strictEqual(ok.status, 200);
+  assert.ok(['multi_anchored', 'short', 'unknown'].includes(ok.body.status));
+});
+
 test('the verify route keeps a verdict and never an unknown', async () => {
   const day = seals.dayOf(new Date(Date.now() - 7 * 24 * 3600 * 1000));
   await pool.execute('INSERT INTO seal_roots (day, root, seal_count, leaves, computed_at) VALUES (?, ?, ?, ?, ?)',

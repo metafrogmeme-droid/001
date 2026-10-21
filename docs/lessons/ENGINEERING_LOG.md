@@ -28120,3 +28120,36 @@ had failed, so that setup could never verify anything. QuickNode is now asked
 whenever fewer readers answered than are needed, and a test drives one
 configured RPC with QuickNode both ways. A mutant restoring the old condition
 is the thirtieth; thirty of thirty killed.
+
+## A WATCH THAT COULD NOT READ HAS NO FINDINGS, NOT ZERO OF THEM
+
+21 October 2026, the roadmap's monitoring gate ("anchor jobs, OTS pending,
+reader disagreement"). `app/lib/anchor_watch.js` checks the last three
+completed days every thirty minutes through the same live checks `/roots`
+shows, now in one place (`app/lib/day_quorum.js`, which the verify, Bitcoin
+and quorum routes also answer from), and serves its last pass on `/diagz`
+under `anchors`. Nothing is pushed to a chat: the channel is the owner's
+choice, and the findings are ready for it. `docs/LIVE_HARDENING_RUNBOOK.md`
+says how to read them.
+
+**Three levels, each with its time.** An alarm is a reader disagreement or a
+recorded anchor that no longer checks out, raised at once. A warning is a
+Bitcoin proof still pending a day after it was sent, or a completed day the
+stamping job never sent (two hours after the day ended; the job runs every
+ten minutes), or a check that could not be read. A to-do is a day not in two
+independent chains a day and a half after it ended: Base anchoring is a
+wallet's act, so a short day is the operator's next step, not a fault. Each
+boundary is driven on both sides.
+
+**`anchorsFor` read an unreadable table as no anchors.** That is the right
+reading for the feed, which says so; for a quorum it would report a day
+short of witnesses it could not see, and the watch would file a to-do for an
+outage. It gained `{ strict: true }`, which the quorum uses: an unreadable
+table is a 500 naming the class on `/api/roots/quorum/:day`, and a
+`check_failed` warning in the watch, both tested.
+
+**A pass that could not read the roots is `findings: null` with the error's
+class, and `counts: null`**, never an empty list that reads as all clear;
+the watcher's own state goes to `failed` in `watchers`. A mutant that turned
+the failure into an empty list is killed by the test. Thirteen mutants, all
+killed.

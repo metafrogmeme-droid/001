@@ -299,6 +299,9 @@ app.get('/diagz', (req, res) => {
     // disabled by configuration says `skipped` -- neither is silence.
     watchers: require('./lib/watch_health').snapshot(),
     alert_engine: require('./lib/alerts').engineStatus(),
+    // The daily proof's anchors, as the last watch pass found them
+    // (lib/anchor_watch.js); `findings: null` when it could not read.
+    anchors: require('./lib/anchor_watch').snapshot(),
   });
 });
 
@@ -1109,4 +1112,8 @@ async function migrateWithRetry() {
   // hash; nothing signed, no transaction sent here), then completed once a
   // calendar reaches a Bitcoin block (lib/root_ots.js).
   require('./lib/root_ots').startRootOts();
+  // The anchors, watched (lib/anchor_watch.js): disagreeing readers, a
+  // recorded anchor that no longer checks out, a Bitcoin proof stuck or never
+  // sent, a day short of its quorum. Served on /diagz.
+  require('./lib/anchor_watch').startAnchorWatch();
 })();

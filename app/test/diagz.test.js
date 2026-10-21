@@ -92,6 +92,11 @@ test('with a token, the driver codes are reachable over HTTP',
     assert.ok(body.attempts >= 1);
     assert.ok(Array.isArray(body.events) && body.events.length >= 2,
       `the events must be served, got ${r.body}`);
+    // The anchor watch's last pass (lib/anchor_watch.js) is reachable here
+    // too; with the database unreachable it has no findings to claim, which
+    // is null with a reason, never an empty all-clear list.
+    assert.ok(body.anchors && 'findings' in body.anchors, `the anchor watch must be served, got ${r.body}`);
+    assert.ok(body.anchors.findings === null || Array.isArray(body.anchors.findings));
 
     const flat = body.events.map((e) => `${e.event} ${e.detail}`).join('\n');
     assert.match(flat, /listening port=/);
