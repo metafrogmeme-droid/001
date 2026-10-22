@@ -75,4 +75,7 @@ function verifyProof(seal, proof, root) {
   return h === String(root);
 }
 
-module.exports = { canonicalLeaves, merkleRoot, merkleProof, verifyProof, sha256hex };
+/** The construction above in one line, as the roots feed and a proof bundle state it. */
+const CONSTRUCTION = 'leaves = day seals (64-hex) deduped + sorted asc; parent = sha256(utf8(leftHex+rightHex)); odd node promoted; single leaf = root';
+
+module.exports = { canonicalLeaves, merkleRoot, merkleProof, verifyProof, sha256hex, CONSTRUCTION };

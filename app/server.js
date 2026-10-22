@@ -472,6 +472,9 @@ app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
 app.use('/api/call', require('./routes/call'));
+// This server's live reading of one receipt; the bundle beside it is the
+// facts a third party checks without it (routes/verify.js).
+app.use('/api/verify', require('./routes/verify'));
 app.use('/api/roots', require('./routes/roots'));
 app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));

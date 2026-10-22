@@ -917,7 +917,10 @@ shows a percent return and a count of calls, never chips. A player may flag
 their own settlement once, inside two hours (`app/lib/duel_review.js::canFlag`),
 and the operator's decision on a flagged or disputed one is a sealed receipt of
 its own (`app/lib/duel_service.js::writeReview`), applied wherever a call is
-scored (`app/lib/duel.js::verdictOf`).
+scored (`app/lib/duel.js::verdictOf`). Any receipt, a duel's included, is also
+served as one proof bundle (`app/lib/proof_bundle.js::bundleOf`) that a third
+party checks without this server: the hash, the Merkle path and each chain's
+anchor, read by a verifier that shares no code with it (`tools/rcverify.js::verifyBundle`).
 
 *Gap.* Income. There is no entry fee, no prize pool, no payout and no token reward
 attached to a duel result — the §4 rule at `app/routes/duel.js::#"§4: virtual throughout"` forbids any

@@ -246,5 +246,32 @@ router.get('/:key', optionalAuth, async (req, res) => {
   }
 });
 
+// GET /:key/bundle — the receipt's proof bundle (lib/proof_bundle.js,
+// rcproof/1): the receipt this viewer is served, its Merkle path, every
+// chain its day is anchored on and the Bitcoin proof file, in one document a
+// third party can check without asking this server again. Facts, never a
+// verdict: GET /api/verify/:key is this server's verdict, kept apart.
+router.get('/:key/bundle', optionalAuth, async (req, res) => {
+  try {
+    const key = String(req.params.key || '');
+    const r = await lookupCall(key, { userId: req.user && req.user.user_id ? req.user.user_id : null });
+    if (r.code !== 200) return res.status(r.code).json(r.body);
+    const receipt = receiptFor(signedIn(req), r.body);
+    const day = receipt && receipt.anchor && receipt.anchor.day;
+    let otsRow = null;
+    let otsUnread = false;
+    if (day) {
+      try { otsRow = await require('../lib/root_ots').rowFor(day); } catch (e) { otsUnread = true; }
+    }
+    const bundle = require('../lib/proof_bundle').bundleOf(key, receipt, { otsRow, otsUnread });
+    viewerCacheControl(res, 60);
+    res.set('Content-Disposition', `attachment; filename="rcproof-${key.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 80)}.json"`);
+    res.status(200).json(bundle);
+  } catch (err) {
+    console.error('Proof bundle error:', err.name || 'Error');
+    res.status(500).json({ error: 'Proof bundle unavailable' });
+  }
+});
+
 module.exports = router;
 module.exports.lookupCall = lookupCall;

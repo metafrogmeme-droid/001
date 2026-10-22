@@ -96,15 +96,22 @@ print("anchored in", d["anchor"]["day"], "✔")</pre>
   engineering standard</a> states the one rule every number on this site is held to — and what it deliberately
   does <em>not</em> promise. Both are pinned by tests that fail if the code stops matching them.</p>
 
+  <h2 data-i18n="pv.s6_h">6 · Take the proof with you</h2>
+  <p data-i18n-html="pv.s6_p">A receipt whose day is closed offers a <b>proof bundle</b>: one JSON file holding the receipt, its Merkle path,
+  every chain the day’s root was recorded on and the Bitcoin proof file. Check it with
+  <a href="https://github.com/metafrogmeme-droid/001/blob/main/tools/rcverify.js" rel="noopener">rcverify</a> (Node, no
+  dependencies, no code shared with this site): it recomputes every hash and asks each chain itself. A chain it cannot
+  read is reported as unknown, never as a pass.</p>
+
   <div class="muted-note" data-i18n-html="pv.scope">
     <b>Honest scope:</b> a seal proves the decision facts existed unchanged since sealing; a root proves set membership
     for its day; a mirror makes the day independently timestamped. None of this proves future performance, and none of
-    it is investment advice. Operator-published on-chain anchoring of the same roots is planned and will be stated on
-    the verify pages when live — never before.
+    it is investment advice. The daily roots page lists each day’s anchors on public chains, sent from wallets by their
+    owners and read back live; a day held on chains in two independent groups is multi-anchored.
   </div>
 </div>
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=200"></script>
+<script src="/js/i18n-core.js?v=201"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/ambient.js?v=3" defer></script>

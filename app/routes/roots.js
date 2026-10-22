@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
       // live (/ots/:day) before painting it as in Bitcoin.
       for (const r of roots) r.ots = await otsSummary(r.day);
       cache = { at: Date.now(), body: {
-        construction: 'leaves = day seals (64-hex) deduped + sorted asc; parent = sha256(utf8(leftHex+rightHex)); odd node promoted; single leaf = root',
+        construction: require('../lib/sealroot').CONSTRUCTION,
         chains: publicChains(),
         roots,
       } };

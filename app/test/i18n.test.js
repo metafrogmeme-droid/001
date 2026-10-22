@@ -616,6 +616,7 @@ test('the verification contract survives translation intact', () => {
     'pv.s3_l2': ['<code>sha256(utf8(leftHex + rightHex))</code>'],
     'pv.s3_proof': ['<code>anchor.proof</code>', '<code>{pos, hash}</code>'],
     'pv.s3_p': ['href="/api/roots"', 'href="/roots"', 'Merkle'],
+    'pv.s6_p': ['<a href="https://github.com/metafrogmeme-droid/001/blob/main/tools/rcverify.js" rel="noopener">rcverify</a>', 'JSON', 'Merkle'],
   };
   for (const [k, needles] of Object.entries(literals)) {
     for (const c of codes) {

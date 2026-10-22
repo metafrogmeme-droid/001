@@ -28684,3 +28684,77 @@ use a chain this build does not know.
 anchor to, and each reader the server asks.** Solana was added to both
 lists, under the owner's instruction to make the factual updates, and the
 new digest is pinned.
+
+## A VERIFIER THAT TRUSTS THE BUNDLE'S LABELS VERIFIES THE BUNDLE, AND A NEW DOOR ONTO A RECEIPT IS A NEW DOOR TO GUARD
+
+22 October 2026. The roadmap's proof bundle and verifier. Three pieces:
+
+- `GET /api/call/<key>/bundle` serves one `rcproof/1` document
+  (`app/lib/proof_bundle.js`): the receipt, its Merkle path, each chain the
+  day's root was recorded on, and the Bitcoin proof file.
+- `tools/rcverify.js` checks a bundle with Node alone.
+- `GET /api/verify/<key>` is the server's own reading of the same receipt.
+
+The spec is `docs/PROVABLE_CALLS_SPEC.md` §4.3. The guard test is
+`app/test/a_receipt_is_checked_from_its_bundle_without_the_server.test.js`.
+It builds a real receipt's bundle through the route and has the verifier
+check it against stubbed chains, reached by the URLs the verifier chose.
+
+**The bundle carries labels, and the verifier ignores them.** A bundle says
+which group each chain is in, whether it counts toward the quorum, and which
+EAS contract to ask. A verifier that read those would be checking what the
+bundle says about itself. `rcverify` has its own table of chains: endpoints,
+groups and the EAS address. A test relabels the testnet as independent and
+counted, and the verifier still counts two groups. Another test hands it a
+bundle naming another EAS contract, and it asks its own.
+
+**Facts, never a verdict.** The bundle has no "verified" field. The server's
+reading lives at `/api/verify` and reports hash, path and quorum apart, with
+a line saying whose word it is. A bundle that said "verified" would make the
+verifier redundant, and a reader would stop at that word.
+
+**A new door onto a receipt is a new door to guard.** The bundle route
+serves the receipt through `receiptFor`, so a visitor's bundle of a live
+call carries the seal and no payload. That was argued, not tested. The
+bundle is now one of the doors in `app/test/a_live_call_is_a_members.test.js`,
+with both arms: a visitor reads none of the live call's levels, and a member
+reads them. The mutant that serves the unredacted receipt is killed there.
+The Verify API serves no payload either way, so its test asserts the reading
+instead: a visitor's live call is `sealed`, a member's is `match`.
+
+**A crafted bundle is input.** `--save-ots` wrote a file named from the
+bundle's day, so a day of `../../x` named a path outside the bundle's
+folder. Only a well-formed day names a file now, and the statement written
+beside the proof is the verifier's own text, not the bundle's. Chain names
+and details reach the terminal with control characters replaced.
+
+**Two copies of the construction text.** The bundle had its own copy of the
+Merkle construction line, beside the roots feed's copy. It now lives in
+`app/lib/sealroot.js` as `CONSTRUCTION`, and both read it. The MCP tool's
+wording is older and longer, and is left as it is.
+
+**The provable page said on-chain anchoring was planned.** It said that
+"operator-published on-chain anchoring … will be stated on the verify pages
+when live — never before." The roots page already lists each day's anchors,
+sent from wallets on Base, Dogecoin and the DogeOS testnet (and Solana, with
+this branch). The sentence now says that, in all 14 languages,
+next to a new section on the bundle.
+
+Mutation round: 43 mutants over the verifier, the bundle, the route and
+the Verify API. 42 were killed. One is equivalent: removing the "EAS
+answered something unreadable" guard still ends unknown, because the NaN
+time throws in `toISOString` and the catch reports the chain as unread.
+Five survived the first pass and needed new tests:
+
+- a memo of another root;
+- a bundle of another format (the old test had no `offline` flag and would
+  have reached the network under the mutant);
+- a crafted name that is actually printed;
+- an unreadable Bitcoin proof;
+- the visitor's Verify reading.
+
+**The full suite found what the slice's own suites could not.** Phase two's
+review queue on `/duel` built an evidence field and an outcome picker with
+no accessible name. `app/test/form_control_labels.test.js` reads every page,
+and none of the suites run for that slice was it. The full website suite,
+run for this slice, failed on it. Both controls now carry an `aria-label`.

@@ -1834,7 +1834,9 @@
     "pv.s5_p": { en: "Everything above is written down in full, outside this page, so a checker can be built against a document rather than against our word: the <a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/PROVABLE_CALLS_SPEC.md\" rel=\"noopener\">Provable Calls specification</a> gives the exact payloads, hash rule and root construction, and <a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/ENGINEERING_STANDARD.md\" rel=\"noopener\">the engineering standard</a> states the one rule every number on this site is held to — and what it deliberately does <em>not</em> promise. Both are pinned by tests that fail if the code stops matching them." },
     "pv.s4_h": { en: "4 · Become a mirror" },
     "pv.s4_p": { en: "Copy any day’s root anywhere durable and public — a tweet, a git commit, a chain memo. From that moment the day is frozen for everyone: we cannot back-insert a call into it without changing the root you hold. One mirrored hash timestamps every call of the day. That’s the whole design: <b>don’t trust the screenshot — verify the call.</b>" },
-    "pv.scope": { en: "<b>Honest scope:</b> a seal proves the decision facts existed unchanged since sealing; a root proves set membership for its day; a mirror makes the day independently timestamped. None of this proves future performance, and none of it is investment advice. Operator-published on-chain anchoring of the same roots is planned and will be stated on the verify pages when live — never before." },
+    "pv.scope": { en: "<b>Honest scope:</b> a seal proves the decision facts existed unchanged since sealing; a root proves set membership for its day; a mirror makes the day independently timestamped. None of this proves future performance, and none of it is investment advice. The daily roots page lists each day’s anchors on public chains, sent from wallets by their owners and read back live; a day held on chains in two independent groups is multi-anchored." },
+    "pv.s6_h": { en: "6 · Take the proof with you" },
+    "pv.s6_p": { en: "A receipt whose day is closed offers a <b>proof bundle</b>: one JSON file holding the receipt, its Merkle path, every chain the day’s root was recorded on and the Bitcoin proof file. Check it with <a href=\"https://github.com/metafrogmeme-droid/001/blob/main/tools/rcverify.js\" rel=\"noopener\">rcverify</a> (Node, no dependencies, no code shared with this site): it recomputes every hash and asks each chain itself. A chain it cannot read is reported as unknown, never as a pass." },
     "arena.p_keys": { en: "Agent keys" },
     "arena.s_keys": { en: "· let an AI agent paper-trade for you" },
     "arena.keys_p": { en: "A key lets any MCP-capable agent open and close paper positions on this account. It can do nothing else: it is not a login, and it cannot reach live trading, an exchange key or another account. The worst a stolen key can do is lose your virtual money and put bad trades on your public record — so revoke one the moment you stop using it." },
@@ -2485,7 +2487,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"0a25c764","zh":"1d87069a","pt":"3ca3b503","fr":"df1e6b33","de":"04729bee","nl":"01ce5898","ja":"b1ed5e51","ko":"48917b55","ru":"b22ec8b1","tr":"c6f8b89a","it":"250bd3d2","hi":"9c475398","ar":"2b623308"};
+  var CHUNKS = {"es":"9f7e3db1","zh":"7220ad9f","pt":"1d935259","fr":"014def84","de":"d2e7ed71","nl":"1b7e08c1","ja":"0fa355a5","ko":"efce4b28","ru":"8b2ebb8b","tr":"42e2fc7b","it":"b795eafc","hi":"e76aba13","ar":"ee444d69"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

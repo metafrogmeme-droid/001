@@ -160,7 +160,7 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=200"></script>
+<script src="/js/i18n-core.js?v=201"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/duel.js?v=9"></script>
 <script>
@@ -369,10 +369,10 @@
         + (it.disputed ? ' · <b>disputed</b>' : '') + (it.flagged ? ' · <b>flagged</b>' : '') + (it.chips != null ? ' · ' + esc(it.chips) + ' chips' : '') + '</div>'
         + '<div class="note">entry ' + esc(nf(it.entry_price)) + ' · close ' + esc(nf(it.settle_price)) + (it.settle_price_b != null ? ' / ' + esc(it.settle_price_b) : '')
         + ' · second source ' + esc(nf(it.second_price)) + ' · settled ' + esc(nf(it.settled_at)) + '</div>'
-        + '<input class="rv-ev" maxlength="500" placeholder="What did you check? (on the public receipt)">'
+        + '<input class="rv-ev" maxlength="500" aria-label="Evidence for this review" placeholder="What did you check? (on the public receipt)">'
         + '<div class="rv-acts"><button class="d-btn rv-go" data-decision="stands">Stands</button>'
         + '<button class="d-btn rv-go" data-decision="push">No result</button>'
-        + '<select class="rv-out">' + (it.outcomes || []).filter(function (o) { return o !== it.outcome; }).map(function (o) {
+        + '<select class="rv-out" aria-label="The corrected outcome">' + (it.outcomes || []).filter(function (o) { return o !== it.outcome; }).map(function (o) {
           return '<option value="' + esc(o) + '">' + esc(o) + '</option>';
         }).join('') + '</select><button class="d-btn rv-go" data-decision="corrected">Corrected</button></div></div>';
     }).join('') : '<p class="note">Nothing is waiting for review.</p>';

@@ -120,6 +120,7 @@ test.before(async () => {
   app.use('/api/signals', require('../routes/signals'));
   app.use('/api/signal', require('../routes/signal_page'));
   app.use('/api/call', require('../routes/call'));
+  app.use('/api/verify', require('../routes/verify'));
   app.use('/api/feed', require('../routes/feed'));
   app.use('/api/stream', require('../routes/stream').router);
   app.use('/api/public/flight', require('../routes/public_flight'));
@@ -225,6 +226,7 @@ const DOORS = [
   ['the signal stream', '/api/signals?limit=50'],
   ['the sealed receipt', '/api/call/' + encodeURIComponent(LIVE.signal_key)],
   ['the front door\'s receipt', '/api/call/latest'],
+  ['the receipt\'s proof bundle', '/api/call/' + encodeURIComponent(LIVE.signal_key) + '/bundle'],
   ['the thesis page', '/api/signal?key=' + encodeURIComponent(LIVE.signal_key)],
   ['the scan', '/api/bot/sync/scan'],
   ['the public flight recorder', '/api/public/flight'],
@@ -249,6 +251,19 @@ for (const [name, url] of DOORS) {
     assert.ok(leaked(member.raw, secrets).length > 0, `${name} withheld the live call from a member`);
   });
 }
+
+// The Verify API serves no payload either way; its hash reading is of what
+// this viewer can check: a visitor's live call is still sealed to them.
+test('the verify reading: a live call is sealed to a visitor and checkable by a member', async () => {
+  const url = '/api/verify/' + encodeURIComponent(LIVE.signal_key);
+  const visitor = await req('GET', url);
+  assert.equal(visitor.status, 200, visitor.raw.slice(0, 200));
+  assert.equal(visitor.data.hash, 'sealed');
+  assert.deepEqual(leaked(visitor.raw, SECRETS), []);
+  const member = await req('GET', url, { headers: MEMBER });
+  assert.equal(member.data.hash, 'match');
+  assert.deepEqual(leaked(member.raw, SECRETS), [], 'a reading, never the payload');
+});
 
 // ── the sample a visitor is shown ───────────────────────────────────────
 

@@ -212,6 +212,8 @@ function sameAfterStorage(key, sealed, live) {
           + '<div class="hash" style="margin-top:8px">' + esc(d.anchor.root) + '</div>'
           + '<div class="anchor-leg">' + anchorLegs(d.anchor, {}) + '</div>'
           + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror it from the <a href="/roots">daily roots page</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
+          // The same facts in one file, for a checker that trusts no page of this site (docs/PROVABLE_CALLS_SPEC.md §4.3).
+          + '<div class="proof-bundle" style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)"><a href="/api/call/' + encodeURIComponent(key) + '/bundle" download>Download the proof bundle</a> and check it with <a href="https://github.com/metafrogmeme-droid/001/blob/main/tools/rcverify.js" rel="noopener">rcverify</a>, which shares no code with this site and asks each chain itself.</div>'
         : '<div class="big">✖ ANCHOR MISMATCH — the Merkle proof does not reach the published day root</div>';
       out.appendChild(el);
 
@@ -528,7 +530,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=200"></script>
+<script src="/js/i18n-core.js?v=201"></script>
 <script src="/js/presale.js?v=2"></script>
   <script>
   (function () {

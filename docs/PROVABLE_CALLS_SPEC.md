@@ -412,6 +412,42 @@ A day is **multi-anchored** when chains in at least two independence groups
 verify it live (a testnet is shown and never counted). That proves when the
 root existed, never how good the calls in it were.
 
+### 4.3 · A receipt's proof bundle (`rcproof/1`)
+
+`GET /api/call/<key>/bundle` serves one JSON document holding every fact
+needed to check one receipt without asking the publisher again:
+
+| field | what it is |
+|---|---|
+| `format` | `"rcproof/1"` |
+| `key`, `kind`, `seal`, `seal_payload`, `sealed`, `sealed_at` | the receipt exactly as `GET /api/call/<key>` serves the same viewer; `sealed` is true, with a `null` payload, while the call is still sealed to them |
+| `merkle`, `merkle_note` | `{ day, root, seal_count, proof, construction }`, or `null` with a note saying why while the day is open |
+| `anchors` | each chain the root was recorded on: `chain`, `method` (the row of §4.2's table), `tx`, `explorer`, `independence_group`, `counts_toward_quorum` |
+| `bitcoin`, `bitcoin_unread` | the OpenTimestamps `statement`, its `digest` and the proof file (`ots_proof_base64`), or `null`; `bitcoin_unread` is true when the publisher could not read its own proof |
+
+The bundle holds **facts, never a verdict**: no field says "verified". It
+discloses nothing the receipt and `/api/roots` do not already serve to the
+same viewer, and a live call's bundle is as sealed as its receipt.
+
+`tools/rcverify.js` checks a bundle with Node alone and no code shared with
+the publisher. It recomputes the hash (§2.4) and the path (§4.1), checks the
+seal was minted on the root's day, reads each anchor from its own chain
+through endpoints **it** names, and counts independence groups from **its
+own** table: a bundle's labels are never trusted. A chain it cannot read is
+unknown, never a pass. Exit `0` every check that ran passed, `1` a check
+failed, `3` nothing failed but something could not be checked.
+
+```
+node tools/rcverify.js rcproof-<key>.json            # every check, chains included
+node tools/rcverify.js rcproof-<key>.json --offline  # the hash and the path only
+node tools/rcverify.js rcproof-<key>.json --save-ots # also writes the .ots file for `ots verify`
+```
+
+`GET /api/verify/<key>` is the publisher's own live reading of the same
+receipt: `hash` (`match` / `mismatch` / `sealed`), `path` (`reaches_root` /
+`misses_root` / `none`) and the day's quorum, reported apart and labelled as
+the publisher's word. It serves no payload.
+
 ---
 
 ## 5 · Conformance
