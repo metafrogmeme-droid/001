@@ -5,7 +5,8 @@
  *
  * The coach itself is the bot's (bot/web/pi_coach.py, the gateway's
  * /chat/pi-coach): an account-free, tool-free model turn with its own prompt,
- * fixed answers for token questions and live prices, and an output check.
+ * a fixed answer for token questions (and for a price question when no live
+ * price could be read), and an output check.
  * This side decides the rest, because it holds the account:
  *
  *   ALLOWANCE. A Pi account asks up to `free` questions a UTC day, or `plus`
@@ -22,6 +23,11 @@
  *   sealed: the card withholds it until they call, and the coach is handed
  *   the card), and the one signal or round they asked "Why?" about. Credits,
  *   not money; percent and counts where the board would show them.
+ *
+ *   LIVE PRICES. For the coins this question is about (the card's, ones it
+ *   names, open positions', today's rounds'), read from the same ticker the
+ *   Arena prices trades with, with the time they were read. Market prices
+ *   are public market facts; a read that failed is said, never a zero.
  */
 
 const { pool } = require('../db');
@@ -167,17 +173,83 @@ function roundLine(r) {
 }
 
 /**
+ * The head of the live-prices line. The bot's coach reads it to know the
+ * facts carry prices (bot/web/pi_coach.py LIVE_PRICES_HEAD, held equal by a
+ * test): with it, a price question goes to the model; without it, the coach
+ * says it could not read one. A read that failed writes a different line.
+ */
+const LIVE_PRICES_HEAD = 'Live prices (Bitget USDT-M futures), read ';
+/** The most symbols one question is handed prices for. */
+const LIVE_MAX = 6;
+/** How long a question waits for the ticker read before taking the last one known. */
+const LIVE_BUDGET_MS = 2500;
+
+/** A stored symbol as the ticker map spells it: 'BTC/USDT:USDT' and 'btcusdt' are 'BTCUSDT'. */
+function tickerSymbol(s) {
+  return String(s || '').toUpperCase().replace(/:USDT$/, '').replace('/', '');
+}
+
+/** Coins a question names, as the ticker map spells them (LTC, ltc, LTCUSDT -> LTCUSDT). */
+function namedSymbols(text, map) {
+  const out = [];
+  for (const w of String(text || '').toUpperCase().match(/[A-Z0-9]{2,15}/g) || []) {
+    const sym = w.endsWith('USDT') && map[w] ? w : map[w + 'USDT'] ? w + 'USDT' : null;
+    if (sym && !out.includes(sym)) out.push(sym);
+  }
+  return out;
+}
+
+/**
+ * The live-prices line for the symbols this question is about, from the one
+ * ticker reader the Arena prices trades with (lib/tickers.js). A read that
+ * failed is said; a symbol the venue does not list is said; a price is
+ * printed as the venue gave it, with its 24h change when that was read, and
+ * the line says when it was read. Absent symbols leave the line out.
+ */
+async function livePrices(symbols, text, deps = {}) {
+  const tickers = deps.tickers || require('./tickers');
+  let read;
+  try { read = await tickers.getTickersWithin(LIVE_BUDGET_MS); } catch (e) { read = null; }
+  const failed = !read || !Number.isFinite(read.ageMs);
+  const map = !failed && read.map && typeof read.map === 'object' ? read.map : {};
+  // With no map, a coin the question names can only be recognised when it is
+  // spelled as a pair; the failure is still said for it, never dropped.
+  const named = failed
+    ? (String(text || '').toUpperCase().match(/\b[A-Z0-9]{2,15}USDT\b/g) || [])
+    : namedSymbols(text, map);
+  const want = [];
+  for (const s of [...named, ...symbols]) {
+    if (s && !want.includes(s) && want.length < LIVE_MAX) want.push(s);
+  }
+  if (!want.length) return null;
+  if (failed) return 'Live prices: could not be read just now.';
+  const at = new Date((deps.now ? deps.now() : Date.now()) - read.ageMs);
+  const age = read.ageMs > 60000 ? ` (${Math.round(read.ageMs / 60000)} min old)` : '';
+  const lines = want.map((sym) => {
+    const t = map[sym];
+    const price = t ? num(t.price) : null;
+    if (price === null) return `- ${sym}: no price read`;
+    const change = num(t.change);
+    return `- ${sym} ${price}` + (change === null ? ', 24h change not read' : `, 24h ${change >= 0 ? '+' : ''}${change.toFixed(2)}%`);
+  });
+  return LIVE_PRICES_HEAD + iso(at) + age + ':\n' + lines.join('\n');
+}
+
+/**
  * The facts block for one question. Each source is read on its own; one that
  * cannot be read is said to be unreadable, never left out as if empty, and
  * never fails the question (the coach can still explain a stop-loss).
  */
-async function facts(userId, about, deps = {}) {
+async function facts(userId, about, deps = {}, text = '') {
   const arena = deps.arena || require('../routes/arena');
   const duel = deps.duel || require('./duel_service');
   const out = [];
+  const symbols = [];
+  const note = (s) => { const t = typeof s === 'string' ? tickerSymbol(s) : ''; if (t && !symbols.includes(t)) symbols.push(t); };
 
   try {
     const positions = await arena.loadPositions(userId);
+    positions.forEach((p) => note(p.symbol));
     out.push(positions.length
       ? 'Open practice positions:\n' + positions.slice(0, 6).map((p) => '- ' + positionLine(p)).join('\n')
       : 'Open practice positions: none.');
@@ -198,6 +270,7 @@ async function facts(userId, about, deps = {}) {
   try {
     card = await duel.cardFor(userId);
     const rounds = Array.isArray(card && card.rounds) ? card.rounds : [];
+    rounds.forEach((r) => { if (r.kind !== 'sports') { note(r.symbol); note(r.symbol_b); } });
     out.push(rounds.length
       ? `Today's Daily Duel (${card.day} UTC):\n` + rounds.map((r) => '- ' + roundLine(r)).join('\n')
       : 'Today\'s Daily Duel: no rounds on the card.');
@@ -212,6 +285,8 @@ async function facts(userId, about, deps = {}) {
         'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, status, created_at, expires_at FROM signals WHERE signal_key = ?',
         [a.key]);
       const s = rows[0];
+      // The card's coin first: it is the one the question is about.
+      if (s) symbols.unshift(tickerSymbol(s.symbol));
       out.push(s
         ? `The signal card they asked about: ${s.symbol} ${s.direction}, entry ${s.entry_price}, stop ${s.stop_loss}, `
           + `target ${s.take_profit}, regime ${s.regime || '—'}, status ${s.status}, made ${iso(s.created_at)}.`
@@ -223,7 +298,10 @@ async function facts(userId, about, deps = {}) {
     const r = card.rounds.find((x) => x.id === a.id);
     out.push(r ? 'The round they asked about: ' + roundLine(r) : 'The round they asked about is not on today\'s card.');
   }
+  const live = await livePrices(symbols, text, deps);
+  if (live) out.push(live);
   return out.join('\n');
 }
 
-module.exports = { limits, plusOffer, plusDays, plusUntil, utcDay, usedOn, take, giveBack, facts, COACH_PLUS_KIND };
+module.exports = { limits, plusOffer, plusDays, plusUntil, utcDay, usedOn, take, giveBack, facts, livePrices, namedSymbols, tickerSymbol,
+  COACH_PLUS_KIND, LIVE_PRICES_HEAD, LIVE_MAX };

@@ -20,6 +20,14 @@
  * A sentence that leaves the code leaves the table; a sentence that enters it
  * is missing in every language until someone translates it, and --check fails
  * until then.
+ * THE SERVER'S OWN SENTENCES TOO (SERVER_SOURCES). The Pi app prints some
+ * sentences the server sent: a refusal (`error: 'That handle is taken — try
+ * another.'`) and the coach's four fixed answers (bot/web/pi_coach.py). They
+ * were English in every language. They are collected from the code that says
+ * them, so the English stays in one place, and the Pi app passes what it was
+ * sent through T: a sentence the table knows is translated, any other prints
+ * as sent. A refusal built from a template (a price, a list of words) is not a
+ * literal and stays English.
  *
  * THE TRANSLATIONS are app/i18n/pi/<code>.pairs.json, a list of [english, text]
  * pairs (pairs, not an object, for the reason build_i18n.js gives: a `"name":
@@ -63,6 +71,22 @@ const T_RE = new RegExp('(?<![\\w$.])T\\(\\s*' + LIT, 'g');
 const LABEL_RE = new RegExp('(?<![\\w$.])label:\\s*' + LIT, 'g');
 const TR_RE = new RegExp("(?<![\\w$.])tr\\(\\s*'([\\w.]+)'\\s*,\\s*" + LIT, 'g');
 
+/**
+ * The server code whose sentences reach the Pi app as they were sent: the
+ * Duel call's refusals (routes/duel.js passes placePick's `error` through),
+ * the Leaders name's (routes/leaderboard.js) and the coach's fixed answers,
+ * which the bot's gateway sends as `reply_html` with an intent naming each
+ * (bot/web/user_gateway.py). `shape` is how each file states them.
+ */
+const SERVER_SOURCES = [
+  { file: path.join(APP, 'lib', 'duel_service.js'), shape: 'error' },
+  { file: path.join(APP, 'routes', 'leaderboard.js'), shape: 'error' },
+  { file: path.join(APP, '..', 'bot', 'web', 'pi_coach.py'), shape: 'py_answers' },
+];
+/** The coach's fixed answers, by the names bot/web/pi_coach.py gives them. */
+const PY_ANSWERS = ['TOKEN_ANSWER', 'NO_FEED_ANSWER', 'WITHHELD_ANSWER', 'UNAVAILABLE_ANSWER'];
+const ERROR_RE = new RegExp('(?<![\\w$.])error:\\s*' + LIT, 'g');
+
 /** A single-quoted literal's body, unescaped. */
 function unquote(body) {
   return body.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g, (m, e) => {
@@ -84,7 +108,8 @@ function scriptFiles() {
  * Every sentence the Pi app draws through T, as a Map of english ->
  * { files: Set, keys: Set } (keys: the Duel renderer's keys for it).
  */
-function sentences(files = scriptFiles()) {
+function sentences(files, { includeServer = false } = {}) {
+  const list = files === undefined ? scriptFiles() : files;
   const out = new Map();
   const add = (en, file, key) => {
     if (!en) return;
@@ -93,7 +118,7 @@ function sentences(files = scriptFiles()) {
     if (key) rec.keys.add(key);
     out.set(en, rec);
   };
-  for (const file of files) {
+  for (const file of list) {
     const src = codeOnly(fs.readFileSync(file, 'utf8'));
     let m;
     T_RE.lastIndex = 0;
@@ -105,6 +130,37 @@ function sentences(files = scriptFiles()) {
     }
     TR_RE.lastIndex = 0;
     while ((m = TR_RE.exec(src))) add(unquote(m[2]), file, m[1]);
+  }
+  if (files === undefined || includeServer) {
+    for (const [en, file] of serverSentences()) add(en, file);
+  }
+  return out;
+}
+
+/**
+ * The server's sentences, [english, file] in source order. A Python answer is
+ * a parenthesised run of adjacent "..." pieces; one that is missing, or that
+ * carries an escape this reader does not decode, throws rather than
+ * collecting a sentence the server never sends.
+ */
+function serverSentences(sources = SERVER_SOURCES) {
+  const out = [];
+  for (const { file, shape } of sources) {
+    const raw = fs.readFileSync(file, 'utf8');
+    if (shape === 'error') {
+      const src = codeOnly(raw);
+      let m;
+      ERROR_RE.lastIndex = 0;
+      while ((m = ERROR_RE.exec(src))) out.push([unquote(m[1]), file]);
+    } else if (shape === 'py_answers') {
+      for (const name of PY_ANSWERS) {
+        const m = new RegExp('^' + name + ' = \\(((?:\\s*"[^"\\\\\\n]*")+)\\s*\\)', 'm').exec(raw);
+        if (!m) throw new Error(`${path.relative(APP, file)}: no ${name} = ("…") to read`);
+        out.push([[...m[1].matchAll(/"([^"]*)"/g)].map((p) => p[1]).join(''), file]);
+      }
+    } else {
+      throw new Error(`unknown shape ${shape}`);
+    }
   }
   return out;
 }
@@ -217,4 +273,5 @@ function main(argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
 
-module.exports = { build, sentences, scriptFiles, placeholders, unquote, main, SRC_DIR, SUFFIX };
+module.exports = { build, sentences, serverSentences, scriptFiles, placeholders, unquote, main, SRC_DIR, SUFFIX,
+  SERVER_SOURCES, PY_ANSWERS };

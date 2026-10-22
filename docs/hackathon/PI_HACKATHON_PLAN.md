@@ -43,7 +43,7 @@ An existing app may enter, and may enter again in a later month after improving.
 - **About**: what the app is, the policies, the language list and the optional tip.
 - **Seventeen languages**: the site's fourteen plus Vietnamese, Indonesian and Filipino. The server opens the app in the Pi Browser's language; About switches in place without ending the session. The coach answers in the language on screen.
 
-Still English, and said here so nobody is surprised: the sentences the server sends back when it refuses something (for example a name already taken), and the coach's four fixed answers (a token question, no data feed, a withheld reply, coach unavailable).
+The server's own sentences are translated too (22 Oct): the coach's four fixed answers (a token question, no data feed, a withheld reply, coach unavailable) and the fixed refusals of a Duel call and a Leaders name (for example a name already taken), in all sixteen other languages. Still English, and said here so nobody is surprised: a refusal the server builds from numbers or words (a practice trade's limits, "Call long, short or pass.", a price it could not read).
 
 ## 4 · Brainstorm text (to paste)
 

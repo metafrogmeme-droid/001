@@ -6,8 +6,8 @@ its own, and three things around the model that a prompt cannot promise:
 
   * INPUT GATES, before any model runs. A question about a token, a sale or
     an airdrop is answered by one fixed sentence; a question that needs a
-    live price is answered by another (this path has no feed). Neither spends
-    a question.
+    live price is answered by another, unless the facts carry live prices
+    (`has_live_prices`). Neither fixed sentence spends a question.
   * FACTS, not memory. The website hands the coach what it read for this
     person (their practice positions and closed trades, today's Duel rounds
     and their calls, the signal card they asked about), as a block the
@@ -62,12 +62,34 @@ PROMPT = (
     "- Never send anyone outside the app: no links, no websites, no "
     "addresses, no social accounts, no telling them to sign up or to connect "
     "an exchange or API keys anywhere.\n"
-    "- You have no live market feed. Never state a current price unless it "
-    "is in the FACTS block, and then say when it was read.\n"
+    "- Live prices are in the FACTS block when the app could read them. Quote "
+    "only those, and say when they were read; never state a price that is "
+    "not there.\n"
     "- Never invent facts about the person's account, calls or results.\n\n"
     "STYLE: warm, short and clear, for someone new to trading. At most about "
     "120 words. Plain HTML only: <b>bold</b> and <code>mono</code>, no links. "
     "One emoji at most."
+)
+
+#: How long and what shape, for the coach. It replaces the public website
+#: page's contracts (`bot.skills.chat_runtime.reply_contract`), which describe
+#: a page with no facts and no account and send the reader to sign in for
+#: "the live one": a door the Pi app does not have, said to a signed-in
+#: person beside the facts the app read for them.
+REPLY_CONTRACT = (
+    "\n\nHOW LONG AND WHAT SHAPE\n"
+    "THIS TURN: you are the coach inside the Pi app. The FACTS block is what "
+    "the app read for this person; when it is there, answer from it and never "
+    "say the app has no data. A level written in the FACTS (a signal card's "
+    "entry, stop or target) you may repeat, saying it is from the card, and "
+    "you may explain what would prove the call wrong in those terms. Never "
+    "add a level, a size or a plan of your own. The only current prices you "
+    "have are the FACTS block's live prices, with the time they were read: "
+    "you may compare one with the card's levels; a coin not listed there you "
+    "cannot read now, so say so in one short sentence. "
+    "Never tell them to sign in, sign up or go anywhere else for more. Match "
+    "the length to the question, at most about 120 words, and end on a "
+    "complete sentence.\n"
 )
 
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -109,14 +131,25 @@ _WITHHOLD = [
 TOKEN_ANSWER = ("This app is practice only, and I do not talk about tokens, sales or "
                 "airdrops here. Ask me about the Daily Duel, a signal card, or any "
                 "trading word you have met in the app.")
-NO_FEED_ANSWER = ("I cannot read live prices from here. The Signals tab shows the "
-                  "agent's current calls with their charts, and I can explain any "
-                  "card you see there: tap its Why? button.")
+NO_FEED_ANSWER = ("I could not read a live price for that just now. The Signals tab "
+                  "shows the agent's current calls with their charts, and I can "
+                  "explain any card you see there: tap its Why? button.")
 WITHHELD_ANSWER = ("I started an answer I am not allowed to give in this app, so I "
                    "have left it out. Try asking it another way, about the Duel, a "
                    "signal or a trading idea.")
 UNAVAILABLE_ANSWER = ("The coach could not answer just now. Your question was not "
                       "counted; try again in a minute.")
+
+
+#: The head of the live-prices line the website writes into the facts
+#: (app/lib/pi_coach.js LIVE_PRICES_HEAD; a test holds the two equal). A read
+#: that failed writes a different line, so its presence means prices.
+LIVE_PRICES_HEAD = "Live prices (Bitget USDT-M futures), read "
+
+
+def has_live_prices(context: object) -> bool:
+    """Whether the facts carry live prices the coach may quote."""
+    return LIVE_PRICES_HEAD in clean_context(context)
 
 
 def token_ask(text: str) -> bool:

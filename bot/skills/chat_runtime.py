@@ -1138,8 +1138,36 @@ def compose_telegram_answer(answer: str, meta, *, is_social: bool = False) -> st
     return final + telegram_read_from_html(meta)
 
 
+#: Where a sentence ends, in the scripts the chat answers in.
+#: CJK full stops end a sentence with no space after them; the others need
+#: one (or the end), so "1.5" and "e.g." mid-sentence are not taken for ends.
+_SENTENCE_END = re.compile(
+    r"(?:[\u3002\uff01\uff1f]|[.!?\u0964\u061f](?=(?:</(?:b|strong|i|em|code)>)?(?:\s|$)))"
+    r"(?:</(?:b|strong|i|em|code)>)?")
+
+
+def trim_cut_reply(text: str) -> str:
+    """A reply the provider cut at its output cap, made honest: back to its
+    last whole sentence, then "…" so it never reads as a finished answer.
+
+    With no whole sentence to go back to, the half-written tag (``<b>NE``)
+    is dropped and the "…" goes on what is left: a fragment marked as one is
+    still more than nothing, and is never passed off as complete.
+    """
+    t = (text or "").rstrip()
+    ends = list(_SENTENCE_END.finditer(t))
+    if ends:
+        t = t[:ends[-1].end()]
+    else:
+        # A half-written tag, then an emphasis opened and never closed with
+        # the half-word inside it: both are the part that was being written.
+        t = re.sub(r"<[^>]*$", "", t)
+        t = re.sub(r"<(b|strong|i|em|code)>(?:(?!</\1>).)*$", "", t, flags=re.S).rstrip()
+    return t + " …"
+
+
 def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
-              is_admin: bool = False, given=None):
+              is_admin: bool = False, given=None, cut: bool = False):
     """Shape _llm_chat's return: plain string (default, every existing caller),
     or (string, meta) when the caller wants model transparency (the web
     gateway shows which model answered). Module-level — several test suites
@@ -1178,6 +1206,11 @@ def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
     reply. A mutation that swapped the two blocks passed all 22 tests and said
     otherwise.)
     """
+    if cut:
+        text = trim_cut_reply(text)
+        audit(system_log, "Chat reply was cut at the output cap; trimmed and marked",
+              action="chat_cut", result="TRIMMED",
+              data={"model": getattr(cfg, "model", "") or ""})
     try:
         from bot.nlp.fabricated_tool_calls import strip_fabricated_tool_results
         cleaned, n = strip_fabricated_tool_results(text)
@@ -1237,6 +1270,8 @@ def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
         return text
     meta = ({"provider": cfg.provider.value, "model": cfg.model}
             if cfg is not None else {})
+    if meta and cut:
+        meta["cut"] = True
     # What ran on the way to this answer, for the surface to show and the
     # store to keep. Name and outcome only — the result stays out of the
     # payload a browser receives. The footer is the same sentence both

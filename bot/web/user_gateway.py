@@ -1460,7 +1460,7 @@ async def handle_pi_coach(request: web.Request) -> web.Response:
     (`_llm_chat(public=True)`), with the coach's prompt and the facts the
     website read for the person (bot/web/pi_coach.py). Two fixed answers come
     before any model (a token or sale question; a question that needs a live
-    price), and the model's reply passes the coach's output check or is
+    price the website could not read), and the model's reply passes the coach's output check or is
     withheld. `answered` says whether a model answered, which is what the
     website counts: a fixed sentence or an outage spends nothing.
     """
@@ -1478,7 +1478,9 @@ async def handle_pi_coach(request: web.Request) -> web.Response:
     if pi_coach.token_ask(text):
         return web.json_response({"reply_html": pi_coach.TOKEN_ANSWER,
                                   "intent": "pi_coach_token", "answered": False})
-    if needs_live_market_data(text):
+    # A price question goes to the model only when the website could read
+    # live prices for it; otherwise the coach says it could not.
+    if needs_live_market_data(text) and not pi_coach.has_live_prices(body.get("context")):
         return web.json_response({"reply_html": pi_coach.NO_FEED_ANSWER,
                                   "intent": "pi_coach_no_feed", "answered": False})
 

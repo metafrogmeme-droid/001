@@ -25,6 +25,23 @@ const quorum = (over) => ({ day: '2026-10-20', root: ROOT, status: 'short', k: 2
   mismatched: [], meaning: 'time-proven, not performance', anchors: [], bitcoin: { status: 'not_submitted' }, ...over });
 const anchor = (chain, chain_name, status, counts = true) => ({ chain, chain_name, status, counts_toward_quorum: counts });
 
+test('a day whose pending chains cannot finish the quorum says another chain needs a wallet', () => {
+  // The live case, 22 Oct 2026: the server stamped every day in Bitcoin and
+  // nobody stamped one anywhere else. "Waiting for: Bitcoin" alone read as
+  // though Bitcoin were all a day lacked.
+  const btcOnly = badge(quorum({ pending: ['bitcoin'] }));
+  assert.deepStrictEqual([btcOnly.text, btcOnly.sub], ['Not anchored yet',
+    'Waiting for: Bitcoin · Even then, it needs another chain, and only a wallet can stamp one.']);
+  const onBtc = badge(quorum({ groups: ['bitcoin'], bitcoin: { status: 'verified' } }));
+  assert.deepStrictEqual([onBtc.text, onBtc.sub], ['1 of 2 independent chains so far',
+    'It needs another chain, and only a wallet can stamp one.']);
+  // Both arms: when what is pending would finish it, nothing more is said.
+  const enough = badge(quorum({ groups: ['ethereum'], pending: ['bitcoin'] }));
+  assert.strictEqual(enough.sub, 'Waiting for: Bitcoin');
+  const nothing = badge(quorum({}));
+  assert.strictEqual(nothing.sub, '');
+});
+
 test('the badge says what the quorum says, in three values, and "not read" claims nothing', () => {
   const held = badge(quorum({ status: 'multi_anchored', groups: ['bitcoin', 'ethereum'],
     anchors: [anchor('base', 'Base', 'verified')], bitcoin: { status: 'verified' } }));

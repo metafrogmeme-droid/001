@@ -112,7 +112,14 @@ test('the receipt card on /call', H.SKIP ? { skip: H.SKIP } : {}, async (t) => {
     await t.test('in German, the button speaks German', async () => {
       const { ctx, page, errors } = await open(browser, base, { locale: 'de' });
       await page.waitForSelector('#rcMake');
-      await page.waitForFunction(() => window.RCI18N && document.querySelector('#rcMake'));
+      // Wait for the German chunk to be APPLIED, not for the translator to
+      // exist: it exists before the chunk lands, and a loaded box read the
+      // English label in the gap. A page that never says it in German still
+      // fails here, on the timeout, with the label it did say.
+      await page.waitForFunction(() => {
+        const b = document.querySelector('#rcMake');
+        return b && b.textContent === 'Karte erstellen';
+      }, null, { timeout: 15000 }).catch(() => {});
       assert.strictEqual(await page.textContent('#rcMake'), 'Karte erstellen');
       assert.deepStrictEqual(errors, []);
       await ctx.close();

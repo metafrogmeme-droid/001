@@ -54,14 +54,18 @@ async function stampDay(day, root, { fetchImpl, now = new Date() } = {}) {
  * (lib/reader_agreement.js). One source that reports a higher tip than the
  * chain has would otherwise make a shallow block look six deep.
  */
-async function bitcoinTip(fetchImpl) {
+async function bitcoinTip(fetchImpl, timeoutMs = 15000) {
+  timeoutMs = timeoutMs || 15000;
   const f = fetchImpl || global.fetch;
   const apis = ots.BITCOIN_HEADER_APIS;
   const tips = (await Promise.all(apis.map(async (api) => {
     try {
-      const r = await f(`${api}/blocks/tip/height`, { method: 'GET' });
+      // Bounded, like every other read in this job. Unbounded, one header
+      // source that accepted the connection and never answered held the pass
+      // open forever, and the schedule never starts a pass while one runs.
+      const r = await ots.fetchBytes(f, `${api}/blocks/tip/height`, { method: 'GET' }, timeoutMs);
       if (r.status !== 200) return null;
-      const n = Number(String(await r.text()).trim());
+      const n = Number(r.body.toString('utf8').trim());
       return Number.isInteger(n) && n > 0 ? n : null;
     } catch (e) { return null; }
   }))).filter((n) => n !== null);
@@ -75,7 +79,7 @@ async function bitcoinTip(fetchImpl) {
  * → { status: 'mismatch', reason }               the proof does not lead to its block, or is not this root's
  * → { status: 'unknown', reason }                unreadable proof or headers — not a verdict
  */
-async function checkProof(row, { fetchImpl } = {}) {
+async function checkProof(row, { fetchImpl, timeoutMs } = {}) {
   let file;
   try { file = ots.parseProofFile(Buffer.from(String(row.proof || ''), 'base64')); } catch (e) {
     return { status: 'unknown', reason: `the stored proof could not be read (${e.message || e.name})` };
@@ -83,9 +87,9 @@ async function checkProof(row, { fetchImpl } = {}) {
   if (!file.digest.equals(ots.digestFor(row.day, row.root))) {
     return { status: 'mismatch', reason: 'the stored proof is for another statement' };
   }
-  const v = await ots.verifyBitcoin(file.timestamp, { fetchImpl });
+  const v = await ots.verifyBitcoin(file.timestamp, { fetchImpl, ...(timeoutMs ? { timeoutMs } : {}) });
   if (v.status !== 'verified') return v;
-  const tip = await bitcoinTip(fetchImpl);
+  const tip = await bitcoinTip(fetchImpl, timeoutMs);
   if (tip === null) return { status: 'unknown', reason: 'the Bitcoin tip height could not be read' };
   const deep = tip - v.height + 1;
   if (deep < BITCOIN_DEPTH) {
@@ -95,14 +99,24 @@ async function checkProof(row, { fetchImpl } = {}) {
 }
 
 /** Ask the calendars to complete `row`'s proof; store it, and its height once checked. → the check's verdict. */
-async function upgradeDay(row, { fetchImpl, now = new Date() } = {}) {
+async function upgradeDay(row, { fetchImpl, now = new Date(), timeoutMs } = {}) {
   let file;
   try { file = ots.parseProofFile(Buffer.from(String(row.proof || ''), 'base64')); } catch (e) {
     return { status: 'unknown', reason: 'the stored proof could not be read' };
   }
   const grew = await ots.upgrade(file.timestamp, { fetchImpl });
   const proof = grew ? b64(ots.writeProofFile(file.digest, file.timestamp)) : row.proof;
-  const v = await checkProof({ ...row, proof }, { fetchImpl });
+  // A grown proof is kept before it is checked: the calendars' answer is the
+  // part that cannot be fetched again for free, and a check that fails or
+  // stalls must not throw it away.
+  // (The job only upgrades rows not yet in a block, so the height it writes
+  // here is the NULL it read.)
+  if (grew) {
+    await pool.execute(
+      'UPDATE seal_root_ots SET proof = ?, bitcoin_height = ?, block_time = ?, checked_at = ? WHERE day = ? AND root = ?',
+      [proof, null, null, now, row.day, row.root]);
+  }
+  const v = await checkProof({ ...row, proof }, { fetchImpl, timeoutMs });
   const height = v.status === 'verified' ? v.height : null;
   const blockTime = v.status === 'verified' ? new Date(v.block_time) : null;
   if (grew || height !== null) {

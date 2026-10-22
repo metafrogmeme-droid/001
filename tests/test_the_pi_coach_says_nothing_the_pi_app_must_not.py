@@ -137,6 +137,38 @@ def test_a_live_price_question_is_answered_without_a_model():
     assert model.calls == []
 
 
+LIVE = pi_coach.LIVE_PRICES_HEAD + "2026-10-22 17:30 UTC:\n- LTCUSDT 88.42, 24h -1.30%"
+
+
+@pytest.mark.parametrize("text", ["scan LTC", "what is the price of LTC now?", "LTC price"])
+def test_a_price_question_goes_to_the_model_when_the_facts_carry_live_prices(text):
+    model = _Model()
+    _, out = _turn(model, text=text, context="Open: none.\n" + LIVE)
+    assert out["intent"] == "pi_coach" and out["answered"] is True
+    assert len(model.calls) == 1
+
+
+@pytest.mark.parametrize("context", [
+    "Open: none.\nLive prices: could not be read just now.",
+    "Open: none.",
+    "",
+])
+def test_without_live_prices_a_price_question_still_gets_the_fixed_answer(context):
+    """Both arms: a failed read, and no read at all, keep the gate shut."""
+    model = _Model()
+    _, out = _turn(model, text="what is the price of LTC now?", context=context)
+    assert out["intent"] == "pi_coach_no_feed" and model.calls == []
+
+
+def test_the_coach_is_told_to_quote_only_the_prices_it_was_handed():
+    assert "Live prices are in the FACTS block" in pi_coach.PROMPT
+    assert "never state a price that is not there" in pi_coach.PROMPT
+    assert "You have no live market feed" not in pi_coach.PROMPT
+    assert "FACTS block's live prices" in pi_coach.REPLY_CONTRACT
+    assert pi_coach.has_live_prices(LIVE) and not pi_coach.has_live_prices("Live prices: could not be read just now.")
+    assert not pi_coach.has_live_prices(None)
+
+
 def test_a_reply_with_a_link_is_withheld_but_counted():
     model = _Model(reply='Great question! Details at '
                          '<a href="https://www.humanoid-traders.com/token">the token page</a>.')

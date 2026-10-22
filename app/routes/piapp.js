@@ -137,13 +137,13 @@ const SCRIPTS = [
   '/js/duel.js?v=9',
   // The in-app receipt check, before the block that uses it.
   '/js/pi-receipt.js?v=4',
-  '/js/pi-duel.js?v=9',
+  '/js/pi-duel.js?v=10',
   // Ask the Claw, the coach tab.
-  '/js/pi-coach.js?v=2',
+  '/js/pi-coach.js?v=3',
   // The Leaders tab: the season's standings and your name on them.
-  '/js/pi-leaders.js?v=2',
+  '/js/pi-leaders.js?v=3',
   // The daily proof, read-only, behind the header's Proof button.
-  '/js/pi-proof.js?v=1',
+  '/js/pi-proof.js?v=2',
   '/js/pi-arena.js?v=7',
 ];
 

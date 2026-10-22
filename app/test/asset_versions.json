@@ -248,24 +248,24 @@
     "sha": "a6593abef951ef6f"
   },
   "js/pi-coach.js": {
-    "v": 2,
-    "sha": "f79bc53b5b9a3e77"
+    "v": 3,
+    "sha": "29642de6fb53d60c"
   },
   "js/pi-duel.js": {
-    "v": 9,
-    "sha": "b43c19e84fd6fc51"
+    "v": 10,
+    "sha": "5a2126e8a1664c7e"
   },
   "js/pi-i18n.js": {
     "v": 2,
     "sha": "c421800360e1212b"
   },
   "js/pi-leaders.js": {
-    "v": 2,
-    "sha": "c401aff666606a0d"
+    "v": 3,
+    "sha": "3e69caebbb4e48a5"
   },
   "js/pi-proof.js": {
-    "v": 1,
-    "sha": "a1396d624841bdc8"
+    "v": 2,
+    "sha": "424dac0cd3b1c1ad"
   },
   "js/pi-receipt.js": {
     "v": 4,

@@ -493,6 +493,49 @@ test('the job submits a day to Bitcoin, completes it only once the block is six 
   assert.strictEqual(asked.filter((x) => /\/digest$/.test(x.url)).length, posts);
 });
 
+test('a header source that never answers neither holds the job nor costs the calendars\' answer', async () => {
+  // Live, 22 Oct 2026: alice had completed 2026-10-19's path at 18:04 and the
+  // stored proof was still all-pending at 19:28 under a ten-minute schedule.
+  // The tip read had no timeout, the schedule never starts a pass while one
+  // runs, and the grown proof was stored only after its check returned.
+  const day = seal.dayOf(new Date(Date.now() - 3 * 24 * 3600 * 1000));
+  const world = { blocks: {}, height: 910000, tip: 910010 };
+  const cal = calendars(world);
+  assert.strictEqual(await rootOts.stampDay(day, 'cd'.repeat(32), { fetchImpl: cal }), true);
+  world.mined = true;
+  const hang = (honourAbort) => async (url, opts) => {
+    if (/\/blocks\/tip\/height$/.test(url)) {
+      return new Promise((_, reject) => {
+        if (honourAbort && opts && opts.signal) {
+          opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        }
+      });
+    }
+    return (await cal(url, opts)) || headers(world)(url, opts);
+  };
+
+  // A source that hangs on a real connection is cut off by the bound.
+  const row = await rootOts.rowFor(day);
+  const before = { ...row };
+  const v = await Promise.race([
+    rootOts.upgradeDay(row, { fetchImpl: hang(true), timeoutMs: 50 }),
+    new Promise((r) => setTimeout(() => r({ status: 'held open: the tip read was not bounded' }), 3000).unref()),
+  ]);
+  assert.strictEqual(v.status, 'unknown', JSON.stringify(v));
+
+  // And a check that cannot finish at all still leaves the completed path stored.
+  await pool.execute(
+    'UPDATE seal_root_ots SET proof = ?, bitcoin_height = ?, block_time = ?, checked_at = ? WHERE day = ? AND root = ?',
+    [before.proof, null, null, new Date(), day, before.root]);
+  assert.ok(!ots.attestationsOf(ots.parseProofFile(Buffer.from((await rootOts.rowFor(day)).proof, 'base64')).timestamp)
+    .some((x) => x.attestation.kind === 'bitcoin'), 'the reset did not take: this arm would measure nothing');
+  rootOts.upgradeDay({ ...before }, { fetchImpl: hang(false), timeoutMs: 50 }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 300));
+  const kept = await rootOts.rowFor(day);
+  assert.ok(ots.attestationsOf(ots.parseProofFile(Buffer.from(kept.proof, 'base64')).timestamp)
+    .some((x) => x.attestation.kind === 'bitcoin'), 'the calendars\' answer was lost behind a check that never returned');
+});
+
 test('the EAS stamp is planned only while EAS has none, and recorded only after EAS holds it', async () => {
   const w = easWorld();
   w.stamps = {};

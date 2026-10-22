@@ -357,6 +357,7 @@ async function verifyBitcoin(t, { fetchImpl, apis = BITCOIN_HEADER_APIS, timeout
 }
 
 module.exports = {
+  fetchBytes,
   CALENDARS, BITCOIN_HEADER_APIS, OtsError,
   statementFor, digestFor, submit, upgrade, verifyBitcoin,
   parseProofFile, writeProofFile, writeTimestamp, parseCalendarAnswer, attestationsOf, merge, applyOp,

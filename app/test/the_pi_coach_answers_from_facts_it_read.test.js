@@ -44,11 +44,15 @@ const CARD = { day: '2026-10-20', rounds: [
     my_call: { pick: 'hold' }, my_result: { state: 'correct' } },
 ] };
 
+/** A ticker reader that answers at once, so no test here reaches a venue. */
+const TICKERS = { getTickersWithin: async () => ({ map: { BTCUSDT: { price: 65210.5, change: -1.25, volume: 1 } }, ageMs: 0 }) };
+
 async function serve({ gateway = fakeGateway(), env = {}, positions = [], card = CARD } = {}) {
   router._deps = {
     gateway, env, now: () => T0,
     arena: { loadPositions: async () => positions },
     duel: { cardFor: async () => card },
+    tickers: TICKERS,
   };
   const app = express();
   app.use(express.json());
@@ -108,7 +112,7 @@ test('a Pi account asks; the coach is handed facts the server read, never the pa
 
 test('the facts carry the Claw\'s stance only where the card shows it', async () => {
   const facts = await coach.facts(0, { kind: 'round', id: 21 }, {
-    arena: { loadPositions: async () => [] }, duel: { cardFor: async () => CARD } });
+    arena: { loadPositions: async () => [] }, duel: { cardFor: async () => CARD }, tickers: TICKERS });
   const line = (id) => facts.split('\n').find((l) => l.includes(`Round ${id} `));
   assert.doesNotMatch(line(21), /Claw's call/, 'a sealed stance reached the coach before the person called');
   assert.match(line(22), /The Claw's call: SHORT\./);
@@ -117,7 +121,8 @@ test('the facts carry the Claw\'s stance only where the card shows it', async ()
 
 test('a source that cannot be read is said to be, and the question is still asked', async () => {
   const facts = await coach.facts(0, null, {
-    arena: { loadPositions: async () => { throw new Error('db'); } }, duel: { cardFor: async () => { throw new Error('down'); } } });
+    arena: { loadPositions: async () => { throw new Error('db'); } }, duel: { cardFor: async () => { throw new Error('down'); } },
+    tickers: TICKERS });
   assert.match(facts, /Open practice positions: could not be read just now\./);
   assert.match(facts, /Today's Daily Duel: could not be read just now\./);
   assert.doesNotMatch(facts, /Open practice positions: none/, 'an unread list was told to the coach as empty');

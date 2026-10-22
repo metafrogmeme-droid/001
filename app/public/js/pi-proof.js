@@ -84,6 +84,16 @@
     }
     var pend = (q.pending || []).map(function (key) { return nameOf(q, key); });
     if (pend.length) subs.unshift(T('Waiting for: {list}', { list: pend.join(', ') }));
+    // What is pending cannot always finish the job. A day the server stamped
+    // in Bitcoin and nobody stamped anywhere else read "Waiting for:
+    // Bitcoin", as though Bitcoin were all it lacked; with it, the day is
+    // one chain of two. Every other chain is stamped from a wallet, so say so.
+    var held = groups || 0;
+    if (pend.length && held + pend.length === k - 1) {
+      subs.push(T('Even then, it needs another chain, and only a wallet can stamp one.'));
+    } else if (!pend.length && held === k - 1) {
+      subs.push(T('It needs another chain, and only a wallet can stamp one.'));
+    }
     return {
       text: groups ? T('{n} of {k} independent chains so far', { n: groups, k: k }) : T('Not anchored yet'),
       tone: 'muted',

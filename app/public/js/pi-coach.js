@@ -27,6 +27,8 @@
   'use strict';
 
   var MAX_TEXT = 1000;
+  /** The intents of the coach's fixed answers (bot/web/user_gateway.py, the Pi coach turn). */
+  var FIXED_INTENTS = ['pi_coach_token', 'pi_coach_no_feed', 'pi_coach_withheld', 'pi_coach_unavailable'];
   /** The starter questions in the language on screen; a chip asks what it shows. */
   function starters() {
     return [
@@ -127,7 +129,10 @@
       }
       return '<div class="p-coach-log" aria-live="polite">' + log.map(function (m) {
         if (m.who === 'me') return '<div class="p-coach-msg p-coach-msg--me">' + esc(m.text) + '</div>';
-        if (m.who === 'claw') return '<div class="p-coach-msg p-coach-msg--claw">' + safeReply(m.html) + '</div>';
+        if (m.who === 'claw') {
+          return '<div class="p-coach-msg p-coach-msg--claw">'
+            + (typeof m.html === 'string' ? safeReply(m.html) : esc(m.text)) + '</div>';
+        }
         return '<div class="p-coach-msg p-coach-msg--note">' + esc(m.text) + '</div>';
       }).join('') + (busy ? '<div class="p-coach-msg p-coach-msg--claw p-coach-typing">' + esc(T('Thinking…')) + '</div>' : '') + '</div>';
     }
@@ -169,7 +174,12 @@
         busy = false;
         var b = r.body || {};
         if (r.ok && typeof b.reply_html === 'string') {
-          log.push({ who: 'claw', html: b.reply_html });
+          // A fixed answer (its intent names which) is one of the coach's four
+          // sentences, which the Pi table translates (build_pi_i18n.js reads
+          // them from bot/web/pi_coach.py); it is drawn as text, in the
+          // language on screen. A model's answer is drawn as the bot sent it.
+          if (FIXED_INTENTS.indexOf(b.intent) >= 0) log.push({ who: 'claw', text: T(b.reply_html) });
+          else log.push({ who: 'claw', html: b.reply_html });
           if (typeof b.left === 'number') state = Object.assign({}, state || {}, { enabled: true, limit: b.limit, left: b.left, resets_at: b.resets_at, plus: b.plus });
         } else if (r.status === 429) {
           state = Object.assign({}, state || {}, { enabled: true, limit: b.limit, left: 0, resets_at: b.resets_at, plus: b.plus });
@@ -235,5 +245,5 @@
       signedIn: signedIn, mounted: mounted, reload: read, ask: ask };
   }
 
-  return { create: create, safeReply: safeReply, starters: starters, MAX_TEXT: MAX_TEXT };
+  return { create: create, safeReply: safeReply, starters: starters, MAX_TEXT: MAX_TEXT, FIXED_INTENTS: FIXED_INTENTS };
 }));
