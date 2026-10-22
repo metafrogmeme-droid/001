@@ -395,5 +395,12 @@
 ["Reviewed: the result stands", "Đã xem xét: kết quả giữ nguyên"],
 ["Reviewed: no result", "Đã xem xét: không có kết quả"],
 ["Reviewed: corrected to {o}", "Đã xem xét: sửa thành {o}"],
-["Review {h}", "Xem xét {h}"]
+["Review {h}", "Xem xét {h}"],
+["{c} chips on the table at {o}", "{c} chip đang đặt với tỷ lệ {o}"],
+["{c} chips held for the check window, paid in {t}", "{c} chip đang giữ trong thời gian kiểm tra, trả sau {t}"],
+["{c} chips held until the check window closes", "{c} chip đang giữ đến khi hết thời gian kiểm tra"],
+["Won {w} chips at {o}", "Thắng {w} chip với tỷ lệ {o}"],
+["Lost {c} chips", "Mất {c} chip"],
+["{c} chips returned", "Đã trả lại {c} chip"],
+["{c} chips: their odds could not be read", "{c} chip: không đọc được tỷ lệ"]
 ]

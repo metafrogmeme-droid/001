@@ -136,7 +136,7 @@ const SCRIPTS = [
   '/js/duel.js?v=9',
   // The in-app receipt check, before the block that uses it.
   '/js/pi-receipt.js?v=4',
-  '/js/pi-duel.js?v=8',
+  '/js/pi-duel.js?v=9',
   // Ask the Claw, the coach tab.
   '/js/pi-coach.js?v=2',
   // The Leaders tab: the season's standings and your name on them.
@@ -223,7 +223,7 @@ function page(lang = 'en', offered = chunks()) {
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
 <meta name="pi-i18n" content="${escAttr(JSON.stringify(offered))}">
-<link rel="stylesheet" href="/embed.css?v=18">
+<link rel="stylesheet" href="/embed.css?v=19">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

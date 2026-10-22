@@ -395,5 +395,12 @@
 ["Reviewed: the result stands", "Ditinjau: hasil tetap"],
 ["Reviewed: no result", "Ditinjau: tanpa hasil"],
 ["Reviewed: corrected to {o}", "Ditinjau: dikoreksi menjadi {o}"],
-["Review {h}", "Tinjauan {h}"]
+["Review {h}", "Tinjauan {h}"],
+["{c} chips on the table at {o}", "{c} chip dipasang dengan odds {o}"],
+["{c} chips held for the check window, paid in {t}", "{c} chip ditahan selama masa pemeriksaan, dibayar dalam {t}"],
+["{c} chips held until the check window closes", "{c} chip ditahan sampai masa pemeriksaan berakhir"],
+["Won {w} chips at {o}", "Menang {w} chip dengan odds {o}"],
+["Lost {c} chips", "Kalah {c} chip"],
+["{c} chips returned", "{c} chip dikembalikan"],
+["{c} chips: their odds could not be read", "{c} chip: odds-nya tidak terbaca"]
 ]

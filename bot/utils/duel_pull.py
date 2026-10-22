@@ -71,11 +71,14 @@ def fetch_card(telegram_id: str) -> tuple[int | None, dict | None]:
     return _call(f"/api/bot/sync/duel?telegram_id={tg}")
 
 
-def place_pick(telegram_id: str, round_id: int, pick: str) -> tuple[int | None, dict | None]:
-    """Record one call. The web app decides whether it may be recorded."""
+def place_pick(telegram_id: str, round_id: int, pick: str,
+               chips: int | None = None) -> tuple[int | None, dict | None]:
+    """Record one call, with chips or without. The web app decides whether it
+    may be recorded, and checks the chips against the player's stack; absent
+    is no chips, never zero."""
     if not is_configured() or not telegram_id:
         return None, None
-    return _call(
-        "/api/bot/sync/duel/pick",
-        {"telegram_id": str(telegram_id)[:32], "round_id": int(round_id), "pick": str(pick)},
-    )
+    body: dict = {"telegram_id": str(telegram_id)[:32], "round_id": int(round_id), "pick": str(pick)}
+    if chips is not None:
+        body["chips"] = int(chips)
+    return _call("/api/bot/sync/duel/pick", body)

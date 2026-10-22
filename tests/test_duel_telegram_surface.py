@@ -47,7 +47,7 @@ def test_callback_token_round_trips():
     for round_id in (1, 7, 12345):
         for pick in ("long", "short", "pass"):
             data = pick_callback_data(round_id, pick)
-            assert parse_callback_data(data) == (round_id, pick)
+            assert parse_callback_data(data) == (round_id, pick, None)
 
 
 def test_callback_token_is_symbols_not_prose():
@@ -299,7 +299,7 @@ def test_the_bot_takes_exactly_the_picks_the_rules_take():
 def test_every_category_word_round_trips_through_the_callback():
     for kind, picks in KIND_PICKS.items():
         for pick in picks:
-            assert parse_callback_data(pick_callback_data(7, pick)) == (7, pick), (kind, pick)
+            assert parse_callback_data(pick_callback_data(7, pick)) == (7, pick, None), (kind, pick)
             assert len(pick_callback_data(123456, pick).encode()) <= 64
 
 
@@ -431,7 +431,7 @@ def test_a_football_round_asks_who_wins_and_offers_both_teams_and_the_draw():
     assert button_rows([MATCH_ROUND]) == [[
         ("Arsenal", "duel:7:home"), ("DRAW", "duel:7:draw"), ("Chelsea", "duel:7:away"), ("PASS", "duel:7:pass")]]
     for pick in ("home", "draw", "away"):
-        assert parse_callback_data(pick_callback_data(7, pick)) == (7, pick)
+        assert parse_callback_data(pick_callback_data(7, pick)) == (7, pick, None)
     out = render_card({"day": "2026-10-19", "horizon_hours": 24, "rounds": [MATCH_ROUND]})
     assert "· Football" in out and "who wins?" in out
     assert "The Claw" not in out, "the Claw holds no view on football"

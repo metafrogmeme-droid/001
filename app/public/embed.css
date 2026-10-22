@@ -516,6 +516,18 @@ html, body {
 .p-duel .d-receipts { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10.5px; color: var(--e-text-3); font-variant-numeric: tabular-nums; }
 .p-duel .d-receipts--inline { display: inline-flex; margin-left: 6px; }
 .p-duel .d-rc { color: var(--e-text-3); border-bottom: 1px dotted var(--e-line-2); }
+/* Chips (lib/duel_chips.js): the odds on a pick, the field beside the
+   buttons, a call's chips state, and the review line. Muted throughout:
+   only won and lost take a colour, through the tone classes below. */
+.p-duel .d-odds { color: var(--e-text-3); font-size: 11px; margin-left: 4px; font-weight: 500; }
+.p-duel .d-chips { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.p-duel .d-chips-in {
+  width: 96px; min-height: 40px; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid var(--e-line); background: var(--e-bg); color: var(--e-text); font-size: 15px;
+}
+.p-duel .d-chips-none { grid-column: 1 / -1; }
+.p-duel .d-chips-st { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--e-text-3); }
+.p-duel .d-review { color: var(--e-text-2); }
 .p-duel .tone-up { color: var(--e-up); }
 .p-duel .tone-down { color: var(--e-down); }
 .p-duel .tone-muted { color: var(--e-text-3); }

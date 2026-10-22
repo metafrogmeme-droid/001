@@ -204,7 +204,7 @@ def test_a_tap_records_the_call_answers_the_query_and_redraws_the_card():
     placed = []
     bot = db.DuelBot(
         fetch_card=lambda tg: (200, CARD),
-        place_pick=lambda tg, rid, pick: (placed.append((tg, rid, pick)),
+        place_pick=lambda tg, rid, pick, chips=None: (placed.append((tg, rid, pick)),
                                           (200, {"ok": True, "kind": "range", "pick": "hold", "symbol": "BNBUSDT",
                                                  "threshold_pct": 2, "entry_price": 600.0,
                                                  "resolves_at": "2026-10-20T12:00:00.000Z"}))[1],
@@ -219,7 +219,7 @@ def test_a_tap_records_the_call_answers_the_query_and_redraws_the_card():
     # A refusal is the server's sentence, and nothing reads as recorded.
     u = _update(data="duel:3:hold")
     bot2 = db.DuelBot(fetch_card=lambda tg: (200, CARD), site_url=SITE,
-                      place_pick=lambda tg, rid, pick: (409, {"error": "You have already called this round."}))
+                      place_pick=lambda tg, rid, pick, chips=None: (409, {"error": "You have already called this round."}))
     _run(bot2.on_duel_callback(u, _ctx()))
     assert _texts(u)[0] == "You have already called this round."
     # A token that does not parse is refused, not guessed.

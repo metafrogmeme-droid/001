@@ -395,5 +395,12 @@
 ["Reviewed: the result stands", "Na-review: nananatili ang resulta"],
 ["Reviewed: no result", "Na-review: walang resulta"],
 ["Reviewed: corrected to {o}", "Na-review: itinama sa {o}"],
-["Review {h}", "Review {h}"]
+["Review {h}", "Review {h}"],
+["{c} chips on the table at {o}", "{c} chips nakataya sa {o}"],
+["{c} chips held for the check window, paid in {t}", "{c} chips nakahawak habang sinusuri, babayaran sa loob ng {t}"],
+["{c} chips held until the check window closes", "{c} chips nakahawak hanggang matapos ang pagsusuri"],
+["Won {w} chips at {o}", "Nanalo ng {w} chips sa {o}"],
+["Lost {c} chips", "Natalo ang {c} chips"],
+["{c} chips returned", "Naibalik ang {c} chips"],
+["{c} chips: their odds could not be read", "{c} chips: hindi mabasa ang odds nila"]
 ]

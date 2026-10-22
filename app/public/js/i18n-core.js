@@ -2129,8 +2129,8 @@
     "duel.chips_empty": { en: "No chips left this season: call for marks" },
     "duel.chips_no_round": { en: "No chips on this round: call it for marks" },
     "duel.chips_open": { en: "{c} chips on the table at {o}" },
-    "duel.chips_held": { en: "{c} chips held: disputed, paid when the check window closes" },
-    "duel.chips_held_in": { en: "{c} chips held: disputed, paid in {t}" },
+    "duel.chips_held": { en: "{c} chips held until the check window closes" },
+    "duel.chips_held_in": { en: "{c} chips held for the check window, paid in {t}" },
     "duel.chips_won": { en: "Won {w} chips at {o}" },
     "duel.chips_lost": { en: "Lost {c} chips" },
     "duel.chips_returned": { en: "{c} chips returned" },
@@ -2485,7 +2485,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"f1fa2ab3","zh":"9a9323d4","pt":"fe05938b","fr":"d2004e57","de":"594f76c7","nl":"15e42ea6","ja":"afe30bdc","ko":"41e9c020","ru":"89c6a725","tr":"79f6591c","it":"70b05870","hi":"231a16d2","ar":"08ed2d04"};
+  var CHUNKS = {"es":"0a25c764","zh":"1d87069a","pt":"3ca3b503","fr":"df1e6b33","de":"04729bee","nl":"01ce5898","ja":"b1ed5e51","ko":"48917b55","ru":"b22ec8b1","tr":"c6f8b89a","it":"250bd3d2","hi":"9c475398","ar":"2b623308"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

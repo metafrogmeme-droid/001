@@ -28491,3 +28491,66 @@ checker and the page. One survived: the service handing the raw evidence to
 the seal instead of the normalised line. Every test's evidence was already
 one clean line, so nothing could tell them apart. A test now sends whitespace
 (refused as no evidence) and a pasted block (sealed folded and bounded).
+
+## CHIPS RIDE WITH A CALL, SO A TAP THAT CANNOT SAY HOW MANY MUST ASK FIRST, AND A WORD A BUILD CANNOT FIND IS NEVER TRANSLATED
+
+22 October 2026, the chips' third phase: Telegram and the Pi app. The
+guard tests are `tests/test_a_telegram_call_can_carry_chips.py`,
+`app/test/a_call_carries_chips_from_telegram_and_the_pi_app.test.js` and
+`app/test/the_pi_app_puts_chips_with_a_call.smoke.test.js`.
+
+**A Telegram button is one tap with no field beside it.** The website takes
+a call and its chips in one POST, because the field sits beside the buttons.
+A Telegram keyboard has no field, and chips cannot be added to a call once it
+is recorded. A pick dealt odds therefore carries a token that asks
+(`duel:<round>:<pick>:c`). The bot answers with "No chips" and the amounts the
+stack and the limits allow, read from the card's block. Only that second tap
+records the call. The prompt says so in its own words: "Nothing is recorded
+until you choose." A pass carries no asking token, and a pass token with chips
+does not parse.
+
+**The parser had admitted digits `int()` refuses.** `str.isdigit` is true
+for '²', which `int()` cannot read. A round id like that reached an
+`int()` call that would have raised inside the callback handler. The
+parser now admits ASCII digits only. Chips tokens are also refused with a
+leading zero, a zero, more than four digits, or a fifth part.
+
+**A player's stack is theirs, and a room is not their chat.** The main
+bot's `/duel` runs in private chats only. The Duel bot answers in groups
+too, so it strips the chips block and the odds from the card it shows a
+room (`for_room`). A chips token tapped there, forwarded or typed, records
+nothing and says where chips are put.
+
+**The renderer's chips sentences were invisible to the Pi app's build.**
+`chipsLabel` built every sentence through a helper named `f(key, english)`.
+The Pi language build collects a renderer's words by reading literal
+`tr('key', 'English')` calls, so it found none of the six. In the Pi app
+they would have shown in English in all sixteen languages. Nothing failed:
+a sentence the build never sees is never reported missing. Each is now a
+literal `tr()` the build reads, and the three Pi-only languages carry them.
+
+**"Held: disputed" described half of what holds.** Since flags arrived, a
+flag also holds a call's chips. The website's held line still said
+"disputed", which is false for a flagged call that no second source
+disputed. Every surface now says "held for the check window" and names
+neither cause. The call's own line already says which one it was.
+
+**A test that pinned the renderer call's whole text broke when an option
+was added.** The Pi app's link test matched `{ verify: !!window.RCPiReceipt }`
+character for character. It now matches the option it guards, so the
+second option, the chips block, does not read as losing the in-app receipt
+check.
+
+**Twenty-nine mutants, none survived.** The round covered:
+- the token grammar;
+- the keyboard's offer and the prompt's amounts;
+- the room filter;
+- both bots' asking and sending paths;
+- the pull's body and the channel's two routes;
+- the Pi block's block, field, stack and sentence;
+- the held wording on both surfaces;
+- the Pi stylesheet's field.
+
+Every mutant was killed. The field's mutant was caught by the browser test
+measuring the input's size. An unstyled input is too small to tap, and only
+a browser can see that.

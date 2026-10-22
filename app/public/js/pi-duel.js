@@ -14,6 +14,12 @@
  * the proof: each receipt on a card is a button that checks the seal in the
  * person's own browser (pi-receipt.js), where the website links to /call.
  *
+ * CHIPS (lib/duel_chips.js). Where the card carries a chips block, the
+ * renderer offers each pick's odds and a chips field, and a call carries what
+ * the field held (empty is none). The record shows the season's stack and
+ * says what a chip is. No chip touches a Pi payment: they are play money,
+ * handed out each season, and cannot be bought, sold or cashed out.
+ *
  * HONESTY. A card that could not be read is said to be unreadable, never
  * drawn empty: "no rounds" is a claim about the game. A record that could not
  * be read is left out and said to be, never shown as a dash that could pass
@@ -73,6 +79,8 @@
       text += ' ' + (r.agent_direction == null ? T('The Claw passed on this one.')
         : T('The Claw called {dir}.', { dir: String(r.agent_direction).toUpperCase() }));
     }
+    // Chips put with the call, at the odds they were put at.
+    if (r.chips != null) text += ' ' + T('{c} chips on the table at {o}', { c: r.chips, o: D.oddsText(r.odds) || '—' });
     return text;
   }
 
@@ -153,14 +161,21 @@
       }
       var streak = me.streak && me.streak.current != null ? String(me.streak.current) : '—';
       var marks = D.marksLabel(me.marks, TR);
+      // The season's chips, when the record carries them (the layer is on, or
+      // chips are still out this season); left out otherwise, never a 1,000
+      // for a game the player was not offered.
+      var stack = me.chips ? D.stackLabel(me.chips, TR) : null;
       return '<div class="p-duel-rec">'
         + stat(T('Accuracy'), D.accuracyLabel(me.accuracy, TR))
         + stat(T('Marks'), marks)
         + stat(T('Streak'), { text: '🔥 ' + streak, tone: 'muted', sub: '' })
+        + (stack ? stat(T('Chips'), stack) : '')
         + '</div>'
         // What a mark is, under the row: "Accuracy 60% of 5" beside "Marks 4"
         // cannot be reconciled without the rule.
-        + (marks.how ? '<p class="p-duel-how">' + esc(T('Marks: {how}', { how: marks.how })) + '</p>' : '');
+        + (marks.how ? '<p class="p-duel-how">' + esc(T('Marks: {how}', { how: marks.how })) + '</p>' : '')
+        // What a chip is: play money, worth nothing outside the game.
+        + (stack && stack.how ? '<p class="p-duel-how">' + esc(stack.how) + '</p>' : '');
     }
 
     /** How many of today's rounds are called, and how many are still open. */
@@ -204,7 +219,9 @@
         // screen (the Pi app); the DogeOS app has none and shows none.
         var canAsk = ctx && typeof ctx.ask === 'function' && hasCoach;
         body = '<div class="d-rounds">' + card.rounds.map(function (r) {
-          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), TR, undefined, { verify: !!window.RCPiReceipt })
+          // The card's chips block: the renderer offers odds and a chips
+          // field only while the layer is on (lib/duel_chips.js).
+          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), TR, undefined, { verify: !!window.RCPiReceipt, chips: card.chips || null })
             + (canAsk ? '<div class="p-why-row"><button type="button" class="p-why" data-ask="round" data-id="' + esc(r.id) + '">' + esc(T('Explain this round')) + '</button></div>' : '');
         }).join('') + '</div>';
       }
@@ -223,12 +240,16 @@
       return load();
     }
 
-    function place(roundId, pick, c) {
+    function place(roundId, pick, c, chips) {
       if (busy) return;
       busy = true;
       note = ['note', T('Recording your call…')];
       c.render();
-      c.api('/api/duel/pick', { method: 'POST', body: { round_id: roundId, pick: pick } }).then(function (r) {
+      // Chips ride with the call when the field had a value; empty is none,
+      // never 0. The server checks every limit and says why it refuses.
+      var body = { round_id: roundId, pick: pick };
+      if (chips) body.chips = chips;
+      c.api('/api/duel/pick', { method: 'POST', body: body }).then(function (r) {
         busy = false;
         if (r.ok && r.body && r.body.ok) {
           if (typeof c.toast === 'function') { note = null; c.toast('ok', recordedText(r.body)); }
@@ -290,7 +311,8 @@
       if (!b) return false;
       var wrap = b.closest('.d-actions');
       if (!wrap) return true;
-      place(Number(wrap.getAttribute('data-round')), b.getAttribute('data-pick'), c);
+      var inp = wrap.querySelector('.d-chips-in');
+      place(Number(wrap.getAttribute('data-round')), b.getAttribute('data-pick'), c, inp ? String(inp.value || '').trim() : '');
       return true;
     }
 

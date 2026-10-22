@@ -29,7 +29,8 @@
  * dealt with odds shows each pick's odds and a chips field; one dealt without
  * says so. A call's chips read in five states, and only won and lost take a
  * colour: open, held and returned are not results, and unread is unknown. A
- * surface that does not pass `opts.chips` (the Pi app) offers none.
+ * surface that does not pass `opts.chips` offers none; the website and the
+ * Pi app pass the card's block.
  */
 (function (root, factory) {
   const api = factory();
@@ -362,23 +363,26 @@
   function chipsLabel(c, t, now) {
     var tr = t || IDENT;
     if (!c || c.chips == null) return null;
-    var f = function (k, en) {
-      return tr(k, en).replace('{c}', c.chips).replace('{o}', oddsText(c.odds) || '—')
+    // Each sentence is a tr(key, English) of its own, so a build that reads
+    // the renderer for its words (app/scripts/build_pi_i18n.js) finds it.
+    var f = function (s) {
+      return s.replace('{c}', c.chips).replace('{o}', oddsText(c.odds) || '—')
         .replace('{w}', c.payout == null ? '—' : Math.abs(c.payout));
     };
     switch (c.state) {
-      case 'open': return { text: f('duel.chips_open', '{c} chips on the table at {o}'), tone: 'muted' };
+      case 'open': return { text: f(tr('duel.chips_open', '{c} chips on the table at {o}')), tone: 'muted' };
       case 'held': {
-        // Held for the check window: when it closes, the chips are paid as the
-        // verdict stands. A window whose end cannot be read is not given a time.
+        // Held for the check window, by a dispute or by the player's flag:
+        // paid as the verdict stands when it closes, or as a review decides.
+        // A window whose end cannot be read is not given a time.
         var left = timeLeftText(c.held_until, now, tr);
-        return { text: left ? f('duel.chips_held_in', '{c} chips held: disputed, paid in {t}').replace('{t}', left)
-          : f('duel.chips_held', '{c} chips held: disputed, paid when the check window closes'), tone: 'muted' };
+        return { text: left ? f(tr('duel.chips_held_in', '{c} chips held for the check window, paid in {t}')).replace('{t}', left)
+          : f(tr('duel.chips_held', '{c} chips held until the check window closes')), tone: 'muted' };
       }
-      case 'won': return { text: f('duel.chips_won', 'Won {w} chips at {o}'), tone: 'up' };
-      case 'lost': return { text: f('duel.chips_lost', 'Lost {c} chips'), tone: 'down' };
-      case 'returned': return { text: f('duel.chips_returned', '{c} chips returned'), tone: 'muted' };
-      default: return { text: f('duel.chips_unread', '{c} chips: their odds could not be read'), tone: 'muted' };
+      case 'won': return { text: f(tr('duel.chips_won', 'Won {w} chips at {o}')), tone: 'up' };
+      case 'lost': return { text: f(tr('duel.chips_lost', 'Lost {c} chips')), tone: 'down' };
+      case 'returned': return { text: f(tr('duel.chips_returned', '{c} chips returned')), tone: 'muted' };
+      default: return { text: f(tr('duel.chips_unread', '{c} chips: their odds could not be read')), tone: 'muted' };
     }
   }
 

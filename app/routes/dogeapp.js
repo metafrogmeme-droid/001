@@ -47,7 +47,7 @@ const SCRIPTS = [
   '/js/duel.js?v=9',
   // The in-app receipt check the Duel block's receipts open (pi-receipt.js).
   '/js/pi-receipt.js?v=4',
-  '/js/pi-duel.js?v=8',
+  '/js/pi-duel.js?v=9',
   '/js/anchor_cell.js?v=4',
   '/js/doge-proof.js?v=2',
   // The wallet door doge-app.js signs in through, shared with /memeclaw.
@@ -76,7 +76,7 @@ function page() {
 <link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=18">
+<link rel="stylesheet" href="/embed.css?v=19">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

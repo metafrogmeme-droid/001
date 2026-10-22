@@ -402,12 +402,13 @@ test('the card offers no more than the stack can put, says when it is empty, and
     assert.strictEqual(D.chipsLabel({ chips: 50, odds: 1.9, state, payout: state === 'returned' ? 0 : null }, null).tone, 'muted', state);
   }
   const held = D.chipsLabel({ chips: 50, odds: 1.9, state: 'held', held_until: '2026-10-10T14:00:00.000Z' }, null, Date.parse('2026-10-10T13:20:00Z'));
-  assert.strictEqual(held.text, '50 chips held: disputed, paid in 40m');
+  // Held by a dispute or by the player's flag alike, so the words name neither.
+  assert.strictEqual(held.text, '50 chips held for the check window, paid in 40m');
   // A layer switched off mid-season: the block still carries the stack, and the card offers nothing.
   const off = D.roundCard({ id: 1, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true,
     odds: { long: 1.9, short: 1.9 } }, null, null, { links: true, chips: { ...block(500), enabled: false } });
   assert.doesNotMatch(off, /d-chips|×1\.9|No chips on this round/);
-  // Pi: no chips block passed, so no odds and no field, whatever the round carries.
+  // A surface that passes no chips block: no odds and no field, whatever the round carries.
   const html = D.roundCard({ id: 1, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true, odds: { long: 1.9, short: 1.9 } }, null, null, { verify: true });
   assert.doesNotMatch(html, /d-chips|×1\.9/);
 });

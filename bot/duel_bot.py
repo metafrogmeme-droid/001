@@ -375,11 +375,11 @@ class DuelBot:
             self._fetch_card = cast(Callable[..., Any], fetch_card)
         return cast(Callable[..., Any], self._fetch_card)(tg_id)
 
-    def place_pick(self, tg_id: str, round_id: int, pick: str):
+    def place_pick(self, tg_id: str, round_id: int, pick: str, chips: Optional[int] = None):
         if self._place_pick is None:
             from bot.utils.duel_pull import place_pick
             self._place_pick = cast(Callable[..., Any], place_pick)
-        return cast(Callable[..., Any], self._place_pick)(tg_id, round_id, pick)
+        return cast(Callable[..., Any], self._place_pick)(tg_id, round_id, pick, chips)
 
     def board(self):
         reader = self._fetch_board if self._fetch_board is not None else fetch_board
@@ -423,13 +423,23 @@ class DuelBot:
         return str(getattr(chat, "id", "") or "")
 
     @staticmethod
-    def keyboard(rounds):
+    def markup(rows):
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        built = [[InlineKeyboardButton(label, callback_data=data) for label, data in row] for row in rows]
+        return InlineKeyboardMarkup(built) if built else None
 
+    @classmethod
+    def keyboard(cls, rounds, chips=None):
         from bot.formatters.duel_card import button_rows
-        rows = [[InlineKeyboardButton(label, callback_data=data) for label, data in row]
-                for row in button_rows(rounds)]
-        return InlineKeyboardMarkup(rows) if rows else None
+        return cls.markup(button_rows(rounds, chips))
+
+    @staticmethod
+    def as_shown(update, card):
+        """The card as this chat may see it: a public room is offered no
+        chips and shown no stack (`duel_card.for_room`)."""
+        from bot.formatters.duel_card import for_room
+        from bot.skills.public_room import is_public_room
+        return for_room(card) if is_public_room(update) else card
 
     async def _limited(self, update) -> bool:
         if self.commands.admit(self._chat_id(update)):
@@ -458,7 +468,13 @@ class DuelBot:
         if status != 200 or not data:
             await self._reply(update, render_card(None))
             return
-        await self._reply(update, render_card(data), self.keyboard(data.get("rounds")))
+        await self._redraw(update, data)
+
+    async def _redraw(self, update, card) -> None:
+        """The card and its keyboard, as this chat may see them."""
+        from bot.formatters.duel_card import chips_block, render_card
+        shown = self.as_shown(update, card)
+        await self._reply(update, render_card(shown), self.keyboard(shown.get("rounds"), chips_block(shown)))
 
     async def cmd_me(self, update, context) -> None:
         if await self._limited(update):
@@ -499,8 +515,10 @@ class DuelBot:
         await self._reply(update, link_outcome_text(status, body, self.url()))
 
     async def on_duel_callback(self, update, context) -> None:
-        """A tap on a round's button: `duel:<round_id>:<pick>`."""
-        from bot.formatters.duel_card import parse_callback_data, render_card, render_pick_result
+        """A tap on a round's button: `duel:<round_id>:<pick>`, with a fourth
+        part for chips: `:c` asks how many to put, `:<n>` puts them."""
+        from bot.formatters.duel_card import CHOOSE, chips_prompt, parse_callback_data, render_pick_result
+        from bot.skills.public_room import is_public_room
         query = getattr(update, "callback_query", None)
         if query is None:
             return
@@ -513,9 +531,31 @@ class DuelBot:
             return
         if await self._limited(update):
             return
-        round_id, pick = parsed
+        round_id, pick, chips = parsed
         tg = self._tg_id(update)
-        status, result = await asyncio.to_thread(self.place_pick, tg, round_id, pick)
+        if chips is not None and is_public_room(update):
+            # A room is offered no chips; a token that carries them anyway
+            # (forwarded, or typed) records nothing here.
+            await self._reply(update, "Chips are put in a private chat with me. Nothing was recorded.")
+            return
+        if chips == CHOOSE:
+            # Ask before recording: chips ride with the call or not at all.
+            c_status, card = await asyncio.to_thread(self.fetch_card, tg)
+            if c_status == 404:
+                await self._reply(update, link_hint(self.url()))
+                return
+            prompt = chips_prompt(card, round_id, pick) if c_status == 200 and card else None
+            if prompt is None:
+                await self._reply(update, "That call cannot take chips now. Nothing was recorded; "
+                                          "here is today's card.")
+                if c_status == 200 and card:
+                    await self._redraw(update, card)
+                return
+            text, rows = prompt
+            await self._reply(update, text, self.markup(rows))
+            return
+        status, result = await asyncio.to_thread(
+            self.place_pick, tg, round_id, pick, chips if isinstance(chips, int) else None)
         if status == 404:
             await self._reply(update, link_hint(self.url()))
             return
@@ -523,7 +563,7 @@ class DuelBot:
         # Redraw: the called round loses its buttons and the stance appears.
         c_status, card = await asyncio.to_thread(self.fetch_card, tg)
         if c_status == 200 and card:
-            await self._reply(update, render_card(card), self.keyboard(card.get("rounds")))
+            await self._redraw(update, card)
 
     async def on_any_update(self, update, context) -> None:
         self.state["updates"] = int(self.state.get("updates", 0)) + 1
