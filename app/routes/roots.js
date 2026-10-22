@@ -20,7 +20,7 @@
  */
 const express = require('express');
 const { listRoots, rootForDay, anchorsFor, recordAnchor } = require('../lib/seal_roots');
-const { buildAnchorPlan, verifyAnchor, publicChains, chainInfo, DEFAULT_CHAIN, easStampOf } = require('../lib/root_anchor');
+const { buildAnchorPlan, verifyAnchor, publicChains, chainInfo, DEFAULT_CHAIN, easStampOf, caseSensitiveTx } = require('../lib/root_anchor');
 const { authMiddleware } = require('../auth');
 const rootOts = require('../lib/root_ots');
 const ots = require('../lib/opentimestamps');
@@ -206,7 +206,10 @@ router.post('/anchor', authMiddleware, rateLimit({ name: 'roots.anchor', windowM
     const chain = chainOf(req);
     if (!chain) return res.status(400).json({ error: 'Unknown chain' });
     const day = String((req.body || {}).day || '');
-    const txHash = String((req.body || {}).tx_hash || '').toLowerCase();
+    // A hex hash is lower-cased; a Solana signature is base58, where case is
+    // the value, so it is kept as given (lib/root_anchor.js caseSensitiveTx).
+    const rawTx = String((req.body || {}).tx_hash || '').trim();
+    const txHash = caseSensitiveTx(chain) ? rawTx : rawTx.toLowerCase();
     const row = await rootForDay(day);
     if (!row) return res.status(404).json({ error: 'No root for that day' });
     const have = (await anchorsFor(row.day, row)).find((a) => a.chain === chain.key);

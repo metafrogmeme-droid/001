@@ -341,10 +341,11 @@ test('the policy carries a date a reader can act on', () => {
 
 /**
  * The owner signed off the daily proof section on 22 October 2026, as it read
- * that day (site/src/routes/privacy.tsx records it). Two facts were added
+ * that day (site/src/routes/privacy.tsx records it). Three facts were added
  * the same day under the owner's instruction to make the factual updates the
- * open items needed: the chips on a call's receipt, and reviews of
- * settlements among a day's seals. That is the approval of one text, so the
+ * open items needed: the chips on a call's receipt, reviews of settlements
+ * among a day's seals, and Solana among the chains a day can be anchored on
+ * (with the services that read it). That is the approval of one text, so the
  * text is pinned: a change to the section, however small, fails here until
  * the owner approves the new text and its digest is recorded in the same
  * commit. It is the owner's approval, not a lawyer's review.
@@ -352,7 +353,7 @@ test('the policy carries a date a reader can act on', () => {
 const SIGNED_OFF = {
   heading: 'The daily proof, and the chains it is written to',
   on: '22 October 2026',
-  sha256: 'c5b91623f66c270ede95ee77f0c321478791409166bf4bf6cf1a83af237bb9ac',
+  sha256: 'f7f3d59c68deb742d13d4cdec42b738142936d8d876b8ec0d698fdf06e0f4770',
 }
 
 test('the daily proof section is the text the owner signed off', () => {

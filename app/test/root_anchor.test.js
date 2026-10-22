@@ -190,12 +190,12 @@ test('the verifier reads the chain it is told, and refuses one it does not know'
   // A chain this build does not know is refused before any RPC is asked —
   // never verified "as Base" by falling through to the default.
   const asked = [];
-  const nope = await verifyAnchor(TX, DAY, ROOT, async (u) => { asked.push(u); throw new Error('must not be called'); }, 'solana');
+  const nope = await verifyAnchor(TX, DAY, ROOT, async (u) => { asked.push(u); throw new Error('must not be called'); }, 'polygon');
   assert.equal(nope.status, 'mismatch');
   assert.match(nope.reason, /unknown chain/);
   assert.deepEqual(asked, []);
-  assert.equal(buildAnchorPlan(DAY, ROOT, 'solana'), null);
-  assert.equal(chainInfo('solana'), null);
+  assert.equal(buildAnchorPlan(DAY, ROOT, 'polygon'), null);
+  assert.equal(chainInfo('polygon'), null);
   assert.equal(chainInfo('dogeos-testnet').chain_id, 6281971);
 });
 

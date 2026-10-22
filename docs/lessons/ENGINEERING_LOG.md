@@ -28636,3 +28636,51 @@ handshake and reports no ephemeral key at all. Finite-field DH reports a
 type and a size but no name. Both are classical, and the first is not even
 forward-secret, so neither is "unknown". A real TLS 1.2 RSA server in the
 test holds it. Ten mutants, all killed after that.
+
+## A SIGNATURE WHOSE CASE IS ITS VALUE MUST NOT BE LOWER-CASED, AND A COLUMN SIZED FOR ONE CHAIN DROPS ANOTHER'S ANCHOR
+
+22 October 2026. The roadmap's Solana anchor: a day's root as one
+Memo-program instruction (`RCROOT1:<day>:<root>`, the EVM chains' text) that
+a wallet's owner sends. The server reads it back from two keyless JSON-RPC
+readers at `finalized` commitment, and they must agree on the memo and the
+slot. Solana is its own independence group in the day's quorum. The code is
+in `app/lib/solana_anchor.js`. The guard test is
+`app/test/a_day_is_anchored_on_solana.test.js`, which runs from the rules
+through the route to the quorum. The migration is held by
+`app/test/migration_ddl.test.js`.
+
+**The submit route lower-cased every hash.** That was right for hex, where
+case is presentation. A Solana signature is base58, where 'a' and 'A' are
+different values: lower-cased, it names a transaction that does not exist,
+and every real anchor would have been refused as "no such transaction".
+The registry now says which chains' ids are case-sensitive
+(`caseSensitiveTx`), and the route keeps those as given. The test submits a
+mixed-case signature and reads it back unchanged from the response, the
+table and the quorum.
+
+**The anchors table was sized for the EVM.** `tx` was VARCHAR(66), for a
+0x hash, and `from_addr` was VARCHAR(42), for a 0x address. A Solana
+signature runs to 88 characters and an address to 44. MySQL in strict mode
+refuses a value that does not fit, so a verified Solana anchor would have
+failed at the INSERT that records it. The in-memory database has no widths
+and could not show it. The table exists on every production database, so a
+width set in its CREATE never reaches one. The fast path now reads both
+widths and widens only the narrow ones. A width it cannot read is left alone
+and logged, as the duel's pick width is. The mutant that removes that guard
+is equivalent: an unread width is NaN, and `NaN < width` is false, so the
+guard only adds the log line.
+
+**`finalized`, not `confirmed`.** Asked at `finalized`, a reader answers
+null until the cluster has rooted the block, about thirteen seconds behind
+the head. That null reads as "not finalized yet", never as "no such
+transaction". A reader's RPC error is a reader that did not answer. The
+mutation round found that distinction untested and a test now holds it.
+
+**The unknown-chain tests used Solana as their example of a chain that did
+not exist.** Two tests asserted that `?chain=solana` is refused. They now
+use a chain this build does not know.
+
+**The privacy section the owner signed off names each chain a wallet can
+anchor to, and each reader the server asks.** Solana was added to both
+lists, under the owner's instruction to make the factual updates, and the
+new digest is pinned.

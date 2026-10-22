@@ -397,6 +397,21 @@ alter that day without contradicting a hash they do not control.
 **This is the step that turns self-certification into evidence**, and it costs
 the mirrorer nothing but a paste.
 
+RUNECLAW's own anchors, each sent by a wallet's owner and read back by the
+server from two readers that must agree, carry the root in one of these forms:
+
+| chain | where the root is | bytes |
+|---|---|---|
+| Base, DogeOS testnet | the calldata of a zero-value transaction to the sender's own address | `utf8("RCROOT1:<day>:<root hex>")` |
+| Base (EAS) | `timestamp(bytes32 root)` on the Ethereum Attestation Service | the root's 32 bytes |
+| Dogecoin | one OP_RETURN output | `utf8("RCD1:<day>:")` then the root's 32 bytes |
+| Solana | one Memo-program instruction, read at `finalized` commitment | `utf8("RCROOT1:<day>:<root hex>")` |
+| Bitcoin | an OpenTimestamps proof of a digest | SHA-256 of one line naming the day and its root |
+
+A day is **multi-anchored** when chains in at least two independence groups
+verify it live (a testnet is shown and never counted). That proves when the
+root existed, never how good the calls in it were.
+
 ---
 
 ## 5 · Conformance

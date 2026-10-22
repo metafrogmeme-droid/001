@@ -3337,6 +3337,40 @@ async function ensureDuelPickWidth() {
 }
 
 /**
+ * seal_root_anchors was sized for EVM chains: `tx` for a 66-character 0x hash
+ * and `from_addr` for a 42-character 0x address. A Solana signature is up to
+ * 88 base58 characters and a Solana address up to 44, and MySQL refuses a
+ * value that does not fit (strict mode), so a verified Solana anchor would be
+ * dropped at the INSERT. Widened where narrower; READ first, as the pick
+ * width is, and an unreadable width is left alone and said so.
+ */
+const ANCHOR_TX_WIDTH = 100;
+const ANCHOR_FROM_WIDTH = 64;
+async function ensureAnchorWidths() {
+  const [rows] = await pool.query({
+    sql: `SELECT COLUMN_NAME AS c, CHARACTER_MAXIMUM_LENGTH AS n FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'seal_root_anchors' AND COLUMN_NAME IN ('tx', 'from_addr')`,
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const width = {};
+  for (const r of rows || []) {
+    width[String(r.c || r.COLUMN_NAME || '').toLowerCase()] = Number(r.n != null ? r.n : r.CHARACTER_MAXIMUM_LENGTH);
+  }
+  const changes = [];
+  for (const [col, want, nullity] of [['tx', ANCHOR_TX_WIDTH, 'NOT NULL'], ['from_addr', ANCHOR_FROM_WIDTH, 'NULL']]) {
+    const n = Object.prototype.hasOwnProperty.call(width, col) ? width[col] : NaN;
+    if (!Number.isFinite(n)) {
+      console.error(`seal_root_anchors.${col} width could not be read; not widened`);
+      continue;
+    }
+    if (n < want) changes.push(`MODIFY COLUMN ${col} VARCHAR(${want}) ${nullity}`);
+  }
+  if (!changes.length) return [];
+  await pool.query(`ALTER TABLE seal_root_anchors ${changes.join(', ')}`);
+  return changes;
+}
+
+/**
  * A football call has no entry price, so `entry_price` must take NULL. Read
  * first, for the same reasons as the width above; an unreadable answer is
  * left alone and said so.
@@ -3473,6 +3507,8 @@ async function migrate() {
       if (addedPicks.length) console.log(`Duel picks schema reconciled: ${addedPicks.join(', ')}`);
       if (await ensureDuelPickWidth()) console.log(`Duel picks schema reconciled: pick widened to ${DUEL_PICK_WIDTH}`);
       if (await ensureDuelPickEntryNullable()) console.log('Duel picks schema reconciled: entry_price takes NULL');
+      const widened = await ensureAnchorWidths();
+      if (widened.length) console.log(`Seal root anchors schema reconciled: ${widened.join(', ')}`);
       console.log('Schema already current — skipping full DDL');
       return 'fast';
     }
@@ -4383,8 +4419,8 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS seal_root_anchors (
         day VARCHAR(10) NOT NULL,
         chain VARCHAR(24) NOT NULL,
-        tx VARCHAR(66) NOT NULL,
-        from_addr VARCHAR(42) NULL,
+        tx VARCHAR(${ANCHOR_TX_WIDTH}) NOT NULL,
+        from_addr VARCHAR(${ANCHOR_FROM_WIDTH}) NULL,
         block_time TIMESTAMP NULL,
         verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (day, chain)
@@ -4816,6 +4852,7 @@ module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
   EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS,
   REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, REQUIRED_TRADE_COLUMNS, DUEL_PICK_WIDTH,
+  ANCHOR_TX_WIDTH, ANCHOR_FROM_WIDTH,
   schemaIsCurrent, schemaPath,
   ensureSignalColumns, ensureUserColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process

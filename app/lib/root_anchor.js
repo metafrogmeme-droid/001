@@ -28,6 +28,7 @@
  *   utf8("RCROOT1:" + day + ":" + root)   as the tx `data`, hex-encoded.
  */
 const { agree, requiredOf, unread } = require('./reader_agreement');
+const solana = require('./solana_anchor');
 
 const PREFIX = 'RCROOT1';
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -145,7 +146,29 @@ function chains(env) {
       verify_cache_ms: 6 * 3600 * 1000,
       native: { name: 'Dogecoin', symbol: 'DOGE', decimals: 8 },
     },
+    // Solana (mainnet, 2026-10-22): the root as a Memo-program instruction a
+    // wallet's owner sends, read back from two keyless JSON-RPC readers at
+    // `finalized` commitment (lib/solana_anchor.js). Not an EVM chain: no
+    // chain id and nothing to hand a wallet to add. Its own consensus, so its
+    // own independence group.
+    solana: {
+      key: 'solana', chain_id: null, name: 'Solana', testnet: false,
+      method: 'solana_memo',
+      independence_group: 'solana',
+      rpcs: rpcList('SOLANA_RPC_URLS', solana.DEFAULT_RPCS, env), public_rpcs: [],
+      explorer_tx: 'https://solscan.io/tx/',
+      native: { name: 'Solana', symbol: 'SOL', decimals: 9 },
+    },
   };
+}
+
+/**
+ * Whether a chain's transaction ids are case-sensitive (Solana's base58
+ * signatures). Every other chain's is hex, which is lower-cased before it is
+ * checked or stored.
+ */
+function caseSensitiveTx(chain) {
+  return !!chain && chain.method === 'solana_memo';
 }
 const DEFAULT_CHAIN = 'base';
 
@@ -197,6 +220,7 @@ function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
   const chain = chainInfo(chainKey);
   if (!chain) return null;
   if (chain.method === 'dogecoin_op_return') return require('./dogecoin_anchor').buildPlan(day, root, chain);
+  if (chain.method === 'solana_memo') return solana.buildPlan(day, root, chain);
   if (chain.method === 'eas_timestamp') {
     const data = easStampCalldata(root);
     return {
@@ -401,6 +425,7 @@ async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHA
   if (chain.method === 'dogecoin_op_return') {
     return require('./dogecoin_anchor').verify(txHash, day, root, chain, fetchImpl);
   }
+  if (chain.method === 'solana_memo') return solana.verify(txHash, day, root, chain, fetchImpl);
   if (!TX_RE.test(String(txHash))) return { status: 'mismatch', reason: 'malformed transaction hash' };
   if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) {
     return { status: 'mismatch', reason: 'malformed day or root' };
@@ -484,5 +509,5 @@ async function verifyThroughQuickNode(txHash, day, root, chain) {
 module.exports = {
   buildAnchorPlan, verifyAnchor, verifyThroughQuickNode, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
   DOGEOS_TESTNET_PUBLIC_RPCS, EAS_BASE, EAS_TIMESTAMP, EAS_GET_TIMESTAMP, easStampCalldata, easStampOf,
-  chains, chainInfo, publicChains, DEFAULT_CHAIN,
+  chains, chainInfo, publicChains, DEFAULT_CHAIN, caseSensitiveTx,
 };

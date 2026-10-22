@@ -111,7 +111,7 @@ test('every chain in the registry says what it is independent of, and whether it
   assert.deepStrictEqual(
     Object.keys(by).sort().map((k) => [k, by[k].independence_group, by[k].counts_toward_quorum]),
     [['base', 'ethereum-l2', true], ['base-eas', 'ethereum-l2', true], ['dogecoin', 'dogecoin', true],
-      ['dogeos-testnet', 'dogeos-testnet', false]]);
+      ['dogeos-testnet', 'dogeos-testnet', false], ['solana', 'solana', true]]);
 });
 
 // ── Bitcoin's header sources ─────────────────────────────────────────────────

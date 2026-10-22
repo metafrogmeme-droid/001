@@ -49,11 +49,12 @@
  * stands. The approval is of that text, so `site/test/privacy_truth.test.js`
  * pins the section's digest: an edit to it fails there until the owner
  * approves the new text. Later the same day the owner told us to make the
- * factual updates the open items need, and two facts changed: a call's
+ * factual updates the open items need, and three facts changed: a call's
  * receipt now shows the chips put on it (the clause "and the chips you put
- * on it, if any"), and reviews of settlements are seals in a day's root (a
- * review names a call by its seal and no one by name). The pinned digest is
- * of the text with both. The anchor watch's Discord alerts, added the same
+ * on it, if any"), reviews of settlements are seals in a day's root (a
+ * review names a call by its seal and no one by name), and a day can be
+ * anchored on Solana, read back through public Solana RPC services. The
+ * pinned digest is of the text with all three. The anchor watch's Discord alerts, added the same
  * day, carry no personal data (a day, a chain and what is wrong), so this
  * page says nothing about them.
  */
@@ -257,8 +258,9 @@ function Privacy() {
         <><strong>When your wallet anchors a day.</strong> You can write a
           day&rsquo;s root to a public chain from your own wallet: to Base (a
           transaction to your own address, or a stamp in the Ethereum
-          Attestation Service), to the DogeOS testnet, or to Dogecoin from
-          Dogecoin Core. Your wallet sends it; we never sign. Once the chain
+          Attestation Service), to the DogeOS testnet, to Dogecoin from
+          Dogecoin Core, or to Solana (a transaction carrying the root as a
+          memo). Your wallet sends it; we never sign. Once the chain
           confirms it, we keep and show publicly which chain, the transaction id
           and the address that sent it. We do not record which account submitted
           it. The same facts are on the chain itself, where nobody, us included,
@@ -270,7 +272,8 @@ function Privacy() {
         <><strong>Checking an anchor.</strong> To check one, our servers ask
           public blockchain services about its transaction id: RPC providers for
           Base and the DogeOS testnet, BlockCypher and SoChain for Dogecoin,
-          blockstream.info and mempool.space for Bitcoin, and, when the operator
+          public Solana RPC services for Solana, blockstream.info and
+          mempool.space for Bitcoin, and, when the operator
           has configured it, QuickNode through a data service. They see a
           request from our server, not from you.</>,
       ]} />
