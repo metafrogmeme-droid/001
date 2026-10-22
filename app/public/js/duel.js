@@ -29,7 +29,8 @@
  * dealt with odds shows each pick's odds and a chips field; one dealt without
  * says so. A call's chips read in five states, and only won and lost take a
  * colour: open, held and returned are not results, and unread is unknown. A
- * surface that does not pass `opts.chips` (the Pi app) offers none.
+ * surface that does not pass `opts.chips` offers none; the website and the
+ * Pi app pass the card's block.
  */
 (function (root, factory) {
   const api = factory();
@@ -362,23 +363,26 @@
   function chipsLabel(c, t, now) {
     var tr = t || IDENT;
     if (!c || c.chips == null) return null;
-    var f = function (k, en) {
-      return tr(k, en).replace('{c}', c.chips).replace('{o}', oddsText(c.odds) || '—')
+    // Each sentence is a tr(key, English) of its own, so a build that reads
+    // the renderer for its words (app/scripts/build_pi_i18n.js) finds it.
+    var f = function (s) {
+      return s.replace('{c}', c.chips).replace('{o}', oddsText(c.odds) || '—')
         .replace('{w}', c.payout == null ? '—' : Math.abs(c.payout));
     };
     switch (c.state) {
-      case 'open': return { text: f('duel.chips_open', '{c} chips on the table at {o}'), tone: 'muted' };
+      case 'open': return { text: f(tr('duel.chips_open', '{c} chips on the table at {o}')), tone: 'muted' };
       case 'held': {
-        // Held for the check window: when it closes, the chips are paid as the
-        // verdict stands. A window whose end cannot be read is not given a time.
+        // Held for the check window, by a dispute or by the player's flag:
+        // paid as the verdict stands when it closes, or as a review decides.
+        // A window whose end cannot be read is not given a time.
         var left = timeLeftText(c.held_until, now, tr);
-        return { text: left ? f('duel.chips_held_in', '{c} chips held: disputed, paid in {t}').replace('{t}', left)
-          : f('duel.chips_held', '{c} chips held: disputed, paid when the check window closes'), tone: 'muted' };
+        return { text: left ? f(tr('duel.chips_held_in', '{c} chips held for the check window, paid in {t}')).replace('{t}', left)
+          : f(tr('duel.chips_held', '{c} chips held until the check window closes')), tone: 'muted' };
       }
-      case 'won': return { text: f('duel.chips_won', 'Won {w} chips at {o}'), tone: 'up' };
-      case 'lost': return { text: f('duel.chips_lost', 'Lost {c} chips'), tone: 'down' };
-      case 'returned': return { text: f('duel.chips_returned', '{c} chips returned'), tone: 'muted' };
-      default: return { text: f('duel.chips_unread', '{c} chips: their odds could not be read'), tone: 'muted' };
+      case 'won': return { text: f(tr('duel.chips_won', 'Won {w} chips at {o}')), tone: 'up' };
+      case 'lost': return { text: f(tr('duel.chips_lost', 'Lost {c} chips')), tone: 'down' };
+      case 'returned': return { text: f(tr('duel.chips_returned', '{c} chips returned')), tone: 'muted' };
+      default: return { text: f(tr('duel.chips_unread', '{c} chips: their odds could not be read')), tone: 'muted' };
     }
   }
 
@@ -417,6 +421,30 @@
       + '<input class="d-chips-in" type="number" inputmode="numeric" min="' + esc(block.min) + '" max="' + esc(max) + '" step="10" placeholder="'
       + esc(tr('duel.chips_ph', 'none')) + '">'
       + '<small class="d-note">' + esc(tr('duel.chips_limits', '{min}–{max}, or none; a pass takes none').replace('{min}', block.min).replace('{max}', max)) + '</small></label>';
+  }
+
+  /**
+   * A settled call's flag and review, for the player who made it: the
+   * review's decision when there is one (with its receipt), "flagged" while
+   * one is awaited, or a button to flag it while the check window is open.
+   * Nothing for a call that is none of these.
+   */
+  function reviewHtml(round, t, links, check) {
+    const tr = t || IDENT;
+    const c = (round || {}).my_call || {};
+    const rv = c.review;
+    if (rv && rv.state) {
+      const text = rv.state === 'stands' ? tr('duel.rv_stands', 'Reviewed: the result stands')
+        : rv.state === 'push' ? tr('duel.rv_push', 'Reviewed: no result')
+          : tr('duel.rv_corrected', 'Reviewed: corrected to {o}').replace('{o}', String(rv.outcome || '—').toUpperCase());
+      const rc = receiptHtml('review', rv.seal, tr('duel.rc_review', 'Review {h}'), links, check);
+      return '<span class="d-note d-review">' + esc(text) + (rc ? ' ' + rc : '') + '</span>';
+    }
+    if (c.flagged) return '<span class="d-note d-review">' + esc(tr('duel.flagged', 'Flagged: waiting for a review')) + '</span>';
+    if (c.flaggable && links === true) {
+      return '<button type="button" class="d-flag" data-flag="' + esc(round.id) + '">' + esc(tr('duel.flag_btn', 'Flag this result')) + '</button>';
+    }
+    return '';
   }
 
   function shortSeal(seal) {
@@ -531,6 +559,7 @@
         + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + '</div>'
         + (cl ? '<span class="d-chips-st tone-' + esc(cl.tone) + '">' + esc(cl.text) + '</span>' : '')
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
+        + reviewHtml(r, tr, links, check)
         + scoreNote
         + (receipts.length ? '<div class="d-receipts">' + receipts.join('') + '</div>' : '')
         + '</div>';
@@ -587,5 +616,5 @@
       + '</article>';
   }
 
-  return { oddsText, chipsLabel, stackLabel, chipsField, esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
+  return { reviewHtml, oddsText, chipsLabel, stackLabel, chipsField, esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
 }));

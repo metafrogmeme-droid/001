@@ -516,6 +516,18 @@ html, body {
 .p-duel .d-receipts { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10.5px; color: var(--e-text-3); font-variant-numeric: tabular-nums; }
 .p-duel .d-receipts--inline { display: inline-flex; margin-left: 6px; }
 .p-duel .d-rc { color: var(--e-text-3); border-bottom: 1px dotted var(--e-line-2); }
+/* Chips (lib/duel_chips.js): the odds on a pick, the field beside the
+   buttons, a call's chips state, and the review line. Muted throughout:
+   only won and lost take a colour, through the tone classes below. */
+.p-duel .d-odds { color: var(--e-text-3); font-size: 11px; margin-left: 4px; font-weight: 500; }
+.p-duel .d-chips { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.p-duel .d-chips-in {
+  width: 96px; min-height: 40px; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid var(--e-line); background: var(--e-bg); color: var(--e-text); font-size: 15px;
+}
+.p-duel .d-chips-none { grid-column: 1 / -1; }
+.p-duel .d-chips-st { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--e-text-3); }
+.p-duel .d-review { color: var(--e-text-2); }
 .p-duel .tone-up { color: var(--e-up); }
 .p-duel .tone-down { color: var(--e-down); }
 .p-duel .tone-muted { color: var(--e-text-3); }
@@ -568,6 +580,21 @@ html, body {
 .p-goto { margin-left: 4px; color: var(--e-info); }
 .p-off-b:focus-visible, .p-goto:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
 .m-refresh-row .p-off-b + .m-refresh { margin-left: 0; }
+.p-off-b + .p-off-b { margin-left: 6px; }
+/* The daily proof (pi-proof.js in the Pi app, doge-proof.js on /doge): one
+   row per finished day, its quorum badge, and the root quoted, never linked. */
+.p-proof-intro { font-size: 13px; color: var(--e-text-2); line-height: 1.5; margin: 0 0 6px; }
+.p-proof-meaning { margin: 0 0 12px; font-size: 12px; color: var(--e-text-3); }
+.p-proof-row {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; margin-bottom: 10px;
+  border-radius: 14px; border: 1px solid var(--e-line-2); background: var(--e-surface-2);
+}
+.p-proof-hd { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.p-proof-q { font-size: 14px; font-weight: 650; }
+.p-proof-q.tone-up { color: var(--e-up); }
+.p-proof-q.tone-muted { color: var(--e-text-2); }
+.p-proof-on, .p-proof-sub { font-size: 12px; line-height: 1.45; }
+.p-proof-root code { font-size: 11px; color: var(--e-text-3); word-break: break-all; }
 
 /* The open form's visible labels. */
 .m-row--fields { align-items: flex-end; }

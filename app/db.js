@@ -2624,24 +2624,30 @@ class MemoryDB {
         seal_payload: pcol('SEAL_PAYLOAD') == null ? null : pcol('SEAL_PAYLOAD'),
         settle_seal: null, settle_payload: null,
         chips: pcol('CHIPS') == null ? null : Number(pcol('CHIPS')),
+        flagged_at: null, review_state: null, review_outcome: null, review_seal: null, review_payload: null, reviewed_at: null,
         created_at: pcol('CREATED_AT') || new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelPickId - 1 }, []];
     }
-    if (cmd.startsWith('UPDATE DUEL_PICKS SET SETTLE')) {
+    if (cmd.startsWith('UPDATE DUEL_PICKS SET ')) {
       // The SET list is parsed, not counted: this handler used to tell four
       // statement shapes apart by which column names appeared and bind
       // parameters by position per shape, and every new settlement column
       // (the v7 seal, then the second reading) added a shape. A column the
       // statement names is bound in order, like the trades INSERT above;
       // the trailing `WHERE id = ?` takes the last parameter.
-      const m = /UPDATE duel_picks SET ([\s\S]*?) WHERE id = \?/i.exec(sql);
+      // A flag and a review are written once: `AND <column> IS NULL` after the
+      // id is the guard that makes the second write land nowhere, and it is
+      // honoured here as MySQL honours it, never assumed.
+      const m = /UPDATE duel_picks SET ([\s\S]*?) WHERE id = \?(?:\s+AND\s+(\w+)\s+IS\s+NULL)?\s*$/i.exec(sql.trim());
       if (!m) throw new Error('MemoryDB: unparseable UPDATE duel_picks');
       const cols = m[1].split(',').map((c) => c.trim().split('=')[0].trim().toLowerCase()).filter(Boolean);
       if (cols.length + 1 !== params.length) {
         throw new Error(`MemoryDB: UPDATE duel_picks sets ${cols.length} columns but received ${params.length - 1} values`);
       }
-      const p = this.duelPicks.find(x => Number(x.id) === Number(params[params.length - 1]));
+      const guard = m[2] ? m[2].toLowerCase() : null;
+      const p = this.duelPicks.find(x => Number(x.id) === Number(params[params.length - 1])
+        && (!guard || x[guard] == null));
       if (p) cols.forEach((c, k) => { p[c] = params[k] == null ? null : params[k]; });
       return [{ affectedRows: p ? 1 : 0 }, []];
     }
@@ -2653,6 +2659,12 @@ class MemoryDB {
         rows = this.duelPicks.filter(p => p.settle_seal && p.settle_seal === params[0]);
       } else if (cmd.includes('WHERE SEAL =')) {
         rows = this.duelPicks.filter(p => p.seal && p.seal === params[0]);
+      } else if (/WHERE ID = \?/.test(cmd)) {
+        rows = this.duelPicks.filter(p => Number(p.id) === Number(params[0]));
+      } else if (cmd.includes('WHERE REVIEWED_AT >=')) {
+        rows = this.duelPicks.filter(p => p.reviewed_at && inWindow(p.reviewed_at, params[0], params[1]));
+      } else if (cmd.includes('WHERE REVIEW_SEAL =')) {
+        rows = this.duelPicks.filter(p => p.review_seal && p.review_seal === params[0]);
       } else if (cmd.includes('WHERE SETTLED_AT >=')) {
         rows = this.duelPicks.filter(p => p.settled_at && inWindow(p.settled_at, params[0], params[1]));
       } else if (cmd.includes('WHERE CREATED_AT >=')) {
@@ -3264,6 +3276,16 @@ const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
   // put", never 0: a call without chips and a call with none are one thing,
   // and zero is refused at the door.
   chips: 'INT NULL',
+  // A flag and a review (lib/duel_review.js): the player who made the call
+  // may flag its settlement within the check window, and the operator's
+  // review of a flagged or disputed settlement writes a receipt of its own.
+  // All NULL until each happens; the settlement's own receipt never changes.
+  flagged_at: 'TIMESTAMP NULL',
+  review_state: 'VARCHAR(10) NULL',
+  review_outcome: 'VARCHAR(8) NULL',
+  review_seal: 'VARCHAR(64) NULL',
+  review_payload: 'TEXT NULL',
+  reviewed_at: 'TIMESTAMP NULL',
 });
 // The share card's book (2026-10-20): `trades` is on every production
 // database, so the ALTER below the fast path never runs there. Reconciled
@@ -3312,6 +3334,40 @@ async function ensureDuelPickWidth() {
   if (n >= DUEL_PICK_WIDTH) return false;
   await pool.query(`ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`);
   return true;
+}
+
+/**
+ * seal_root_anchors was sized for EVM chains: `tx` for a 66-character 0x hash
+ * and `from_addr` for a 42-character 0x address. A Solana signature is up to
+ * 88 base58 characters and a Solana address up to 44, and MySQL refuses a
+ * value that does not fit (strict mode), so a verified Solana anchor would be
+ * dropped at the INSERT. Widened where narrower; READ first, as the pick
+ * width is, and an unreadable width is left alone and said so.
+ */
+const ANCHOR_TX_WIDTH = 100;
+const ANCHOR_FROM_WIDTH = 64;
+async function ensureAnchorWidths() {
+  const [rows] = await pool.query({
+    sql: `SELECT COLUMN_NAME AS c, CHARACTER_MAXIMUM_LENGTH AS n FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'seal_root_anchors' AND COLUMN_NAME IN ('tx', 'from_addr')`,
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const width = {};
+  for (const r of rows || []) {
+    width[String(r.c || r.COLUMN_NAME || '').toLowerCase()] = Number(r.n != null ? r.n : r.CHARACTER_MAXIMUM_LENGTH);
+  }
+  const changes = [];
+  for (const [col, want, nullity] of [['tx', ANCHOR_TX_WIDTH, 'NOT NULL'], ['from_addr', ANCHOR_FROM_WIDTH, 'NULL']]) {
+    const n = Object.prototype.hasOwnProperty.call(width, col) ? width[col] : NaN;
+    if (!Number.isFinite(n)) {
+      console.error(`seal_root_anchors.${col} width could not be read; not widened`);
+      continue;
+    }
+    if (n < want) changes.push(`MODIFY COLUMN ${col} VARCHAR(${want}) ${nullity}`);
+  }
+  if (!changes.length) return [];
+  await pool.query(`ALTER TABLE seal_root_anchors ${changes.join(', ')}`);
+  return changes;
 }
 
 /**
@@ -3451,6 +3507,8 @@ async function migrate() {
       if (addedPicks.length) console.log(`Duel picks schema reconciled: ${addedPicks.join(', ')}`);
       if (await ensureDuelPickWidth()) console.log(`Duel picks schema reconciled: pick widened to ${DUEL_PICK_WIDTH}`);
       if (await ensureDuelPickEntryNullable()) console.log('Duel picks schema reconciled: entry_price takes NULL');
+      const widened = await ensureAnchorWidths();
+      if (widened.length) console.log(`Seal root anchors schema reconciled: ${widened.join(', ')}`);
       console.log('Schema already current — skipping full DDL');
       return 'fast';
     }
@@ -4361,8 +4419,8 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS seal_root_anchors (
         day VARCHAR(10) NOT NULL,
         chain VARCHAR(24) NOT NULL,
-        tx VARCHAR(66) NOT NULL,
-        from_addr VARCHAR(42) NULL,
+        tx VARCHAR(${ANCHOR_TX_WIDTH}) NOT NULL,
+        from_addr VARCHAR(${ANCHOR_FROM_WIDTH}) NULL,
         block_time TIMESTAMP NULL,
         verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (day, chain)
@@ -4510,6 +4568,12 @@ async function migrate() {
         settle_second_price_b DOUBLE NULL,
         settle_disputed TINYINT NULL,
         chips INT NULL,
+        flagged_at TIMESTAMP NULL,
+        review_state VARCHAR(10) NULL,
+        review_outcome VARCHAR(8) NULL,
+        review_seal VARCHAR(64) NULL,
+        review_payload TEXT NULL,
+        reviewed_at TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_pick (user_id, round_id),
         INDEX idx_duel_picks_user (user_id),
@@ -4543,6 +4607,12 @@ async function migrate() {
       'ALTER TABLE duel_picks ADD COLUMN settle_second_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_disputed TINYINT NULL',
       'ALTER TABLE duel_picks ADD COLUMN chips INT NULL',
+      'ALTER TABLE duel_picks ADD COLUMN flagged_at TIMESTAMP NULL',
+      'ALTER TABLE duel_picks ADD COLUMN review_state VARCHAR(10) NULL',
+      'ALTER TABLE duel_picks ADD COLUMN review_outcome VARCHAR(8) NULL',
+      'ALTER TABLE duel_picks ADD COLUMN review_seal VARCHAR(64) NULL',
+      'ALTER TABLE duel_picks ADD COLUMN review_payload TEXT NULL',
+      'ALTER TABLE duel_picks ADD COLUMN reviewed_at TIMESTAMP NULL',
       `ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`,
       'ALTER TABLE duel_picks MODIFY COLUMN entry_price DOUBLE NULL',
     ]) {
@@ -4782,6 +4852,7 @@ module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
   EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS,
   REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, REQUIRED_TRADE_COLUMNS, DUEL_PICK_WIDTH,
+  ANCHOR_TX_WIDTH, ANCHOR_FROM_WIDTH,
   schemaIsCurrent, schemaPath,
   ensureSignalColumns, ensureUserColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process

@@ -460,6 +460,11 @@ app.use('/api/pi/coach', require('./routes/pi_coach'));
 app.use('/api/pi/prizes', require('./routes/pi_prizes'));
 app.use('/api/pi', require('./routes/pi_auth'));
 app.use('/pi', require('./routes/piapp'));
+// The Daily Duel as a Telegram Mini App, opened from the Duel bot: signed in
+// with Telegram's signed launch data, checked with Telegram's public key
+// (lib/tg_webapp.js). The Duel and the daily proof only: no wallet, no chain.
+app.use('/api/tgapp', require('./routes/tg_auth'));
+app.use('/tg', require('./routes/tgapp'));
 // The DogeOS app (the Vibe Code on DOGE entry): the duel and the arena, signed
 // in with a DogeOS wallet, every day's root anchored on the DogeOS testnet.
 app.use('/doge', require('./routes/dogeapp'));
@@ -472,6 +477,12 @@ app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
 app.use('/api/call', require('./routes/call'));
+// This server's live reading of one receipt; the bundle beside it is the
+// facts a third party checks without it (routes/verify.js).
+app.use('/api/verify', require('./routes/verify'));
+// The Risk Scanner's bridge check: how many verifiers a LayerZero app needs,
+// read from the chain by two readers that must agree (lib/lz_verifiers.js).
+app.use('/api/risk', require('./routes/risk'));
 app.use('/api/roots', require('./routes/roots'));
 app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
@@ -559,6 +570,8 @@ app.get('/rune', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res
 app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'gas.html')); });
 // /approvals — the Allowance X-ray (read-only; revoke plans the caller sends).
 app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'approvals.html')); });
+// Risk Scanner: read-only checks of what a visitor is about to trust (a bridge app's verifiers).
+app.get('/scanner', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'scanner.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
 // /token — the $RCLAW mint, its fixed-supply facts and the presale status.

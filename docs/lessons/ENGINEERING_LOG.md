@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **506 of 1360** reach for source text through `source_scan`, `code_only`
+Driven, **506 of 1362** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 506 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -28406,3 +28406,537 @@ also caught two of my own defects:
 - the stack label read an absent stack as `Number(null)`, which is 0;
 - the call's INSERT sat outside the `try` that catches its duplicate key.
 Both are fixed.
+
+## A REVIEW NAMES THE SETTLEMENT AND NEVER REWRITES IT, ONE VERDICT IS READ EVERYWHERE, AND A QUEUE THAT COULD NOT BE READ IS NOT EMPTY
+
+22 October 2026, later the same day. The owner said to do every open item
+and to lift the rules that conflict with them, Memeclaw's testnet excepted.
+This is the chips' second phase. A player may now flag their own
+settlement, once, within two hours of it being written. The operator
+decides each flagged or disputed settlement: it stands, it is a push, or it
+is corrected to another outcome. The decision is a receipt of its own (v9
+`duel_review`, `docs/PROVABLE_CALLS_SPEC.md` §2.9). The rules are in
+`app/lib/duel_review.js`, which is pure. The guard tests are
+`app/test/a_settlement_can_be_flagged_and_reviewed.test.js` and
+`app/test/the_duel_page_flags_and_reviews_a_settlement.smoke.test.js`.
+
+**The design counted flags on a thing the code does not have.** It sent a
+settlement to review when three of a round's callers flagged it, or a tenth
+of them. That pictures one settlement per round. The duel settles each call
+on its own, at its own entry price and its own instant, so a settlement has
+exactly one player, and there is nothing for three of them to agree on. One
+flag queues it. A settlement a second source disputed is queued with no flag.
+The threshold, the owner's open question 2, has no object, and the
+`duel_flags` table the design proposed is a column on the call.
+
+**A correction is applied by one function, read by every scorer.**
+`verdictOf(round, pick)` in `lib/duel.js` returns the verdict as a review
+left it. `scoreEntries` calls it, so the record, the board and the quests
+read the review. The card reads it, and so does `pickChips`, and through it
+the stack. A correction that re-scored chips but not marks would be a second
+reading of one call, right in one place and wrong in another. Before
+calling it done, every `FROM duel_picks` read was checked to go through
+`PICK_COLS`. It does, so the review columns reach every scorer in MySQL too.
+That is the gap the previous chapter found.
+
+**The settlement is never rewritten.** The review receipt names the call,
+the settlement and the round by seal and carries the operator's evidence. A
+review without evidence is refused. The settlement's bytes and seal are the
+ones that were sealed, and a test compares them before and after. The review
+is a leaf in the root of the day it was written. A settlement's receipt
+names its review, and the review's names the settlement.
+
+**"Once" is a guard in the SQL, and the stand-in did not honour it.** A flag
+and a review are each written with `AND <column> IS NULL` after the id, so a
+second write lands nowhere even when two requests pass the read together.
+The in-memory database's handler matched `WHERE id = ?` and would have
+ignored the clause after it. Every "only once" test would then have measured
+the service's read, which a race walks past. The handler now honours the
+guard as MySQL does. A test sends two flags and two decisions at once and
+asserts that one of each was written and the other refused, with the first
+decision's evidence intact.
+
+**A queue that could not be read said nothing was waiting.** The operator's
+panel stayed hidden on any failure, the same as for a player who is not the
+operator. `isOperator` fails closed to 403 when it cannot read the role, so
+401 and 403 are everyone else's answers. Any other failure is the
+operator's, and the panel now says the queue was not read. A browser test
+drives 401, 403, 503 and a read queue.
+
+**The Pi app linked a receipt its checker refused.** The shared renderer
+draws a reviewed call with a "Review …" receipt button. In the Pi app that
+button is answered by `pi-receipt.js`, whose key pattern knew round, duel
+and settle. It would have said "That is not a receipt this app can check"
+about a receipt the same screen had just offered. The pattern and the facts
+now include the review, in all sixteen Pi languages. A test runs the app's
+own `check()` against the real review receipt.
+
+**A late correction can leave a stack below what was put.** Chips held on a
+flagged settlement are paid as it stood once the two hours end. A review may
+still come within seven days, and a stack recomputed on every read moves
+with it. A correction from a win to a loss takes back chips the player may
+already have put again, and a stack near empty can fall below zero. It then
+takes no more chips until it recovers. The design says so rather than
+freezing a stack at an answer the review overturned.
+
+**The privacy section the owner signed off named the seals in a day's
+root.** A review is one more, so the section now names it. That was a
+factual update under the owner's instruction, and its new digest is pinned
+in `site/test/privacy_truth.test.js`.
+
+**Thirty-seven mutants, one survivor, and it was a test gap.** The round
+mutated the rules, the verdict, the hold, both write guards, the shim's guard,
+the queue, the receipts, the root, the operator gate, the renderer, the Pi
+checker and the page. One survived: the service handing the raw evidence to
+the seal instead of the normalised line. Every test's evidence was already
+one clean line, so nothing could tell them apart. A test now sends whitespace
+(refused as no evidence) and a pasted block (sealed folded and bounded).
+
+## CHIPS RIDE WITH A CALL, SO A TAP THAT CANNOT SAY HOW MANY MUST ASK FIRST, AND A WORD A BUILD CANNOT FIND IS NEVER TRANSLATED
+
+22 October 2026, the chips' third phase: Telegram and the Pi app. The
+guard tests are `tests/test_a_telegram_call_can_carry_chips.py`,
+`app/test/a_call_carries_chips_from_telegram_and_the_pi_app.test.js` and
+`app/test/the_pi_app_puts_chips_with_a_call.smoke.test.js`.
+
+**A Telegram button is one tap with no field beside it.** The website takes
+a call and its chips in one POST, because the field sits beside the buttons.
+A Telegram keyboard has no field, and chips cannot be added to a call once it
+is recorded. A pick dealt odds therefore carries a token that asks
+(`duel:<round>:<pick>:c`). The bot answers with "No chips" and the amounts the
+stack and the limits allow, read from the card's block. Only that second tap
+records the call. The prompt says so in its own words: "Nothing is recorded
+until you choose." A pass carries no asking token, and a pass token with chips
+does not parse.
+
+**The parser had admitted digits `int()` refuses.** `str.isdigit` is true
+for '²', which `int()` cannot read. A round id like that reached an
+`int()` call that would have raised inside the callback handler. The
+parser now admits ASCII digits only. Chips tokens are also refused with a
+leading zero, a zero, more than four digits, or a fifth part.
+
+**A player's stack is theirs, and a room is not their chat.** The main
+bot's `/duel` runs in private chats only. The Duel bot answers in groups
+too, so it strips the chips block and the odds from the card it shows a
+room (`for_room`). A chips token tapped there, forwarded or typed, records
+nothing and says where chips are put.
+
+**The renderer's chips sentences were invisible to the Pi app's build.**
+`chipsLabel` built every sentence through a helper named `f(key, english)`.
+The Pi language build collects a renderer's words by reading literal
+`tr('key', 'English')` calls, so it found none of the six. In the Pi app
+they would have shown in English in all sixteen languages. Nothing failed:
+a sentence the build never sees is never reported missing. Each is now a
+literal `tr()` the build reads, and the three Pi-only languages carry them.
+
+**"Held: disputed" described half of what holds.** Since flags arrived, a
+flag also holds a call's chips. The website's held line still said
+"disputed", which is false for a flagged call that no second source
+disputed. Every surface now says "held for the check window" and names
+neither cause. The call's own line already says which one it was.
+
+**A test that pinned the renderer call's whole text broke when an option
+was added.** The Pi app's link test matched `{ verify: !!window.RCPiReceipt }`
+character for character. It now matches the option it guards, so the
+second option, the chips block, does not read as losing the in-app receipt
+check.
+
+**Twenty-nine mutants, none survived.** The round covered:
+- the token grammar;
+- the keyboard's offer and the prompt's amounts;
+- the room filter;
+- both bots' asking and sending paths;
+- the pull's body and the channel's two routes;
+- the Pi block's block, field, stack and sentence;
+- the held wording on both surfaces;
+- the Pi stylesheet's field.
+
+Every mutant was killed. The field's mutant was caught by the browser test
+measuring the input's size. An unstyled input is too small to tap, and only
+a browser can see that.
+
+## A BADGE NOBODY COULD READ IS NOT "NOT ANCHORED", AND SEVEN ASKS AT ONCE SPEND A BUDGET MEANT FOR THIRTY A MINUTE
+
+22 October 2026. The roadmap's next item was the Pi app's read-only Proof
+view with a quorum badge, in all seventeen languages. `public/js/pi-proof.js` lists
+the last seven finished days from `/api/roots`. Each day shows its seal count
+and its root, quoted and never linked, with its Anchor Quorum from
+`/api/roots/quorum/:day`. The guard tests are
+`app/test/the_pi_app_shows_the_daily_proof.test.js` and
+`app/test/the_pi_app_shows_the_daily_proof.smoke.test.js`.
+
+**Four states, not three.** The quorum has three values: held by k
+independent chains, short, and unknown. The page adds one of its own: the
+badge was not read, because the ask was refused, failed or is still out.
+That state says "Not checked yet" and claims nothing. Drawn as "Not
+anchored yet", it would turn a rate limit into a statement about the
+chain. Only "held" takes a colour. A chain whose record does not match the
+root is named. A failed answer is trusted for nothing, whatever its body
+says. The one surviving mutant showed that: a test now sends a 500 whose
+body claims a quorum.
+
+**One ask at a time.** The quorum route allows thirty requests a minute per
+address. Seven asks fired together from every open app would spend that
+budget in a burst, and the slow ones would come back refused. The block
+asks one day after another and draws each badge as it lands. A day already
+held is settled, so Refresh does not ask it again.
+
+**Behind the header, like About.** The bottom bar already holds five tabs
+at 390 px. A sixth would shrink every label, so Proof sits beside About as
+a header button, and the smoke test holds the bar at five.
+
+**The proof rows had no style anywhere.** The DogeOS app's proof block
+used the class names `p-proof-row`, `p-proof-hd` and `p-proof-root`, and no
+stylesheet defined them. The rows now share one card style in `embed.css`,
+in both apps.
+
+## A HOST IS POST-QUANTUM WHEN IT CHOOSES THE HYBRID, AND A HANDSHAKE THAT NEVER HAPPENED IS NOT A CLASSICAL ONE
+
+22 October 2026. The Base mainnet gate in the roadmap asks for
+post-quantum TLS (X25519MLKEM768) on the site, the API and the webhooks.
+TLS ends at each host's edge, not in this code, so what the repository can
+own is the check. `app/lib/pq_tls.js` makes one handshake that offers what a
+current browser offers, the hybrid first and then the classical groups. It
+reads the group the server chose from the connection. The operator runs it
+with `app/scripts/pq_tls_check.js`. The guard test is
+`app/test/a_host_is_post_quantum_only_when_it_negotiates_the_hybrid.test.js`.
+It drives real handshakes against local servers: one that knows the hybrid,
+one classical-only, a closed port, and one that accepts the connection and
+never answers.
+
+**The server's choice is the answer.** A server that supports the hybrid
+but prefers X25519 gives browsers X25519. Asking "does it accept the hybrid
+if offered alone" would call that server post-quantum. The check offers the
+whole list and reports the group it was given.
+
+**Four outcomes, and only two are verdicts.** The hybrid chosen is `pq`. A
+classical group chosen is `classical`. No handshake, whether refused, timed
+out or failed for another reason, is `unknown`, reported by the error's code
+and never its message. A local TLS library that cannot offer the hybrid at
+all is `cannot_check`. The exit status follows `verify_deploy.sh`: `0`, `1`,
+or `3` for "not a verdict". A classical host is a finding even when another
+host could not be read, and an empty host list checked nothing, so it exits
+`3`.
+
+**From this sandbox the check would measure the proxy.** Outbound HTTPS
+here passes through a TLS-intercepting proxy, so a live run would report
+the proxy's key exchange. No figure for the live hosts is recorded. The
+runbook says to run it from a machine that reaches the hosts directly.
+
+**The hosts come from the variables that already name them**: WEB_URL and
+its www twin, MEMECLAW_HOSTS, and BOT_GATEWAY_URL when it is https. A second
+hand-written host list would drift from the deploy the first time a domain
+changed.
+
+**A handshake can complete with no group to name.** The first version
+read the group's name and called a missing one "could not be read". The
+mutation round found that line unreached, and asking why found the case
+behind it. A TLS 1.2 server with static RSA key transport completes the
+handshake and reports no ephemeral key at all. Finite-field DH reports a
+type and a size but no name. Both are classical, and the first is not even
+forward-secret, so neither is "unknown". A real TLS 1.2 RSA server in the
+test holds it. Ten mutants, all killed after that.
+
+## A SIGNATURE WHOSE CASE IS ITS VALUE MUST NOT BE LOWER-CASED, AND A COLUMN SIZED FOR ONE CHAIN DROPS ANOTHER'S ANCHOR
+
+22 October 2026. The roadmap's Solana anchor: a day's root as one
+Memo-program instruction (`RCROOT1:<day>:<root>`, the EVM chains' text) that
+a wallet's owner sends. The server reads it back from two keyless JSON-RPC
+readers at `finalized` commitment, and they must agree on the memo and the
+slot. Solana is its own independence group in the day's quorum. The code is
+in `app/lib/solana_anchor.js`. The guard test is
+`app/test/a_day_is_anchored_on_solana.test.js`, which runs from the rules
+through the route to the quorum. The migration is held by
+`app/test/migration_ddl.test.js`.
+
+**The submit route lower-cased every hash.** That was right for hex, where
+case is presentation. A Solana signature is base58, where 'a' and 'A' are
+different values: lower-cased, it names a transaction that does not exist,
+and every real anchor would have been refused as "no such transaction".
+The registry now says which chains' ids are case-sensitive
+(`caseSensitiveTx`), and the route keeps those as given. The test submits a
+mixed-case signature and reads it back unchanged from the response, the
+table and the quorum.
+
+**The anchors table was sized for the EVM.** `tx` was VARCHAR(66), for a
+0x hash, and `from_addr` was VARCHAR(42), for a 0x address. A Solana
+signature runs to 88 characters and an address to 44. MySQL in strict mode
+refuses a value that does not fit, so a verified Solana anchor would have
+failed at the INSERT that records it. The in-memory database has no widths
+and could not show it. The table exists on every production database, so a
+width set in its CREATE never reaches one. The fast path now reads both
+widths and widens only the narrow ones. A width it cannot read is left alone
+and logged, as the duel's pick width is. The mutant that removes that guard
+is equivalent: an unread width is NaN, and `NaN < width` is false, so the
+guard only adds the log line.
+
+**`finalized`, not `confirmed`.** Asked at `finalized`, a reader answers
+null until the cluster has rooted the block, about thirteen seconds behind
+the head. That null reads as "not finalized yet", never as "no such
+transaction". A reader's RPC error is a reader that did not answer. The
+mutation round found that distinction untested and a test now holds it.
+
+**The unknown-chain tests used Solana as their example of a chain that did
+not exist.** Two tests asserted that `?chain=solana` is refused. They now
+use a chain this build does not know.
+
+**The privacy section the owner signed off names each chain a wallet can
+anchor to, and each reader the server asks.** Solana was added to both
+lists, under the owner's instruction to make the factual updates, and the
+new digest is pinned.
+
+## A VERIFIER THAT TRUSTS THE BUNDLE'S LABELS VERIFIES THE BUNDLE, AND A NEW DOOR ONTO A RECEIPT IS A NEW DOOR TO GUARD
+
+22 October 2026. The roadmap's proof bundle and verifier. Three pieces:
+
+- `GET /api/call/<key>/bundle` serves one `rcproof/1` document
+  (`app/lib/proof_bundle.js`): the receipt, its Merkle path, each chain the
+  day's root was recorded on, and the Bitcoin proof file.
+- `tools/rcverify.js` checks a bundle with Node alone.
+- `GET /api/verify/<key>` is the server's own reading of the same receipt.
+
+The spec is `docs/PROVABLE_CALLS_SPEC.md` §4.3. The guard test is
+`app/test/a_receipt_is_checked_from_its_bundle_without_the_server.test.js`.
+It builds a real receipt's bundle through the route and has the verifier
+check it against stubbed chains, reached by the URLs the verifier chose.
+
+**The bundle carries labels, and the verifier ignores them.** A bundle says
+which group each chain is in, whether it counts toward the quorum, and which
+EAS contract to ask. A verifier that read those would be checking what the
+bundle says about itself. `rcverify` has its own table of chains: endpoints,
+groups and the EAS address. A test relabels the testnet as independent and
+counted, and the verifier still counts two groups. Another test hands it a
+bundle naming another EAS contract, and it asks its own.
+
+**Facts, never a verdict.** The bundle has no "verified" field. The server's
+reading lives at `/api/verify` and reports hash, path and quorum apart, with
+a line saying whose word it is. A bundle that said "verified" would make the
+verifier redundant, and a reader would stop at that word.
+
+**A new door onto a receipt is a new door to guard.** The bundle route
+serves the receipt through `receiptFor`, so a visitor's bundle of a live
+call carries the seal and no payload. That was argued, not tested. The
+bundle is now one of the doors in `app/test/a_live_call_is_a_members.test.js`,
+with both arms: a visitor reads none of the live call's levels, and a member
+reads them. The mutant that serves the unredacted receipt is killed there.
+The Verify API serves no payload either way, so its test asserts the reading
+instead: a visitor's live call is `sealed`, a member's is `match`.
+
+**A crafted bundle is input.** `--save-ots` wrote a file named from the
+bundle's day, so a day of `../../x` named a path outside the bundle's
+folder. Only a well-formed day names a file now, and the statement written
+beside the proof is the verifier's own text, not the bundle's. Chain names
+and details reach the terminal with control characters replaced.
+
+**Two copies of the construction text.** The bundle had its own copy of the
+Merkle construction line, beside the roots feed's copy. It now lives in
+`app/lib/sealroot.js` as `CONSTRUCTION`, and both read it. The MCP tool's
+wording is older and longer, and is left as it is.
+
+**The provable page said on-chain anchoring was planned.** It said that
+"operator-published on-chain anchoring … will be stated on the verify pages
+when live — never before." The roots page already lists each day's anchors,
+sent from wallets on Base, Dogecoin and the DogeOS testnet (and Solana, with
+this branch). The sentence now says that, in all 14 languages,
+next to a new section on the bundle.
+
+Mutation round: 43 mutants over the verifier, the bundle, the route and
+the Verify API. 42 were killed. One is equivalent: removing the "EAS
+answered something unreadable" guard still ends unknown, because the NaN
+time throws in `toISOString` and the catch reports the chain as unread.
+Five survived the first pass and needed new tests:
+
+- a memo of another root;
+- a bundle of another format (the old test had no `offline` flag and would
+  have reached the network under the mutant);
+- a crafted name that is actually printed;
+- an unreadable Bitcoin proof;
+- the visitor's Verify reading.
+
+**The full suite found what the slice's own suites could not.** Phase two's
+review queue on `/duel` built an evidence field and an outcome picker with
+no accessible name. `app/test/form_control_labels.test.js` reads every page,
+and none of the suites run for that slice was it. The full website suite,
+run for this slice, failed on it. Both controls now carry an `aria-label`.
+
+## MORE PLACES TO STAMP A ROOT ARE NOT MORE WITNESSES, AND A CONTRACT ADDRESS IS READ, NOT REMEMBERED
+
+22 October 2026. The roadmap's EAS item. A day's root can now be stamped
+in the Ethereum Attestation Service on Arbitrum One, Scroll or Linea, as
+well as Base. The registry entries are `EAS_L2` in `app/lib/root_anchor.js`.
+The guard test is `app/test/a_day_is_stamped_in_eas_on_more_than_one_l2.test.js`.
+
+**Each address was read, not remembered.** The EAS addresses came from the
+eas-contracts README. Each contract was then read live through both of its
+chain's keyless RPCs:
+
+- an unknown selector reverts;
+- `getTimestamp` of an unknown hash answers 0;
+- a simulated `timestamp(root)` answers the block's time.
+
+So the zero answer is a real one. Arbitrum One's EAS is version 0.26, and
+its `version()` reverts because it predates that function, while
+`timestamp`/`getTimestamp` exist. A check that asked `version()` first
+would have called a working contract broken.
+
+**The same independence group as Base.** All four chains settle to
+Ethereum, so a stamp on Linea and a calldata anchor on Base are one witness
+in the day's quorum, not two. The test counts four EVM witnesses as
+`short` and adds Dogecoin to reach `multi_anchored`. The extra chains give a
+player somewhere to stamp when Base is slow or costly. They are not a
+quorum shortcut.
+
+**The verifier keeps its own copy, and a test holds the copies together.**
+`tools/rcverify.js` names its own EAS addresses and endpoints, because it
+must not trust the server. Every EAS chain the registry lists must appear
+in the verifier with the same address and group. The verifier must also ask
+a reader the registry names. Two copies on purpose, checked against each
+other, are not the drift "one reading per quantity" warns about.
+
+**The page named one chain by hand.** `/roots` hard-coded `base-eas` in the
+stamp button, the plan URL and the recording call. It now offers a picker
+of the EAS chains a day is not stamped on yet, from
+`RCRootsStamp.chainsLeft`, which takes the registry's own list. The picker
+has an accessible name, which is this morning's lesson applied. The three
+Base-specific strings take a `{chain}`.
+
+**The privacy section names each chain and each reader.** It now says
+Arbitrum One, Scroll and Linea can be stamped, and that their RPC providers
+are asked. This is the fourth factual update under the owner's instruction,
+and the new digest is pinned.
+
+Mutation round: 16 mutants, all killed. They covered:
+
+- the group;
+- the EAS address and the chain id;
+- each chain's own RPC setting, and that the setting is never served;
+- the reader names and the count of two readers;
+- the stamp flow's chain checks, its plan URL, its recording call and the
+  reason it gives;
+- both halves of `chainsLeft`, and the page using it;
+- the verifier's address and group.
+
+## A SIGNED LAUNCH IS CHECKED WITH THE SIGNER'S PUBLIC KEY, AND A SHELL THAT ASSUMED AN ACCOUNT LEARNS TO RUN WITHOUT ONE
+
+22 October 2026. The roadmap's Telegram Mini App. The Daily Duel opens
+inside Telegram from the Duel bot (`/tg`, `app/routes/tgapp.js`).
+
+- **What it carries:** the Duel and the daily proof. It has no paper
+  account, no wallet and nothing to buy.
+- **How a launch is checked:** Telegram signs the launch data
+  (`app/lib/tg_webapp.js`), and `app/routes/tg_auth.js` checks the signature
+  before issuing a session.
+- **Guard tests:** `app/test/the_duel_opens_as_a_telegram_mini_app.test.js`
+  and its `.smoke.test.js`, plus `tests/test_the_duel_bot_opens_the_mini_app.py`.
+
+**The website never holds the bot's token.** Telegram signs every launch
+twice:
+
+- an HMAC keyed by the bot's token;
+- an Ed25519 signature that a third party checks with Telegram's public key
+  and the bot's numeric id.
+
+The website uses the second, so `DUEL_BOT_ID` (public) is all it needs, and
+`DUEL_BOT_TOKEN` stays on the bot box. The check string and both keys are
+quoted from Telegram's page and pinned by a test, and the keys must parse as
+Ed25519 keys. The test signs with a key it generates, and the route reads
+Telegram's key through the module, so the test can stand its own key in.
+`TELEGRAM_WEBAPP_ENV` can only name Telegram's test environment, never a
+key.
+
+**A launch is a bearer credential for an hour.** Telegram's `initData` is the
+same on every reload of a launch, so a single-use nonce would sign a person
+out on reload. The bound is age: a launch over an hour old is refused with
+its own sentence ("That launch is too old…"), distinct from a signature that
+does not hold and from a fault of ours (503 when no bot id is set).
+
+**One account, whichever Telegram door.** A verified Telegram id finds or
+creates the account that the website's "Log in with Telegram" finds or
+creates (`findOrCreateOAuthUser`, provider `telegram`). The test signs in
+through the Mini App after making the account through that same call, and
+gets the same user. The bot itself still plays only linked accounts, as
+before.
+
+**The shared shell assumed a paper account.** `arena-session.js` runs the Pi,
+Farcaster and DogeOS apps, and its first tab, its refresh and its header
+were all the arena account's. It gains two options:
+
+- `arena: false`: no account read, no arena tab, and the first block's tab
+  opens;
+- `autoSignIn`: Telegram's launch needs no tap.
+
+The full set of app suites (764 tests, the three other apps' browser tests
+included) ran unchanged. The Telegram host draws no sentence of its own. Its
+five sentences are in `miniapp-view.js`, which the Pi app's translation
+build reads, so they are translated and checked in all 16 languages.
+
+**Two misses the browser test found.** The page drew in English for a German
+reader. The Pi host switches `RCPiI18n` to the page's language at start, and
+the new host did not. The fix is one line, and a mutant that removes it is
+killed by the German smoke test.
+
+**The bot's button is opt-in, and private-chat only.** `DUEL_WEBAPP_URL`
+must be https. Telegram refuses a `web_app` button outside a private chat, so
+a group is told where to open it. `/start` mentions `/app` only when there is
+an app.
+
+**The preflight on the stack found a lint growth from phase three:** one
+123-character line in the bot's test. That slice had never had its own full
+preflight. It is wrapped.
+
+Mutation round: 26 JavaScript mutants (25 killed, 1 equivalent) and 4 Python
+mutants (all killed). The equivalent one replaces the signature's shape
+check with a presence check. Any string the shape check refuses either
+decodes to the wrong length, which the next check refuses, or to the same
+64 bytes as its canonical spelling, which is the same signature.
+
+## A COUNT OF VERIFIERS IS NOT A SAFETY RATING, AND NONE NEEDED IS NOT ONE
+
+22 October 2026. The roadmap's Risk Scanner, first check: how many verifiers
+a LayerZero V2 app needs before it takes a message (`/scanner`,
+`app/lib/lz_verifiers.js`, `app/routes/risk.js`, `app/public/js/risk-bridge.js`).
+
+- **Why this check:** the April 2026 bridge loss the roadmap report records
+  was one verifier's word, fed by poisoned RPCs. Whether an app leans on one
+  verifier is on-chain for anyone to read.
+- **How it reads:** the endpoint's `getSendLibrary`, `getReceiveLibrary`
+  and `getConfig(…, 2)` (the ULN setting), through two keyless readers per
+  chain that must agree (`lib/reader_agreement.js`). The endpoint, both
+  libraries and the verifiers' names are LayerZero's, snapshotted with a date
+  in `app/lib/layerzero_v2.json`.
+- **Guard test:** `app/test/a_bridge_is_read_for_how_many_verifiers_it_needs.test.js`.
+  Its fixture is a live Base app's answers, as both Base readers gave them on
+  22 October 2026.
+
+**None needed is not one.** The first cut said `single_verifier: needed <= 1`.
+A setting that reads as needing no verifier would then have been printed as
+"one verifier's word is enough", a smaller claim than the truth. The setting
+now carries `single_verifier` and `no_verifier` apart, and the page has a
+sentence for each. Amber is kept for those two; a larger count is plain text,
+never green, because a count says nothing about who runs the verifiers.
+
+**The page is `/scanner`, not `/risk`.** `/risk` already names two other
+things: the bot's risk-gate command and the "Risk gate" page of the
+marketing site (`site/src/routes/risk.tsx`), whose pages are being served on
+www one at a time. A third meaning on one path would have collided with the
+next of them. The API keeps `/api/risk`, which nothing else uses.
+
+**A library the check does not know is named, not decoded.** An app may use a
+send or receive library other than LayerZero's ULN 302. Its configuration may
+mean something else, so the check names the library and reads nothing from
+it, and the page says so for that direction only.
+
+**A configured reader is named by its place.** The override URLs
+(`LZ_*_RPC_URLS`) may carry a key in the path or in the subdomain, so the
+answer names them "configured rpc 1" and "configured rpc 2". Only the keyless
+defaults are named by host. `/api/risk/chains` serves names and endpoint ids,
+never a URL.
+
+**The decoder's strictness was written but not tested.** The first mutation
+round left 9 of 43 mutants alive. Six were checks in the decoders: a list
+longer than the answer, a list entry that is not an address, a struct head
+shorter than six words, a bool that is not 0 or 1, an address answer of two
+words, and an answer that is not whole words. The other three were the nil
+optional threshold, the endpoint's library answer not decoding, and the
+receive side alone not decoding. One test now drives each of them; the second
+round killed all 43.

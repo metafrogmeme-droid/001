@@ -122,8 +122,12 @@ test('the registry is served, and the plan names the chain the caller asked for'
   assert.equal(doge.native.symbol, 'DOGE');
   assert.ok(doge.rpcs.length >= 1 && doge.explorer_tx.startsWith('https://'));
   // Base and the DogeOS testnet (calldata), EAS on Base and Dogecoin itself
-  // (mainnet, 2026-10-21; app/test/a_day_is_stamped_on_mainnets.test.js).
-  assert.deepEqual(Object.keys(chains()).sort(), ['base', 'base-eas', 'dogecoin', 'dogeos-testnet']);
+  // (mainnet, 2026-10-21; app/test/a_day_is_stamped_on_mainnets.test.js), and
+  // Solana's Memo program (2026-10-22; app/test/a_day_is_anchored_on_solana.test.js),
+  // and EAS on Arbitrum One, Scroll and Linea (2026-10-22;
+  // app/test/a_day_is_stamped_in_eas_on_more_than_one_l2.test.js).
+  assert.deepEqual(Object.keys(chains()).sort(),
+    ['arbitrum-eas', 'base', 'base-eas', 'dogecoin', 'dogeos-testnet', 'linea-eas', 'scroll-eas', 'solana']);
 
   const plan = await request('GET', `/api/roots/anchor-plan/${DAY}?chain=dogeos-testnet`);
   assert.equal(plan.status, 200);
@@ -133,7 +137,7 @@ test('the registry is served, and the plan names the chain the caller asked for'
   assert.equal(plan.data.dry_run, true);
   const basePlan = await request('GET', `/api/roots/anchor-plan/${DAY}`);
   assert.equal(basePlan.data.chain_id, 8453, 'no chain named is Base, as before');
-  const nope = await request('GET', `/api/roots/anchor-plan/${DAY}?chain=solana`);
+  const nope = await request('GET', `/api/roots/anchor-plan/${DAY}?chain=polygon`);
   assert.equal(nope.status, 400);
 });
 
@@ -191,7 +195,7 @@ test('a hash is verified on the chain it names, recorded once per chain, and lis
   // Every verification went to the chain it was about, and only there.
   const dogeChecks = rpcCalls.filter((c) => c.hash === TX_DOGE && c.method === 'eth_getTransactionByHash');
   assert.ok(dogeChecks.length >= 1 && dogeChecks.every((c) => DOGEOS_TESTNET_RPCS.includes(c.url) || BASE_RPCS.includes(c.url)));
-  const unknownChain = await request('POST', '/api/roots/anchor', { token: u2.token, body: { day: DAY, tx_hash: TX_DOGE, chain: 'solana' } });
+  const unknownChain = await request('POST', '/api/roots/anchor', { token: u2.token, body: { day: DAY, tx_hash: TX_DOGE, chain: 'polygon' } });
   assert.equal(unknownChain.status, 400);
 });
 

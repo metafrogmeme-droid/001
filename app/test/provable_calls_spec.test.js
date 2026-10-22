@@ -293,7 +293,7 @@ test('every implementation file the spec cites exists', () => {
 });
 
 test('the chips payloads (v9) are their earlier kinds with the chips appended, as the spec writes them', () => {
-  const block = SPEC.slice(SPEC.indexOf('### 2.8'), SPEC.indexOf('## 3 '));
+  const block = SPEC.slice(SPEC.indexOf('### 2.8'), SPEC.indexOf('### 2.9'));
   assert.ok(block.length > 100, 'the spec has a v9 section');
   const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
   assert.deepEqual(examples.map((e) => e.kind), ['duel_round', 'duel_pick', 'duel_settle']);
@@ -318,4 +318,53 @@ test('the chips payloads (v9) are their earlier kinds with the chips appended, a
   for (const k of keysOf(real[1][0].seal_payload)) assert.ok(!OUTCOME.includes(k), `a v9 call carries no outcome: ${k}`);
   assert.strictEqual(JSON.parse(seal.sealDuelRoundChips({ ...round, odds: null, odds_source: null }).seal_payload).odds, null,
     'a round dealt without chips seals null odds, never an empty map');
+});
+
+test('the review receipt (v9 duel_review) is written as the spec writes it, and names what it decides', () => {
+  const block = SPEC.slice(SPEC.indexOf('### 2.9'), SPEC.indexOf('## 3 '));
+  assert.ok(block.length > 100, 'the spec has a review section');
+  const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
+  assert.deepEqual(examples.map((e) => e.kind), ['duel_review']);
+  const r = { round_id: 1, call_seal: 'a'.repeat(64), settle_seal: 'b'.repeat(64), round_seal: 'c'.repeat(64),
+    kind: 'direction', pick: 'long', decision: 'corrected', outcome: 'up', evidence: 'checked', reviewed_at: AT };
+  const sealed = seal.sealDuelReview(r);
+  const p = JSON.parse(sealed.seal_payload);
+  assert.equal(p.v, 9);
+  assert.deepEqual(Object.keys(examples[0]), keysOf(sealed.seal_payload), 'the spec names the sealed fields, in order');
+  assert.equal(sealed.seal, crypto.createHash('sha256').update(sealed.seal_payload, 'utf8').digest('hex'));
+  assert.deepEqual([p.call_seal, p.settle_seal, p.round_seal], [r.call_seal, r.settle_seal, r.round_seal]);
+  for (const k of ['result', 'marks', 'settle_price', 'payout']) assert.ok(!(k in p), `a review rescores nothing itself: ${k}`);
+  assert.strictEqual(JSON.parse(seal.sealDuelReview({ ...r, decision: 'stands', outcome: null }).seal_payload).outcome, null);
+  // The decisions the spec's table lists are the ones the code takes.
+  const table = [...block.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]);
+  assert.deepEqual(table, [...require('../lib/duel_review').DECISIONS]);
+  assert.match(block, new RegExp(`at most ${require('../lib/duel_review').EVIDENCE_MAX} characters`));
+  assert.match(SPEC, /`review:<seal>`/, 'the spec addresses it');
+});
+
+test('the proof bundle (§4.3): every field the spec names is one the bundle carries, and the verifier\'s exits are the spec\'s', async () => {
+  const block = SPEC.slice(SPEC.indexOf('### 4.3'), SPEC.indexOf('## 5 · Conformance'));
+  assert.ok(block.length > 100, 'the spec has a bundle section');
+  const { bundleOf, FORMAT } = require('../lib/proof_bundle');
+  assert.match(block, new RegExp('`' + FORMAT.replace('/', '\\/') + '`'));
+  const named = new Set([...block.matchAll(/^\| ([^|]+) \|/gm)].flatMap((m) => [...m[1].matchAll(/`(\w+)`/g)].map((x) => x[1])));
+  const anchored = bundleOf('arena:x', { kind: 'arena', seal: 'a'.repeat(64), seal_payload: '{}', sealed_at: AT,
+    anchor: { day: '2026-08-16', root: 'b'.repeat(64), seal_count: 1, proof: [], anchors: [{ chain: 'base', tx: '0x1' }] } },
+  { otsRow: { day: '2026-08-16', root: 'b'.repeat(64), proof: 'AA' } });
+  const open = bundleOf('arena:x', { kind: 'arena', seal: 'a'.repeat(64), seal_payload: null, anchor: null }, { chains: [] });
+  const unread = bundleOf('arena:x', { kind: 'arena', seal: 'a'.repeat(64), seal_payload: '{}',
+    anchor: { day: '2026-08-16', root: 'b'.repeat(64), proof: [], anchors: [] } }, { otsUnread: true, chains: [] });
+  const carried = new Set([...Object.keys(anchored), ...Object.keys(open), ...Object.keys(unread),
+    ...Object.keys(anchored.merkle), ...Object.keys(anchored.anchors[0]), ...Object.keys(anchored.bitcoin)]);
+  for (const k of named) assert.ok(carried.has(k), `the spec names ${k}; the bundle carries no such field`);
+  for (const k of ['format', 'seal', 'seal_payload', 'sealed', 'merkle', 'merkle_note', 'anchors', 'bitcoin', 'bitcoin_unread']) {
+    assert.ok(named.has(k), `the bundle carries ${k}; the spec does not name it`);
+  }
+  // The exits the spec states are the ones the verifier returns.
+  const rcverify = require('../../tools/rcverify');
+  assert.match(block, /Exit `0` every check that ran passed, `1` a check\nfailed, `3` nothing failed/);
+  assert.strictEqual((await rcverify.verifyBundle({ ...open, format: 'rcproof/0' }, { offline: true })).exit, 3);
+  assert.strictEqual((await rcverify.verifyBundle({ ...open, seal_payload: 'x' }, { offline: true })).exit, 1);
+  const ok = sealroot.sha256hex('{}');
+  assert.strictEqual((await rcverify.verifyBundle({ ...open, seal: ok, seal_payload: '{}' }, { offline: true })).exit, 0);
 });

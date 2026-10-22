@@ -108,7 +108,8 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  * site's TradingView library, vendored, then the card and chart modules,
  * then the panel itself (pi-signals.js); then the Daily Duel's renderer
  * (duel.js, the website's own), the receipt check (pi-receipt.js) and the
- * Duel block (pi-duel.js); then the Leaders tab (pi-leaders.js). pi-arena.js
+ * Duel block (pi-duel.js); then the Leaders tab (pi-leaders.js) and the
+ * read-only daily proof (pi-proof.js). pi-arena.js
  * stays last: it starts the session with every block it needs already loaded.
  */
 /**
@@ -121,8 +122,8 @@ const PI_I18N_SCRIPT = '/js/pi-i18n.js?v=2';
 const SCRIPTS = [
   PI_I18N_SCRIPT,
   '/js/embed-arena-view.js?v=4',
-  '/js/miniapp-view.js?v=10',
-  '/js/arena-session.js?v=10',
+  '/js/miniapp-view.js?v=11',
+  '/js/arena-session.js?v=11',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',
   '/js/embed-read.js?v=2',
@@ -135,13 +136,15 @@ const SCRIPTS = [
   // The Daily Duel: the website's round renderer, then the block.
   '/js/duel.js?v=9',
   // The in-app receipt check, before the block that uses it.
-  '/js/pi-receipt.js?v=3',
-  '/js/pi-duel.js?v=8',
+  '/js/pi-receipt.js?v=4',
+  '/js/pi-duel.js?v=9',
   // Ask the Claw, the coach tab.
   '/js/pi-coach.js?v=2',
   // The Leaders tab: the season's standings and your name on them.
   '/js/pi-leaders.js?v=2',
-  '/js/pi-arena.js?v=6',
+  // The daily proof, read-only, behind the header's Proof button.
+  '/js/pi-proof.js?v=1',
+  '/js/pi-arena.js?v=7',
 ];
 
 // ── the reader's language ────────────────────────────────────────────────
@@ -223,7 +226,7 @@ function page(lang = 'en', offered = chunks()) {
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
 <meta name="pi-i18n" content="${escAttr(JSON.stringify(offered))}">
-<link rel="stylesheet" href="/embed.css?v=18">
+<link rel="stylesheet" href="/embed.css?v=19">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

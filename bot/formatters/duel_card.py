@@ -26,6 +26,15 @@ No dollar amount appears anywhere: a duel has no stake to report.
 THE CATEGORIES (2026-10-19). A round carries its `kind` and its `options`;
 the card prints the question each kind asks and the keyboard offers the
 round's own words, so the bot never offers a tap the server would refuse.
+
+CHIPS (2026-10-22, app/lib/duel_chips.js). Play money, not a stake: every
+player is handed the same float each season, and nobody can buy, sell, send
+or cash a chip out. While the card's `chips` block says the layer is on, a
+pick on a round dealt with odds shows them, and its tap asks how many chips
+to put (none, or a step the stack can cover) before anything is recorded:
+chips ride with the call or not at all, so the choice comes first. The stack
+and each call's chips are read from the card, never computed here. A public
+room is offered none of it (`for_room`): a player's stack is theirs.
 """
 
 from __future__ import annotations
@@ -45,6 +54,13 @@ _PICK_WORD = {"long": "LONG", "short": "SHORT", "pass": "PASS"}
 
 
 CALLBACK_PREFIX = "duel"
+#: The fourth part of a pick token that asks how many chips to put, rather
+#: than recording the call: ``duel:<round_id>:<pick>:c``.
+CHOOSE = "c"
+#: The chips a Telegram call offers to put, where the stack and the server's
+#: limits (the card's `min` and `max`) allow them. The limits are the server's;
+#: these are only the steps between them a button can carry.
+CHIPS_STEPS = (25, 50, 100)
 # THE CATEGORIES (2026-10-19). The picks each round takes, as app/lib/duel.js
 # KINDS defines them; tests/test_duel_telegram_surface.py holds the two to one
 # answer by reading that file. The card itself says which words a round takes
@@ -197,13 +213,18 @@ def round_options(round_: dict | None) -> tuple[str, ...]:
     return KIND_PICKS[kind]
 
 
-def button_rows(rounds: Any) -> list[list[tuple[str, str]]]:
+def button_rows(rounds: Any, chips: Any = None) -> list[list[tuple[str, str]]]:
     """One row of (label, callback_data) per uncalled, callable round.
 
     The first button names the market so a row reads on its own; the labels
     are short because Telegram fits three to a row on a phone. The callback
     data is `duel:<round_id>:<pick>` — ids and enum tokens, never prose (#999).
+
+    `chips` is the card's chips block. While it says the layer is on, a pick
+    the round was dealt odds for shows them, and its token asks how many chips
+    to put (`duel:<round_id>:<pick>:c`) instead of recording the call.
     """
+    offer = offering(chips)
     rows: list[list[tuple[str, str]]] = []
     for r in rounds or []:
         if not isinstance(r, dict) or r.get("my_call") or not r.get("callable"):
@@ -226,13 +247,17 @@ def button_rows(rounds: Any) -> list[list[tuple[str, str]]]:
                 if pick in ("back", "fade"):
                     word = word.split(" ")[0]          # BACK / FADE
                 label = f"{_base(r.get('symbol'))} {word}" if i == 0 else word
-            row.append((label, pick_callback_data(rid, pick)))
+            odds = odds_for(r, pick) if offer else None
+            if odds is not None:
+                label = f"{label} ×{odds:g}"
+            row.append((label, pick_callback_data(rid, pick, CHOOSE if odds is not None else None)))
         rows.append(row)
     return rows
 
 
-def pick_callback_data(round_id: Any, pick: str) -> str:
-    """The token a duel button carries: ``duel:<round_id>:<pick>``.
+def pick_callback_data(round_id: Any, pick: str, chips: Any = None) -> str:
+    """The token a duel button carries: ``duel:<round_id>:<pick>``, and a
+    fourth part for chips: ``:c`` asks how many to put, ``:<n>`` puts n.
 
     Encoding and decoding live together, and both live here rather than in the
     handler, so a test can prove that what the button emits is what the callback
@@ -241,24 +266,162 @@ def pick_callback_data(round_id: Any, pick: str) -> str:
     times in production. A round-trip assertion is the only thing that catches
     that, and it needs both halves in one place.
     """
-    return f"{CALLBACK_PREFIX}:{int(round_id)}:{str(pick).lower()}"
+    token = f"{CALLBACK_PREFIX}:{int(round_id)}:{str(pick).lower()}"
+    if chips is None:
+        return token
+    return f"{token}:{CHOOSE}" if chips == CHOOSE else f"{token}:{int(chips)}"
 
 
-def parse_callback_data(data: str) -> tuple[int, str] | None:
-    """(round_id, pick), or None if this is not a well-formed duel token.
+def _digits(text: str) -> bool:
+    """ASCII digits only: `str.isdigit` also admits '²', which int() refuses."""
+    return bool(text) and text.isascii() and text.isdigit()
 
-    Refuses rather than guesses: an unparseable token must not become a call
-    on some default round in some default direction.
+
+def parse_callback_data(data: str) -> tuple[int, str, int | str | None] | None:
+    """(round_id, pick, chips), or None if this is not a well-formed duel token.
+
+    `chips` is None for a plain call, CHOOSE for "ask how many", or the count
+    to put. Refuses rather than guesses: an unparseable token must not become
+    a call on some default round in some default direction, and chips on a
+    pass are no token at all (a pass takes none).
     """
     parts = str(data or "").split(":")
-    if len(parts) != 3 or parts[0] != CALLBACK_PREFIX:
+    if len(parts) not in (3, 4) or parts[0] != CALLBACK_PREFIX:
         return None
-    if not parts[1].isdigit():
+    if not _digits(parts[1]):
         return None
     pick = parts[2].lower()
     if pick not in PICKS:
         return None
-    return int(parts[1]), pick
+    chips: int | str | None = None
+    if len(parts) == 4:
+        tail = parts[3]
+        if tail == CHOOSE:
+            chips = CHOOSE
+        elif _digits(tail) and len(tail) <= 4 and not tail.startswith("0"):
+            chips = int(tail)
+        else:
+            return None
+        if pick == "pass":
+            return None
+    return int(parts[1]), pick, chips
+
+
+# ── chips ───────────────────────────────────────────────────────────────────
+
+def chips_block(data: Any) -> dict | None:
+    """The card's chips block, or None when it carries none."""
+    block = (data or {}).get("chips") if isinstance(data, dict) else None
+    return block if isinstance(block, dict) else None
+
+
+def offering(block: Any) -> bool:
+    """Whether chips may be put now: the block says the layer is on. A layer
+    turned off mid-season still has a block (what was put is still paid), and
+    offers nothing."""
+    return isinstance(block, dict) and block.get("enabled") is True
+
+
+def for_room(card: Any) -> Any:
+    """The card as a public room is shown it: without the chips block, so
+    the keyboard offers no chips (`button_rows` offers them only from the
+    block) and the card says nothing of a player's stack or a call's chips."""
+    return {**card, "chips": None} if isinstance(card, dict) else card
+
+
+def odds_for(round_: Any, pick: str) -> float | None:
+    """The decimal odds the round was dealt for this pick, or None: a pass, a
+    round dealt without chips, or odds that do not read as a number above 1."""
+    if pick == "pass" or not isinstance(round_, dict):
+        return None
+    odds = round_.get("odds")
+    if not isinstance(odds, dict):
+        return None
+    n = _num(odds.get(pick))
+    return n if n is not None and n > 1 else None
+
+
+def chips_text(c: Any) -> str | None:
+    """One call's chips in words, as the website says them; None for none."""
+    if not isinstance(c, dict) or c.get("chips") is None:
+        return None
+    n = c.get("chips")
+    odds = _num(c.get("odds"))
+    at = f"×{odds:g}" if odds is not None else "—"
+    pay = _num(c.get("payout"))
+    state = c.get("state")
+    if state == "open":
+        return f"{n} chips on the table at {at}"
+    if state == "held":
+        return f"{n} chips held until the check window closes"
+    if state == "won":
+        return f"won {int(abs(pay)) if pay is not None else '—'} chips at {at}"
+    if state == "lost":
+        return f"lost {n} chips"
+    if state == "returned":
+        return f"{n} chips returned"
+    return f"{n} chips: their odds could not be read"
+
+
+def stack_line(block: Any) -> str | None:
+    """The season's stack: what may still be put, with what is on the table
+    and held beside it. A stack that could not be read says so, never 1,000."""
+    if not isinstance(block, dict):
+        return None
+    stack = block.get("stack") if isinstance(block.get("stack"), dict) else None
+    avail = _num((stack or {}).get("available"))
+    if stack is None or avail is None:
+        return "Chips: — (your chips could not be read)"
+    parts = [f"Chips: {int(avail)} to put"]
+    for key, word in (("on_table", "on the table"), ("held", "held"), ("unread", "calls not read")):
+        n = _num(stack.get(key))
+        if n is not None and n > 0:
+            parts.append(f"{int(n)} {word}")
+    return " · ".join(parts) + " — play money with no cash value"
+
+
+def chips_prompt(card: Any, round_id: Any, pick: str) -> tuple[str, list[list[tuple[str, str]]]] | None:
+    """What a pick's tap answers while chips are on: the question and the
+    buttons (none, or each step the stack and the limits allow). None when
+    this pick cannot take chips now (the layer is off, the round has closed or
+    was called, it was dealt no odds for this pick), and the caller says so.
+    Nothing is recorded until one of the buttons is tapped."""
+    block = chips_block(card)
+    if block is None or not offering(block):
+        return None
+    rnd = next((r for r in (card.get("rounds") or [])
+                if isinstance(r, dict) and str(r.get("id")) == str(round_id)), None)
+    if rnd is None or rnd.get("my_call") or not rnd.get("callable") or pick not in round_options(rnd):
+        return None
+    odds = odds_for(rnd, pick)
+    if odds is None:
+        return None
+    rid = int(rnd["id"])
+    raw = block.get("stack")
+    stack: dict = raw if isinstance(raw, dict) else {}
+    avail = _num(stack.get("available"))
+    lo, hi = _num(block.get("min")), _num(block.get("max"))
+    lines = [
+        f"*{pick_word(pick, rnd)}* on *{round_title(rnd)}* at ×{odds:g}",
+        "Put chips with this call? _Nothing is recorded until you choose._",
+    ]
+    amounts: list[int] = []
+    if avail is None or lo is None or hi is None:
+        lines.append("Your chips could not be read, so this call can only go without them.")
+    else:
+        top = min(hi, avail)
+        amounts = [a for a in CHIPS_STEPS if lo <= a <= top]
+        if not amounts and top >= lo:
+            amounts = [int(top)]
+        if amounts:
+            lines.append(f"You can put up to {int(top)} chips. A correct call pays chips × (odds − 1); "
+                         "a wrong one loses them; a push gives them back.")
+        else:
+            lines.append("No chips left this season: call it for marks.")
+    rows = [[("No chips", pick_callback_data(rid, pick))]]
+    if amounts:
+        rows.append([(f"{a} chips", pick_callback_data(rid, pick, a)) for a in amounts])
+    return "\n".join(lines), rows
 
 
 def _num(value: Any) -> float | None:
@@ -363,8 +526,9 @@ def smart_money_line(round_: dict) -> str | None:
     return "📊 Smart money 24h: " + " · ".join(parts) + " (Nansen)"
 
 
-def call_line(round_: dict) -> str | None:
-    """How the caller's own call on this round is doing, or None if uncalled."""
+def call_line(round_: dict, show_chips: bool = False) -> str | None:
+    """How the caller's own call on this round is doing, or None if uncalled.
+    With `show_chips`, the chips the call carries ride on the same line."""
     call = round_.get("my_call")
     if not call:
         return None
@@ -397,6 +561,15 @@ def call_line(round_: dict) -> str | None:
     # checked, and neither earns a word.
     if call.get("disputed") is True and state in ("correct", "wrong", "push"):
         tail += " · disputed"
+    # A review decided the verdict printed above (lib/duel_review.js); a flag
+    # is waiting for one. Flags are raised on the website.
+    if isinstance(call.get("review"), dict):
+        tail += " · reviewed"
+    elif call.get("flagged") is True:
+        tail += " · flagged, waiting for a review"
+    chips = chips_text(call.get("chips")) if show_chips else None
+    if chips:
+        tail += f" · {chips}"
     return f"{glyph} You called {word} — {text}{tail}"
 
 
@@ -414,11 +587,15 @@ def render_card(data: dict | None) -> str:
             "Try again in a moment."
         )
     rounds = data.get("rounds") or []
+    block = chips_block(data)
     lines = ["⚔️ *Daily Duel* — " + str(data.get("day") or "today")]
     horizon = _num(data.get("horizon_hours"))
     if horizon is not None:
         lines.append(f"_A market call runs {int(horizon)}h from the moment you make it; "
                      "a match settles on its final score._")
+    if offering(block):
+        lines.append("_Chips: tap a pick, then choose how many to put. Play money: "
+                     "nobody can buy, sell or cash them out._")
     lines.append("")
 
     if not rounds:
@@ -438,7 +615,7 @@ def render_card(data: dict | None) -> str:
         agent = agent_line(r)
         if agent:
             lines.append("  " + agent)
-        mine = call_line(r)
+        mine = call_line(r, show_chips=block is not None)
         if mine:
             lines.append("  " + mine)
         elif r.get("callable") and question:
@@ -454,6 +631,9 @@ def render_card(data: dict | None) -> str:
     streak = (data.get("streak") or {}).get("current")
     if streak is not None:
         lines.append(f"Streak: 🔥 {int(streak)} day{'s' if int(streak) != 1 else ''}")
+    stack = stack_line(block) if block is not None else None
+    if stack:
+        lines.append(stack)
     return "\n".join(lines).rstrip()
 
 
@@ -496,4 +676,8 @@ def render_pick_result(result: dict | None, status: int | None = None) -> str:
         # A moment a person can read, not the wire's ISO string.
         when = _utc(result["resolves_at"], "%Y-%m-%d %H:%M UTC")
         lines.append(f"Settles: {when}")
+    put = _num(result.get("chips"))
+    if put is not None:
+        odds = _num(result.get("odds"))
+        lines.append(f"Chips: {int(put)} on the table at {f'×{odds:g}' if odds is not None else '—'}")
     return "\n".join(lines)

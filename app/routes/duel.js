@@ -23,11 +23,13 @@ const express = require('express');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const svc = require('../lib/duel_service');
+const { isOperator } = require('../lib/operator_view');
 
 const router = express.Router();
 router.use(authMiddleware);
 
 const pickLimit = rateLimit({ name: 'duel.pick', windowMs: 60000, max: 20, key: userKey });
+const flagLimit = rateLimit({ name: 'duel.flag', windowMs: 60000, max: 10, key: userKey });
 
 // Same sanitiser philosophy as routes/arena.js: say WHY a read failed without
 // letting a driver message, URI or credential reach the client.
@@ -70,6 +72,54 @@ router.post('/pick', pickLimit, async (req, res) => {
   } catch (err) {
     console.error('Duel pick error:', err.stack || err.message);
     res.status(500).json({ error: 'Could not record your call', detail: safeReason(err) });
+  }
+});
+
+// POST /flag { round_id } — flag one of the caller's own settlements, once,
+// within the check window (lib/duel_review.js). A flag queues the settlement
+// for the operator's review and holds its chips until the window closes.
+router.post('/flag', flagLimit, async (req, res) => {
+  try {
+    const out = await svc.flagSettlement(req.user.user_id, Number((req.body || {}).round_id));
+    if (!out.ok) {
+      const { status, ok, ...rest } = out;
+      return res.status(status).json(rest);
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('Duel flag error:', err.stack || err.message);
+    res.status(500).json({ error: 'Could not record your flag', detail: safeReason(err) });
+  }
+});
+
+// GET /review — the operator's queue of flagged and disputed settlements.
+// The operator is read from the database on every call (lib/operator_view.js):
+// signed in is not the operator.
+router.get('/review', async (req, res) => {
+  try {
+    if (!(await isOperator(req))) return res.status(403).json({ error: 'Operator only.' });
+    res.json({ items: await svc.reviewQueue(), counts_only: true });
+  } catch (err) {
+    console.error('Duel review queue error:', err.stack || err.message);
+    res.status(503).json({ error: 'The review queue is unavailable', detail: safeReason(err) });
+  }
+});
+
+// POST /review { pick_id, decision, outcome?, evidence } — the operator's
+// decision, sealed as a receipt of its own; the settlement is never rewritten.
+router.post('/review', async (req, res) => {
+  try {
+    if (!(await isOperator(req))) return res.status(403).json({ error: 'Operator only.' });
+    const b = req.body || {};
+    const out = await svc.writeReview(Number(b.pick_id), String(b.decision || ''), b.outcome, b.evidence);
+    if (!out.ok) {
+      const { status, ok, ...rest } = out;
+      return res.status(status).json(rest);
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('Duel review error:', err.stack || err.message);
+    res.status(500).json({ error: 'Could not record the review', detail: safeReason(err) });
   }
 });
 

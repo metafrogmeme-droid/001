@@ -665,23 +665,27 @@ class StartCommands:
         except Exception:
             return (False, None)
 
-    def _duel_keyboard(self, rounds) -> "InlineKeyboardMarkup | None":
+    def _duel_keyboard(self, rounds, chips=None) -> "InlineKeyboardMarkup | None":
         """One row of buttons per uncalled round.
 
         The callback data is `duel:<round_id>:<pick>` — ids and enum tokens,
         never prose. #999 shipped a card whose callback carried a human-readable
         label where the lookup expected a symbol, and it rendered zero times in
-        production while looking perfectly correct in the source.
+        production while looking perfectly correct in the source. `chips` is
+        the card's chips block: while the layer is on, a pick dealt odds asks
+        how many chips to put before it records anything.
         """
         from bot.formatters.duel_card import button_rows
         # The labels and tokens are the formatter's (button_rows), built from
         # each round's own `options`, so a range round offers BREAKS / HOLDS
         # and a mover its two symbols, never a LONG the server would refuse.
-        rows = [
-            [InlineKeyboardButton(label, callback_data=data) for label, data in row]
-            for row in button_rows(rounds)
-        ]
-        return InlineKeyboardMarkup(rows) if rows else None
+        return self._duel_markup(button_rows(rounds, chips))
+
+    @staticmethod
+    def _duel_markup(rows) -> "InlineKeyboardMarkup | None":
+        """(label, callback_data) rows as Telegram's keyboard."""
+        built = [[InlineKeyboardButton(label, callback_data=data) for label, data in row] for row in rows]
+        return InlineKeyboardMarkup(built) if built else None
 
     # `start`, which `pending` HOLDS — so the free on-ramp the catalogue
     # advertises ("free, no stake") stays reachable by a newcomer, while the
@@ -710,21 +714,36 @@ class StartCommands:
         if status != 200 or not data:
             await self._send(update, render_card(None))
             return
+        from bot.formatters.duel_card import chips_block
         await self._send(update, render_card(data),
-                         reply_markup=self._duel_keyboard(data.get("rounds")))
+                         reply_markup=self._duel_keyboard(data.get("rounds"), chips_block(data)))
 
     async def _handle_duel_callback(self, update, data: str) -> None:
-        """A tap on one of the duel buttons: `duel:<round_id>:<pick>`."""
+        """A tap on one of the duel buttons: `duel:<round_id>:<pick>`, with a
+        fourth part for chips: `:c` asks how many to put, `:<n>` puts them.
+        /duel runs in private chats only, so its chips are the caller's own."""
         import asyncio as _aio
         from bot.utils.duel_pull import place_pick, fetch_card
         from bot.formatters.duel_card import (
-            render_pick_result, render_card, parse_callback_data)
+            CHOOSE, chips_block, chips_prompt, render_pick_result, render_card, parse_callback_data)
         parsed = parse_callback_data(data)
         if parsed is None:
             return
-        round_id, pick = parsed
+        round_id, pick, chips = parsed
         tg_id = self._get_tg_id(update)
-        status, result = await _aio.to_thread(place_pick, tg_id, round_id, pick)
+        if chips == CHOOSE:
+            # Ask before recording: chips ride with the call or not at all.
+            c_status, card = await _aio.to_thread(fetch_card, tg_id)
+            prompt = chips_prompt(card, round_id, pick) if c_status == 200 and card else None
+            if prompt is None:
+                await self._send(update, "That call cannot take chips now. Nothing was recorded; "
+                                         "send /duel for today's card.")
+                return
+            text, rows = prompt
+            await self._send(update, text, reply_markup=self._duel_markup(rows))
+            return
+        status, result = await _aio.to_thread(
+            place_pick, tg_id, round_id, pick, chips if isinstance(chips, int) else None)
         await self._send(update, render_pick_result(result, status))
         # Redraw so the called round loses its buttons and the agent's stance
         # appears; a stale card still offering a call that was just recorded
@@ -732,7 +751,7 @@ class StartCommands:
         c_status, card = await _aio.to_thread(fetch_card, tg_id)
         if c_status == 200 and card:
             await self._send(update, render_card(card),
-                             reply_markup=self._duel_keyboard(card.get("rounds")))
+                             reply_markup=self._duel_keyboard(card.get("rounds"), chips_block(card)))
 
     @guard("dashboard")
     async def _cmd_leaderboard(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

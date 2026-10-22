@@ -68,6 +68,13 @@
  *                   leaderboard name, and `noHandleTab`, the tab that sets one
  *   legal           optional, true to show Privacy and Terms links under the
  *                   sign-in, our own pages, which carry no presale
+ *   arena           optional, false for a host with no paper account (the
+ *                   Telegram Mini App: the Duel and its proof). No account is
+ *                   read and no arena tab is drawn; the first block's tab opens.
+ *   autoSignIn      optional, true for a host that hands over a signed launch
+ *                   with nothing to tap (Telegram's initData): sign-in starts
+ *                   once the first screen is up, and the button is there again
+ *                   only if it did not complete
  *
  * WHAT AN ACTION SAYS, AND FOR HOW LONG. A filled open and a done close are
  * toasts that name the position and go away; a refusal is a note on the arena
@@ -96,7 +103,9 @@
     var lastNote = '';      // the last refusal, cleared by the next action or a change of tab
     var busy = false;
     var extras = opts.extras || [];
-    var tab = 'arena';      // the active tab, for the life of this page
+    var withArena = opts.arena !== false;
+    var firstTab = (extras.filter(function (x) { return x.tab && x.bar !== false; })[0] || {}).tab;
+    var tab = withArena || !firstTab ? 'arena' : firstTab;   // the active tab, for the life of this page
     var toast = null;       // { kind, text, until }
     var toastTimer = null;
 
@@ -187,7 +196,7 @@
 
     /** Open a tab. A refusal on the arena tab belongs to what was done there. */
     function goTab(name) {
-      var next = name || 'arena';
+      var next = name || (withArena ? 'arena' : firstTab || 'arena');
       if (next !== tab) lastNote = '';
       tab = next;
       render();
@@ -202,7 +211,7 @@
     }
     /** The tabs on screen, the arena first, then each block's in the order given. */
     function tabList() {
-      var names = ['arena'];
+      var names = withArena ? ['arena'] : [];
       extras.forEach(function (x) { if (x.tab && names.indexOf(x.tab) < 0) names.push(x.tab); });
       return names;
     }
@@ -279,6 +288,15 @@
     var refreshing = false; // the Refresh button's read, in flight
 
     function refresh() {
+      // No paper account on this host: the blocks read what they show, each
+      // saying its own failure, and there is nothing here to read.
+      if (!withArena) {
+        account = {};
+        readAt = new Date();
+        loadError = false;
+        render();
+        return Promise.resolve();
+      }
       return Promise.all([
         api('/api/arena/account'),
         api('/api/arena/season'),
@@ -427,7 +445,7 @@
       var kept = keepForm();
       var names = tabList();
       var hasTabs = names.length > 1;
-      if (hasTabs && names.indexOf(tab) < 0) tab = 'arena';
+      if (hasTabs && names.indexOf(tab) < 0) tab = names[0];
       var footer = '<p class="e-src">'
         + (me && me.handle
           ? esc(T('Trading as {name}', { name: me.handle }))
@@ -445,18 +463,18 @@
       // Signals tab they repeated a balance that tab is not about, and the
       // season's name over every tab read as that tab's title (the Pi review,
       // 2026-10-20: "FARCASTER · SEASON LIVE" over the Duel).
-      var onArena = !hasTabs || tab === 'arena';
+      var onArena = withArena && (!hasTabs || tab === 'arena');
       var off = hasTabs ? offBarHtml(names) : '';
       root.innerHTML = (onArena
         ? '<div class="p-top">' + V.seasonHtml(season) + M.accountHtml(account, view) + refreshBarHtml(off) + '</div>'
         : '<div class="p-top p-top--slim">' + refreshBarHtml(off) + '</div>')
-        + panel('arena', lastNote
+        + (withArena ? panel('arena', lastNote
           + M.positionsHtml(account.positions)
           + extrasHtml('main', 'arena')
           + M.openFormHtml(account.limits, view)
           + extrasHtml('end', 'arena')
-          + footer, hasTabs)
-        + names.slice(1).map(function (name) {
+          + footer, hasTabs) : '')
+        + (withArena ? names.slice(1) : names).map(function (name) {
           return panel(name, extrasHtml('main', name) + extrasHtml('end', name), hasTabs);
         }).join('')
         + toastHtml()
@@ -617,6 +635,7 @@
       .then(function () {
         render();
         if (opts.onFirstRender) opts.onFirstRender();
+        if (opts.autoSignIn) signIn();
       });
   }
 

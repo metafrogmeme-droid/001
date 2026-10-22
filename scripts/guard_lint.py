@@ -486,6 +486,28 @@ RULES: list[Rule] = [
                            # token with Pi's App Studio, which checks it against
                            # the Pi Platform, and a refused token is a 401.
                            # app/test/pi_auth.test.js drives every answer.
+            "tgapp",       # /tg — the Duel's Telegram Mini App: ONE HTML
+                           # document, like /pi. It holds no session; the token
+                           # lives in the page's memory, and every action it
+                           # takes is an authenticated call to /api/duel/*,
+                           # which carries authMiddleware and is counted there.
+            "tg_auth",     # /api/tgapp/signin — how the Telegram Mini App
+                           # OBTAINS a session, so requiring one would be
+                           # circular. Rate limited by IP inside the router, and
+                           # the identity is never the caller's word:
+                           # lib/tg_webapp.js checks Telegram's Ed25519
+                           # signature over the launch data with Telegram's
+                           # public key and the Duel bot's id, and refuses a
+                           # launch over an hour old. app/test/
+                           # the_duel_opens_as_a_telegram_mini_app.test.js
+                           # drives every answer.
+            "risk",        # /api/risk/{bridge,chains} — the Risk Scanner's
+                           # bridge check: a LayerZero app's verifier setting,
+                           # which is on-chain for anyone to read, read live by
+                           # two keyless readers (lib/lz_verifiers.js). GET only,
+                           # rate limited by IP inside the router, nothing
+                           # signed, sent or stored about who asked; an account
+                           # would add a login in front of a public fact.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public

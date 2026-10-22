@@ -96,7 +96,7 @@ function sameAfterStorage(key, sealed, live) {
 <script src="/js/thesis-model.js?v=2"></script>
 <script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/signal-status-model.js?v=4"></script>
-<script src="/js/anchor_cell.js?v=4"></script>
+<script src="/js/anchor_cell.js?v=5"></script>
 <script>
 (function () {
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -212,6 +212,8 @@ function sameAfterStorage(key, sealed, live) {
           + '<div class="hash" style="margin-top:8px">' + esc(d.anchor.root) + '</div>'
           + '<div class="anchor-leg">' + anchorLegs(d.anchor, {}) + '</div>'
           + '<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)">Mirror it from the <a href="/roots">daily roots page</a> — hold a day’s root anywhere and no call can be back-inserted into that day without changing it.</div>'
+          // The same facts in one file, for a checker that trusts no page of this site (docs/PROVABLE_CALLS_SPEC.md §4.3).
+          + '<div class="proof-bundle" style="margin-top:6px;font-size:var(--fs-xs);color:var(--text-3)"><a href="/api/call/' + encodeURIComponent(key) + '/bundle" download>Download the proof bundle</a> and check it with <a href="https://github.com/metafrogmeme-droid/001/blob/main/tools/rcverify.js" rel="noopener">rcverify</a>, which shares no code with this site and asks each chain itself.</div>'
         : '<div class="big">✖ ANCHOR MISMATCH — the Merkle proof does not reach the published day root</div>';
       out.appendChild(el);
 
@@ -273,7 +275,7 @@ function sameAfterStorage(key, sealed, live) {
         var html = '<div class="verdict ' + (intact ? 'ok' : 'bad') + '">'
           + '<div class="big">' + (intact ? '✅ Seal verified in your browser' : '✖ HASH MISMATCH — this receipt is not intact') + '</div>'
           + 'sha256(sealed payload) ' + (intact ? '=' : '≠') + ' stored seal</div>';
-        if (p && (p.kind === 'duel_round' || p.kind === 'duel_pick' || p.kind === 'duel_settle')) {
+        if (p && (p.kind === 'duel_round' || p.kind === 'duel_pick' || p.kind === 'duel_settle' || p.kind === 'duel_review')) {
           // Provable Calls v6 / v4 / v7 — the Daily Duel's chain: the round as
           // dealt (stance included), the call, the settlement; v9 is each of
           // them with its chips. §4: prices, a score, states and counts; chips
@@ -282,7 +284,8 @@ function sameAfterStorage(key, sealed, live) {
           var row = function (k, v) { return '<span class="k">' + esc(k) + '</span><span>' + v + '</span>'; };
           var link = function (rel) { return rel && rel.key ? '<a href="/call/' + esc(rel.key) + '">' + esc(rel.key.slice(0, 14)) + '…</a>' : '—'; };
           var title = p.kind === 'duel_round' ? 'Daily Duel · round as dealt'
-            : p.kind === 'duel_pick' ? 'Daily Duel · call' : 'Daily Duel · settlement';
+            : p.kind === 'duel_pick' ? 'Daily Duel · call'
+            : p.kind === 'duel_review' ? 'Daily Duel · review' : 'Daily Duel · settlement';
           var oddsText = function (o) {
             return o && typeof o === 'object' ? Object.keys(o).map(function (k) { return esc(k.toUpperCase()) + ' ' + esc(o[k]); }).join(' · ') : '';
           };
@@ -307,6 +310,17 @@ function sameAfterStorage(key, sealed, live) {
               + row('Called at', esc(val(p.picked_at)))
               + row('Round receipt', link(d.round))
               + row('Settlement', d.settlement ? link(d.settlement) + ' · ' + esc(d.settlement.state || '') : '<span class="muted">none yet — the call is still running</span>');
+          } else if (p.kind === 'duel_review') {
+            html += row('Decision', '<b>' + esc(val(p.decision)) + '</b>' + (p.outcome ? ' — the outcome was <b>' + esc(p.outcome) + '</b>' : '')
+                + ' <span class="muted">' + esc(p.decision === 'stands' ? 'the verdict was right'
+                  : p.decision === 'push' ? 'no result: marks cleared, chips returned'
+                  : 'scored again at the corrected outcome') + '</span>')
+              + row('On', '<b>' + esc(String(p.pick).toUpperCase()) + '</b> · ' + esc(val(p.category)))
+              + row('Evidence', p.evidence ? esc(p.evidence) : '<span class="muted">none given</span>')
+              + row('Reviewed at', esc(val(p.reviewed_at)))
+              + row('Settlement', link(d.settlement) + ' <span class="muted">left as it was sealed</span>')
+              + row('Call receipt', link(d.call))
+              + row('Round receipt', link(d.round));
           } else {
             html += row('Settles', '<b>' + esc(String(p.pick).toUpperCase()) + '</b> · ' + esc(val(p.category)))
               + row('State', esc(val(p.settle_state)))
@@ -322,6 +336,8 @@ function sameAfterStorage(key, sealed, live) {
               + ('chips' in p ? row('Chips', esc(val(p.chips)) + ' at ' + esc(val(p.odds_used)) + ' → <b>' + esc(signed(p.payout)) + '</b>'
                 + (p.held_until ? ' <span class="muted">held until ' + esc(p.held_until) + ' (disputed)</span>' : '')) : '')
               + row('Settled at', esc(val(p.settled_at)))
+              + (d.flagged ? row('Flagged', 'yes — the player asked for a review') : '')
+              + (d.review ? row('Review', link(d.review) + ' · ' + esc(d.review.decision || '')) : '')
               + row('Call receipt', link(d.call))
               + row('Round receipt', link(d.round));
           }
@@ -514,7 +530,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=200"></script>
+<script src="/js/i18n-core.js?v=203"></script>
 <script src="/js/presale.js?v=2"></script>
   <script>
   (function () {
@@ -529,6 +545,6 @@ function sameAfterStorage(key, sealed, live) {
     document.getElementById('shBs').href = 'https://bsky.app/intent/compose?text=' + t + '%0A' + u;
   })();
   </script>
-<script src="/js/palette.js?v=1" defer></script>
+<script src="/js/palette.js?v=2" defer></script>
 </body>
 </html>

@@ -46,13 +46,58 @@ Where the build departs from the proposal, and why:
 
 The owner's open questions (§10) were answered with this document's own
 defaults: a 1,000 float, at most 200 a call, the words "chips" and "put".
-Questions 2 and 4, the review threshold and what a correction re-settles,
-belong to phase two.
 
-**Phase two, not built:** flags, the operator review queue and its
-`duel_review` receipt (§3.5), chips in the Pi app and on the Telegram cards
-(§6). Until then a call from the Pi app or Telegram carries no chips, and
-nothing there says otherwise.
+**Phase two, built the same day: flags and the review (§3.5).** Code:
+`app/lib/duel_review.js` (the rules, pure), `flagSettlement`, `reviewQueue`
+and `writeReview` in `app/lib/duel_service.js`, `verdictOf` in
+`app/lib/duel.js`, and the `/api/duel/flag` and `/api/duel/review` routes; the
+queue is a section of the `/duel` page that only the operator is served. Test:
+`app/test/a_settlement_can_be_flagged_and_reviewed.test.js`. It departs from
+§3.5 and answers questions 2 and 4:
+
+- **A flag is the player's, on their own settlement (question 2).** The
+  proposal pictured one settlement per round, flagged by its callers. The
+  build settles each call on its own, at its own entry and its own instant,
+  so a settlement has exactly one player, and one flag queues it. A
+  `disputed` settlement is queued with no flag at all. There is no threshold
+  to tune, and no `duel_flags` table: the flag is a column on the call.
+- **A correction re-scores marks and chips alike (question 4).** One
+  verdict, read by `verdictOf` wherever a call is scored (the card, the
+  record, the board, the stack), so a corrected call cannot be right for
+  marks and wrong for chips. A push clears both.
+- **The review is a column set on the call, not a table (§4),** and its
+  receipt is v9 `duel_review` (`docs/PROVABLE_CALLS_SPEC.md` §2.9). It names
+  the call, the settlement and the round by seal, and carries the evidence,
+  which the operator must write. It does not name the reviewer: the operator
+  is the only one, and the receipt is checked against the prices, not trusted
+  for its author. The settlement it decides is never rewritten.
+- **A flag holds the chips as a dispute does,** until the review or the end
+  of the two hours, whichever is first; then they are paid as the verdict
+  stands. A review may still come later (within seven days), and the stack,
+  recomputed on every read, moves with it. A correction from a win to a loss
+  can therefore leave a stack below what its player has already put; the
+  stack shows that and takes no more chips until it recovers.
+
+**Phase three, built the same day: chips on Telegram and in the Pi app (§6).**
+- **Telegram** (both the main bot's `/duel` and the Duel bot) reads the
+  card's chips block over the bot channel. A pick dealt odds shows them, and
+  its tap asks how many chips to put before anything is recorded: none, or
+  25, 50 or 100 where the stack and the limits allow (the stack itself when
+  no step fits). Chips ride with a call or not at all, so the choice must come
+  first. The second tap records the call through the same `placePick` the
+  website uses. A public room is shown no chips and no stack, and a chips tap
+  from one records nothing. Code: `bot/formatters/duel_card.py`
+  (`button_rows`, `chips_prompt`, `for_room`). Test:
+  `tests/test_a_telegram_call_can_carry_chips.py`.
+- **The Pi app** passes the card's block to the website's renderer, so it
+  draws the same odds and field, and sends what the field held. Its record
+  shows the stack and says what a chip is. Pi's developer terms carry no
+  gambling clause, and no chip touches a Pi payment. Tests:
+  `app/test/a_call_carries_chips_from_telegram_and_the_pi_app.test.js` and
+  `app/test/the_pi_app_puts_chips_with_a_call.smoke.test.js`.
+- **A hold names neither of its causes.** A dispute and a flag both hold a
+  call's chips, so the held line on every surface says "held for the check
+  window" rather than "disputed".
 
 ## 1 · What it is, in one paragraph
 

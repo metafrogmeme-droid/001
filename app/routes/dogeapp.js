@@ -42,13 +42,13 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3'];
  */
 const SCRIPTS = [
   '/js/embed-arena-view.js?v=4',
-  '/js/miniapp-view.js?v=10',
-  '/js/arena-session.js?v=10',
+  '/js/miniapp-view.js?v=11',
+  '/js/arena-session.js?v=11',
   '/js/duel.js?v=9',
   // The in-app receipt check the Duel block's receipts open (pi-receipt.js).
-  '/js/pi-receipt.js?v=3',
-  '/js/pi-duel.js?v=8',
-  '/js/anchor_cell.js?v=4',
+  '/js/pi-receipt.js?v=4',
+  '/js/pi-duel.js?v=9',
+  '/js/anchor_cell.js?v=5',
   '/js/doge-proof.js?v=2',
   // The wallet door doge-app.js signs in through, shared with /memeclaw.
   '/js/evm-wallet.js?v=1',
@@ -76,7 +76,7 @@ function page() {
 <link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=18">
+<link rel="stylesheet" href="/embed.css?v=19">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

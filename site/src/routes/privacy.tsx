@@ -48,14 +48,22 @@
  * operator; it is not a lawyer's review, and the paragraph above still
  * stands. The approval is of that text, so `site/test/privacy_truth.test.js`
  * pins the section's digest: an edit to it fails there until the owner
- * approves the new text. The anchor watch's Discord alerts, added the same
+ * approves the new text. Later the same day the owner told us to make the
+ * factual updates the open items need, and four facts changed: a call's
+ * receipt now shows the chips put on it (the clause "and the chips you put
+ * on it, if any"), reviews of settlements are seals in a day's root (a
+ * review names a call by its seal and no one by name), a day can be
+ * anchored on Solana, read back through public Solana RPC services, and a
+ * day can be stamped in EAS on Arbitrum One, Scroll or Linea, read back
+ * through those chains' RPC providers. The pinned digest is of the text
+ * with all four. The anchor watch's Discord alerts, added the same
  * day, carry no personal data (a day, a chain and what is wrong), so this
  * page says nothing about them.
  */
 import { createFileRoute } from '@tanstack/react-router'
 import { Gap, H, L, P } from '../components/Prose'
 
-const UPDATED = '21 October 2026'
+const UPDATED = '22 October 2026'
 
 function Privacy() {
   return (
@@ -109,7 +117,8 @@ function Privacy() {
           prompt-injection check flags leaves a short excerpt of itself in the
           operator&rsquo;s audit log.</>,
         <><strong>Your Telegram ID</strong>, and username where Telegram supplies
-          it, once you link the bot.</>,
+          it, once you link the bot. Signing in with Telegram, on the website or
+          in the Daily Duel&rsquo;s Telegram Mini App, keeps the ID only.</>,
         <><strong>A wallet address</strong>, if you connect one. The signature
           proving you own it is verified in memory and never stored.</>,
         <><strong>Two-factor secrets and backup codes</strong>, if you enable
@@ -179,6 +188,24 @@ function Privacy() {
         pass through their systems under their own privacy policies.
       </P>
       <P>
+        <strong>The Daily Duel&rsquo;s Telegram Mini App.</strong> Opening it
+        from the Duel bot sends our server the launch data Telegram signs: your
+        Telegram ID, name, username and language, and when the app was opened.
+        We check Telegram&rsquo;s signature with Telegram&rsquo;s public key and
+        keep only your Telegram ID, to find your account. The app has no wallet
+        and asks for no payment.
+      </P>
+      <P>
+        <strong>The Risk Scanner.</strong> Its bridge check (<code>/scanner</code>)
+        sends the app address and endpoint id you enter to public RPC providers
+        for Ethereum, Base, Arbitrum One and OP Mainnet (PublicNode, Cloudflare
+        and each network&rsquo;s own public RPC, or providers the operator
+        configures), to read that app&rsquo;s setting. They see a request from
+        our server, not from you. It needs no account; we keep a reading for a
+        minute so a repeated question is not asked again, and it is not linked
+        to you.
+      </P>
+      <P>
         <strong>Pi Network.</strong> Signing in with Pi sends the access token
         Pi&rsquo;s own SDK gives the app to Pi&rsquo;s App Studio, which checks
         it and answers your uid. If you tip or buy Coach Plus, our server sends Pi&rsquo;s payment
@@ -240,18 +267,22 @@ function Privacy() {
       <H>The daily proof, and the chains it is written to</H>
       <P>
         Every seal the site makes in a UTC day (among them the agent&rsquo;s calls, Arena
-        practice trades, Daily Duel rounds, calls and settlements, Memeclaw
-        launches) goes into one Merkle root for that day, shown on{' '}
+        practice trades, Daily Duel rounds, calls, settlements and reviews of
+        settlements, Memeclaw launches) goes into one Merkle root for that day, shown on{' '}
         <code>/roots</code> and in its public feed. A seal is a hash and names
         no one. A Duel call&rsquo;s receipt, opened by its own seal, shows the
-        call, its prices and outcome, and the handle you chose to show, if any.
+        call, its prices and outcome, the handle you chose to show, if any, and
+        the chips you put on it, if any: play money that cannot be bought,
+        sold or cashed out.
       </P>
       <L items={[
         <><strong>When your wallet anchors a day.</strong> You can write a
           day&rsquo;s root to a public chain from your own wallet: to Base (a
           transaction to your own address, or a stamp in the Ethereum
-          Attestation Service), to the DogeOS testnet, or to Dogecoin from
-          Dogecoin Core. Your wallet sends it; we never sign. Once the chain
+          Attestation Service), to Arbitrum One, Scroll or Linea (a stamp in
+          the Ethereum Attestation Service there), to the DogeOS testnet, to Dogecoin from
+          Dogecoin Core, or to Solana (a transaction carrying the root as a
+          memo). Your wallet sends it; we never sign. Once the chain
           confirms it, we keep and show publicly which chain, the transaction id
           and the address that sent it. We do not record which account submitted
           it. The same facts are on the chain itself, where nobody, us included,
@@ -262,8 +293,9 @@ function Privacy() {
           root, and nothing about you.</>,
         <><strong>Checking an anchor.</strong> To check one, our servers ask
           public blockchain services about its transaction id: RPC providers for
-          Base and the DogeOS testnet, BlockCypher and SoChain for Dogecoin,
-          blockstream.info and mempool.space for Bitcoin, and, when the operator
+          Base, Arbitrum One, Scroll, Linea and the DogeOS testnet, BlockCypher and SoChain for Dogecoin,
+          public Solana RPC services for Solana, blockstream.info and
+          mempool.space for Bitcoin, and, when the operator
           has configured it, QuickNode through a data service. They see a
           request from our server, not from you.</>,
       ]} />

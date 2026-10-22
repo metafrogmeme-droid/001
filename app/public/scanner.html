@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Risk Scanner</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/scanner">
+<meta name="description" content="Read-only checks of what you are about to trust: how many verifiers a LayerZero bridge app needs before it takes a message, read from the chain by two readers that must agree. A count, never a verdict.">
+<meta property="og:title" content="RUNECLAW — Risk Scanner">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="How many verifiers a bridge app needs before it takes a message, read from the chain. A count, never a verdict.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/scanner">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Risk Scanner">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .rk-wrap { max-width: 820px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .rk-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .lede b, .panel p b { color: var(--text-1); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  .panel p { color: var(--text-2); line-height: 1.6; margin-bottom: var(--s3); }
+  .rk-form { display: grid; grid-template-columns: 1fr; gap: var(--s2); }
+  .rk-form label { display: grid; gap: 4px; font-size: var(--fs-xs); color: var(--text-3); }
+  .rk-form input, .rk-form select { font: inherit; font-size: var(--fs-sm); padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-1); }
+  .rk-form button { justify-self: start; }
+  @media (min-width: 640px) { .rk-form { grid-template-columns: 1fr 2fr 1fr; align-items: end; } .rk-form button { grid-column: 1 / -1; } }
+  .rk-out { margin-top: var(--s3); font-size: var(--fs-sm); }
+  .rk-side { border-top: 1px solid var(--line); padding: var(--s3) 0; }
+  .rk-side h3 { font-size: var(--fs-sm); margin-bottom: 4px; }
+  .rk-count { font-weight: 600; }
+  .rk-one { color: var(--warn, #e0a030); }
+  .rk-who { color: var(--text-2); font-family: var(--font-data); font-size: var(--fs-xs); line-height: 1.7; word-break: break-all; }
+  .note { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.65; margin-top: var(--s3); }
+  .muted { color: var(--text-3); }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<canvas id="rc-constellation" data-viewport data-hue="30" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
+<div class="rk-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/approvals" data-i18n="nav.approvals">Allowance X-ray</a>
+    <a href="/gas" data-i18n="nav.gas">Live Gas</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="rk-hero"><h1 data-i18n="rk.h1">🛡 Risk Scanner</h1></div>
+  <p class="lede" data-i18n-html="rk.lede">Read-only checks of what you are about to trust. Each reads the chain itself, through two readers that must agree, and says what it read: <b>a count, never a verdict</b>.</p>
+
+  <section class="panel">
+    <h2 data-i18n="rk.b_h">Bridge: how many verifiers</h2>
+    <p data-i18n-html="rk.b_p">A LayerZero app chooses who verifies its messages. When <b>one verifier’s word is enough</b>, whoever runs or fools that verifier decides what the app receives.</p>
+    <form class="rk-form" id="bridgeForm">
+      <label><span data-i18n="rk.f_chain">Chain</span><select id="rkChain" name="chain"></select></label>
+      <label><span data-i18n="rk.f_app">App address (OApp or OFT)</span><input id="rkApp" name="oapp" autocomplete="off" spellcheck="false" placeholder="0x…"></label>
+      <label><span data-i18n="rk.f_eid">Remote endpoint id</span><input id="rkEid" name="eid" inputmode="numeric" placeholder="30101" list="rkEids"><datalist id="rkEids"></datalist></label>
+      <button type="submit" class="btn" data-i18n="rk.f_go">Read</button>
+    </form>
+    <div class="rk-out" id="rkOut" aria-live="polite"></div>
+    <p class="note" data-i18n-html="rk.note">In April 2026 a bridge was drained when a single verifier, fed by poisoned RPCs, was the only one that mattered. How many must agree is one fact about an app, <b>not a safety rating</b>: it says nothing about who runs them or how.</p>
+  </section>
+
+  <section class="panel">
+    <h2 data-i18n="rk.w_h">Wallet: approvals</h2>
+    <p data-i18n="rk.w_p">Which contracts can spend your tokens, and which of them without a limit.</p>
+    <a class="btn" href="/approvals" data-i18n="rk.w_go">Open the approvals check</a>
+  </section>
+</div>
+<script src="/js/api-retry.js?v=3"></script>
+<script src="/js/i18n-core.js?v=203"></script>
+<script src="/js/presale.js?v=2"></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/risk-bridge.js?v=1"></script>
+<script>
+(function () {
+  'use strict';
+  var T = function (k, en) {
+    try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
+    catch (e) { return en; }
+  };
+  var V = window.RCRiskBridge;
+  var out = document.getElementById('rkOut');
+  var pick = document.getElementById('rkChain');
+  var unread = function () { out.textContent = V.view(0, null, T).text; };
+  // The chains the check reads, from the server's own list: names and endpoint ids only.
+  fetch('/api/risk/chains', { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      var list = (d && Array.isArray(d.chains)) ? d.chains : [];
+      pick.innerHTML = list.map(function (c) {
+        return '<option value="' + V.esc(c.key) + '">' + V.esc(c.name) + ' (' + V.esc(c.eid) + ')</option>';
+      }).join('');
+      // The same chains' endpoint ids, offered for the remote side; any mainnet id is accepted.
+      document.getElementById('rkEids').innerHTML = list.map(function (c) {
+        return '<option value="' + V.esc(c.eid) + '">' + V.esc(c.name) + '</option>';
+      }).join('');
+      if (!list.length) unread();
+    })
+    .catch(unread);
+
+  document.getElementById('bridgeForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var q = '/api/risk/bridge?chain=' + encodeURIComponent(pick.value)
+      + '&oapp=' + encodeURIComponent(document.getElementById('rkApp').value.trim())
+      + '&eid=' + encodeURIComponent(document.getElementById('rkEid').value.trim());
+    out.textContent = T('rk.loading', 'Reading…');
+    fetch(q, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json().catch(function () { return null; }).then(function (b) { return V.view(r.status, b, T); }); })
+      .then(function (v) { if (v.html) out.innerHTML = v.html; else out.textContent = v.text; })
+      .catch(unread);
+  });
+})();
+</script>
+<script src="/js/palette.js?v=2" defer></script>
+</body>
+</html>

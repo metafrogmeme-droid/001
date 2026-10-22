@@ -28,6 +28,7 @@
  *   utf8("RCROOT1:" + day + ":" + root)   as the tx `data`, hex-encoded.
  */
 const { agree, requiredOf, unread } = require('./reader_agreement');
+const solana = require('./solana_anchor');
 
 const PREFIX = 'RCROOT1';
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -58,6 +59,29 @@ const DOGEOS_TESTNET_RPCS = [...DOGEOS_TESTNET_PUBLIC_RPCS, 'https://dogeos-test
 const EAS_BASE = '0x4200000000000000000000000000000000000021';
 const EAS_TIMESTAMP = '0x4d003070';
 const EAS_GET_TIMESTAMP = '0xd45c4435';
+
+/**
+ * EAS on three more Ethereum L2s. Addresses from the eas-contracts README,
+ * read 2026-10-22, and each contract read live the same day through both
+ * RPCs below: an unknown selector reverts, getTimestamp of an unknown hash
+ * answers 0, and a simulated timestamp() answers the block's time.
+ *   Arbitrum One  chain 42161   EAS 0.26 (version() reverts: it predates it)
+ *   Scroll        chain 534352  EAS 1.3.0
+ *   Linea         chain 59144   EAS 1.2.0
+ * Each settles to Ethereum, so each joins Base's independence group: more
+ * places a player can stamp a root, not more independent witnesses.
+ */
+const EAS_L2 = [
+  { key: 'arbitrum-eas', chain_id: 42161, name: 'Arbitrum One', eas: '0xbD75f629A22Dc1ceD33dDA0b68c546A1c035c458',
+    env: 'ARBITRUM_RPC_URLS', rpcs: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum-one-rpc.publicnode.com'],
+    explorer_tx: 'https://arbiscan.io/tx/' },
+  { key: 'scroll-eas', chain_id: 534352, name: 'Scroll', eas: '0xC47300428b6AD2c7D03BB76D05A176058b47E6B0',
+    env: 'SCROLL_RPC_URLS', rpcs: ['https://rpc.scroll.io', 'https://scroll-rpc.publicnode.com'],
+    explorer_tx: 'https://scrollscan.com/tx/' },
+  { key: 'linea-eas', chain_id: 59144, name: 'Linea', eas: '0xaEF4103A04090071165F78D45D83A0C0782c2B2a',
+    env: 'LINEA_RPC_URLS', rpcs: ['https://rpc.linea.build', 'https://linea-rpc.publicnode.com'],
+    explorer_tx: 'https://lineascan.build/tx/' },
+];
 
 /**
  * A comma list in the environment replaces a chain's default RPCs, for the
@@ -126,6 +150,16 @@ function chains(env) {
       explorer_tx: 'https://basescan.org/tx/',
       native: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     },
+    // The same stamp on the other L2s (EAS_L2 above), each its own registry.
+    ...Object.fromEntries(EAS_L2.map((c) => [c.key, {
+      key: c.key, chain_id: c.chain_id, name: `${c.name} (EAS timestamp)`, testnet: false,
+      method: 'eas_timestamp', eas: c.eas,
+      independence_group: 'ethereum-l2',
+      rpcs: rpcList(c.env, c.rpcs, env),
+      public_rpcs: c.rpcs.slice(),
+      explorer_tx: c.explorer_tx,
+      native: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    }])),
     // Dogecoin itself (mainnet, the owner's go on 2026-10-21): the root as an
     // OP_RETURN output a wallet's owner sends from Dogecoin Core, read back
     // through a keyless explorer API (lib/dogecoin_anchor.js). Not an EVM
@@ -145,7 +179,29 @@ function chains(env) {
       verify_cache_ms: 6 * 3600 * 1000,
       native: { name: 'Dogecoin', symbol: 'DOGE', decimals: 8 },
     },
+    // Solana (mainnet, 2026-10-22): the root as a Memo-program instruction a
+    // wallet's owner sends, read back from two keyless JSON-RPC readers at
+    // `finalized` commitment (lib/solana_anchor.js). Not an EVM chain: no
+    // chain id and nothing to hand a wallet to add. Its own consensus, so its
+    // own independence group.
+    solana: {
+      key: 'solana', chain_id: null, name: 'Solana', testnet: false,
+      method: 'solana_memo',
+      independence_group: 'solana',
+      rpcs: rpcList('SOLANA_RPC_URLS', solana.DEFAULT_RPCS, env), public_rpcs: [],
+      explorer_tx: 'https://solscan.io/tx/',
+      native: { name: 'Solana', symbol: 'SOL', decimals: 9 },
+    },
   };
+}
+
+/**
+ * Whether a chain's transaction ids are case-sensitive (Solana's base58
+ * signatures). Every other chain's is hex, which is lower-cased before it is
+ * checked or stored.
+ */
+function caseSensitiveTx(chain) {
+  return !!chain && chain.method === 'solana_memo';
 }
 const DEFAULT_CHAIN = 'base';
 
@@ -197,6 +253,7 @@ function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
   const chain = chainInfo(chainKey);
   if (!chain) return null;
   if (chain.method === 'dogecoin_op_return') return require('./dogecoin_anchor').buildPlan(day, root, chain);
+  if (chain.method === 'solana_memo') return solana.buildPlan(day, root, chain);
   if (chain.method === 'eas_timestamp') {
     const data = easStampCalldata(root);
     return {
@@ -362,7 +419,7 @@ async function readCalldataAnchor(call, url, chain, txHash, day, root) {
 }
 
 /** The keyless defaults, named by host in a verdict. */
-const KEYLESS_RPCS = new Set([...BASE_RPCS, ...DOGEOS_TESTNET_RPCS]);
+const KEYLESS_RPCS = new Set([...BASE_RPCS, ...DOGEOS_TESTNET_RPCS, ...EAS_L2.flatMap((c) => c.rpcs)]);
 
 /** A reader's name in a verdict: a keyless default by its host; a configured URL, which may carry a key, by its place only. */
 function readerName(url, i) {
@@ -401,6 +458,7 @@ async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHA
   if (chain.method === 'dogecoin_op_return') {
     return require('./dogecoin_anchor').verify(txHash, day, root, chain, fetchImpl);
   }
+  if (chain.method === 'solana_memo') return solana.verify(txHash, day, root, chain, fetchImpl);
   if (!TX_RE.test(String(txHash))) return { status: 'mismatch', reason: 'malformed transaction hash' };
   if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) {
     return { status: 'mismatch', reason: 'malformed day or root' };
@@ -483,6 +541,6 @@ async function verifyThroughQuickNode(txHash, day, root, chain) {
 
 module.exports = {
   buildAnchorPlan, verifyAnchor, verifyThroughQuickNode, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
-  DOGEOS_TESTNET_PUBLIC_RPCS, EAS_BASE, EAS_TIMESTAMP, EAS_GET_TIMESTAMP, easStampCalldata, easStampOf,
-  chains, chainInfo, publicChains, DEFAULT_CHAIN,
+  DOGEOS_TESTNET_PUBLIC_RPCS, EAS_BASE, EAS_L2, EAS_TIMESTAMP, EAS_GET_TIMESTAMP, easStampCalldata, easStampOf,
+  chains, chainInfo, publicChains, DEFAULT_CHAIN, caseSensitiveTx,
 };

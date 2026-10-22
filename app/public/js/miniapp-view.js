@@ -157,11 +157,20 @@
    */
   function signedOutHtml(season, host, opts) {
     // The host is who signs the person in: Farcaster for the Mini App, Pi for
-    // the Pi Browser app, a wallet for the DogeOS app. One sentence each, and
-    // nothing else differs.
-    var who = host === 'Pi' ? 'Pi' : host === 'DogeOS' ? T('a DogeOS wallet') : 'Farcaster';
+    // the Pi Browser app, a wallet for the DogeOS app, Telegram for the Duel's
+    // Mini App. One sentence each, and nothing else differs.
+    var who = host === 'Pi' ? 'Pi' : host === 'DogeOS' ? T('a DogeOS wallet') : host === 'Telegram' ? 'Telegram' : 'Farcaster';
     var intro = opts && opts.intro;
     if (intro) return introHtml(intro, who);
+    // The Telegram Mini App is the Duel and its receipts, with no paper
+    // account: its gate says what it is, and that nothing is bought or held.
+    if (host === 'Telegram') {
+      return '<section class="m-gate">'
+        + '<p class="m-gate-lead">' + esc(T('Call the Daily Duel against the Claw, from Telegram.')) + '</p>'
+        + '<p class="m-gate-sub">' + esc(T('Your Telegram account signs you in: no wallet, no real funds, nothing to buy.')) + '</p>'
+        + '<button type="button" class="m-signin">' + esc(T('Sign in with {who}', { who: who })) + '</button>'
+        + '</section>';
+    }
     var name = season && season.name ? season.name : null;
     return '<section class="m-gate">'
       + '<p class="m-gate-lead">'
@@ -209,8 +218,12 @@
       text = host === 'Pi' ? T('Open this in the Pi Browser to sign in.')
         // The DogeOS app signs in with a browser wallet; none was found on the page.
         : host === 'DogeOS' ? T('No wallet found. Open this page in a browser with an EVM wallet (MetaMask, Rabby or the DogeOS wallet) to sign in.')
-          : T('Open this from a Farcaster app to sign in.');
+          // Opened in a browser, not from the bot: Telegram signed nothing.
+          : host === 'Telegram' ? T('Open this from the RUNECLAW Duel bot in Telegram to sign in.')
+            : T('Open this from a Farcaster app to sign in.');
     }
+    // A Telegram launch is signed once, when the app opens; an old one is not a sign-in (lib/tg_webapp.js).
+    else if (reason === 'expired') text = T('That launch is too old. Close the app and open it again from the bot.');
     else if (status === 'unknown') text = T('Sign-in did not come back. You can try again.');
     else if (reason === 'domain_mismatch') text = T('That signature was for a different app.');
     else if (reason === 'unknown_or_used_nonce') text = T('That sign-in expired. Try again.');
@@ -363,7 +376,13 @@
     return '<p class="m-problem m-problem--' + esc(kind) + '">' + esc(text) + '</p>';
   }
 
+  /** What the screen says while a host is asked (arena-session.js `waiting`), for the hosts that sign in without a tap. */
+  function waitingFor(host) {
+    return host === 'Telegram' ? [T('Checking your Telegram sign-in…')] : [];
+  }
+
   return {
+    waitingFor: waitingFor,
     signedOutHtml: signedOutHtml,
     signInProblemHtml: signInProblemHtml,
     accountHtml: accountHtml,

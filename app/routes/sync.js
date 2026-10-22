@@ -2127,6 +2127,9 @@ router.get('/duel', async (req, res) => {
       accuracy: rec.accuracy,
       marks: rec.marks,
       streak: rec.streak,
+      // The season's chips block (lib/duel_chips.js), or null when the layer
+      // is off and nothing was put: the bot offers chips only from this.
+      chips: card.chips,
       counts_only: true,
     });
   } catch (err) {
@@ -2140,8 +2143,10 @@ router.post('/duel/pick', async (req, res) => {
     const who = await duelUserFor(req);
     if (who.error) return res.status(who.status).json({ error: who.error });
     const body = req.body || {};
+    // Chips ride with the call or not at all; absent is none, and the
+    // service checks every limit and says why it refuses.
     const out = await require('../lib/duel_service')
-      .placePick(who.id, Number(body.round_id), body.pick);
+      .placePick(who.id, Number(body.round_id), body.pick, new Date(), { chips: body.chips });
     if (!out.ok) {
       const { status, ...rest } = out;
       return res.status(status).json(rest);

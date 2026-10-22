@@ -280,6 +280,46 @@ shown as won or lost before then. It is `null` otherwise. A player's stack is
 never stored: it is the season float plus the paid payouts minus the chips
 still on the table, recomputed from these receipts' rows on every read.
 
+### 2.9 · `v: 9` — a review of a Daily Duel settlement
+
+A settlement can be wrong in ways its two price reads do not show: a venue
+print the index never traded, a match result corrected after the feed read
+it. A player may **flag** their own settlement once, within two hours of it
+being written; a settlement the second source disputed (§2.6) is queued
+without one. The operator then decides it, and the decision is a receipt of
+its own. It names the settlement and never rewrites it: the settlement's
+bytes, and its seal, are the ones that were sealed.
+
+```json
+{"v":9,"kind":"duel_review","round_id":1,"call_seal":"<64 hex>","settle_seal":"<64 hex>",
+ "round_seal":"<64 hex>","category":"direction","pick":"long","decision":"corrected",
+ "outcome":"up","evidence":"The venue candle printed a wick the index never traded.",
+ "reviewed_at":"2026-10-23T11:00:00.000Z"}
+```
+
+`decision` is one of three words:
+
+| decision | what it does to the call |
+|---|---|
+| `stands` | nothing: the settlement's verdict was right |
+| `push` | no result: marks cleared, chips returned |
+| `corrected` | the market's answer was `outcome` instead; the call is scored again at it, marks and chips alike |
+
+`outcome` is `null` unless the decision is `corrected`, and a correction
+must name an outcome the category knows that differs from the one the
+settlement gave. `evidence` says what was checked, as one line of plain text
+of at most 500 characters; a review without it is refused. A settlement is
+reviewed at most once. A flag holds a call's chips as a dispute does, until
+the review or the end of the two hours, whichever comes first; a reviewed
+settlement's chips are paid at the reviewed verdict. A verifier that reads a
+settlement SHOULD look for a review naming it and read the verdict from the
+review when there is one.
+
+The review is not trusted because the operator wrote it. It is sealed, folded
+into the root of the day it was written (§4), and names the evidence, so a
+reader can check what was claimed against the same public prices the
+settlement read.
+
 ---
 
 ## 3 · Addressing
@@ -288,11 +328,12 @@ Receipts are served by an opaque key. Two forms are in use:
 
 - `sig:<id>` — an engine signal
 - `arena:<18 hex>` — a paper trade, from 9 random bytes
-- `round:<seal>`, `duel:<seal>`, `settle:<seal>` — a Daily Duel round (§2.5),
-  call (§2.3) and settlement (§2.6), addressed by their own seal: sixty-four
-  hex characters nobody can derive from public data. A call's receipt names
-  its round seal and, once there is one, its settlement; a settlement's names
-  the call it settles.
+- `round:<seal>`, `duel:<seal>`, `settle:<seal>`, `review:<seal>` — a Daily
+  Duel round (§2.5), call (§2.3), settlement (§2.6) and review (§2.9),
+  addressed by their own seal: sixty-four hex characters nobody can derive
+  from public data. A call's receipt names its round seal and, once there is
+  one, its settlement; a settlement's names the call it settles and, once
+  there is one, its review; a review's names the settlement it decides.
 - `launch:<seal>` — a Memeclaw launch (§2.7). A launch is public on the chain,
   so this key is a convenience, not a capability.
 
@@ -324,7 +365,8 @@ Three details that implementations get wrong:
   "the day is still open", never a hash.
 - **A seal belongs to the day it was minted**, not to the day of the thing it
   describes: a Daily Duel round sealed as dealt, the call made on it and the
-  settlement written for it are three leaves on up to three days. Adding a
+  settlement written for it are three leaves on up to three days, and a
+  review of that settlement a fourth. Adding a
   surface never moves a stored root; days completed before the surface was
   sealed keep the root they had.
 
@@ -354,6 +396,57 @@ alter that day without contradicting a hash they do not control.
 
 **This is the step that turns self-certification into evidence**, and it costs
 the mirrorer nothing but a paste.
+
+RUNECLAW's own anchors, each sent by a wallet's owner and read back by the
+server from two readers that must agree, carry the root in one of these forms:
+
+| chain | where the root is | bytes |
+|---|---|---|
+| Base, DogeOS testnet | the calldata of a zero-value transaction to the sender's own address | `utf8("RCROOT1:<day>:<root hex>")` |
+| Base, Arbitrum One, Scroll, Linea (EAS) | `timestamp(bytes32 root)` on that chain's Ethereum Attestation Service | the root's 32 bytes |
+| Dogecoin | one OP_RETURN output | `utf8("RCD1:<day>:")` then the root's 32 bytes |
+| Solana | one Memo-program instruction, read at `finalized` commitment | `utf8("RCROOT1:<day>:<root hex>")` |
+| Bitcoin | an OpenTimestamps proof of a digest | SHA-256 of one line naming the day and its root |
+
+A day is **multi-anchored** when chains in at least two independence groups
+verify it live (a testnet is shown and never counted). That proves when the
+root existed, never how good the calls in it were.
+
+### 4.3 · A receipt's proof bundle (`rcproof/1`)
+
+`GET /api/call/<key>/bundle` serves one JSON document holding every fact
+needed to check one receipt without asking the publisher again:
+
+| field | what it is |
+|---|---|
+| `format` | `"rcproof/1"` |
+| `key`, `kind`, `seal`, `seal_payload`, `sealed`, `sealed_at` | the receipt exactly as `GET /api/call/<key>` serves the same viewer; `sealed` is true, with a `null` payload, while the call is still sealed to them |
+| `merkle`, `merkle_note` | `{ day, root, seal_count, proof, construction }`, or `null` with a note saying why while the day is open |
+| `anchors` | each chain the root was recorded on: `chain`, `method` (the row of §4.2's table), `tx`, `explorer`, `independence_group`, `counts_toward_quorum` |
+| `bitcoin`, `bitcoin_unread` | the OpenTimestamps `statement`, its `digest` and the proof file (`ots_proof_base64`), or `null`; `bitcoin_unread` is true when the publisher could not read its own proof |
+
+The bundle holds **facts, never a verdict**: no field says "verified". It
+discloses nothing the receipt and `/api/roots` do not already serve to the
+same viewer, and a live call's bundle is as sealed as its receipt.
+
+`tools/rcverify.js` checks a bundle with Node alone and no code shared with
+the publisher. It recomputes the hash (§2.4) and the path (§4.1), checks the
+seal was minted on the root's day, reads each anchor from its own chain
+through endpoints **it** names, and counts independence groups from **its
+own** table: a bundle's labels are never trusted. A chain it cannot read is
+unknown, never a pass. Exit `0` every check that ran passed, `1` a check
+failed, `3` nothing failed but something could not be checked.
+
+```
+node tools/rcverify.js rcproof-<key>.json            # every check, chains included
+node tools/rcverify.js rcproof-<key>.json --offline  # the hash and the path only
+node tools/rcverify.js rcproof-<key>.json --save-ots # also writes the .ots file for `ots verify`
+```
+
+`GET /api/verify/<key>` is the publisher's own live reading of the same
+receipt: `hash` (`match` / `mismatch` / `sealed`), `path` (`reaches_root` /
+`misses_root` / `none`) and the day's quorum, reported apart and labelled as
+the publisher's word. It serves no payload.
 
 ---
 
@@ -405,7 +498,7 @@ float as a percent and how many calls carried chips, and no count of chips.
 | 6 | A dealt duel round, the agent's stance committed before anyone calls |
 | 7 | A duel settlement: prices or score, outcome and verdict, naming the call |
 | 8 | A Memeclaw launch: the terms hash the chain recorded, the coin, the creator's buy |
-| 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold |
+| 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold; a settlement's review |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

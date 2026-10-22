@@ -35,7 +35,7 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var KEY_RE = /^(round|duel|settle):[0-9a-f]{64}$/;
+  var KEY_RE = /^(round|duel|settle|review):[0-9a-f]{64}$/;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -103,6 +103,20 @@
         [p.category === 'sports' ? T('Final score') : T('Close price'), p.settle_price == null ? T('none, unresolved')
           : val(p.settle_price) + (p.settle_price_b != null ? (p.category === 'sports' ? '–' : ' / ') + p.settle_price_b : '')],
         [T('Settled at'), val(p.settled_at)],
+      ];
+    }
+    if (p.kind === 'duel_review') {
+      // The operator's decision on a settlement (lib/duel_review.js): it names
+      // the settlement and never rewrites it.
+      var decision = p.decision === 'stands' ? T('The result stands')
+        : p.decision === 'push' ? T('No result: the call scores nothing')
+          : p.decision === 'corrected' ? T('Corrected to {outcome}', { outcome: up(p.outcome) }) : val(p.decision);
+      return [
+        [T('What it is'), T('A review of your settlement')],
+        [T('Call'), up(p.pick) + ' · ' + val(p.category)],
+        [T('Decision'), decision],
+        [T('Evidence'), val(p.evidence)],
+        [T('Reviewed at'), val(p.reviewed_at)],
       ];
     }
     return [[T('What it is'), T('A receipt of a kind this app does not describe')]];

@@ -182,6 +182,25 @@ live operators:
    Nothing inside this repository performs `git reset` — this is purely about
    the host-side update loop some operators run.
 
+3. **Confirm post-quantum TLS on every public host** (a Base mainnet gate).
+   The site, Memeclaw's domain and the bot gateway's public URL should
+   negotiate the hybrid key exchange X25519MLKEM768, so a session recorded
+   today cannot be decrypted later by a quantum computer. TLS ends at the
+   edge (the host's proxy or tunnel), so this is a setting there, not in the
+   app. Check it from a machine that reaches the hosts directly, with Node 24
+   or later:
+
+   ```bash
+   WEB_URL=https://humanoid-traders.com MEMECLAW_HOSTS=<memeclaw domain> \
+   BOT_GATEWAY_URL=<public tunnel URL> node app/scripts/pq_tls_check.js
+   ```
+
+   It prints one line per host and exits as `verify_deploy.sh` does: `0`
+   every host is post-quantum, `1` a host negotiated a classical group (a
+   verdict: turn the hybrid on at that edge), `3` something could not be
+   checked (not a verdict). Through a TLS-intercepting proxy it measures the
+   proxy, not the host.
+
 ---
 
 ## Website triage — is it the app, or the host?

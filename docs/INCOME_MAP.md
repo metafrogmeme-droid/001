@@ -913,7 +913,19 @@ outcome is known and re-derivable by a third party. Behind `DUEL_CHIPS_ENABLED`
 (off by default) a round is dealt at sealed odds and a call may carry
 play-money chips from a season float, checked at `app/lib/duel_chips.js::checkPut`
 and paid at the verdict (`app/lib/duel_chips.js::payoutFor`); the public board
-shows a percent return and a count of calls, never chips.
+shows a percent return and a count of calls, never chips. A player may flag
+their own settlement once, inside two hours (`app/lib/duel_review.js::canFlag`),
+and the operator's decision on a flagged or disputed one is a sealed receipt of
+its own (`app/lib/duel_service.js::writeReview`), applied wherever a call is
+scored (`app/lib/duel.js::verdictOf`). Any receipt, a duel's included, is also
+served as one proof bundle (`app/lib/proof_bundle.js::bundleOf`) that a third
+party checks without this server: the hash, the Merkle path and each chain's
+anchor, read by a verifier that shares no code with it (`tools/rcverify.js::verifyBundle`).
+The same card opens as a Telegram Mini App from the Duel bot (`app/routes/tgapp.js::get('/')`),
+signed in with the launch data Telegram signs, checked with Telegram's public
+key (`app/lib/tg_webapp.js::verifyInitData`) at `app/routes/tg_auth.js::post('/signin')`;
+it has no wallet and no paper account, and the bot offers it only when
+`bot/duel_bot.py::webapp_url` is set.
 
 *Gap.* Income. There is no entry fee, no prize pool, no payout and no token reward
 attached to a duel result — the §4 rule at `app/routes/duel.js::#"§4: virtual throughout"` forbids any
@@ -1411,6 +1423,10 @@ calldata into plain-English actions before signing; /approvals
 phrase lures, drain language, hidden/bidi/homoglyph characters, poisoned
 addresses — no network, nothing leaves the page; /approvals (`app/server.js::get('/approvals')`)
 enumerates token approvals and emits revoke plans the owner signs themselves.
+/scanner (`app/server.js::get('/scanner')`) is the Risk Scanner: it reads how many
+verifiers a LayerZero bridge app needs before it takes a message, each way, from
+the chain through two readers that must agree (`app/lib/lz_verifiers.js::bridgeCheck`,
+served by `app/routes/risk.js::get('/bridge')`), and says a count, never a rating.
 Contract Studio runs scan_security_flags (`bot/core/contract_studio.py::scan_security_flags`) — a
 deterministic Solidity rule set (tx.origin auth, selfdestruct, delegatecall,
 unchecked low-level call, block.timestamp, …) over the model's own output. MCP

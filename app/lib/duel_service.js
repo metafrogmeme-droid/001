@@ -16,9 +16,10 @@ const { pool, withTransaction } = require('../db');
 const { getTickers } = require('./tickers');
 const { closeAt } = require('./candles');
 const { sealDuelPick, sealDuelRound, sealDuelSettle, newRoundNonce,
-  sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips } = require('./callseal');
+  sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips, sealDuelReview } = require('./callseal');
 const duel = require('./duel');
 const chips = require('./duel_chips');
+const review = require('./duel_review');
 const sportsFeed = require('./sports_feed');
 const duelContext = require('./duel_context');
 const secondPrice = require('./second_price');
@@ -46,7 +47,8 @@ const ROUND_COLS = 'id, day, idx, kind, symbol, symbol_b, threshold_pct, agent_d
   + ' seal, seal_payload, odds, odds_source, created_at';
 const PICK_COLS = 'id, round_id, pick, entry_price, entry_price_b, resolves_at, settle_price, '
   + 'settle_price_b, settle_state, settled_at, seal, seal_payload, settle_seal, settle_payload, '
-  + 'settle_second_price, settle_second_price_b, settle_disputed, chips, created_at';
+  + 'settle_second_price, settle_second_price_b, settle_disputed, chips, '
+  + 'flagged_at, review_state, review_outcome, review_seal, review_payload, reviewed_at, created_at';
 
 function dayFloor(now, days) {
   return new Date(new Date(now).getTime() - days * 86400000).toISOString().slice(0, 10);
@@ -541,9 +543,11 @@ async function cardFor(userId, now = new Date()) {
     if (chipsOn) view.odds = chips.oddsOf(r);
     if (pick) {
       view.my_call = duel.publicPick(pick, { now, round: r });
-      view.my_result = duel.scoreCall(duel.kindOf(r), pick.pick, duel.callOutcome(r, pick), r.agent_direction);
+      view.my_result = duel.verdictOf(r, pick);
       const c = chips.pickChips(pick, r, now);
       if (c) view.my_call.chips = c;
+      // May the player still flag this settlement (lib/duel_review.js)?
+      view.my_call.flaggable = review.canFlag(pick, now).ok;
     }
     // A remembered context line, when there is one; never a lookup here.
     await duelContext.attachSmartMoney(view, r);
@@ -563,6 +567,95 @@ async function cardFor(userId, now = new Date()) {
     chips: await chipsBlock(userId, picks, now),
     counts_only: true,
   };
+}
+
+/**
+ * Flag one of the caller's own settlements, within the check window. Written
+ * once: the `flagged_at IS NULL` guard makes a second flag land nowhere.
+ * → { ok: true, flagged_at } or { ok: false, status, reason, error }.
+ */
+async function flagSettlement(userId, roundId, now = new Date()) {
+  if (!Number.isInteger(Number(roundId)) || Number(roundId) <= 0) {
+    return { ok: false, status: 400, reason: 'round', error: 'Which round?' };
+  }
+  const picks = await loadPicks(userId);
+  const pick = picks.find((p) => Number(p.round_id) === Number(roundId));
+  const allowed = review.canFlag(pick, now);
+  if (!allowed.ok) return allowed;
+  const at = new Date(now).toISOString();
+  const [res] = await pool.execute('UPDATE duel_picks SET flagged_at = ? WHERE id = ? AND flagged_at IS NULL', [at, pick.id]);
+  if (!res || !res.affectedRows) return { ok: false, status: 409, reason: 'flagged', error: 'You have flagged that settlement already.' };
+  return { ok: true, round_id: Number(roundId), flagged_at: at, review_by: new Date(Date.parse(pick.settled_at) + review.WINDOW_MS).toISOString() };
+}
+
+/**
+ * The operator's queue: settlements flagged or disputed and not yet reviewed,
+ * newest first, over the review horizon. No player's identity: the call, the
+ * prices and what is being asked of the reviewer.
+ */
+async function reviewQueue(now = new Date()) {
+  const since = new Date(new Date(now).getTime() - review.REVIEW_MAX_MS).toISOString();
+  const [rows] = await pool.execute(`SELECT ${PICK_COLS} FROM duel_picks WHERE settled_at >= ?`, [since]);
+  const waiting = (rows || []).filter((p) => review.needsReview(p)
+    && new Date(now).getTime() - Date.parse(p.settled_at) <= review.REVIEW_MAX_MS);
+  if (!waiting.length) return [];
+  const rounds = await loadRoundsSince(dayFloor(now, Math.ceil(review.REVIEW_MAX_MS / 86400000) + 2));
+  const roundOf = new Map(rounds.map((r) => [String(r.id), r]));
+  return waiting.map((p) => {
+    const r = roundOf.get(String(p.round_id)) || null;
+    const kind = r ? duel.kindOf(r) : null;
+    return {
+      pick_id: p.id,
+      round_id: Number(p.round_id),
+      day: r ? r.day : null,
+      kind,
+      symbol: r ? r.symbol : null,
+      symbol_b: r && kind === 'mover' ? r.symbol_b : null,
+      pick: p.pick,
+      entry_price: p.entry_price == null ? null : Number(p.entry_price),
+      settle_price: p.settle_price == null ? null : Number(p.settle_price),
+      settle_price_b: p.settle_price_b == null ? null : Number(p.settle_price_b),
+      second_price: p.settle_second_price == null ? null : Number(p.settle_second_price),
+      outcome: r ? duel.callOutcome(r, p) : null,
+      result: r ? duel.verdictOf(r, p).state : null,
+      outcomes: kind ? duel.KINDS[kind].outcomes.slice() : [],
+      disputed: p.settle_disputed == null ? null : Boolean(Number(p.settle_disputed)),
+      flagged: Boolean(p.flagged_at),
+      chips: p.chips == null ? null : Number(p.chips),
+      settled_at: p.settled_at,
+      settle_seal: p.settle_seal || null,
+    };
+  }).sort((a, b) => Date.parse(b.settled_at) - Date.parse(a.settled_at));
+}
+
+/**
+ * The operator's decision on one queued settlement, sealed as a review
+ * receipt (v9 duel_review) and written once.
+ * → { ok: true, seal, decision, outcome } or { ok: false, status, reason, error }.
+ */
+async function writeReview(pickId, decision, rawOutcome, rawEvidence, now = new Date()) {
+  if (!Number.isInteger(Number(pickId)) || Number(pickId) <= 0) return { ok: false, status: 400, reason: 'pick', error: 'Which call?' };
+  const [rows] = await pool.execute(`SELECT ${PICK_COLS} FROM duel_picks WHERE id = ?`, [Number(pickId)]);
+  const pick = (rows || [])[0] || null;
+  let round = null;
+  if (pick) {
+    const rounds = await loadRoundsSince(dayFloor(Date.parse(pick.settled_at) || now, 3));
+    round = rounds.find((r) => Number(r.id) === Number(pick.round_id)) || null;
+  }
+  const evidence = review.evidenceOf(rawEvidence);
+  const check = review.checkDecision(round, pick, decision, rawOutcome, evidence, now);
+  if (!check.ok) return check;
+  const reviewed_at = new Date(now).toISOString();
+  const receipt = sealDuelReview({
+    round_id: round.id, call_seal: pick.seal, settle_seal: pick.settle_seal, round_seal: round.seal,
+    kind: duel.kindOf(round), pick: pick.pick, decision, outcome: check.outcome, evidence, reviewed_at,
+  });
+  const [res] = await pool.execute(
+    'UPDATE duel_picks SET review_state = ?, review_outcome = ?, review_seal = ?, review_payload = ?, reviewed_at = ?'
+    + ' WHERE id = ? AND review_state IS NULL',
+    [decision, check.outcome, receipt.seal, receipt.seal_payload, reviewed_at, pick.id]);
+  if (!res || !res.affectedRows) return { ok: false, status: 409, reason: 'reviewed', error: 'That settlement has been reviewed already.' };
+  return { ok: true, pick_id: pick.id, decision, outcome: check.outcome, seal: receipt.seal };
 }
 
 /** The player's record over the stated window. */
@@ -593,7 +686,7 @@ module.exports = {
   secondReadings,
   RECORD_WINDOW_DAYS, SETTLE_BATCH, ROUND_COLS, PICK_COLS,
   dayFloor, parseRound, loadRoundsForDay, loadRoundsSince, loadPicks, sportsStateFor, writeSettlement,
-  seasonAt, stackFor, chipsBlock,
+  seasonAt, stackFor, chipsBlock, flagSettlement, reviewQueue, writeReview,
   ensureRounds, settleDue, handleFor, placePick, cardFor, recordFor,
   _resetSportsState: () => sportsStateByDay.clear(),
 };

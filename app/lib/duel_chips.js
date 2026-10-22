@@ -179,13 +179,17 @@ function pickChips(pick, round, now = new Date()) {
   // unread, never a win paid at nothing or a loss taken at full.
   if (odds === null) return { ...base, state: 'unread', payout: null };
   if (pick.settle_state == null) return { ...base, state: 'open', payout: null };
-  const kind = duel.kindOf(round);
-  const res = kind === null ? { state: 'invalid' }
-    : duel.scoreCall(kind, pick.pick, duel.callOutcome(round, pick), round.agent_direction);
+  // The verdict as a review left it: a review releases a hold at once.
+  const res = duel.verdictOf(round, pick);
   const payout = payoutFor(chips, odds, res.state);
-  const until = heldUntil(pick.settled_at, disputedOf(pick));
-  if (until && Date.parse(until) > new Date(now).getTime()) {
-    return { ...base, state: 'held', payout: null, held_until: until };
+  if (!pick.review_state) {
+    // Held while disputed, or while flagged and not yet reviewed, until the
+    // check window closes; then paid as the verdict stands.
+    const flagged = pick.flagged_at ? true : null;
+    const until = heldUntil(pick.settled_at, disputedOf(pick) === true || flagged === true ? true : null);
+    if (until && Date.parse(until) > new Date(now).getTime()) {
+      return { ...base, state: 'held', payout: null, held_until: until };
+    }
   }
   return { ...base, state: payout > 0 ? 'won' : payout < 0 ? 'lost' : 'returned', payout };
 }

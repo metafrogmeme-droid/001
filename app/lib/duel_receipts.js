@@ -18,6 +18,11 @@
  * the settlement the chips it moved. A call without chips names none: the
  * field is absent, never a zero.
  *
+ *   review:<seal>  the operator's decision on a flagged or disputed
+ *                  settlement (v9 duel_review), naming the settlement, the
+ *                  call and the round; the settlement's own receipt is never
+ *                  rewritten, and names its review once there is one.
+ *
  * A seal is its own address: sixty-four hex characters nobody can guess
  * from public data, as §3 asks. §4: prices, a score, states and counts;
  * the handle a player opted into; never an amount.
@@ -48,6 +53,10 @@ async function roundById(id) {
 }
 async function pickBySeal(seal) {
   const [rows] = await pool.execute(`SELECT ${PICK_COLS} FROM duel_picks WHERE seal = ?`, [seal]);
+  return rows[0] || null;
+}
+async function pickByReviewSeal(seal) {
+  const [rows] = await pool.execute(`SELECT ${PICK_COLS} FROM duel_picks WHERE review_seal = ?`, [seal]);
   return rows[0] || null;
 }
 async function pickBySettleSeal(seal) {
@@ -118,6 +127,9 @@ async function settleReceipt(pick, round) {
     anchor: await anchorOf(pick.settle_seal, pick.settled_at),
     call: { key: 'duel:' + pick.seal, seal: pick.seal },
     round: round && round.seal ? { key: 'round:' + round.seal, seal: round.seal } : null,
+    // Attached, never merged: the review is a receipt of its own.
+    review: pick.review_seal ? { key: 'review:' + pick.review_seal, seal: pick.review_seal, decision: pick.review_state } : null,
+    flagged: Boolean(pick.flagged_at),
     current: {
       settle_state: pick.settle_state,
       settle_price: pick.settle_price == null ? null : Number(pick.settle_price),
@@ -129,6 +141,22 @@ async function settleReceipt(pick, round) {
       ...settleChips(pick, round),
     },
     proves: 'that this settlement, prices (or score) and verdict, was written at this time over the call whose seal it names.',
+  };
+}
+
+/** The v9 receipt of a review. */
+async function reviewReceipt(pick, round) {
+  return {
+    kind: 'duel_review',
+    seal: pick.review_seal,
+    seal_payload: pick.review_payload,
+    sealed_at: pick.reviewed_at,
+    anchor: await anchorOf(pick.review_seal, pick.reviewed_at),
+    settlement: pick.settle_seal ? { key: 'settle:' + pick.settle_seal, seal: pick.settle_seal } : null,
+    call: { key: 'duel:' + pick.seal, seal: pick.seal },
+    round: round && round.seal ? { key: 'round:' + round.seal, seal: round.seal } : null,
+    current: { decision: pick.review_state, outcome: pick.review_outcome || null, reviewed_at: pick.reviewed_at },
+    proves: 'that this decision on the settlement it names was written at this time, and that the settlement itself was left as it was sealed.',
   };
 }
 
@@ -175,7 +203,7 @@ async function callReceipt(pick, round) {
  * null when the key is not a duel key at all.
  */
 async function lookupDuel(key, { now = new Date(), userId = null } = {}) {
-  const m = /^(round|duel|settle):([0-9a-f]{64})$/.exec(String(key || ''));
+  const m = /^(round|duel|settle|review):([0-9a-f]{64})$/.exec(String(key || ''));
   if (!m) return null;
   const [, form, seal] = m;
   if (!SEAL_RE.test(seal)) return { code: 400, body: { error: 'Invalid call id' } };
@@ -190,10 +218,15 @@ async function lookupDuel(key, { now = new Date(), userId = null } = {}) {
     const round = await roundById(pick.round_id);
     return { code: 200, body: await callReceipt(pick, round) };
   }
+  if (form === 'review') {
+    const rp = await pickByReviewSeal(seal);
+    if (!rp || !rp.review_payload) return { code: 404, body: { error: 'No sealed review with that hash.' } };
+    return { code: 200, body: await reviewReceipt(rp, await roundById(rp.round_id)) };
+  }
   const pick = await pickBySettleSeal(seal);
   if (!pick || !pick.settle_payload) return { code: 404, body: { error: 'No sealed settlement with that hash — settlements carry a seal since Provable Calls v7 (2026-10-19).' } };
   const round = await roundById(pick.round_id);
   return { code: 200, body: await settleReceipt(pick, round) };
 }
 
-module.exports = { lookupDuel, roundReceipt, callReceipt, settleReceipt, SEAL_RE };
+module.exports = { lookupDuel, roundReceipt, callReceipt, settleReceipt, reviewReceipt, SEAL_RE };

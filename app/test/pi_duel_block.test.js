@@ -42,7 +42,8 @@ function session(pickAnswer) {
 }
 const settle = () => new Promise((r) => setTimeout(r, 30));
 const tap = (block, ctx, roundId, pick) => {
-  const wrap = { getAttribute: () => String(roundId) };
+  // A real .d-actions answers querySelector; a round without a chips field answers null.
+  const wrap = { getAttribute: () => String(roundId), querySelector: () => null };
   const btn = { closest: () => wrap, getAttribute: () => pick };
   return block.click({ closest: (sel) => (sel.indexOf('d-btn') >= 0 ? btn : null) }, ctx);
 };

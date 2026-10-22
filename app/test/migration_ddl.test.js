@@ -209,7 +209,8 @@ function migrateAgainst(answer, calls = 1) {
               : sql.includes("COLUMN_NAME = 'pick'") ? 'DUEL_PICK_WIDTH'
                 : sql.includes("COLUMN_NAME = 'entry_price'") ? 'DUEL_PICK_ENTRY_NULL'
                   : sql.includes("TABLE_NAME = 'duel_picks'") ? 'DUEL_PICK_COLUMNS'
-                    : sql.includes("TABLE_NAME = 'trades'") ? 'TRADE_COLUMNS' : 'SIGNAL_COLUMNS')
+                    : sql.includes("TABLE_NAME = 'trades'") ? 'TRADE_COLUMNS'
+                      : sql.includes("TABLE_NAME = 'seal_root_anchors'") ? 'ANCHOR_WIDTHS' : 'SIGNAL_COLUMNS')
           : sql.startsWith('ALTER TABLE signals') ? 'ALTER_SIGNALS'
             : sql.startsWith('ALTER TABLE users') ? 'ALTER_USERS'
               : sql.startsWith('ALTER TABLE duel_rounds') ? 'ALTER_DUEL_ROUNDS'
@@ -217,6 +218,8 @@ function migrateAgainst(answer, calls = 1) {
                 : sql.startsWith('ALTER TABLE duel_picks MODIFY COLUMN entry_price') ? 'RELAX_DUEL_ENTRY'
                   : sql.startsWith('ALTER TABLE duel_picks') ? 'ALTER_DUEL_PICKS'
                     : sql.startsWith('ALTER TABLE trades') ? 'ALTER_TRADES'
+                    : sql.startsWith('ALTER TABLE seal_root_anchors')
+                      ? 'WIDEN_ANCHORS:' + (sql.match(/MODIFY COLUMN \\w+/g) || []).map((m) => m.split(' ')[2]).join(',')
                     : sql.startsWith('CREATE UNIQUE INDEX idx_users') ? 'INDEX_USERS'
                       : (sql.match(/CREATE TABLE IF NOT EXISTS (\\w+)/) || [, 'OTHER'])[1];
       sent.push(kind);
@@ -252,6 +255,9 @@ function fastAnswer(signalCols, userCols, duel = {}, tradeCols = null) {
   const trades = JSON.stringify((tradeCols || Object.keys(db.REQUIRED_TRADE_COLUMNS)).map((c) => ({ c })));
   const width = JSON.stringify(duel.width === null ? [] : [{ n: duel.width == null ? db.DUEL_PICK_WIDTH : duel.width }]);
   const nullable = JSON.stringify(duel.entryNullable === null ? [] : [{ n: duel.entryNullable == null ? 'YES' : duel.entryNullable }]);
+  // seal_root_anchors' two widths: current by default; `duel.anchors` narrows them.
+  const anchors = JSON.stringify(duel.anchors !== undefined ? duel.anchors
+    : [{ c: 'tx', n: db.ANCHOR_TX_WIDTH }, { c: 'from_addr', n: db.ANCHOR_FROM_WIDTH }]);
   return `async (sql) => sql.includes('information_schema.TABLES') ? [${tables}]
     : sql.includes('information_schema.COLUMNS')
       ? (sql.includes("TABLE_NAME = 'users'") ? [${usr}]
@@ -259,12 +265,13 @@ function fastAnswer(signalCols, userCols, duel = {}, tradeCols = null) {
           : sql.includes("COLUMN_NAME = 'pick'") ? [${width}]
             : sql.includes("COLUMN_NAME = 'entry_price'") ? [${nullable}]
               : sql.includes("TABLE_NAME = 'duel_picks'") ? [${picks}]
-                : sql.includes("TABLE_NAME = 'trades'") ? [${trades}] : [${sig}])
+                : sql.includes("TABLE_NAME = 'trades'") ? [${trades}]
+                  : sql.includes("TABLE_NAME = 'seal_root_anchors'") ? [${anchors}] : [${sig}])
       : [[], []]`;
 }
 /** The fast path's reads, in order, when every table and column is present. */
 const FAST_READS = ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'TRADE_COLUMNS', 'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS',
-  'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL'];
+  'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL', 'ANCHOR_WIDTHS'];
 
 test('migrate with every table and required column present skips full DDL', () => {
   const { REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS } = require('../db');
@@ -279,7 +286,7 @@ test('the fast path adds missing signal columns instead of skipping them forever
   const r = migrateAgainst(fastAnswer([], Object.keys(REQUIRED_USER_COLUMNS)));
   assert.deepEqual(r.outcomes, ['fast']);
   assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS', 'ALTER_SIGNALS', 'USER_COLUMNS', 'TRADE_COLUMNS',
-    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL']);
+    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL', 'ANCHOR_WIDTHS']);
 });
 
 test('the fast path adds a missing user column, with its unique index', () => {
@@ -289,7 +296,7 @@ test('the fast path adds a missing user column, with its unique index', () => {
   const r = migrateAgainst(fastAnswer(Object.keys(REQUIRED_SIGNAL_COLUMNS), []));
   assert.deepEqual(r.outcomes, ['fast']);
   assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'ALTER_USERS', 'INDEX_USERS', 'TRADE_COLUMNS',
-    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL']);
+    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL', 'ANCHOR_WIDTHS']);
 });
 
 test('the fast path adds the duel categories\' columns and widens pick, and leaves a current table alone', () => {
@@ -302,7 +309,7 @@ test('the fast path adds the duel categories\' columns and widens pick, and leav
   assert.deepEqual(r.outcomes, ['fast']);
   assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'TRADE_COLUMNS',
     'DUEL_ROUND_COLUMNS', 'ALTER_DUEL_ROUNDS', 'DUEL_PICK_COLUMNS', 'ALTER_DUEL_PICKS',
-    'DUEL_PICK_WIDTH', 'WIDEN_DUEL_PICK', 'DUEL_PICK_ENTRY_NULL']);
+    'DUEL_PICK_WIDTH', 'WIDEN_DUEL_PICK', 'DUEL_PICK_ENTRY_NULL', 'ANCHOR_WIDTHS']);
   // Already wide enough: no rewrite of the table.
   const wide = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS),
     { width: 16 }));
@@ -316,7 +323,8 @@ test('the fast path adds the duel categories\' columns and widens pick, and leav
   // column is relaxed; a nullable one and an unreadable answer are left alone.
   const strict = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS),
     { entryNullable: 'NO' }));
-  assert.deepEqual(strict.sent, FAST_READS.concat(['RELAX_DUEL_ENTRY']));
+  assert.deepEqual(strict.sent, ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'TRADE_COLUMNS', 'DUEL_ROUND_COLUMNS',
+    'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL', 'RELAX_DUEL_ENTRY', 'ANCHOR_WIDTHS']);
   const unreadNull = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS),
     { entryNullable: null }));
   assert.deepEqual(unreadNull.sent, FAST_READS);
@@ -330,9 +338,31 @@ test('the fast path adds the share card\'s book column to a trades table that pr
   const old = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS), {}, []));
   assert.deepEqual(old.outcomes, ['fast']);
   assert.deepEqual(old.sent, ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'TRADE_COLUMNS', 'ALTER_TRADES',
-    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL']);
+    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL', 'ANCHOR_WIDTHS']);
   const current = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS)));
   assert.deepEqual(current.sent, FAST_READS);
+});
+
+test('the fast path widens the anchors table for a Solana signature and address, and leaves a wide one alone', () => {
+  // seal_root_anchors is on every production database: a width set in its
+  // CREATE never reaches one, so the fast path reads and widens.
+  const db = require('../db');
+  const cols = [Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS)];
+  const narrow = migrateAgainst(fastAnswer(...cols, { anchors: [{ c: 'tx', n: 66 }, { c: 'from_addr', n: 42 }] }));
+  assert.deepEqual(narrow.outcomes, ['fast']);
+  assert.deepEqual(narrow.sent, FAST_READS.concat(['WIDEN_ANCHORS:tx,from_addr']));
+  // One already wide, one not: only the narrow one is changed.
+  const half = migrateAgainst(fastAnswer(...cols, { anchors: [{ c: 'tx', n: 100 }, { c: 'from_addr', n: 42 }] }));
+  assert.deepEqual(half.sent, FAST_READS.concat(['WIDEN_ANCHORS:from_addr']));
+  // One readable and narrow, one unread: the readable one alone.
+  const partial = migrateAgainst(fastAnswer(...cols, { anchors: [{ c: 'tx', n: 66 }] }));
+  assert.deepEqual(partial.sent, FAST_READS.concat(['WIDEN_ANCHORS:tx']));
+  // Current: no rewrite. Unreadable (no rows): left alone, never widened on a guess.
+  assert.deepEqual(migrateAgainst(fastAnswer(...cols)).sent, FAST_READS);
+  const unread = migrateAgainst(fastAnswer(...cols, { anchors: [] }));
+  assert.deepEqual([unread.outcomes, unread.sent], [['fast'], FAST_READS]);
+  // The widths fit what they are for: an 88-character signature, a 44-character address.
+  assert.ok(db.ANCHOR_TX_WIDTH >= 88 && db.ANCHOR_FROM_WIDTH >= 44);
 });
 
 test('migrate with a table missing runs the DDL', () => {

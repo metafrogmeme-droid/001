@@ -188,6 +188,21 @@ test('the Farcaster sign-in keeps only the fid', () => {
   assert.match(text(), /Farcaster ID \(fid\)/)
 })
 
+test('the Risk Scanner names every chain it reads and the providers it asks by default', async () => {
+  const { createRequire } = await import('node:module')
+  const lz = createRequire(import.meta.url)(path.join(REPO, 'app', 'lib', 'lz_verifiers.js'))
+  const t = text()
+  const para = (t.match(/The Risk Scanner\.[^]*?not linked to you\./) || [''])[0]
+  assert.ok(para, 'the page no longer describes the Risk Scanner')
+  for (const c of Object.values(lz.chains({}))) assert.ok(para.includes(c.name), `the page does not name ${c.name}`)
+  const hosts = Object.values(lz.chains({})).flatMap((c) => c.rpcs.map((u) => new URL(u).hostname))
+  if (hosts.some((h) => h.endsWith('publicnode.com'))) assert.match(para, /PublicNode/)
+  if (hosts.some((h) => h.startsWith('cloudflare'))) assert.match(para, /Cloudflare/)
+  const route = repo('app', 'routes', 'risk.js')
+  assert.doesNotMatch(route, /requireAuth|optionalAuth|req\.user/, 'the check now reads who asked: the page must say so')
+  assert.match(route, /const CACHE_MS = 60000;/, 'the answer is kept for longer than the page says')
+})
+
 test('a Pi tip is disclosed field by field, and its record is erased with the account', () => {
   const ddl = repo('app', 'db.js').match(/CREATE TABLE IF NOT EXISTS pi_payments \(([\s\S]*?)\n\s*\)/)
   assert.ok(ddl, 'the pi_payments table is gone — the page still describes tip records')
@@ -341,15 +356,20 @@ test('the policy carries a date a reader can act on', () => {
 
 /**
  * The owner signed off the daily proof section on 22 October 2026, as it read
- * that day (site/src/routes/privacy.tsx records it). That is the approval of
- * one text, so the text is pinned: a change to the section, however small,
- * fails here until the owner approves the new text and its digest is recorded
- * in the same commit. It is the owner's approval, not a lawyer's review.
+ * that day (site/src/routes/privacy.tsx records it). Four facts were added
+ * the same day under the owner's instruction to make the factual updates the
+ * open items needed: the chips on a call's receipt, reviews of settlements
+ * among a day's seals, Solana among the chains a day can be anchored on, and
+ * EAS stamps on Arbitrum One, Scroll and Linea (each with the services that
+ * read it). That is the approval of one text, so the
+ * text is pinned: a change to the section, however small, fails here until
+ * the owner approves the new text and its digest is recorded in the same
+ * commit. It is the owner's approval, not a lawyer's review.
  */
 const SIGNED_OFF = {
   heading: 'The daily proof, and the chains it is written to',
   on: '22 October 2026',
-  sha256: '5e2d854ff981140bb5ca39aa3ec4276f8afc100584e2e427c8a9caa32e69c383',
+  sha256: '6e057e79dd99242928a68fd7ff2b6707afee5d4955d3e12a8d69d320f464f377',
 }
 
 test('the daily proof section is the text the owner signed off', () => {
