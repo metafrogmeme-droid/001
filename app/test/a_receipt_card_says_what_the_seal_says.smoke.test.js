@@ -35,8 +35,16 @@ const RECEIPT = { kind: 'duel_pick', seal: SEAL, seal_payload: PAY, sealed_at: '
   settlement: { key: 'settle:' + SETTLE.seal, seal: SETTLE.seal, state: 'correct' } };
 const QUORUM = { status: 'multi_anchored', k: 2, groups: [['base'], ['bitcoin']], anchors: [] };
 
-async function open(browser, base, { receipt = RECEIPT, locale = null } = {}) {
+async function open(browser, base, { receipt = RECEIPT, locale = null, slowI18n = 0 } = {}) {
   const ctx = await browser.newContext(locale ? { locale } : {});
+  // Hold the translator back so the receipt answers first: the order a slow
+  // connection gives, forced here instead of waited for.
+  if (slowI18n) {
+    await ctx.route('**/js/i18n-core.js*', async (route) => {
+      await new Promise((r) => setTimeout(r, slowI18n));
+      await route.continue();
+    });
+  }
   if (locale) await ctx.addInitScript((l) => { try { localStorage.setItem('rc_lang', l); } catch (e) { /* none */ } }, locale);
   const asked = [];
   await ctx.route('**/api/**', (route) => {
@@ -109,8 +117,8 @@ test('the receipt card on /call', H.SKIP ? { skip: H.SKIP } : {}, async (t) => {
       await ctx.close();
     });
 
-    await t.test('in German, the button speaks German', async () => {
-      const { ctx, page, errors } = await open(browser, base, { locale: 'de' });
+    await t.test('in German, the button speaks German, even when the receipt answers before the translator loads', async () => {
+      const { ctx, page, errors, asked } = await open(browser, base, { locale: 'de', slowI18n: 1500 });
       await page.waitForSelector('#rcMake');
       // Wait for the German chunk to be APPLIED, not for the translator to
       // exist: it exists before the chunk lands, and a loaded box read the
@@ -121,6 +129,8 @@ test('the receipt card on /call', H.SKIP ? { skip: H.SKIP } : {}, async (t) => {
         return b && b.textContent === 'Karte erstellen';
       }, null, { timeout: 15000 }).catch(() => {});
       assert.strictEqual(await page.textContent('#rcMake'), 'Karte erstellen');
+      // The fixture did produce the order it names: the receipt was answered.
+      assert.ok(asked.some((a) => decodeURIComponent(a) === '/api/call/' + KEY));
       assert.deepStrictEqual(errors, []);
       await ctx.close();
     });

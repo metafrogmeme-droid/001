@@ -29328,3 +29328,31 @@ fine; the job had stopped asking them.
 Not proven from here: that the live process is hung on this read. The log
 that would say so is the host's. What is proven is that the code could hang
 there and that the job had stopped storing what the calendars returned.
+
+## A label written before the translator loaded stayed English, and a longer wait in the test hid it (22 Oct 2026)
+
+The receipt card's button on `/call` was written by `wireCard` with
+`t('rc.make', 'Make a card')`. `i18n-core.js` is loaded at the end of the
+body, and the parser yields while it downloads. When the receipt fetch
+answered in that gap, `wireCard` ran with no translator, wrote English, and
+nothing ever corrected it. The button had no `data-i18n`, so the
+translator's own pass at `init` skipped it. A German reader on a slow
+connection saw "Make a card" for good.
+
+The smoke test caught it under load, and the first fix (5579e017) was a
+`waitForFunction` for the German label: it read the failure as a race in the
+test. The next full run under the same load failed again after 15 seconds
+with the same English label. A wait cannot fix a page that never changes its
+mind.
+
+- The fix: the button carries `data-i18n="rc.make"` as well as the `t()`
+  call, so whichever runs first, the label ends in the reader's language.
+- The test now forces the order instead of waiting for it: it holds
+  `i18n-core.js` back 1.5 seconds, checks that the receipt was answered, and
+  asserts the German label. With `data-i18n` removed it fails every run on
+  "Make a card".
+
+The lesson: when a "flaky" assertion fails, ask whether the state it waits
+for can be reached at all on the slow path, before making the wait longer.
+Any script-written label on a page whose translator loads after it needs
+`data-i18n` too, or must be written in an `rc-lang` handler.

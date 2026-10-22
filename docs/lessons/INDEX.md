@@ -716,3 +716,6 @@ about to change before changing it.
 
 
 ## The Bitcoin leg stalled behind one read with no timeout (22 Oct 2026) (line 29302)
+
+
+## A label written before the translator loaded stayed English, and a longer wait in the test hid it (22 Oct 2026) (line 29332)
