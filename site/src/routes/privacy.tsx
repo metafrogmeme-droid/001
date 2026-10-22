@@ -42,6 +42,15 @@
  * observed behaviour, written by reading the source. Jurisdictional obligations
  * — GDPR lawful basis, CCPA disclosures, data-subject rights, a controller of
  * record — are not decided by code and are not settled here.
+ *
+ * OWNER SIGN-OFF, 22 October 2026: the section "The daily proof, and the
+ * chains it is written to", as it read that day. The owner approved it as the
+ * operator; it is not a lawyer's review, and the paragraph above still
+ * stands. The approval is of that text, so `site/test/privacy_truth.test.js`
+ * pins the section's digest: an edit to it fails there until the owner
+ * approves the new text. The anchor watch's Discord alerts, added the same
+ * day, carry no personal data (a day, a chain and what is wrong), so this
+ * page says nothing about them.
  */
 import { createFileRoute } from '@tanstack/react-router'
 import { Gap, H, L, P } from '../components/Prose'

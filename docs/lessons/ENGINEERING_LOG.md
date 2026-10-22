@@ -28240,3 +28240,89 @@ module and the Bitcoin and quorum routes on `/api/roots` were public by
 design and listed nowhere; each is listed now, with its reason. The
 stacked branches had run their app suites, not the full preflight, which is
 where this gate lives.
+
+## AN ALERT SAYS WHAT CHANGED, AND A FINDING THAT COULD NOT BE READ HAS NOT CLEARED
+
+22 October 2026. The owner chose Discord for the anchor watch's alerts and
+signed off the privacy page's daily proof section. The watch
+(`app/lib/anchor_watch.js`) now posts one message per pass to an incoming
+webhook (`app/lib/discord_alerts.js`, `ANCHOR_ALERTS_DISCORD_WEBHOOK` in
+`web.env`). The message says what changed: a new finding at once, one still
+open again after 6 hours (alarm) or 24 (warn, todo), one that cleared once,
+one whose day left the three-day window once.
+
+**"Gone" is not "cleared".** The first version marked a finding cleared as
+soon as a pass stopped finding it. A reader disagreement is found only when
+the readers answer and contradict each other. When they stop answering, the
+check is `unknown` with no disagreement, and the alarm would have been
+posted as cleared because the check went dark. The same holds for a stuck
+Bitcoin proof whose readers failed, and for a quorum to-do on a day that is
+now `unknown`. Each day in a pass now records `unread`: the chains whose
+check could not be read. A finding is cleared only when its own chain was
+read, or, for a finding with no chain, when the day was not `unknown`.
+Otherwise it stays open, unsaid, until a pass can tell. A day whose check
+threw has `unread: null` and clears nothing. Its own `check_failed` clears
+when the check stops throwing, even while the day is `unknown`. A pass that
+cannot read the roots has no days, so it clears nothing and posts its own
+`watch_unreadable` warning.
+
+**What was said is shared state.** A web instance lives about seventy
+seconds, so a record of what was said kept in a variable would repeat every
+alert on the next instance and lose every clearance. The record is in
+`job_state` (`anchor_alerts`), and so is the last pass. `/diagz` reads both
+with a 1.5 s limit and shows the newer of the shared pass and the
+instance's own. The tests drop the module and its memory and require it
+again: the new instance reads the pass from the shared state and repeats
+nothing.
+
+**No hook means nothing recorded.** With no hook set, the watch posts
+nothing and saves nothing, so the first pass after the owner sets one posts
+everything open. A send that fails leaves the record as it was, so the same
+lines go again next pass, and the failure's class goes to `last_error`.
+
+**The URL is a credential with no key word in it.** Its last segment lets
+anyone post as the hook, and a fetch error is exactly the message that
+prints the URL it was fetching. To keep it out of every message, error and
+diagnostic:
+- `hookOf` accepts only Discord's own webhook shape, so a mistyped setting
+  posts nowhere;
+- errors name Discord's status or the failure's class, built fresh, never
+  the fetch error's message;
+- `describe` and `/diagz` say only whether a hook is set;
+- the secret table (`bot/utils/secret_shapes.py`) gains a ninth row,
+  `discord_webhook`, which keeps the host and hook id and takes the token,
+  rendered for the website like the other eight;
+- mentions are off on every post.
+
+The row's example token is "token" eight times, listed by value in
+`.gitleaks.toml`. The tests build the URL at run time rather than spelling
+it out.
+
+**A sign-off is of a text, so the text is pinned.** The owner approved the
+section "The daily proof, and the chains it is written to" as the operator,
+not as a lawyer. `site/src/routes/privacy.tsx` records it, and
+`site/test/privacy_truth.test.js` pins the SHA-256 of the section's visible
+text in the built page, bounded by its own `<h2>` and the next one. An edit
+to the section fails there until the owner approves the new text and its
+digest is recorded in the same commit. The alerts carry no personal data (a
+day, a chain, what is wrong), so the page says nothing about them.
+
+**Two guards no input could reach were removed, not pinned.** `canTell`
+checked `findings` was a list and the day was not `check_failed`, but a pass
+that cannot read has no days and a failed check has `unread: null`, so both
+were already decided. A line no input can reach is a claim that there is a
+check.
+
+**Thirty-seven mutants, and two survivors were real gaps.** On the first
+round a message-length mutant survived: dropping the room kept for the "…
+and N more lines" tail never pushed a message past 2,000 characters,
+because every test line was 60 characters and the last whole line happened
+to end early enough. The test now runs five widths, and a message that fits
+is sent whole up to the last character. On the second round, emptying
+`unreadOf` survived: every `plan()` test built its own `unread` list, so no
+test had the pass record which chains went unread. An end-to-end test now
+has a Dogecoin disagreement posted, then the readers go silent (no
+post, still open), then they agree (cleared). With that test, all
+thirty-seven are killed. The first round also hung on the
+timeout mutant until the round's own limit stopped it; a hang is a kill,
+but the round now runs each test file with a per-test timeout.

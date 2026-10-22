@@ -49,6 +49,14 @@ overstated is the failure CLAUDE.md exists to prevent:
   narrower on token shapes — and a second file read by two runtimes is filed,
   not done.
 
+THE DISCORD WEBHOOK ROW (22 October 2026). The website's anchor watch posts
+its alerts to a Discord webhook (`app/lib/discord_alerts.js`), and a webhook
+URL is a credential with no key word in it: its last path segment is the token,
+and whoever holds the URL can post as the hook. A fetch error is exactly the
+kind of message that prints the URL it was fetching, and no other row sees it
+(no `=`, no `Bearer`, no prefix). The row keeps the host and the hook's id, so a
+failure still says which hook it was, and takes the token.
+
 Order matters and is the order of `SHAPES`: token-shaped patterns first, because
 they carry no `key=value` the next family could see; the `key=value` families
 next; query parameters last.
@@ -128,6 +136,14 @@ PROVIDER_KEY_RE = re.compile(
 #: A JSON Web Token: three base64url segments, the first always `eyJ`.
 JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
 
+#: A Discord webhook URL (`https://discord.com/api/webhooks/<id>/<token>`): the
+#: last segment is the credential, so whoever holds the URL can post as the
+#: hook. The host and the id survive, to say which hook a failure was; the
+#: token does not. The anchor watch posts to one (app/lib/discord_alerts.js).
+DISCORD_WEBHOOK_RE = re.compile(
+    r"(https?://(?:(?:canary|ptb)\.)?discord(?:app)?\.com/api(?:/v\d+)?/webhooks/\d+/)[A-Za-z0-9_-]{20,}"
+)
+
 #: `key=value` / `key: value` under a credential word. The logger's original
 #: shape, unchanged: seven words, a value of four or more characters, the
 #: separator normalised to `=` on output (tests pin `api_key=***REDACTED***`).
@@ -180,6 +196,9 @@ SHAPES: tuple[Shape, ...] = (
           "session eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0"
           ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
           "eyJ is how every JWT header starts"),
+    Shape("discord_webhook", DISCORD_WEBHOOK_RE, r"\1" + REDACTED,
+          "post failed: https://discord.com/api/webhooks/123456789012345678/tokentokentokentokentokentokentokentoken",
+          "join us at https://discord.gg/runeclaw or https://discord.com/channels/1/2"),
     Shape("named_key_value", INLINE_SECRET_RE, r"\1=" + REDACTED,
           "auth failed: api_key=sk-abcdefghijklmnopqrs",
           "token: BTC"),

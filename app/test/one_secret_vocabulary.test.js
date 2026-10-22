@@ -2,7 +2,7 @@
 /**
  * The website reads the bot's vocabulary of secret shapes, not its own.
  *
- * `bot/utils/secret_shapes.py` is one table with eight rows, each carrying the
+ * `bot/utils/secret_shapes.py` is one table with nine rows, each carrying the
  * example it must scrub and the decoy it must leave alone, and its own coverage
  * note recorded this runtime as the hole: "`app/lib/safe_error.js` has its own
  * vocabulary — wider on labels, narrower on token shapes — and a second file
@@ -64,9 +64,9 @@ test('every row leaves its own decoy alone', () => {
   }
 });
 
-test('the table is the eight rows the bot renders, in its order', () => {
+test('the table is the nine rows the bot renders, in its order', () => {
   assert.deepEqual(ROWS.map((r) => r.name), [
-    'telegram_bot_token', 'bearer_token', 'provider_key', 'jwt',
+    'telegram_bot_token', 'bearer_token', 'provider_key', 'jwt', 'discord_webhook',
     'named_key_value', 'prose_key_label', 'env_name_value', 'secret_query_param',
   ]);
 });

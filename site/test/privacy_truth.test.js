@@ -28,6 +28,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -334,4 +335,32 @@ test('the retired page redirects rather than lingering', () => {
 test('the policy carries a date a reader can act on', () => {
   assert.match(text(), /Last updated \d{1,2} \w+ 20\d\d/,
     'a policy with no date gives a reader no way to tell it is stale')
+})
+
+// ── the owner's sign-off ───────────────────────────────────────────────────
+
+/**
+ * The owner signed off the daily proof section on 22 October 2026, as it read
+ * that day (site/src/routes/privacy.tsx records it). That is the approval of
+ * one text, so the text is pinned: a change to the section, however small,
+ * fails here until the owner approves the new text and its digest is recorded
+ * in the same commit. It is the owner's approval, not a lawyer's review.
+ */
+const SIGNED_OFF = {
+  heading: 'The daily proof, and the chains it is written to',
+  on: '22 October 2026',
+  sha256: '5e2d854ff981140bb5ca39aa3ec4276f8afc100584e2e427c8a9caa32e69c383',
+}
+
+test('the daily proof section is the text the owner signed off', () => {
+  const m = page().match(/<div id="root">([\s\S]*)<\/div>\s*<\/body>/)
+  assert.ok(m, 'no #root content')
+  // Each section runs from its own <h2> to the next one.
+  const visible = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim()
+  const sections = m[1].split(/(?=<h2[\s>])/).map(visible).filter((s) => s.startsWith(SIGNED_OFF.heading))
+  assert.strictEqual(sections.length, 1, `the section "${SIGNED_OFF.heading}" is not on the page exactly once`)
+  const digest = crypto.createHash('sha256').update(sections[0]).digest('hex')
+  assert.strictEqual(digest, SIGNED_OFF.sha256,
+    `the section changed since the owner signed it off on ${SIGNED_OFF.on}: ` +
+    'get the new text approved, then record its digest and the date here and in privacy.tsx')
 })
