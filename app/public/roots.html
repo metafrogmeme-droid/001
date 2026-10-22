@@ -21,6 +21,7 @@
   .mirror-btn { margin-top: var(--s4); }
   .stamp-eas { font: inherit; font-size: var(--fs-xs); padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); cursor: pointer; }
   .stamp-eas:disabled { opacity: .6; cursor: default; }
+  .stamp-chain { font: inherit; font-size: var(--fs-xs); padding: 2px 4px; margin-right: 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); }
 </style>
 </head>
 <body>
@@ -104,16 +105,20 @@
       var btc = function (r, v) {
         return window.RCAnchorCell && RCAnchorCell.otsCell ? RCAnchorCell.otsCell(r.ots, v, T, r.day) : '';
       };
-      // "Stamp on Base (EAS)": only with a wallet in this browser, only where
-      // the registry describes EAS, and only on a day not yet stamped there.
-      var eas = chainsByKey['base-eas'];
-      var canStamp = function (r) {
-        return !!(eas && window.ethereum && window.RCRootsStamp && window.RCEvmWallet)
-          && !anchorsOf(r).some(function (a) { return a.chain === 'base-eas'; });
+      // "Stamp in EAS": only with a wallet in this browser, only on the
+      // chains the registry describes as EAS (Base, Arbitrum One, Scroll,
+      // Linea), and only those where the day is not stamped yet.
+      var easLeft = function (r) {
+        if (!(window.ethereum && window.RCRootsStamp && window.RCEvmWallet)) return [];
+        return RCRootsStamp.chainsLeft((d && d.chains) || [], anchorsOf(r).map(function (a) { return a.chain; }));
       };
       var stampButton = function (r) {
-        return canStamp(r) ? ' <button type="button" class="stamp-eas" data-stamp-day="' + esc(r.day) + '">'
-          + esc(T('rt.stamp_eas', 'Stamp on Base (EAS)')) + '</button><span class="n stamp-note"></span>' : '';
+        var left = easLeft(r);
+        if (!left.length) return '';
+        return ' <select class="stamp-chain" aria-label="' + esc(T('rt.stamp_where', 'Chain to stamp on')) + '">'
+          + left.map(function (c) { return '<option value="' + esc(c.key) + '">' + esc(RCRootsStamp.shortName(c)) + '</option>'; }).join('')
+          + '</select><button type="button" class="stamp-eas" data-stamp-day="' + esc(r.day) + '">'
+          + esc(T('rt.stamp_eas', 'Stamp in EAS')) + '</button><span class="n stamp-note"></span>';
       };
       box.innerHTML = roots.map(function (r) {
         return '<div class="root-row" data-day="' + esc(r.day) + '">'
@@ -158,10 +163,16 @@
         var btn = e.target.closest && e.target.closest('[data-stamp-day]');
         if (!btn || btn.disabled) return;
         var day = btn.getAttribute('data-stamp-day');
+        var pick = btn.previousElementSibling;
+        var eas = pick && chainsByKey[pick.value];
+        var name = eas ? RCRootsStamp.shortName(eas) : '';
         var note = btn.nextElementSibling;
         var say = function (t) { if (note) note.textContent = ' ' + t; };
         var json = function (res) { return res.json().catch(function () { return null; }).then(function (b) { return { status: res.status, body: b }; }); };
+        if (!eas) return;
+        var said = function (k, en) { return T(k, en).replace('{chain}', name); };
         btn.disabled = true;
+        if (pick) pick.disabled = true;
         RCRootsStamp.stamp(day, {
           eth: window.ethereum, wallet: RCEvmWallet, chain: eas,
           getJSON: function (u) { return fetch(u, { headers: { Accept: 'application/json' } }).then(json); },
@@ -169,16 +180,18 @@
             return fetch(u, { method: 'POST', credentials: 'same-origin',
               headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(b) }).then(json);
           },
-          onState: function (s) { say(T(s === 'wallet' ? 'rt.stamp_busy' : 'rt.stamp_done', s === 'wallet' ? 'Confirm in your wallet, then wait for Base…' : 'Stamped on Base — checking…')); },
+          onState: function (s) { say(s === 'wallet' ? said('rt.stamp_busy', 'Confirm in your wallet, then wait for {chain}…') : said('rt.stamp_done', 'Stamped on {chain} — checking…')); },
         }).then(function (out) {
-          if (out.state === 'already') { btn.remove(); say(T('rt.stamp_already', 'already stamped in EAS')); return; }
+          if (out.state === 'already') { btn.remove(); if (pick) pick.remove(); say(T('rt.stamp_already', 'already stamped in EAS')); return; }
           btn.remove();
-          if (out.state === 'recorded') { say(T('rt.stamp_done', 'Stamped on Base — checking…')); setTimeout(function () { location.reload(); }, 1500); return; }
-          // In EAS on Base, but not in our feed yet (not signed in here, or
-          // Base not confirmed in time): the stamp stands either way.
-          say(T('rt.stamp_done', 'Stamped on Base — checking…') + ' ' + String(out.tx || ''));
+          if (pick) pick.remove();
+          if (out.state === 'recorded') { say(said('rt.stamp_done', 'Stamped on {chain} — checking…')); setTimeout(function () { location.reload(); }, 1500); return; }
+          // In EAS on that chain, but not in our feed yet (not signed in here,
+          // or the chain not confirmed in time): the stamp stands either way.
+          say(said('rt.stamp_done', 'Stamped on {chain} — checking…') + ' ' + String(out.tx || ''));
         }).catch(function (err) {
           btn.disabled = false;
+          if (pick) pick.disabled = false;
           if (RCEvmWallet.declined(err)) { say(''); return; }
           say(T('rt.stamp_failed', 'Not stamped: {why}').replace('{why}', String((err && err.message) || 'error').slice(0, 160)));
         });
@@ -202,8 +215,8 @@
 </script>
 <script src="/js/anchor_cell.js?v=5"></script>
 <script src="/js/evm-wallet.js?v=1"></script>
-<script src="/js/roots-stamp.js?v=1"></script>
-<script src="/js/i18n-core.js?v=201"></script>
+<script src="/js/roots-stamp.js?v=3"></script>
+<script src="/js/i18n-core.js?v=202"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

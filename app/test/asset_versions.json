@@ -188,8 +188,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 201,
-    "sha": "30e75ded5caefe5a"
+    "v": 202,
+    "sha": "44717154832d93d7"
   },
   "js/icons.js": {
     "v": 6,
@@ -312,8 +312,8 @@
     "sha": "6e482731fe53921c"
   },
   "js/roots-stamp.js": {
-    "v": 1,
-    "sha": "ef6f3c9751edd98c"
+    "v": 3,
+    "sha": "057a1ce836c7570c"
   },
   "js/rr-words.js": {
     "v": 1,

@@ -403,7 +403,7 @@ server from two readers that must agree, carry the root in one of these forms:
 | chain | where the root is | bytes |
 |---|---|---|
 | Base, DogeOS testnet | the calldata of a zero-value transaction to the sender's own address | `utf8("RCROOT1:<day>:<root hex>")` |
-| Base (EAS) | `timestamp(bytes32 root)` on the Ethereum Attestation Service | the root's 32 bytes |
+| Base, Arbitrum One, Scroll, Linea (EAS) | `timestamp(bytes32 root)` on that chain's Ethereum Attestation Service | the root's 32 bytes |
 | Dogecoin | one OP_RETURN output | `utf8("RCD1:<day>:")` then the root's 32 bytes |
 | Solana | one Memo-program instruction, read at `finalized` commitment | `utf8("RCROOT1:<day>:<root hex>")` |
 | Bitcoin | an OpenTimestamps proof of a digest | SHA-256 of one line naming the day and its root |

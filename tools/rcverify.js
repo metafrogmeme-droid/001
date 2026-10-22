@@ -48,6 +48,14 @@ const CHAINS = Object.freeze({
   base: { method: 'calldata', rpc: 'https://mainnet.base.org', group: 'ethereum-l2' },
   'base-eas': { method: 'eas_timestamp', rpc: 'https://mainnet.base.org', group: 'ethereum-l2',
     eas: '0x4200000000000000000000000000000000000021' },
+  // EAS on other Ethereum L2s (the eas-contracts README): the same group as
+  // Base, since each settles to Ethereum.
+  'arbitrum-eas': { method: 'eas_timestamp', rpc: 'https://arb1.arbitrum.io/rpc', group: 'ethereum-l2',
+    eas: '0xbD75f629A22Dc1ceD33dDA0b68c546A1c035c458' },
+  'scroll-eas': { method: 'eas_timestamp', rpc: 'https://rpc.scroll.io', group: 'ethereum-l2',
+    eas: '0xC47300428b6AD2c7D03BB76D05A176058b47E6B0' },
+  'linea-eas': { method: 'eas_timestamp', rpc: 'https://rpc.linea.build', group: 'ethereum-l2',
+    eas: '0xaEF4103A04090071165F78D45D83A0C0782c2B2a' },
   // A testnet is checked and never counted: it can be reset.
   'dogeos-testnet': { method: 'calldata', rpc: 'https://rpc.testnet.dogeos.com/', group: null },
   dogecoin: { method: 'dogecoin_op_return', api: 'https://api.blockcypher.com/v1/doge/main/txs/', group: 'dogecoin', depth: 6 },

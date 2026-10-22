@@ -218,9 +218,10 @@
     "rt.q_unread": { en: "quorum could not be checked" },
     "rt.btc_unknown": { en: "Bitcoin proof recorded — not reachable to confirm" },
     "rt.btc_proof": { en: "proof file" },
-    "rt.stamp_eas": { en: "Stamp on Base (EAS)" },
-    "rt.stamp_busy": { en: "Confirm in your wallet, then wait for Base…" },
-    "rt.stamp_done": { en: "Stamped on Base — checking…" },
+    "rt.stamp_eas": { en: "Stamp in EAS" },
+    "rt.stamp_where": { en: "Chain to stamp on" },
+    "rt.stamp_busy": { en: "Confirm in your wallet, then wait for {chain}…" },
+    "rt.stamp_done": { en: "Stamped on {chain} — checking…" },
     "rt.stamp_already": { en: "already stamped in EAS" },
     "rt.stamp_failed": { en: "Not stamped: {why}" },
     "cr.h1": { en: "The Claw Record" },
@@ -2487,7 +2488,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"9f7e3db1","zh":"7220ad9f","pt":"1d935259","fr":"014def84","de":"d2e7ed71","nl":"1b7e08c1","ja":"0fa355a5","ko":"efce4b28","ru":"8b2ebb8b","tr":"42e2fc7b","it":"b795eafc","hi":"e76aba13","ar":"ee444d69"};
+  var CHUNKS = {"es":"72b041eb","zh":"79a0b708","pt":"80646021","fr":"40ef1bbe","de":"9ebcb1f1","nl":"0345832b","ja":"e329c4cf","ko":"1e06668a","ru":"7afcd3d7","tr":"ba9cb721","it":"5840dad2","hi":"53988f82","ar":"6630d866"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

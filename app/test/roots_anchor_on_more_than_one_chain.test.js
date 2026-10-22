@@ -123,8 +123,11 @@ test('the registry is served, and the plan names the chain the caller asked for'
   assert.ok(doge.rpcs.length >= 1 && doge.explorer_tx.startsWith('https://'));
   // Base and the DogeOS testnet (calldata), EAS on Base and Dogecoin itself
   // (mainnet, 2026-10-21; app/test/a_day_is_stamped_on_mainnets.test.js), and
-  // Solana's Memo program (2026-10-22; app/test/a_day_is_anchored_on_solana.test.js).
-  assert.deepEqual(Object.keys(chains()).sort(), ['base', 'base-eas', 'dogecoin', 'dogeos-testnet', 'solana']);
+  // Solana's Memo program (2026-10-22; app/test/a_day_is_anchored_on_solana.test.js),
+  // and EAS on Arbitrum One, Scroll and Linea (2026-10-22;
+  // app/test/a_day_is_stamped_in_eas_on_more_than_one_l2.test.js).
+  assert.deepEqual(Object.keys(chains()).sort(),
+    ['arbitrum-eas', 'base', 'base-eas', 'dogecoin', 'dogeos-testnet', 'linea-eas', 'scroll-eas', 'solana']);
 
   const plan = await request('GET', `/api/roots/anchor-plan/${DAY}?chain=dogeos-testnet`);
   assert.equal(plan.status, 200);

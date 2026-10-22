@@ -28758,3 +28758,60 @@ review queue on `/duel` built an evidence field and an outcome picker with
 no accessible name. `app/test/form_control_labels.test.js` reads every page,
 and none of the suites run for that slice was it. The full website suite,
 run for this slice, failed on it. Both controls now carry an `aria-label`.
+
+## MORE PLACES TO STAMP A ROOT ARE NOT MORE WITNESSES, AND A CONTRACT ADDRESS IS READ, NOT REMEMBERED
+
+22 October 2026. The roadmap's EAS item. A day's root can now be stamped
+in the Ethereum Attestation Service on Arbitrum One, Scroll or Linea, as
+well as Base. The registry entries are `EAS_L2` in `app/lib/root_anchor.js`.
+The guard test is `app/test/a_day_is_stamped_in_eas_on_more_than_one_l2.test.js`.
+
+**Each address was read, not remembered.** The EAS addresses came from the
+eas-contracts README. Each contract was then read live through both of its
+chain's keyless RPCs:
+
+- an unknown selector reverts;
+- `getTimestamp` of an unknown hash answers 0;
+- a simulated `timestamp(root)` answers the block's time.
+
+So the zero answer is a real one. Arbitrum One's EAS is version 0.26, and
+its `version()` reverts because it predates that function, while
+`timestamp`/`getTimestamp` exist. A check that asked `version()` first
+would have called a working contract broken.
+
+**The same independence group as Base.** All four chains settle to
+Ethereum, so a stamp on Linea and a calldata anchor on Base are one witness
+in the day's quorum, not two. The test counts four EVM witnesses as
+`short` and adds Dogecoin to reach `multi_anchored`. The extra chains give a
+player somewhere to stamp when Base is slow or costly. They are not a
+quorum shortcut.
+
+**The verifier keeps its own copy, and a test holds the copies together.**
+`tools/rcverify.js` names its own EAS addresses and endpoints, because it
+must not trust the server. Every EAS chain the registry lists must appear
+in the verifier with the same address and group. The verifier must also ask
+a reader the registry names. Two copies on purpose, checked against each
+other, are not the drift "one reading per quantity" warns about.
+
+**The page named one chain by hand.** `/roots` hard-coded `base-eas` in the
+stamp button, the plan URL and the recording call. It now offers a picker
+of the EAS chains a day is not stamped on yet, from
+`RCRootsStamp.chainsLeft`, which takes the registry's own list. The picker
+has an accessible name, which is this morning's lesson applied. The three
+Base-specific strings take a `{chain}`.
+
+**The privacy section names each chain and each reader.** It now says
+Arbitrum One, Scroll and Linea can be stamped, and that their RPC providers
+are asked. This is the fourth factual update under the owner's instruction,
+and the new digest is pinned.
+
+Mutation round: 16 mutants, all killed. They covered:
+
+- the group;
+- the EAS address and the chain id;
+- each chain's own RPC setting, and that the setting is never served;
+- the reader names and the count of two readers;
+- the stamp flow's chain checks, its plan URL, its recording call and the
+  reason it gives;
+- both halves of `chainsLeft`, and the page using it;
+- the verifier's address and group.
