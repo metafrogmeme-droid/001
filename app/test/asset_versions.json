@@ -40,8 +40,8 @@
     "sha": "77d4026436966cf1"
   },
   "js/arena-session.js": {
-    "v": 10,
-    "sha": "b52749cbf2afc4e3"
+    "v": 11,
+    "sha": "c1f91b4659859e7c"
   },
   "js/arena_engine.js": {
     "v": 2,
@@ -228,8 +228,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 10,
-    "sha": "a55bb51db15f8184"
+    "v": 11,
+    "sha": "40eac5f4bab10931"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -430,5 +430,9 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
+  },
+  "js/tg-app.js": {
+    "v": 1,
+    "sha": "c831f2a34265bdf4"
   }
 }

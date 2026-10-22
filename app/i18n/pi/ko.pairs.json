@@ -337,5 +337,10 @@
 ["Could not read: {list}", "읽을 수 없음: {list}"],
 ["Waiting for: {list}", "대기 중: {list}"],
 ["Does not match the root: {list}", "루트와 일치하지 않음: {list}"],
-["On: {list}", "기록된 곳: {list}"]
+["On: {list}", "기록된 곳: {list}"],
+["Call the Daily Duel against the Claw, from Telegram.", "Telegram에서 Claw와 데일리 듀얼을 겨뤄 보세요."],
+["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.", "Telegram 계정으로 로그인합니다: 지갑 없음, 실제 자금 없음, 구매할 것 없음."],
+["Open this from the RUNECLAW Duel bot in Telegram to sign in.", "로그인하려면 Telegram의 RUNECLAW Duel 봇에서 여세요."],
+["That launch is too old. Close the app and open it again from the bot.", "이 실행은 너무 오래되었습니다. 앱을 닫고 봇에서 다시 여세요."],
+["Checking your Telegram sign-in…", "Telegram 로그인을 확인하는 중…"]
 ]

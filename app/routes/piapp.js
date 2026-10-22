@@ -122,8 +122,8 @@ const PI_I18N_SCRIPT = '/js/pi-i18n.js?v=2';
 const SCRIPTS = [
   PI_I18N_SCRIPT,
   '/js/embed-arena-view.js?v=4',
-  '/js/miniapp-view.js?v=10',
-  '/js/arena-session.js?v=10',
+  '/js/miniapp-view.js?v=11',
+  '/js/arena-session.js?v=11',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',
   '/js/embed-read.js?v=2',

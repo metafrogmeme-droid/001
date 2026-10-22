@@ -337,5 +337,10 @@
 ["Could not read: {list}", "Não foi possível ler: {list}"],
 ["Waiting for: {list}", "Aguardando: {list}"],
 ["Does not match the root: {list}", "Não corresponde à raiz: {list}"],
-["On: {list}", "Em: {list}"]
+["On: {list}", "Em: {list}"],
+["Call the Daily Duel against the Claw, from Telegram.", "Faça a sua previsão no Duelo diário contra o Claw, a partir do Telegram."],
+["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.", "A sua conta do Telegram inicia a sessão: sem carteira, sem dinheiro real, nada para comprar."],
+["Open this from the RUNECLAW Duel bot in Telegram to sign in.", "Abra isto a partir do bot RUNECLAW Duel no Telegram para iniciar sessão."],
+["That launch is too old. Close the app and open it again from the bot.", "Este arranque é demasiado antigo. Feche a app e abra-a de novo a partir do bot."],
+["Checking your Telegram sign-in…", "A verificar o seu início de sessão do Telegram…"]
 ]

@@ -337,5 +337,10 @@
 ["Could not read: {list}", "تعذّرت القراءة: {list}"],
 ["Waiting for: {list}", "بانتظار: {list}"],
 ["Does not match the root: {list}", "لا يطابق الجذر: {list}"],
-["On: {list}", "على: {list}"]
+["On: {list}", "على: {list}"],
+["Call the Daily Duel against the Claw, from Telegram.", "قدِّم توقعك في المبارزة اليومية ضد Claw من Telegram."],
+["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.", "يسجّل حساب Telegram دخولك: لا محفظة، ولا أموال حقيقية، ولا شيء للشراء."],
+["Open this from the RUNECLAW Duel bot in Telegram to sign in.", "افتح هذا من بوت RUNECLAW Duel في Telegram لتسجيل الدخول."],
+["That launch is too old. Close the app and open it again from the bot.", "هذا التشغيل قديم جدًا. أغلق التطبيق وافتحه مجددًا من البوت."],
+["Checking your Telegram sign-in…", "جارٍ التحقق من تسجيل دخولك عبر Telegram…"]
 ]

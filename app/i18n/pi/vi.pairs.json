@@ -420,5 +420,10 @@
 ["Could not read: {list}", "Không đọc được: {list}"],
 ["Waiting for: {list}", "Đang chờ: {list}"],
 ["Does not match the root: {list}", "Không khớp với gốc: {list}"],
-["On: {list}", "Trên: {list}"]
+["On: {list}", "Trên: {list}"],
+["Call the Daily Duel against the Claw, from Telegram.", "Đưa ra dự đoán trong Đấu Hằng ngày với Claw, ngay trên Telegram."],
+["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.", "Tài khoản Telegram của bạn sẽ đăng nhập cho bạn: không ví, không tiền thật, không có gì phải mua."],
+["Open this from the RUNECLAW Duel bot in Telegram to sign in.", "Hãy mở trang này từ bot RUNECLAW Duel trong Telegram để đăng nhập."],
+["That launch is too old. Close the app and open it again from the bot.", "Lần mở này đã quá cũ. Hãy đóng ứng dụng và mở lại từ bot."],
+["Checking your Telegram sign-in…", "Đang kiểm tra đăng nhập Telegram của bạn…"]
 ]

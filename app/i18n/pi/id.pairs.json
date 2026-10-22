@@ -420,5 +420,10 @@
 ["Could not read: {list}", "Tidak terbaca: {list}"],
 ["Waiting for: {list}", "Menunggu: {list}"],
 ["Does not match the root: {list}", "Tidak cocok dengan root: {list}"],
-["On: {list}", "Di: {list}"]
+["On: {list}", "Di: {list}"],
+["Call the Daily Duel against the Claw, from Telegram.", "Ajukan tebakanmu di Duel Harian melawan Claw, langsung dari Telegram."],
+["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.", "Akun Telegram-mu yang membuatmu masuk: tanpa dompet, tanpa uang sungguhan, tidak ada yang perlu dibeli."],
+["Open this from the RUNECLAW Duel bot in Telegram to sign in.", "Buka ini dari bot RUNECLAW Duel di Telegram untuk masuk."],
+["That launch is too old. Close the app and open it again from the bot.", "Peluncuran ini sudah terlalu lama. Tutup aplikasi dan buka lagi dari bot."],
+["Checking your Telegram sign-in…", "Memeriksa proses masuk Telegram-mu…"]
 ]

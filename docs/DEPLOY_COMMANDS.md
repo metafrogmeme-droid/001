@@ -10,6 +10,18 @@ bot processes. A box with `DUEL_BOT_TOKEN` set runs a third, optional process,
 `python3 -m bot.duel_bot` (`runeclaw-duel.service`, health on :8081); restart
 it with the other two.
 
+The Duel's Telegram Mini App (`/tg`) is off until two settings are set
+together:
+
+- `DUEL_BOT_ID` in `~/runeclaw-persist/web.env`: the digits before the colon
+  of `DUEL_BOT_TOKEN`, never the token. Publish `app/`.
+- `DUEL_WEBAPP_URL` in the bot's `.env`: the site's `/tg` address over https.
+  Restart `runeclaw-duel.service`.
+
+The bot's `/start` and `/app` then carry an "Open the Duel app" button in
+private chats. Setting `/tg` as the bot's Main Mini App in BotFather is
+optional, and is done in BotFather, not here.
+
 1. Fetch by URL and reset to `FETCH_HEAD`.
 2. Run `./deploy.sh`. Besides restoring `.env`, `data/`, and `logs/`, it writes
    the persistent `~/runeclaw-persist/web.env` used for web publishes.

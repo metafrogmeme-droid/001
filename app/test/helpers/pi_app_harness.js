@@ -67,6 +67,7 @@ async function serve() {
   app.use('/pi', require('../../routes/piapp'));
   app.use('/miniapp', require('../../routes/miniapp'));
   app.use('/doge', require('../../routes/dogeapp'));
+  app.use('/tg', require('../../routes/tgapp'));
   const server = http.createServer(app);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   return { server, base: `http://127.0.0.1:${server.address().port}` };

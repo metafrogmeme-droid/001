@@ -460,6 +460,11 @@ app.use('/api/pi/coach', require('./routes/pi_coach'));
 app.use('/api/pi/prizes', require('./routes/pi_prizes'));
 app.use('/api/pi', require('./routes/pi_auth'));
 app.use('/pi', require('./routes/piapp'));
+// The Daily Duel as a Telegram Mini App, opened from the Duel bot: signed in
+// with Telegram's signed launch data, checked with Telegram's public key
+// (lib/tg_webapp.js). The Duel and the daily proof only: no wallet, no chain.
+app.use('/api/tgapp', require('./routes/tg_auth'));
+app.use('/tg', require('./routes/tgapp'));
 // The DogeOS app (the Vibe Code on DOGE entry): the duel and the arena, signed
 // in with a DogeOS wallet, every day's root anchored on the DogeOS testnet.
 app.use('/doge', require('./routes/dogeapp'));

@@ -117,7 +117,8 @@ function Privacy() {
           prompt-injection check flags leaves a short excerpt of itself in the
           operator&rsquo;s audit log.</>,
         <><strong>Your Telegram ID</strong>, and username where Telegram supplies
-          it, once you link the bot.</>,
+          it, once you link the bot. Signing in with Telegram, on the website or
+          in the Daily Duel&rsquo;s Telegram Mini App, keeps the ID only.</>,
         <><strong>A wallet address</strong>, if you connect one. The signature
           proving you own it is verified in memory and never stored.</>,
         <><strong>Two-factor secrets and backup codes</strong>, if you enable
@@ -185,6 +186,14 @@ function Privacy() {
       <P>
         <strong>Telegram, Google, Discord and X.</strong> Sign-in and messaging
         pass through their systems under their own privacy policies.
+      </P>
+      <P>
+        <strong>The Daily Duel&rsquo;s Telegram Mini App.</strong> Opening it
+        from the Duel bot sends our server the launch data Telegram signs: your
+        Telegram ID, name, username and language, and when the app was opened.
+        We check Telegram&rsquo;s signature with Telegram&rsquo;s public key and
+        keep only your Telegram ID, to find your account. The app has no wallet
+        and asks for no payment.
       </P>
       <P>
         <strong>Pi Network.</strong> Signing in with Pi sends the access token

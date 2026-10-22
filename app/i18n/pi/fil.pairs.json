@@ -420,5 +420,10 @@
 ["Could not read: {list}", "Hindi mabasa: {list}"],
 ["Waiting for: {list}", "Hinihintay: {list}"],
 ["Does not match the root: {list}", "Hindi tugma sa root: {list}"],
-["On: {list}", "Nasa: {list}"]
+["On: {list}", "Nasa: {list}"],
+["Call the Daily Duel against the Claw, from Telegram.", "Tumaya sa Daily Duel laban sa Claw, mula sa Telegram."],
+["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.", "Ang Telegram account mo ang magsa-sign in sa iyo: walang wallet, walang totoong pera, walang bibilhin."],
+["Open this from the RUNECLAW Duel bot in Telegram to sign in.", "Buksan ito mula sa RUNECLAW Duel bot sa Telegram para mag-sign in."],
+["That launch is too old. Close the app and open it again from the bot.", "Masyadong luma na ang pagbukas na ito. Isara ang app at buksan muli mula sa bot."],
+["Checking your Telegram sign-in…", "Sinusuri ang Telegram sign-in mo…"]
 ]

@@ -129,7 +129,7 @@ router.get('/arena', (req, res) => {
   } catch (_) { meta = ''; }
   res.type('html').send(
     page('RUNECLAW — trade the arena', 'e-arena m-app', '/js/miniapp-arena.js?v=2', meta,
-      ['/js/embed-arena-view.js?v=4', '/js/miniapp-view.js?v=10', '/js/arena-session.js?v=10']));
+      ['/js/embed-arena-view.js?v=4', '/js/miniapp-view.js?v=11', '/js/arena-session.js?v=11']));
 });
 
 module.exports = router;

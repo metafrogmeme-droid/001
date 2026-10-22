@@ -337,5 +337,10 @@
 ["Could not read: {list}", "読み込めず: {list}"],
 ["Waiting for: {list}", "待機中: {list}"],
 ["Does not match the root: {list}", "ルートと一致しません: {list}"],
-["On: {list}", "記録先: {list}"]
+["On: {list}", "記録先: {list}"],
+["Call the Daily Duel against the Claw, from Telegram.", "Telegram から、Claw とのデイリーデュエルに予想を出しましょう。"],
+["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.", "Telegram アカウントでサインインします。ウォレット不要、実際のお金なし、購入するものもありません。"],
+["Open this from the RUNECLAW Duel bot in Telegram to sign in.", "サインインするには、Telegram の RUNECLAW Duel ボットから開いてください。"],
+["That launch is too old. Close the app and open it again from the bot.", "この起動は古すぎます。アプリを閉じて、ボットからもう一度開いてください。"],
+["Checking your Telegram sign-in…", "Telegram のサインインを確認しています…"]
 ]

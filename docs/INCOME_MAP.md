@@ -921,6 +921,11 @@ scored (`app/lib/duel.js::verdictOf`). Any receipt, a duel's included, is also
 served as one proof bundle (`app/lib/proof_bundle.js::bundleOf`) that a third
 party checks without this server: the hash, the Merkle path and each chain's
 anchor, read by a verifier that shares no code with it (`tools/rcverify.js::verifyBundle`).
+The same card opens as a Telegram Mini App from the Duel bot (`app/routes/tgapp.js::get('/')`),
+signed in with the launch data Telegram signs, checked with Telegram's public
+key (`app/lib/tg_webapp.js::verifyInitData`) at `app/routes/tg_auth.js::post('/signin')`;
+it has no wallet and no paper account, and the bot offers it only when
+`bot/duel_bot.py::webapp_url` is set.
 
 *Gap.* Income. There is no entry fee, no prize pool, no payout and no token reward
 attached to a duel result — the §4 rule at `app/routes/duel.js::#"§4: virtual throughout"` forbids any

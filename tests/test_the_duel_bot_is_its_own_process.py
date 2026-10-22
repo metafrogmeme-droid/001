@@ -162,7 +162,7 @@ def test_build_app_registers_the_commands_and_the_duel_callback():
                 callbacks.append((group, h))
             elif isinstance(h, TypeHandler):
                 counters.append(group)
-    assert cmds == {"start", "help", "duel", "me", "board", "link"}
+    assert cmds == {"start", "help", "duel", "me", "board", "link", "app"}
     assert len(callbacks) == 1
     assert callbacks[0][1].pattern.pattern == r"^duel:"
     assert counters == [-1], "every update is counted ahead of the handlers"
@@ -218,8 +218,9 @@ def test_a_tap_records_the_call_answers_the_query_and_redraws_the_card():
     assert "Daily Duel" in texts[1], "the card is drawn again after the call"
     # A refusal is the server's sentence, and nothing reads as recorded.
     u = _update(data="duel:3:hold")
+    refused = (409, {"error": "You have already called this round."})
     bot2 = db.DuelBot(fetch_card=lambda tg: (200, CARD), site_url=SITE,
-                      place_pick=lambda tg, rid, pick, chips=None: (409, {"error": "You have already called this round."}))
+                      place_pick=lambda tg, rid, pick, chips=None: refused)
     _run(bot2.on_duel_callback(u, _ctx()))
     assert _texts(u)[0] == "You have already called this round."
     # A token that does not parse is refused, not guessed.

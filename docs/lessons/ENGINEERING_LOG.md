@@ -28815,3 +28815,77 @@ Mutation round: 16 mutants, all killed. They covered:
   reason it gives;
 - both halves of `chainsLeft`, and the page using it;
 - the verifier's address and group.
+
+## A SIGNED LAUNCH IS CHECKED WITH THE SIGNER'S PUBLIC KEY, AND A SHELL THAT ASSUMED AN ACCOUNT LEARNS TO RUN WITHOUT ONE
+
+22 October 2026. The roadmap's Telegram Mini App. The Daily Duel opens
+inside Telegram from the Duel bot (`/tg`, `app/routes/tgapp.js`).
+
+- **What it carries:** the Duel and the daily proof. It has no paper
+  account, no wallet and nothing to buy.
+- **How a launch is checked:** Telegram signs the launch data
+  (`app/lib/tg_webapp.js`), and `app/routes/tg_auth.js` checks the signature
+  before issuing a session.
+- **Guard tests:** `app/test/the_duel_opens_as_a_telegram_mini_app.test.js`
+  and its `.smoke.test.js`, plus `tests/test_the_duel_bot_opens_the_mini_app.py`.
+
+**The website never holds the bot's token.** Telegram signs every launch
+twice:
+
+- an HMAC keyed by the bot's token;
+- an Ed25519 signature that a third party checks with Telegram's public key
+  and the bot's numeric id.
+
+The website uses the second, so `DUEL_BOT_ID` (public) is all it needs, and
+`DUEL_BOT_TOKEN` stays on the bot box. The check string and both keys are
+quoted from Telegram's page and pinned by a test, and the keys must parse as
+Ed25519 keys. The test signs with a key it generates, and the route reads
+Telegram's key through the module, so the test can stand its own key in.
+`TELEGRAM_WEBAPP_ENV` can only name Telegram's test environment, never a
+key.
+
+**A launch is a bearer credential for an hour.** Telegram's `initData` is the
+same on every reload of a launch, so a single-use nonce would sign a person
+out on reload. The bound is age: a launch over an hour old is refused with
+its own sentence ("That launch is too old…"), distinct from a signature that
+does not hold and from a fault of ours (503 when no bot id is set).
+
+**One account, whichever Telegram door.** A verified Telegram id finds or
+creates the account that the website's "Log in with Telegram" finds or
+creates (`findOrCreateOAuthUser`, provider `telegram`). The test signs in
+through the Mini App after making the account through that same call, and
+gets the same user. The bot itself still plays only linked accounts, as
+before.
+
+**The shared shell assumed a paper account.** `arena-session.js` runs the Pi,
+Farcaster and DogeOS apps, and its first tab, its refresh and its header
+were all the arena account's. It gains two options:
+
+- `arena: false`: no account read, no arena tab, and the first block's tab
+  opens;
+- `autoSignIn`: Telegram's launch needs no tap.
+
+The full set of app suites (764 tests, the three other apps' browser tests
+included) ran unchanged. The Telegram host draws no sentence of its own. Its
+five sentences are in `miniapp-view.js`, which the Pi app's translation
+build reads, so they are translated and checked in all 16 languages.
+
+**Two misses the browser test found.** The page drew in English for a German
+reader. The Pi host switches `RCPiI18n` to the page's language at start, and
+the new host did not. The fix is one line, and a mutant that removes it is
+killed by the German smoke test.
+
+**The bot's button is opt-in, and private-chat only.** `DUEL_WEBAPP_URL`
+must be https. Telegram refuses a `web_app` button outside a private chat, so
+a group is told where to open it. `/start` mentions `/app` only when there is
+an app.
+
+**The preflight on the stack found a lint growth from phase three:** one
+123-character line in the bot's test. That slice had never had its own full
+preflight. It is wrapped.
+
+Mutation round: 26 JavaScript mutants (25 killed, 1 equivalent) and 4 Python
+mutants (all killed). The equivalent one replaces the signature's shape
+check with a presence check. Any string the shape check refuses either
+decodes to the wrong length, which the next check refuses, or to the same
+64 bytes as its canonical spelling, which is the same signature.
