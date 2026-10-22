@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **506 of 1362** reach for source text through `source_scan`, `code_only`
+Driven, **506 of 1363** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 506 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -29010,3 +29010,102 @@ Both tests were fixed and all 46 are killed.
 Each rendered card's QR was decoded with an independent decoder (jsQR, run
 outside the repo; it is not a dependency), in English and German, pending
 and settled.
+
+## VOTERS THAT KEEP THEIR SIGNS ARE NOT WEIGHTS THAT PICK BETTER TRADES, AND A READY THAT LAPSES IS SAID
+
+22 October 2026. The bot's readiness alert reached the owner:
+
+    ✅ voter_weights: READY
+       69% of 35 voter(s) held direction on 65 unseen trade(s)
+       (bar 60%, 95% lower bound 52%)
+    • voter_weights is validated but not applied —
+      consider VOTER_WEIGHT_LEARNING_ENABLED=true
+
+That flag reweights the confluence on the live account. Two things under the
+card made 52% read stronger than the evidence was.
+
+- **Every voter was judged on the same 65 trades.** The Wilson bound treats
+  35 voters as 35 independent trials. They are 35 readings of one sample of
+  trades, so one lucky stretch moves many of them together. No interval over
+  voters can fix that.
+- **A voter was judged on one trade.** Training moves a voter only after 8
+  agreeing trades (`min_voter_samples`). Judging counted a voter that agreed
+  with a single unseen trade as a whole yes or no, which on one trade is a
+  coin flip.
+
+**What READY needs now** (`bot/learning/readiness.py`):
+- The voter test, as before, but a voter is judged only on at least as many
+  unseen trades as it was trained on (`validate_oos(min_oos_agree=...)`,
+  default `min_voter_samples`). Voters with fewer are counted apart
+  (`n_thin`), and the card names them: "; 6 more agreed with too few to
+  judge".
+- A trade-level test (`voter_weights.trade_ranking`). Turning the flag on
+  changes how trades are scored, so that is what is measured. Each unseen
+  trade is scored twice, with the analyzer's own normalisation (weighted vote
+  sum over total weight, neutral voters included), once with the learned
+  multipliers and once without. Each scoring gets its AUC: the chance a
+  winner outscores a loser, ties counted half. `lower` is the 2.5th
+  percentile of the AUC difference over 1,000 resamples of the TRADES, with
+  the two scorings resampled together so the comparison stays paired. The
+  seed is fixed, so one record gives one report.
+- READY needs both tests to pass, at least 10 winners and 10 losers among the
+  unseen trades, and `lower > 0`. The card prints both AUCs, the difference
+  and the bound.
+
+**Measured on synthetic histories with the test file's own generators**
+(300 trades, time-ordered 70/30 split, 22 October 2026):
+- **Predictive** (8 voters right 68% of the time, 4 right 32%, 6 at random):
+  `lower` was above zero on all 8 seeds tried, from +0.029 to +0.064.
+- **Pure noise** (8 voters at random): `lower` stayed at or below zero on all
+  8 seeds, from -0.027 to -0.004. On two of those seeds the hold rate alone
+  reached the 60% bar (5 of 8 and 6 of 8). The Wilson bound stopped those
+  two; the trade test would have too.
+
+The plain score's AUC on noise ranged from 0.37 to 0.59 on 90 trades. That
+is why the test is the DIFFERENCE between the two scorings on the same
+trades, never either AUC against 0.5.
+
+**Three values, not two, four times over.** "0 winner(s) and 0 loser(s)"
+would be a count of a comparison that never ran. So:
+- no trade-level record says "was not run";
+- a record without its counts says "could not be read";
+- too few of either outcome says so with both counts;
+- enough of each but no interval says "could not be computed".
+
+The mutation round found the last case. Before it, a missing bound fell into
+the too-few branch, and the card would have said "30 winner(s) and 35
+loser(s): need >= 10 of each".
+
+**A READY that lapses is said** (`ProactiveMonitor._check_learning_readiness`).
+The monitor alerted only on a move INTO READY. A component that stopped
+clearing its bar left the old card, with its live-money recommendation, as
+the last word in the operator's chat. `LEARNING_NOT_READY` (admin only) now
+says so once. It says "leave the flag off" when the flag is off, and
+"consider turning it off" (as a WARNING) when it is on. The monitor's state
+is the process's own memory: the first observation after a restart is a
+baseline, not a lapse, so this deploy will not itself announce the change.
+`/readiness` reads the gate fresh.
+
+**What is not known yet:** whether the live voter weights clear the trade
+test. This sandbox has no live decision store. After the deploy,
+`/readiness` answers it, and `VOTER_WEIGHT_LEARNING_ENABLED` stays off until
+it says READY under the new gate.
+
+- **Guard tests:** `tests/test_the_weights_have_to_pick_better_trades.py`
+  (34), plus the planted reports in `tests/test_voter_bar_needs_a_margin.py`
+  and `tests/test_readiness_bar_needs_evidence.py`, which now carry a trade
+  record.
+- **Mutation round:** 40 mutants. The first pass left 7 alive:
+  - 2 test gaps on the judging floor: a voter that training left unmoved, and
+    a moved voter with no unseen trade;
+  - 2 on the outcome floor: the loser test was written relative to the
+    constant, so changing the constant changed the test with it. It is now
+    pinned at 10 on both sides;
+  - the missing-bound sentence above;
+  - 2 equivalent mutants. One was removed by making the no-direction check
+    explicit. The other, `a_w is None or a_u is None` to `and`, is equivalent
+    because both AUCs depend only on the same outcomes.
+
+  After the fixes, 39 of 40 were killed and 1 is equivalent. The 7 mutants
+  on the rewritten branches were then run alone: 6 killed, 1 equivalent
+  (`t_lower is not None` after the branch that handles None).

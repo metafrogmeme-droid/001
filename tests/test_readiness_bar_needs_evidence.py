@@ -73,9 +73,18 @@ def _voter_state(monkeypatch, *, hold_rate, n_test, n_voters, n_learned=None):
     import bot.learning.voter_weights as vw
     n_holds = round(hold_rate * n_voters)
     learned = n_voters if n_learned is None else n_learned
+    # The trade-level test passes here (winners and losers add up to the
+    # trades scored): this file is about the sample floors, and READY now
+    # also needs the learned weights to rank unseen trades better.
+    n_win = n_test // 2 + 1
     report = {"n_train": 40, "n_test": n_test,
               "n_judged": n_voters, "n_holds": n_holds,
               "hold_rate": round(n_holds / n_voters, 4) if n_voters else 0.0,
+              "min_oos_agree": 8, "n_thin": 0,
+              "trades": {"n_scored": n_test, "n_unscored": 0, "n_win": n_win,
+                         "n_loss": n_test - n_win, "auc_weighted": 0.64,
+                         "auc_unweighted": 0.55, "diff": 0.09, "lower": 0.02,
+                         "resamples": 1000},
               "voters": {f"v{i}": {} for i in range(learned)}}
     monkeypatch.setattr(vw, "VoterWeightLearner", lambda *a, **k: _Learner(report))
     return assess_readiness()["components"]["voter_weights"]

@@ -131,6 +131,7 @@ ADMIN_ONLY = {
     "STALE_BALANCE", "MACRO_CALENDAR_STALE",  # feeds gone stale
     "SELF_AUDIT", "PARITY_DIGEST",           # operator reports
     "LEARNING_READY",                        # a component validated
+    "LEARNING_NOT_READY",                    # ...and stopped clearing its bar
     # The monitor's own checks: one that raises every tick is DOWN, and only
     # the operator can read the traceback and fix it. Both ends are admin —
     # an all-clear with a wider audience than its warning answers a question

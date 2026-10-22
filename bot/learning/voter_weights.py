@@ -29,8 +29,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from bot.learning.outcome_join import SAMPLE_READING, join_outcomes, reading_of
 from bot.utils.atomic_write import atomic_write_json
@@ -47,6 +48,106 @@ _DEFAULT_SHRINKAGE = 10.0
 _MIN_MULT = 0.5
 _MAX_MULT = 1.5
 _EPS = 1e-9
+
+
+#: The trade-level test resamples unseen TRADES, with replacement, this many
+#: times. Resampling trades rather than voters is the point: every voter is
+#: judged on the same unseen trades, so their holds are not independent
+#: trials, and an interval over voters is narrower than the evidence.
+_RANK_RESAMPLES = 1000
+#: A fixed seed, so one record gives one report: an interval that moved on
+#: every /readiness would read as evidence changing when nothing had.
+_RANK_SEED = 20261022
+
+
+def _agreement(votes, ds: float, multiplier) -> Optional[float]:
+    """How strongly the confluence agreed with a trade's direction, in [-1, 1].
+
+    The analyzer's own normalisation (`_score_confluence`: the weighted vote
+    sum over the total weight), with each voter's weight scaled by
+    ``multiplier(name)``. None when the weights sum to nothing: a trade the
+    confluence could not score is not a trade it scored at zero.
+    """
+    total = 0.0
+    signed = 0.0
+    for name, vote, weight in votes:
+        w = float(weight) * float(multiplier(name))
+        total += w
+        signed += float(vote) * w
+    if total <= _EPS:
+        return None
+    return ds * signed / total
+
+
+def _auc(rows) -> Optional[float]:
+    """The chance a winner's score beats a loser's (ties count half), from
+    ``(score, won)`` rows; None when either side is empty, because a ranking
+    with no losers ranks nothing."""
+    n_w = sum(1 for _, won in rows if won)
+    n_l = len(rows) - n_w
+    if n_w == 0 or n_l == 0:
+        return None
+    order = sorted(range(len(rows)), key=lambda i: rows[i][0])
+    ranks = [0.0] * len(rows)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and rows[order[j + 1]][0] == rows[order[i]][0]:
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = (i + j) / 2.0 + 1.0
+        i = j + 1
+    r_w = sum(ranks[i] for i, (_, won) in enumerate(rows) if won)
+    return (r_w - n_w * (n_w + 1) / 2.0) / (n_w * n_l)
+
+
+def trade_ranking(test, multiplier, resamples: int = _RANK_RESAMPLES,
+                  seed: int = _RANK_SEED) -> dict:
+    """Do the learned weights rank unseen winners above unseen losers better
+    than the hand-tuned ones? The question turning the flag on answers.
+
+    Each unseen trade is scored twice, as the analyzer would score it with
+    and without the multipliers, and each scoring is summarised by its AUC
+    over the trades' outcomes. ``lower`` is the 2.5th percentile of the AUC
+    difference over trades resampled with replacement (the two scorings
+    resampled together, so the comparison stays paired). None wherever there
+    was nothing to rank.
+    """
+    rows = []
+    unscored = 0
+    for votes, direction, won in test:
+        ds = _dir_sign(direction)
+        weighted = _agreement(votes, ds, multiplier)
+        plain = _agreement(votes, ds, lambda _name: 1.0)
+        if not ds or weighted is None or plain is None:
+            unscored += 1
+            continue
+        rows.append((weighted, plain, bool(won)))
+    n_win = sum(1 for r in rows if r[2])
+    out: dict[str, Any] = {"n_scored": len(rows), "n_unscored": unscored, "n_win": n_win,
+           "n_loss": len(rows) - n_win, "auc_weighted": None,
+           "auc_unweighted": None, "diff": None, "lower": None, "resamples": 0}
+    a_w = _auc([(r[0], r[2]) for r in rows])
+    a_u = _auc([(r[1], r[2]) for r in rows])
+    if a_w is None or a_u is None:
+        return out
+    out.update(auc_weighted=round(a_w, 4), auc_unweighted=round(a_u, 4),
+               diff=round(a_w - a_u, 4))
+    rng = random.Random(seed)
+    diffs = []
+    n = len(rows)
+    for _ in range(max(0, int(resamples))):
+        pick = [rows[rng.randrange(n)] for _ in range(n)]
+        b_w = _auc([(r[0], r[2]) for r in pick])
+        b_u = _auc([(r[1], r[2]) for r in pick])
+        if b_w is None or b_u is None:
+            continue
+        diffs.append(b_w - b_u)
+    if diffs:
+        diffs.sort()
+        out["lower"] = round(diffs[int(0.025 * len(diffs))], 4)
+        out["resamples"] = len(diffs)
+    return out
 
 
 def _dir_sign(direction) -> float:
@@ -151,7 +252,8 @@ class VoterWeightLearner:
 
     # -- validation ------------------------------------------------------------
 
-    def validate_oos(self, samples, split: float = 0.7) -> dict:
+    def validate_oos(self, samples, split: float = 0.7,
+                     min_oos_agree: Optional[int] = None) -> dict:
         """Time-ordered out-of-sample validation (audit fix #19).
 
         Fits on the FIRST ``split`` fraction of samples (they arrive in store
@@ -167,15 +269,27 @@ class VoterWeightLearner:
 
         ``direction_holds`` is True when the sign of the OOS edge matches the
         sign of the learned adjustment. ``hold_rate`` is the fraction of
-        learned voters whose adjustment direction held OOS — the go/no-go
-        number to check before enabling VOTER_WEIGHT_LEARNING_ENABLED.
+        JUDGED voters whose adjustment direction held OOS.
+
+        A VOTER IS JUDGED ON AS MANY UNSEEN TRADES AS IT WAS TRAINED ON. Fitting
+        moves a voter only after ``min_voter_samples`` agreeing trades, and the
+        judging used to count one: a voter that agreed with a single unseen
+        trade was a whole yes or no in ``hold_rate``, which on one trade is a
+        coin flip. ``min_oos_agree`` (default ``min_voter_samples``) is that
+        floor; voters with fewer are counted in ``n_thin`` and judge nothing.
+
+        ``trades`` is the trade-level test (`trade_ranking`): whether the
+        learned weights rank the unseen trades' winners above their losers
+        better than the hand-tuned ones. That is what applying them changes.
         """
         clean = [s for s in samples if s and s[0]]
         n = len(clean)
         cut = max(1, int(n * split))
         train, test = clean[:cut], clean[cut:]
+        floor = self.min_voter_samples if min_oos_agree is None else max(1, int(min_oos_agree))
         report = {"n_train": len(train), "n_test": len(test),
-                  "base_rate_test": 0.0, "voters": {}, "hold_rate": 0.0}
+                  "base_rate_test": 0.0, "voters": {}, "hold_rate": 0.0,
+                  "min_oos_agree": floor, "n_thin": 0, "trades": None}
         if not test or len(train) < self.min_samples:
             return report
 
@@ -205,20 +319,24 @@ class VoterWeightLearner:
 
         holds = 0
         judged = 0
+        thin = 0
         for name, mult in fitted._mult.items():
             an = agree_n.get(name, 0)
             wr = (agree_w.get(name, 0) / an) if an else 0.0
             edge = wr - base_rate
             adj = mult - 1.0
-            direction_holds = (an > 0 and abs(adj) > 1e-6
-                               and (edge > 0) == (adj > 0))
-            if an > 0 and abs(adj) > 1e-6:
+            moved = abs(adj) > 1e-6
+            is_judged = moved and an >= floor
+            direction_holds = is_judged and (edge > 0) == (adj > 0)
+            if is_judged:
                 judged += 1
                 holds += 1 if direction_holds else 0
+            elif moved and an > 0:
+                thin += 1
             report["voters"][name] = {
                 "mult": round(mult, 3), "oos_agree_n": an,
                 "oos_win_rate": round(wr, 4), "oos_edge": round(edge, 4),
-                "direction_holds": direction_holds,
+                "judged": is_judged, "direction_holds": direction_holds,
             }
         # THE DENOMINATOR TRAVELS WITH THE RATE. `hold_rate` is holds/JUDGED,
         # but the only count the report exposed was `voters`, which holds an
@@ -230,7 +348,9 @@ class VoterWeightLearner:
         # two, so both belong on the record.
         report["n_judged"] = judged
         report["n_holds"] = holds
+        report["n_thin"] = thin
         report["hold_rate"] = round(holds / judged, 4) if judged else 0.0
+        report["trades"] = trade_ranking(test, fitted.multiplier)
         return report
 
     # -- persistence -----------------------------------------------------------

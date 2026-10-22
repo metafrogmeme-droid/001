@@ -135,7 +135,7 @@ Raise these **after** Stage 1, not before — the risk tightening should be on f
 |---|---|---|
 | 1 | `LIVE_RISK_HARDENING_ENABLED`, `REGIME_HARD_GATES_ENABLED`, `TIME_STOP_LIVE_AUTO_CLOSE` | **default ON** (2026-07) |
 | 2 | `LEARNING_AUTO_REFIT_ENABLED`, `UNCALIBRATED_LLM_WEIGHT_CAP_ENABLED`, `LIVE_PERFORMANCE_GOVERNOR_ENABLED`, `KELLY_SIZING_ENABLED`, `CORRELATION_SIZING_ENABLED` | **default ON** (2026-07) |
-| 3 | `CONFIDENCE_CALIBRATION_ENABLED` (OFF; entries stay on the raw blend) → `AUTO_CONFIRM_USE_CALIBRATED` → `VOTER_WEIGHT_LEARNING_ENABLED` (run `validate_oos`, enable when hold_rate is good) → `SETUP_EXPECTANCY_ENABLED` (ON) | after ~50–100 closes |
+| 3 | `CONFIDENCE_CALIBRATION_ENABLED` (OFF; entries stay on the raw blend) → `AUTO_CONFIRM_USE_CALIBRATED` → `VOTER_WEIGHT_LEARNING_ENABLED` (enable only when `/readiness` says `voter_weights: READY`: the voters hold direction AND the learned weights rank unseen trades better, lower bound above zero) → `SETUP_EXPECTANCY_ENABLED` (ON) | after ~50–100 closes |
 | 4 | `FUNDING_COST_AWARE_ENABLED`, `EXTERNAL_SENTIMENT_ENABLED`, blend-weight tuning | operator choice |
 
 If anything misbehaves: set the offending flag back to `false`, restart, and report
@@ -1119,7 +1119,10 @@ outage is worse than not having the outage.
 7. **Key hygiene before scaling deposits:** rotate the Bitget key, confirm
    withdrawals are disabled on it, IP-allowlist it to the VPS.
 8. **Payoff sequence once data accumulates:** (a) confirm the calibrator is
-   fitting, (b) `VoterWeightLearner.validate_oos` — enable
-   `VOTER_WEIGHT_LEARNING_ENABLED` only if hold_rate > ~0.6, (c) re-run the
+   fitting, (b) `/readiness` — enable `VOTER_WEIGHT_LEARNING_ENABLED` only
+   when `voter_weights` is READY. A hold rate over 60% is not enough on its
+   own: READY also needs the learned weights to rank the unseen trades'
+   winners above their losers better than the hand-tuned ones, with the 95%
+   lower bound of the improvement above zero. (c) Re-run the
    walk-forward with `--use-recorded-llm --use-recorded-order-flow` for the
    full-pipeline verdict, (d) only then consider `AUTO_CONFIRM_USE_CALIBRATED`.
