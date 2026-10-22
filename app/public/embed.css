@@ -580,6 +580,21 @@ html, body {
 .p-goto { margin-left: 4px; color: var(--e-info); }
 .p-off-b:focus-visible, .p-goto:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
 .m-refresh-row .p-off-b + .m-refresh { margin-left: 0; }
+.p-off-b + .p-off-b { margin-left: 6px; }
+/* The daily proof (pi-proof.js in the Pi app, doge-proof.js on /doge): one
+   row per finished day, its quorum badge, and the root quoted, never linked. */
+.p-proof-intro { font-size: 13px; color: var(--e-text-2); line-height: 1.5; margin: 0 0 6px; }
+.p-proof-meaning { margin: 0 0 12px; font-size: 12px; color: var(--e-text-3); }
+.p-proof-row {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; margin-bottom: 10px;
+  border-radius: 14px; border: 1px solid var(--e-line-2); background: var(--e-surface-2);
+}
+.p-proof-hd { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.p-proof-q { font-size: 14px; font-weight: 650; }
+.p-proof-q.tone-up { color: var(--e-up); }
+.p-proof-q.tone-muted { color: var(--e-text-2); }
+.p-proof-on, .p-proof-sub { font-size: 12px; line-height: 1.45; }
+.p-proof-root code { font-size: 11px; color: var(--e-text-3); word-break: break-all; }
 
 /* The open form's visible labels. */
 .m-row--fields { align-items: flex-end; }

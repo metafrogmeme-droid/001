@@ -1,7 +1,7 @@
 {
   "embed.css": {
     "v": 19,
-    "sha": "ba3084b80bd0435e"
+    "sha": "58b1ab46a8bfe9ae"
   },
   "js/admin.js": {
     "v": 3,
@@ -244,8 +244,8 @@
     "sha": "25cb3003194ae98c"
   },
   "js/pi-arena.js": {
-    "v": 6,
-    "sha": "f48cd9d00f06eb39"
+    "v": 7,
+    "sha": "a6593abef951ef6f"
   },
   "js/pi-coach.js": {
     "v": 2,
@@ -262,6 +262,10 @@
   "js/pi-leaders.js": {
     "v": 2,
     "sha": "c401aff666606a0d"
+  },
+  "js/pi-proof.js": {
+    "v": 1,
+    "sha": "a1396d624841bdc8"
   },
   "js/pi-receipt.js": {
     "v": 4,
@@ -286,6 +290,10 @@
   "js/radar3d.js": {
     "v": 3,
     "sha": "bcb4a613a57ea9dc"
+  },
+  "js/record-panel.js": {
+    "v": 1,
+    "sha": "7598302bffe6f9af"
   },
   "js/referral-tier-model.js": {
     "v": 1,
@@ -358,10 +366,6 @@
   "js/studies-panel.js": {
     "v": 1,
     "sha": "956628eed9c6ec33"
-  },
-  "js/record-panel.js": {
-    "v": 1,
-    "sha": "7598302bffe6f9af"
   },
   "js/swap-page.js": {
     "v": 3,

@@ -108,7 +108,8 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  * site's TradingView library, vendored, then the card and chart modules,
  * then the panel itself (pi-signals.js); then the Daily Duel's renderer
  * (duel.js, the website's own), the receipt check (pi-receipt.js) and the
- * Duel block (pi-duel.js); then the Leaders tab (pi-leaders.js). pi-arena.js
+ * Duel block (pi-duel.js); then the Leaders tab (pi-leaders.js) and the
+ * read-only daily proof (pi-proof.js). pi-arena.js
  * stays last: it starts the session with every block it needs already loaded.
  */
 /**
@@ -141,7 +142,9 @@ const SCRIPTS = [
   '/js/pi-coach.js?v=2',
   // The Leaders tab: the season's standings and your name on them.
   '/js/pi-leaders.js?v=2',
-  '/js/pi-arena.js?v=6',
+  // The daily proof, read-only, behind the header's Proof button.
+  '/js/pi-proof.js?v=1',
+  '/js/pi-arena.js?v=7',
 ];
 
 // ── the reader's language ────────────────────────────────────────────────

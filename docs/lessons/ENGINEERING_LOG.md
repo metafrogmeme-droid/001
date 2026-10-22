@@ -28554,3 +28554,38 @@ check.
 Every mutant was killed. The field's mutant was caught by the browser test
 measuring the input's size. An unstyled input is too small to tap, and only
 a browser can see that.
+
+## A BADGE NOBODY COULD READ IS NOT "NOT ANCHORED", AND SEVEN ASKS AT ONCE SPEND A BUDGET MEANT FOR THIRTY A MINUTE
+
+22 October 2026. The roadmap's next item was the Pi app's read-only Proof
+view with a quorum badge, in all seventeen languages. `public/js/pi-proof.js` lists
+the last seven finished days from `/api/roots`. Each day shows its seal count
+and its root, quoted and never linked, with its Anchor Quorum from
+`/api/roots/quorum/:day`. The guard tests are
+`app/test/the_pi_app_shows_the_daily_proof.test.js` and
+`app/test/the_pi_app_shows_the_daily_proof.smoke.test.js`.
+
+**Four states, not three.** The quorum has three values: held by k
+independent chains, short, and unknown. The page adds one of its own: the
+badge was not read, because the ask was refused, failed or is still out.
+That state says "Not checked yet" and claims nothing. Drawn as "Not
+anchored yet", it would turn a rate limit into a statement about the
+chain. Only "held" takes a colour. A chain whose record does not match the
+root is named. A failed answer is trusted for nothing, whatever its body
+says. The one surviving mutant showed that: a test now sends a 500 whose
+body claims a quorum.
+
+**One ask at a time.** The quorum route allows thirty requests a minute per
+address. Seven asks fired together from every open app would spend that
+budget in a burst, and the slow ones would come back refused. The block
+asks one day after another and draws each badge as it lands. A day already
+held is settled, so Refresh does not ask it again.
+
+**Behind the header, like About.** The bottom bar already holds five tabs
+at 390 px. A sixth would shrink every label, so Proof sits beside About as
+a header button, and the smoke test holds the bar at five.
+
+**The proof rows had no style anywhere.** The DogeOS app's proof block
+used the class names `p-proof-row`, `p-proof-hd` and `p-proof-root`, and no
+stylesheet defined them. The rows now share one card style in `embed.css`,
+in both apps.

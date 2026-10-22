@@ -371,6 +371,9 @@
       window.RCPiSignals.create(),
       // The season's standings, and your name on them.
       window.RCPiLeaders.create(),
+      // The daily roots and how many independent chains hold each, behind
+      // the header's Proof button: read-only, linking nowhere.
+      window.RCPiProof.create(),
       // What this is, the policies and the tip, behind the header's About.
       { place: 'main', tab: 'about', bar: false, label: 'About', icon: '\u24D8',
         html: aboutHtml, click: aboutClick, signedIn: signedIn },

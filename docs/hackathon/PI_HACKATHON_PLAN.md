@@ -38,6 +38,8 @@ An existing app may enter, and may enter again in a later month after improving.
 - **"Why?" buttons** on every signal card and Duel round open the coach on that card.
 - **Signals**: the agent's calls with charts, now with a plain-language line ("BTC rises toward 67,000; it is given up if BTC falls to 64,000").
 - **Leaders**: the season's standings and your name on them, chosen in the app. The Pi username is offered and used only if you save it.
+- **Daily Duel chips** (when the operator turns them on): play money, 1,000 a season, put with a call at the odds the round was dealt; the stack in the record. No chip touches a Pi payment.
+- **Proof** (header button, read-only, 22 Oct): the last seven finished days, each with its seal count, its root and its Anchor Quorum badge: held by two independent chains, how many so far, or that it could not be checked. It says it proves when a call existed, never how good it was, and links nowhere. Anchoring with a wallet stays in the DogeOS app.
 - **About**: what the app is, the policies, the language list and the optional tip.
 - **Seventeen languages**: the site's fourteen plus Vietnamese, Indonesian and Filipino. The server opens the app in the Pi Browser's language; About switches in place without ending the session. The coach answers in the language on screen.
 
