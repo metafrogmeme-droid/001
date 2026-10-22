@@ -188,6 +188,21 @@ test('the Farcaster sign-in keeps only the fid', () => {
   assert.match(text(), /Farcaster ID \(fid\)/)
 })
 
+test('the Risk Scanner names every chain it reads and the providers it asks by default', async () => {
+  const { createRequire } = await import('node:module')
+  const lz = createRequire(import.meta.url)(path.join(REPO, 'app', 'lib', 'lz_verifiers.js'))
+  const t = text()
+  const para = (t.match(/The Risk Scanner\.[^]*?not linked to you\./) || [''])[0]
+  assert.ok(para, 'the page no longer describes the Risk Scanner')
+  for (const c of Object.values(lz.chains({}))) assert.ok(para.includes(c.name), `the page does not name ${c.name}`)
+  const hosts = Object.values(lz.chains({})).flatMap((c) => c.rpcs.map((u) => new URL(u).hostname))
+  if (hosts.some((h) => h.endsWith('publicnode.com'))) assert.match(para, /PublicNode/)
+  if (hosts.some((h) => h.startsWith('cloudflare'))) assert.match(para, /Cloudflare/)
+  const route = repo('app', 'routes', 'risk.js')
+  assert.doesNotMatch(route, /requireAuth|optionalAuth|req\.user/, 'the check now reads who asked: the page must say so')
+  assert.match(route, /const CACHE_MS = 60000;/, 'the answer is kept for longer than the page says')
+})
+
 test('a Pi tip is disclosed field by field, and its record is erased with the account', () => {
   const ddl = repo('app', 'db.js').match(/CREATE TABLE IF NOT EXISTS pi_payments \(([\s\S]*?)\n\s*\)/)
   assert.ok(ddl, 'the pi_payments table is gone — the page still describes tip records')

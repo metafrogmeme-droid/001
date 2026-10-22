@@ -200,6 +200,29 @@
     "gs.loading": { en: "Reading the chains…" },
     "gs.floor_note": { en: "The floor is literal: <b>current gas × a typical transfer × the live native price</b>. Real transactions add contract overhead, bridge fees, relayers and destination gas on top — so <b>≥</b> means exactly what it says. Indicative; refreshes every minute; never a quote." },
     "gs.empty": { en: "No chain would answer just now — the numbers are unknown, not zero. Try again shortly." },
+    "rk.h1": { en: "🛡 Risk Scanner" },
+    "rk.lede": { en: "Read-only checks of what you are about to trust. Each reads the chain itself, through two readers that must agree, and says what it read: <b>a count, never a verdict</b>." },
+    "rk.b_h": { en: "Bridge: how many verifiers" },
+    "rk.b_p": { en: "A LayerZero app chooses who verifies its messages. When <b>one verifier’s word is enough</b>, whoever runs or fools that verifier decides what the app receives." },
+    "rk.f_chain": { en: "Chain" },
+    "rk.f_app": { en: "App address (OApp or OFT)" },
+    "rk.f_eid": { en: "Remote endpoint id" },
+    "rk.f_go": { en: "Read" },
+    "rk.note": { en: "In April 2026 a bridge was drained when a single verifier, fed by poisoned RPCs, was the only one that mattered. How many must agree is one fact about an app, <b>not a safety rating</b>: it says nothing about who runs them or how." },
+    "rk.w_h": { en: "Wallet: approvals" },
+    "rk.w_p": { en: "Which contracts can spend your tokens, and which of them without a limit." },
+    "rk.w_go": { en: "Open the approvals check" },
+    "rk.loading": { en: "Reading…" },
+    "rk.r_unread": { en: "Could not be read: not a verdict either way." },
+    "rk.refused": { en: "Check the chain, the address and the endpoint id." },
+    "rk.r_lib": { en: "A library this check does not know: not read" },
+    "rk.r_unnamed": { en: "not in LayerZero’s list" },
+    "rk.r_none": { en: "No verifier has to agree" },
+    "rk.r_one": { en: "One verifier’s word is enough" },
+    "rk.r_n": { en: "{n} verifiers must agree" },
+    "rk.r_in": { en: "Messages into this app" },
+    "rk.r_out": { en: "Messages it sends" },
+    "rk.r_by": { en: "Read by {readers}, who agreed." },
     "es.dust_t": { en: "A floor, not a quote: current gas × a typical bridge transaction × the live native-coin price, compared to this balance. Bridge fees, relayer fees and destination gas come on top. A heuristic flag from live prices — it moves; never a verdict." },
     "es.w_loaded": { en: "{n} holdings loaded across your chains. {home} looks like your home chain (largest balance) — everything elsewhere entered as bridged, which the plan sequences home LAST. A guess: flip any row. The mirror sees spot only — add perps, loans, LPs and staking yourself; the plan is only as complete as its inputs." },
     "rt.anchored": { en: "verified on Base" },
@@ -2060,6 +2083,7 @@
     "nav.rune": { en: "Rune" },
     "nav.gas": { en: "Live Gas" },
     "nav.approvals": { en: "Allowance X-ray" },
+    "nav.risk": { en: "Risk Scanner" },
     "pal.ph": { en: "Type a room, an address, a call key…" },
     "pal.addr": { en: "X-ray this address — what can spend its tokens" },
     "pal.call": { en: "Open this key as a sealed receipt" },
@@ -2488,7 +2512,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"72b041eb","zh":"79a0b708","pt":"80646021","fr":"40ef1bbe","de":"9ebcb1f1","nl":"0345832b","ja":"e329c4cf","ko":"1e06668a","ru":"7afcd3d7","tr":"ba9cb721","it":"5840dad2","hi":"53988f82","ar":"6630d866"};
+  var CHUNKS = {"es":"edc0e09b","zh":"1a56045b","pt":"e857c2a0","fr":"d4987017","de":"87f70ca2","nl":"48ea05ff","ja":"dc603bd6","ko":"a6f530cd","ru":"d388cee5","tr":"983d878a","it":"7881c376","hi":"444726b2","ar":"abdf8f65"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

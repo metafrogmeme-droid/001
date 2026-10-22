@@ -34,6 +34,7 @@
     ['🛡️', 'nav.guardian', 'Guardian', '/guardian', 'safety suite modules'],
     ['🧱', 'nav.firewall', 'Firewall', '/firewall', 'scan sign xray calldata decode'],
     ['🩻', 'nav.approvals', 'Allowance X-ray', '/approvals', 'approvals revoke spender delegate'],
+    ['🔎', 'nav.risk', 'Risk Scanner', '/scanner', 'bridge layerzero verifier dvn'],
     ['🪂', 'nav.escape', 'Escape Agent', '/escape', 'exit unwind emergency plan'],
     ['🌀', 'nav.stress', 'Stress Lab', '/stress', 'twin crash shock liquidation'],
     ['📡', 'nav.sentinel', 'Risk Sentinel', '/sentinel', 'systemic crowding'],

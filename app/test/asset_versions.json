@@ -188,8 +188,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 202,
-    "sha": "44717154832d93d7"
+    "v": 203,
+    "sha": "ade4cff37a107af3"
   },
   "js/icons.js": {
     "v": 6,
@@ -236,8 +236,8 @@
     "sha": "8523737307e06ee9"
   },
   "js/palette.js": {
-    "v": 1,
-    "sha": "09bd8620572d17f3"
+    "v": 2,
+    "sha": "26d0e008b20caf3f"
   },
   "js/panel-error-model.js": {
     "v": 6,
@@ -311,6 +311,10 @@
     "v": 1,
     "sha": "6e482731fe53921c"
   },
+  "js/risk-bridge.js": {
+    "v": 1,
+    "sha": "d840bd1ad479eeb0"
+  },
   "js/roots-stamp.js": {
     "v": 3,
     "sha": "057a1ce836c7570c"
@@ -375,6 +379,10 @@
     "v": 2,
     "sha": "93a650c4329ff1f1"
   },
+  "js/tg-app.js": {
+    "v": 1,
+    "sha": "c831f2a34265bdf4"
+  },
   "js/theater.js": {
     "v": 3,
     "sha": "a80337c76056c495"
@@ -430,9 +438,5 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
-  },
-  "js/tg-app.js": {
-    "v": 1,
-    "sha": "c831f2a34265bdf4"
   }
 }

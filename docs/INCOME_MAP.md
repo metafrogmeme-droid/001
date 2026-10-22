@@ -1423,6 +1423,10 @@ calldata into plain-English actions before signing; /approvals
 phrase lures, drain language, hidden/bidi/homoglyph characters, poisoned
 addresses — no network, nothing leaves the page; /approvals (`app/server.js::get('/approvals')`)
 enumerates token approvals and emits revoke plans the owner signs themselves.
+/scanner (`app/server.js::get('/scanner')`) is the Risk Scanner: it reads how many
+verifiers a LayerZero bridge app needs before it takes a message, each way, from
+the chain through two readers that must agree (`app/lib/lz_verifiers.js::bridgeCheck`,
+served by `app/routes/risk.js::get('/bridge')`), and says a count, never a rating.
 Contract Studio runs scan_security_flags (`bot/core/contract_studio.py::scan_security_flags`) — a
 deterministic Solidity rule set (tx.origin auth, selfdestruct, delegatecall,
 unchecked low-level call, block.timestamp, …) over the model's own output. MCP

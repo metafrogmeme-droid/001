@@ -480,6 +480,9 @@ app.use('/api/call', require('./routes/call'));
 // This server's live reading of one receipt; the bundle beside it is the
 // facts a third party checks without it (routes/verify.js).
 app.use('/api/verify', require('./routes/verify'));
+// The Risk Scanner's bridge check: how many verifiers a LayerZero app needs,
+// read from the chain by two readers that must agree (lib/lz_verifiers.js).
+app.use('/api/risk', require('./routes/risk'));
 app.use('/api/roots', require('./routes/roots'));
 app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
@@ -567,6 +570,8 @@ app.get('/rune', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res
 app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'gas.html')); });
 // /approvals — the Allowance X-ray (read-only; revoke plans the caller sends).
 app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'approvals.html')); });
+// Risk Scanner: read-only checks of what a visitor is about to trust (a bridge app's verifiers).
+app.get('/scanner', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'scanner.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
 // /token — the $RCLAW mint, its fixed-supply facts and the presale status.

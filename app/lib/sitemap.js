@@ -48,6 +48,7 @@ const STATIC_PATHS = [
   { path: '/gas', changefreq: 'daily', priority: '0.6' },
   // Allowance X-ray + the verify-everything surfaces.
   { path: '/approvals', changefreq: 'weekly', priority: '0.8' },
+  { path: '/scanner', changefreq: 'weekly', priority: '0.6' },
   { path: '/provable', changefreq: 'monthly', priority: '0.6' },
   { path: '/roots', changefreq: 'daily', priority: '0.5' },
 ];

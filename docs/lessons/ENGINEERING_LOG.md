@@ -28889,3 +28889,54 @@ mutants (all killed). The equivalent one replaces the signature's shape
 check with a presence check. Any string the shape check refuses either
 decodes to the wrong length, which the next check refuses, or to the same
 64 bytes as its canonical spelling, which is the same signature.
+
+## A COUNT OF VERIFIERS IS NOT A SAFETY RATING, AND NONE NEEDED IS NOT ONE
+
+22 October 2026. The roadmap's Risk Scanner, first check: how many verifiers
+a LayerZero V2 app needs before it takes a message (`/scanner`,
+`app/lib/lz_verifiers.js`, `app/routes/risk.js`, `app/public/js/risk-bridge.js`).
+
+- **Why this check:** the April 2026 bridge loss the roadmap report records
+  was one verifier's word, fed by poisoned RPCs. Whether an app leans on one
+  verifier is on-chain for anyone to read.
+- **How it reads:** the endpoint's `getSendLibrary`, `getReceiveLibrary`
+  and `getConfig(…, 2)` (the ULN setting), through two keyless readers per
+  chain that must agree (`lib/reader_agreement.js`). The endpoint, both
+  libraries and the verifiers' names are LayerZero's, snapshotted with a date
+  in `app/lib/layerzero_v2.json`.
+- **Guard test:** `app/test/a_bridge_is_read_for_how_many_verifiers_it_needs.test.js`.
+  Its fixture is a live Base app's answers, as both Base readers gave them on
+  22 October 2026.
+
+**None needed is not one.** The first cut said `single_verifier: needed <= 1`.
+A setting that reads as needing no verifier would then have been printed as
+"one verifier's word is enough", a smaller claim than the truth. The setting
+now carries `single_verifier` and `no_verifier` apart, and the page has a
+sentence for each. Amber is kept for those two; a larger count is plain text,
+never green, because a count says nothing about who runs the verifiers.
+
+**The page is `/scanner`, not `/risk`.** `/risk` already names two other
+things: the bot's risk-gate command and the "Risk gate" page of the
+marketing site (`site/src/routes/risk.tsx`), whose pages are being served on
+www one at a time. A third meaning on one path would have collided with the
+next of them. The API keeps `/api/risk`, which nothing else uses.
+
+**A library the check does not know is named, not decoded.** An app may use a
+send or receive library other than LayerZero's ULN 302. Its configuration may
+mean something else, so the check names the library and reads nothing from
+it, and the page says so for that direction only.
+
+**A configured reader is named by its place.** The override URLs
+(`LZ_*_RPC_URLS`) may carry a key in the path or in the subdomain, so the
+answer names them "configured rpc 1" and "configured rpc 2". Only the keyless
+defaults are named by host. `/api/risk/chains` serves names and endpoint ids,
+never a URL.
+
+**The decoder's strictness was written but not tested.** The first mutation
+round left 9 of 43 mutants alive. Six were checks in the decoders: a list
+longer than the answer, a list entry that is not an address, a struct head
+shorter than six words, a bool that is not 0 or 1, an address answer of two
+words, and an answer that is not whole words. The other three were the nil
+optional threshold, the endpoint's library answer not decoding, and the
+receive side alone not decoding. One test now drives each of them; the second
+round killed all 43.

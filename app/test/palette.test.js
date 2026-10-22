@@ -20,7 +20,7 @@ const i18n = read('js', 'i18n.js');
 test('rooms speak the dictionary; the palette only navigates', () => {
   for (const key of ['nav.dashboard', 'nav.arena', 'nav.learn', 'nav.command',
     'nav.rune', 'nav.guardian', 'nav.firewall', 'nav.approvals', 'nav.escape',
-    'nav.stress', 'nav.sentinel', 'nav.flight', 'nav.gas', 'nav.proof']) {
+    'nav.stress', 'nav.sentinel', 'nav.flight', 'nav.gas', 'nav.proof', 'nav.risk']) {
     assert.ok(pal.includes(`'${key}'`), `palette lists ${key}`);
   }
   assert.match(pal, /location\.href = it\[3\]/, 'navigation is the only act');
@@ -59,7 +59,7 @@ test('every inhabited room ships the palette', () => {
     'command.html', 'rune.html', 'guardian.html', 'firewall.html',
     'approvals.html', 'escape.html', 'stress.html', 'sentinel.html',
     'flight.html', 'gas.html', 'proof.html', 'provable.html', 'call.html',
-    'trader.html', 'leaderboard.html'];
+    'trader.html', 'leaderboard.html', 'scanner.html'];
   for (const f of must) {
     assert.ok(read(f).includes('/js/palette.js?v='), `${f} carries the palette`);
   }

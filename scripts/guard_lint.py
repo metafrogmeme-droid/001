@@ -501,6 +501,13 @@ RULES: list[Rule] = [
                            # launch over an hour old. app/test/
                            # the_duel_opens_as_a_telegram_mini_app.test.js
                            # drives every answer.
+            "risk",        # /api/risk/{bridge,chains} — the Risk Scanner's
+                           # bridge check: a LayerZero app's verifier setting,
+                           # which is on-chain for anyone to read, read live by
+                           # two keyless readers (lib/lz_verifiers.js). GET only,
+                           # rate limited by IP inside the router, nothing
+                           # signed, sent or stored about who asked; an account
+                           # would add a login in front of a public fact.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public

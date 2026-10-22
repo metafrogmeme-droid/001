@@ -196,6 +196,16 @@ function Privacy() {
         and asks for no payment.
       </P>
       <P>
+        <strong>The Risk Scanner.</strong> Its bridge check (<code>/scanner</code>)
+        sends the app address and endpoint id you enter to public RPC providers
+        for Ethereum, Base, Arbitrum One and OP Mainnet (PublicNode, Cloudflare
+        and each network&rsquo;s own public RPC, or providers the operator
+        configures), to read that app&rsquo;s setting. They see a request from
+        our server, not from you. It needs no account; we keep a reading for a
+        minute so a repeated question is not asked again, and it is not linked
+        to you.
+      </P>
+      <P>
         <strong>Pi Network.</strong> Signing in with Pi sends the access token
         Pi&rsquo;s own SDK gives the app to Pi&rsquo;s App Studio, which checks
         it and answers your uid. If you tip or buy Coach Plus, our server sends Pi&rsquo;s payment
