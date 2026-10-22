@@ -223,6 +223,34 @@
     "rk.r_in": { en: "Messages into this app" },
     "rk.r_out": { en: "Messages it sends" },
     "rk.r_by": { en: "Read by {readers}, who agreed." },
+    "rc.eyebrow": { en: "Daily Duel receipt" },
+    "rc.sealed": { en: "Sealed {time}, before the result." },
+    "rc.settles": { en: "Settles {time}." },
+    "rc.settled": { en: "Settled: {verdict}." },
+    "rc.st_sealed": { en: "SEALED" },
+    "rc.st_settled": { en: "SETTLED" },
+    "rc.st_anchored": { en: "ANCHORED" },
+    "rc.a_none": { en: "Not in a day’s root yet" },
+    "rc.a_unread": { en: "Not checked yet" },
+    "rc.a_held": { en: "Held by {n} independent chains" },
+    "rc.a_unknown": { en: "Could not be checked just now" },
+    "rc.a_short": { en: "{n} of {k} independent chains so far" },
+    "rc.a_not": { en: "Not anchored yet" },
+    "rc.v_unread": { en: "the result is on the receipt" },
+    "rc.v_reviewed": { en: "reviewed" },
+    "rc.v_corrected": { en: "corrected on review" },
+    "rc.v_flagged": { en: "under review" },
+    "rc.match": { en: "Football match" },
+    "rc.p_home": { en: "HOME WIN" },
+    "rc.p_away": { en: "AWAY WIN" },
+    "rc.scan": { en: "Scan to check it yourself." },
+    "rc.scan_p": { en: "The receipt page recomputes the seal in your browser." },
+    "rc.make": { en: "Make a card" },
+    "rc.making": { en: "Making the card…" },
+    "rc.failed": { en: "The card could not be made just now." },
+    "rc.save": { en: "Save image" },
+    "rc.share": { en: "Share" },
+    "rc.seal": { en: "seal" },
     "es.dust_t": { en: "A floor, not a quote: current gas × a typical bridge transaction × the live native-coin price, compared to this balance. Bridge fees, relayer fees and destination gas come on top. A heuristic flag from live prices — it moves; never a verdict." },
     "es.w_loaded": { en: "{n} holdings loaded across your chains. {home} looks like your home chain (largest balance) — everything elsewhere entered as bridged, which the plan sequences home LAST. A guess: flip any row. The mirror sees spot only — add perps, loans, LPs and staking yourself; the plan is only as complete as its inputs." },
     "rt.anchored": { en: "verified on Base" },
@@ -2512,7 +2540,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"edc0e09b","zh":"1a56045b","pt":"e857c2a0","fr":"d4987017","de":"87f70ca2","nl":"48ea05ff","ja":"dc603bd6","ko":"a6f530cd","ru":"d388cee5","tr":"983d878a","it":"7881c376","hi":"444726b2","ar":"abdf8f65"};
+  var CHUNKS = {"es":"48e68adb","zh":"39503e05","pt":"1a697e4a","fr":"6fc0df10","de":"5ccb736a","nl":"06681e05","ja":"2309f011","ko":"50c5b3a5","ru":"f5e18c72","tr":"45a67fee","it":"41474f78","hi":"1f47b563","ar":"a2085c0c"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

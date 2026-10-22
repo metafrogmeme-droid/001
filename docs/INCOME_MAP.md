@@ -890,7 +890,11 @@ each call is sealed when made; each settlement, an unresolved one included,
 gets a receipt of its own naming the call it settles
 (`app/lib/callseal.js::canonicalDuelSettlePayload`); the three are served by
 seal at `/api/call/round:…`, `duel:…`, `settle:…` (`app/lib/duel_receipts.js::lookupDuel`)
-and folded into the daily Merkle roots (`app/lib/seal_roots.js::sealsForDay`). The same card is played in
+and folded into the daily Merkle roots (`app/lib/seal_roots.js::sealsForDay`). A call's receipt page
+makes it a receipt card a player can save or share (`app/public/js/receipt-card.js::#"function model("`):
+drawn from the payload the visitor's browser has just hashed, with SEALED, SETTLED and ANCHORED marks
+and a QR code that opens the receipt on the configured public origin
+(`app/lib/receipt_qr.js::qrFor`, served by `app/routes/call.js::get('/:key/qr')`). The same card is played in
 the Pi Browser app (`app/public/js/pi-duel.js`) and shown on the website Arena
 (`app/public/arena.html::#"duelPanel"`). Doors, opened and read: Telegram /duel at
 `bot/skills/start_commands.py::StartCommands._cmd_duel` (@guard("start"), which `pending` holds, so

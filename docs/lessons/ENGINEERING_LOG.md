@@ -28940,3 +28940,73 @@ words, and an answer that is not whole words. The other three were the nil
 optional threshold, the endpoint's library answer not decoding, and the
 receive side alone not decoding. One test now drives each of them; the second
 round killed all 43.
+
+## A CARD IS DRAWN FROM WHAT THE BROWSER CHECKED, AND A QR CODE CARRIES THE ORIGIN THE SERVER VOUCHES FOR
+
+22 October 2026. The owner asked for a shareable card in the shape of a
+reference they liked: a label, a big line, three short lines, three marks
+and a QR code. It is now a receipt card for one Daily Duel call, in the
+site's palette, made on the call's receipt page (`/call/duel:<seal>`).
+
+- **The pieces:** `app/public/js/receipt-card.js` (model, drawing, paint),
+  `app/lib/receipt_qr.js` and `GET /api/call/:key/qr`, and a "Make a card"
+  block in `app/public/call.html`.
+- **Guard tests:** `app/test/a_receipt_card_says_what_the_seal_says.test.js`
+  and its `.smoke.test.js`, which drives the real page in Chromium.
+
+**The card is drawn from the payload the page has just hashed.** The page
+offers a card only when the sealed payload hashed to the seal in the
+visitor's browser. The market, the call and the times are the payload's, not
+the server's description of it. The verdict is read the same way: the page
+fetches the settlement's receipt, hashes its payload, and reads the
+`settle_state` sealed there. It does not read the live row beside it, and a
+test gives the two different values to tell them apart. A settlement that
+does not check, or does not answer, leaves the card saying "the result is on
+the receipt". The review decision and the flag are the settlement receipt's
+links; they are not hashed here.
+
+**Three marks, each three-valued.**
+- SETTLED is done once a settlement exists.
+- ANCHORED is done only on the Anchor Quorum's `multi_anchored`, the bar
+  `/roots` and the Pi proof view already use.
+- A quorum the page could not read is "not checked yet", never "not
+  anchored".
+- Green and red are kept for a measured verdict. A flagged call says "under
+  review", because its verdict may still change.
+
+**The QR code's origin is the one `lib/public_origin.js` answers.** That is
+the configured public origin, the same one the phone-link QR uses. It is
+never taken from the request's Host header, and a test sends a hostile Host
+to prove it. An origin nobody outside can reach (a private host) is refused
+with a 503 rather than encoded. The answer is `no-store`, because when
+nothing is configured the origin may come from the request.
+
+**The quiet zone is drawn, not encoded.** The matrix comes without a margin,
+and the card's light tile leaves at least four light modules on every side,
+as the QR spec requires. A test reads them back out of the rendered pixels.
+
+**A transposed matrix keeps its corners.** The first test checked the three
+finder patterns, which are the same transposed, so a serialiser that swapped
+rows and columns would have passed while scanning as nothing. The matrix is
+now compared cell by cell with the encoder's own, which also pins
+error-correction level M.
+
+**Two fresh failures, two different answers.** "A long market fits" failed
+because `fit` stopped at its floor even when the text still overflowed:
+that was the code, now fixed. "Three long labels fit" failed with 22-character
+labels: that was the fixture, since the longest translation is 11
+characters. At 16 characters the shrink loop runs and the labels fit.
+
+**A football call's seal names no team** (`canonicalDuelPayload` carries the
+round, not the match), so the card says "Football match" and HOME WIN /
+AWAY WIN / DRAW rather than reaching for names the seal does not cover.
+
+Mutation round: 46 mutants. The first round left two alive:
+- the settlement's kind check, which a fixture with the wrong seal never
+  reached;
+- the pills' shrink loop, which no real label exercised.
+Both tests were fixed and all 46 are killed.
+
+Each rendered card's QR was decoded with an independent decoder (jsQR, run
+outside the repo; it is not a dependency), in English and German, pending
+and settled.
