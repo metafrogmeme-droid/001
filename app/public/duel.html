@@ -53,6 +53,12 @@
   .d-btn:hover { border-color: var(--gold-bright); color: var(--gold-bright); }
   .d-btn:disabled { opacity: .45; cursor: default; }
   .d-btn--pass { flex-basis: 100%; }
+  .d-odds { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+  .d-chips { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .d-chips-in { width: 96px; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+                background: var(--bg); color: var(--text-1); font-family: var(--font-data); font-size: var(--fs-sm); }
+  .d-chips-none { flex-basis: 100%; }
+  .d-chips-st { font-family: var(--font-data); font-size: var(--fs-sm); }
   .d-round-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: var(--s2); }
   .d-kind { display: inline-flex; align-items: center; gap: 5px; }
   .d-icon { font-size: 12px; line-height: 1; }
@@ -110,6 +116,7 @@
 
   <section class="panel" id="cardPanel" hidden>
     <h2 data-i18n="duel.card_h">Today’s card</h2>
+    <p class="note" id="chipsNote" hidden data-i18n="duel.chips_note">Chips are play money: every player gets the same 1,000 each season, and nobody can buy, sell, send or cash them out. They are worth nothing outside this game. Put some on a call at the odds shown; a correct call pays them at those odds, a wrong one loses them, and a push gives them back.</p>
     <div class="d-rounds" id="rounds"></div>
     <p class="note" id="sportsNote" hidden data-i18n="duel.sports_unreadable">The football feed could not be read when today’s card was dealt, so no match is on it. This is on our side.</p>
   </section>
@@ -139,9 +146,9 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=199"></script>
+<script src="/js/i18n-core.js?v=200"></script>
 <script src="/js/presale.js?v=2"></script>
-<script src="/js/duel.js?v=8"></script>
+<script src="/js/duel.js?v=9"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -185,8 +192,10 @@
     $('rounds').innerHTML = (data.rounds || []).map(function (r) {
       // The horizon is the card's, and every question names it.
       // The website may link a receipt to its verify page; the Pi app may not.
-      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T, undefined, { links: true });
+      // Chips are offered here when the card carries them (lib/duel_chips.js).
+      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T, undefined, { links: true, chips: data.chips });
     }).join('');
+    $('chipsNote').hidden = !(data.chips && data.chips.enabled);
     // Only a feed that FAILED is reported; a day with no match says nothing.
     $('sportsNote').hidden = !(data.sources && data.sources.sports === 'unreadable');
     $('cardPanel').hidden = false;
@@ -199,7 +208,9 @@
     $('record').innerHTML =
       stat(T('duel.acc_k', 'Accuracy'), D.accuracyLabel(me.accuracy, T))
       + stat(T('duel.marks_k', 'Marks'), D.marksLabel(me.marks, T))
-      + stat(T('duel.streak_k', 'Streak'), streak);
+      + stat(T('duel.streak_k', 'Streak'), streak)
+      // The season's chips, when there are any to show; left out otherwise.
+      + (me.chips ? stat(T('duel.chips_k', 'Chips'), D.stackLabel(me.chips, T)) : '');
     $('recPanel').hidden = false;
     MY_HANDLE = me.handle || null;
     $('shareRow').hidden = false;
@@ -277,12 +288,21 @@
 
   get('/api/public/duel/board').then(function (d) {
     if (!d.rows.length && !d.warming_up) return;
-    $('board').innerHTML = boardTable(d.rows, [
+    var cols = [
       { h: '#', get: function (r) { return r.rank; }, n: true },
       { h: T('duel.rec_h', 'Player'), get: function (r) { return r.handle; } },
       { h: T('duel.acc_k', 'Accuracy'), get: function (r) { return r.accuracy_pct + '%'; }, n: true },
       { h: T('duel.marks_k', 'Marks'), get: function (r) { return r.marks; }, n: true },
-    ]) + warming(d);
+    ];
+    // Chips on the board are a percent of the season float, never a count of
+    // chips; a player with nothing paid yet has no return, shown as a dash.
+    if (d.rows.some(function (r) { return r.chips; })) {
+      cols.push({ h: T('duel.chips_ret', 'Chips return'), n: true, get: function (r) {
+        var p = r.chips ? r.chips.return_pct : null;
+        return p == null ? '—' : (p > 0 ? '+' : '') + p + '%';
+      } });
+    }
+    $('board').innerHTML = boardTable(d.rows, cols) + warming(d);
     $('boardPanel').hidden = false;
   }).catch(function () { /* omitted, not faked */ });
 
@@ -307,6 +327,11 @@
     var wrap = btn.closest('.d-actions');
     if (!wrap) return;
     var body = { round_id: Number(wrap.getAttribute('data-round')), pick: btn.getAttribute('data-pick') };
+    // Chips ride with the call when the field has a value; empty is none. The
+    // server checks every limit and says why when it refuses.
+    var inp = wrap.querySelector('.d-chips-in');
+    var chipsVal = inp ? String(inp.value || '').trim() : '';
+    if (chipsVal) body.chips = chipsVal;
     Array.prototype.forEach.call(wrap.querySelectorAll('.d-btn'), function (b) { b.disabled = true; });
     fetch('/api/duel/pick', {
       method: 'POST',

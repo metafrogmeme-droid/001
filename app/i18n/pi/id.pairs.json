@@ -372,5 +372,15 @@
 ["Close price", "Harga penutupan"],
 ["The season prizes could not be read just now.", "Hadiah musim tidak dapat dibaca saat ini."],
 ["Season prizes", "Hadiah musim"],
-["Free to enter. When the season ends, the top names on this board with at least {n} closed trades are paid in Pi. Names tied on return share their places’ prizes.", "Gratis untuk ikut. Saat musim berakhir, nama-nama teratas di papan peringkat ini dengan minimal {n} trade yang ditutup dibayar dalam Pi. Nama yang seri dalam return berbagi hadiah dari posisi yang mereka tempati."]
+["Free to enter. When the season ends, the top names on this board with at least {n} closed trades are paid in Pi. Names tied on return share their places’ prizes.", "Gratis untuk ikut. Saat musim berakhir, nama-nama teratas di papan peringkat ini dengan minimal {n} trade yang ditutup dibayar dalam Pi. Nama yang seri dalam return berbagi hadiah dari posisi yang mereka tempati."],
+["Your chips could not be read", "Chip Anda tidak dapat dibaca"],
+["{n} on the table", "{n} di meja"],
+["{n} held", "{n} ditahan"],
+["{n} calls not read", "{n} tebakan tidak terbaca"],
+["{f} a season, play money with no cash value", "{f} per musim, uang permainan tanpa nilai tunai"],
+["No chips left this season: call for marks", "Chip habis musim ini: tebak untuk poin"],
+["Chips", "Chip"],
+["none", "tidak ada"],
+["{min}–{max}, or none; a pass takes none", "{min}–{max}, atau tidak ada; lewati tidak memakai chip"],
+["No chips on this round: call it for marks", "Tidak ada chip di babak ini: tebak untuk poin"]
 ]

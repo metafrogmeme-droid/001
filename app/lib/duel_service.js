@@ -12,11 +12,13 @@
  * lib/duel.js decides what things MEAN; this decides what is READ and WRITTEN.
  */
 
-const { pool } = require('../db');
+const { pool, withTransaction } = require('../db');
 const { getTickers } = require('./tickers');
 const { closeAt } = require('./candles');
-const { sealDuelPick, sealDuelRound, sealDuelSettle, newRoundNonce } = require('./callseal');
+const { sealDuelPick, sealDuelRound, sealDuelSettle, newRoundNonce,
+  sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips } = require('./callseal');
 const duel = require('./duel');
+const chips = require('./duel_chips');
 const sportsFeed = require('./sports_feed');
 const duelContext = require('./duel_context');
 const secondPrice = require('./second_price');
@@ -33,10 +35,18 @@ const SETTLE_BATCH = 6;
 // deck). A reader with its own list reads the categories' columns as absent,
 // and an absent `kind` is a classic round, so every mover and range round
 // would be scored as a LONG/SHORT call there.
+//
+// Every column the tables carry but the owner, held to the tables by
+// test/the_duel_reads_every_column_it_writes.test.js. The second reading and
+// the dispute flag were written at settlement and never selected, so MySQL
+// handed every later read a call with no `settle_disputed`, and a disputed
+// settlement read as unchecked after its first page load. The in-memory
+// database returns whole rows whatever the projection, which hid it.
 const ROUND_COLS = 'id, day, idx, kind, symbol, symbol_b, threshold_pct, agent_direction, signal_key, meta,'
-  + ' seal, seal_payload, created_at';
+  + ' seal, seal_payload, odds, odds_source, created_at';
 const PICK_COLS = 'id, round_id, pick, entry_price, entry_price_b, resolves_at, settle_price, '
-  + 'settle_price_b, settle_state, settled_at, seal, seal_payload, settle_seal, settle_payload, created_at';
+  + 'settle_price_b, settle_state, settled_at, seal, seal_payload, settle_seal, settle_payload, '
+  + 'settle_second_price, settle_second_price_b, settle_disputed, chips, created_at';
 
 function dayFloor(now, days) {
   return new Date(new Date(now).getTime() - days * 86400000).toISOString().slice(0, 10);
@@ -54,8 +64,8 @@ async function loadRoundsForDay(day) {
   return (rows || []).map(parseRound);
 }
 
-async function loadRoundsSince(day) {
-  const [rows] = await pool.execute(
+async function loadRoundsSince(day, exec = pool) {
+  const [rows] = await exec.execute(
     `SELECT ${ROUND_COLS} FROM duel_rounds WHERE day >= ? ORDER BY day, idx`, [day]);
   return (rows || []).map(parseRound);
 }
@@ -73,10 +83,24 @@ function sportsStateFor(day, rounds) {
   return sportsStateByDay.get(day) || 'unknown';
 }
 
-async function loadPicks(userId) {
-  const [rows] = await pool.execute(
+async function loadPicks(userId, exec = pool) {
+  const [rows] = await exec.execute(
     `SELECT ${PICK_COLS} FROM duel_picks WHERE user_id = ?`, [userId]);
   return rows || [];
+}
+
+/** The season a moment falls in: the duel's calendar month, UTC. */
+function seasonAt(now) {
+  return new Date(now).toISOString().slice(0, 7);
+}
+
+/** A player's chips this season (lib/duel_chips.js stackOf), read through `exec`. */
+async function stackFor(userId, now = new Date(), exec = pool, picks = null) {
+  const season = seasonAt(now);
+  const [rounds, mine] = await Promise.all([
+    loadRoundsSince(season + '-01', exec), picks ? Promise.resolve(picks) : loadPicks(userId, exec),
+  ]);
+  return chips.stackOf(rounds, mine, season, now);
 }
 
 /**
@@ -140,21 +164,32 @@ async function ensureRounds(day, now = new Date()) {
   }
 
   const dealt_at = new Date(now).toISOString();
+  // Chips (lib/duel_chips.js): with the layer on, each round is dealt at the
+  // table's odds for its category, sealed with it (v9). Off, the round is the
+  // v6 round it always was, with no odds column written.
+  const withChips = chips.enabled();
   for (const r of built) {
     // Provable Calls v6: the round is sealed as dealt, stance included, and
     // the hash is on the card before anyone can call (lib/callseal.js).
     const m = r.meta && r.kind === 'sports' ? r.meta : null;
-    const receipt = sealDuelRound({
+    const facts = {
       day: r.day, idx: r.idx, kind: r.kind, symbol: r.symbol, symbol_b: r.symbol_b,
       threshold_pct: r.threshold_pct, agent_direction: r.agent_direction,
       match: m ? { event_id: m.event_id, home: m.home, away: m.away, kickoff: m.kickoff } : null,
       nonce: newRoundNonce(), dealt_at,
-    });
+    };
+    const dealtOdds = withChips ? chips.oddsFor(r.kind) : null;
+    const receipt = dealtOdds
+      ? sealDuelRoundChips({ ...facts, odds: dealtOdds.odds, odds_source: dealtOdds.source })
+      : sealDuelRound(facts);
     await pool.execute(
       'INSERT IGNORE INTO duel_rounds (day, idx, kind, symbol, symbol_b, threshold_pct,'
-      + ' agent_direction, signal_key, meta, seal, seal_payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      + ' agent_direction, signal_key, meta, seal, seal_payload, odds, odds_source, created_at)'
+      + ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [r.day, r.idx, r.kind, r.symbol, r.symbol_b, r.threshold_pct, r.agent_direction, r.signal_key,
-        r.meta == null ? null : JSON.stringify(r.meta), receipt.seal, receipt.seal_payload, dealt_at]);
+        r.meta == null ? null : JSON.stringify(r.meta), receipt.seal, receipt.seal_payload,
+        dealtOdds && dealtOdds.odds ? JSON.stringify(dealtOdds.odds) : null,
+        dealtOdds ? dealtOdds.source : null, dealt_at]);
   }
   // The day's context lines, read once now and remembered; not awaited, so
   // the deal never waits on a rented source (lib/duel_context.js).
@@ -268,12 +303,27 @@ async function writeSettlement(round, p, state, close, closeB, now, check = null
     const outcome = state === 'settled'
       ? duel.callOutcome(round, { ...p, settle_price: close, settle_price_b: closeB }) : null;
     const res = duel.scoreCall(kind, p.pick, outcome, round.agent_direction);
-    const receipt = sealDuelSettle({
+    const facts = {
       round_id: round.id, call_seal: p.seal, round_seal: round.seal, kind, pick: p.pick,
       settle_state: state, settle_price: close, settle_price_b: closeB,
       outcome, result: res.state, marks: res.marks, settled_at,
       second_source: second, second_source_b: secondB, disputed,
-    });
+    };
+    // A call that carried chips gets the v9 settlement: the chips, the odds
+    // they were put at, the movement the verdict gives them, and when a
+    // disputed settlement's chips are released (lib/duel_chips.js).
+    let receipt;
+    if (p.chips != null) {
+      const table = chips.oddsOf(round);
+      const odds = table && p.pick in table ? table[p.pick] : null;
+      receipt = sealDuelSettleChips({
+        ...facts, chips: Number(p.chips), odds_used: odds,
+        payout: odds == null ? null : chips.payoutFor(Number(p.chips), odds, res.state),
+        held_until: chips.heldUntil(settled_at, disputed),
+      });
+    } else {
+      receipt = sealDuelSettle(facts);
+    }
     seal = receipt.seal;
     payload = receipt.seal_payload;
   }
@@ -311,13 +361,17 @@ async function handleFor(userId) {
  * outcome the caller must render differently: a closed round, a price we could
  * not read, and a call already made are three different sentences to a player.
  */
-async function placePick(userId, roundId, rawPick, now = new Date()) {
+async function placePick(userId, roundId, rawPick, now = new Date(), opts = {}) {
   // A first look, before the round is known: a word no round takes is
   // refused here; a word the WRONG round takes is refused below, naming the
   // picks that round does take.
   if (duel.normPick(rawPick, null) === null) {
     return { ok: false, status: 400, error: 'That is not a call any round takes.' };
   }
+  // Chips ride with the call or not at all (lib/duel_chips.js). Absent is
+  // "no chips"; anything present is checked, and a refusal says why rather
+  // than recording the call without them.
+  const put = chips.parseChips(opts && opts.chips);
   if (!Number.isInteger(Number(roundId)) || Number(roundId) <= 0) {
     return { ok: false, status: 400, error: 'Which round?' };
   }
@@ -336,6 +390,15 @@ async function placePick(userId, roundId, rawPick, now = new Date()) {
     const words = duel.picksFor(kind).map((w) => w.toUpperCase());
     return { ok: false, status: 400,
       error: `Call ${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}.` };
+  }
+  const odds = chips.oddsOf(round);
+  const chipsOn = chips.enabled();
+  // Everything but the stack is checked before a price is read; the stack is
+  // checked under the player's row lock, below.
+  const early = chips.checkPut({ on: chipsOn, odds, kind, pick, chips: put });
+  if (!early.ok) {
+    const { ok, ...refusal } = early;
+    return { ok: false, ...refusal };
   }
 
   // The entry is snapped NOW, for this player. A stale mark would score the
@@ -375,18 +438,39 @@ async function placePick(userId, roundId, rawPick, now = new Date()) {
 
   const handle = await handleFor(userId);
   const picked_at = new Date(now).toISOString();
-  const receipt = sealDuelPick({
+  const facts = {
     round_id: round.id, day: round.day, kind, symbol: round.symbol,
     symbol_b: kind === 'mover' ? round.symbol_b : null,
     threshold_pct: kind === 'range' ? Number(round.threshold_pct) : null,
     handle, pick, entry_price: entry, entry_price_b: entryB, resolves_at, picked_at,
-  });
+  };
+  // A call with chips is the v9 receipt (the chips and their odds sealed in
+  // it); one without is the v4 receipt it always was.
+  const receipt = put === null ? sealDuelPick(facts) : sealDuelPickChips({ ...facts, chips: put, odds: odds[pick] });
 
   try {
-    await pool.execute(
+    const insert = (exec) => exec.execute(
       'INSERT INTO duel_picks (user_id, round_id, pick, entry_price, entry_price_b, resolves_at,'
-      + ' seal, seal_payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [userId, round.id, pick, entry, entryB, resolves_at, receipt.seal, receipt.seal_payload, picked_at]);
+      + ' seal, seal_payload, chips, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, round.id, pick, entry, entryB, resolves_at, receipt.seal, receipt.seal_payload, put, picked_at]);
+    if (put === null) {
+      await insert(pool);
+    } else {
+      // The stack is read and the call written under the player's own row
+      // lock, so two calls sent at once cannot both spend the same chips.
+      const refused = await withTransaction(async (conn) => {
+        await conn.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+        const stack = await stackFor(userId, now, conn);
+        const check = chips.checkPut({ on: chipsOn, odds, kind, pick, chips: put, available: stack.available });
+        if (!check.ok) return check;
+        await insert(conn);
+        return null;
+      });
+      if (refused) {
+        const { ok, ...refusal } = refused;
+        return { ok: false, ...refusal };
+      }
+    }
   } catch (e) {
     // The unique key IS the anti-cheat, not a convenience: a call cannot be
     // revised once made, so the second write has nowhere to land.
@@ -406,6 +490,7 @@ async function placePick(userId, roundId, rawPick, now = new Date()) {
     resolves_at,
     seal: receipt.seal,
   };
+  if (put !== null) { out.chips = put; out.odds = odds[pick]; }
   if (kind === 'mover') { out.symbol_b = round.symbol_b; out.entry_price_b = entryB; }
   if (kind === 'range') out.threshold_pct = Number(round.threshold_pct);
   if (kind === 'sports') {
@@ -423,12 +508,27 @@ async function placePick(userId, roundId, rawPick, now = new Date()) {
 }
 
 /** Today's card as the caller sees it, with their own calls attached. */
+/**
+ * The chips block a payload carries: the rules and the caller's stack, while
+ * the layer is on or while they still have chips calls this season (a layer
+ * turned off mid-season still pays what was put). Null otherwise: no block,
+ * rather than a stack of 1,000 for a game the player was never offered.
+ */
+async function chipsBlock(userId, picks, now) {
+  const on = chips.enabled();
+  if (!on && !(picks || []).some((p) => p && p.chips != null)) return null;
+  const stack = await stackFor(userId, now, pool, picks);
+  if (!on && stack.calls_with_chips === 0) return null;
+  return { enabled: on, ...chips.rules(), stack };
+}
+
 async function cardFor(userId, now = new Date()) {
   const day = duel.dayKey(now);
   const rounds = await ensureRounds(day, now);
   const picks = await loadPicks(userId);
   await settleDue(rounds, picks, now);
   const mine = new Map(picks.map((p) => [String(p.round_id), p]));
+  const chipsOn = chips.enabled();
 
   const cards = [];
   for (const r of rounds) {
@@ -436,9 +536,14 @@ async function cardFor(userId, now = new Date()) {
     // The stance is owed only once the caller has committed. Before that it is
     // omitted entirely — see duel.publicRound.
     const view = duel.publicRound(r, { revealAgent: Boolean(pick), now });
+    // The odds this round was dealt at, offered while the layer is on. A
+    // round dealt without chips carries `odds: null`, which a surface says.
+    if (chipsOn) view.odds = chips.oddsOf(r);
     if (pick) {
       view.my_call = duel.publicPick(pick, { now, round: r });
       view.my_result = duel.scoreCall(duel.kindOf(r), pick.pick, duel.callOutcome(r, pick), r.agent_direction);
+      const c = chips.pickChips(pick, r, now);
+      if (c) view.my_call.chips = c;
     }
     // A remembered context line, when there is one; never a lookup here.
     await duelContext.attachSmartMoney(view, r);
@@ -455,6 +560,7 @@ async function cardFor(userId, now = new Date()) {
     // was dealt), 'off' (no feed configured), 'unknown' (the card was dealt
     // by another process). A surface says something only for 'unreadable'.
     sources: { sports: sportsStateFor(day, rounds) },
+    chips: await chipsBlock(userId, picks, now),
     counts_only: true,
   };
 }
@@ -465,7 +571,15 @@ async function recordFor(userId, now = new Date()) {
   const [rounds, picks] = await Promise.all([loadRoundsSince(floor), loadPicks(userId)]);
   await settleDue(rounds, picks, now);
   const entries = duel.scoreEntries(rounds, picks);
+  // Each entry's chips, read beside its verdict; an entry without chips has none.
+  const roundOf = new Map(rounds.map((r) => [String(r.id), r]));
+  const pickOf = new Map(picks.map((p) => [String(p.round_id), p]));
+  for (const e of entries) {
+    const c = chips.pickChips(pickOf.get(String(e.round_id)), roundOf.get(String(e.round_id)), now);
+    if (c) e.chips = c;
+  }
   return {
+    chips: await chipsBlock(userId, picks, now),
     window_days: RECORD_WINDOW_DAYS,
     accuracy: duel.accuracy(entries),
     marks: duel.computeMarks(entries),
@@ -479,6 +593,7 @@ module.exports = {
   secondReadings,
   RECORD_WINDOW_DAYS, SETTLE_BATCH, ROUND_COLS, PICK_COLS,
   dayFloor, parseRound, loadRoundsForDay, loadRoundsSince, loadPicks, sportsStateFor, writeSettlement,
+  seasonAt, stackFor, chipsBlock,
   ensureRounds, settleDue, handleFor, placePick, cardFor, recordFor,
   _resetSportsState: () => sportsStateByDay.clear(),
 };

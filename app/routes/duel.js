@@ -13,8 +13,10 @@
  * Rules are lib/duel.js (pure); reads and writes are lib/duel_service.js,
  * shared with the Telegram channel so the two surfaces cannot fork the rules.
  *
- * §4: virtual throughout — there is no stake, no wager and no amount of any
- * currency anywhere in this surface. Only counts, percent and market prices.
+ * §4: virtual throughout — no money, no token and no amount of any currency
+ * anywhere in this surface. Only counts, percent and market prices, and,
+ * with DUEL_CHIPS_ENABLED, chips: a play-money count a season hands every
+ * player and nobody can buy, sell or withdraw (lib/duel_chips.js).
  */
 
 const express = require('express');
@@ -53,11 +55,13 @@ router.get('/today', async (req, res) => {
   }
 });
 
-// POST /pick { round_id, pick } — commit a call. Write-once, while the round is open.
+// POST /pick { round_id, pick, chips? } — commit a call, with chips or
+// without. Write-once, while the round is open.
 router.post('/pick', pickLimit, async (req, res) => {
   try {
     const body = req.body || {};
-    const out = await svc.placePick(req.user.user_id, Number(body.round_id), body.pick);
+    const out = await svc.placePick(req.user.user_id, Number(body.round_id), body.pick, new Date(),
+      { chips: body.chips });
     if (!out.ok) {
       const { status, ...rest } = out;
       return res.status(status).json(rest);
@@ -85,6 +89,9 @@ router.get('/me', async (req, res) => {
         .slice()
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, 60),
+      // The season's chips (lib/duel_chips.js), or null when the layer is off
+      // and nothing was put. A private surface: the stack is the player's own.
+      chips: rec.chips,
       counts_only: true,
       private: true,
     });
@@ -109,6 +116,7 @@ router.get('/season', async (req, res) => {
       season,
       accuracy: duel.accuracy(entries),
       marks: duel.computeMarks(entries),
+      chips: await svc.chipsBlock(req.user.user_id, picks, now),
       counts_only: true,
     });
   } catch (err) {

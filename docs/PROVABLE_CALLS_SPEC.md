@@ -224,6 +224,62 @@ only after the website has read the receipt from the chain, never from what a
 browser reported. A coin launched straight at the contract, without the page,
 has no terms on our side and no seal.
 
+### 2.8 · `v: 9` — the Daily Duel's chips, on the round, the call and the settlement
+
+Chips are a play-money count the duel hands every player each season (the
+calendar month, UTC): 1,000 apiece, never bought, sold, sent or withdrawn,
+and reset when the season turns (`app/lib/duel_chips.js`). A player may put
+10 to 200 of them on a call, at odds fixed when the round was dealt. Three
+receipts carry them. Each is its earlier kind with the chips facts **appended
+inside the hashed bytes**, every earlier field in its earlier order.
+
+A round, dealt while chips are on (v6 + `odds`, `odds_source`):
+
+```json
+{"v":9,"kind":"duel_round","day":"2026-10-22","idx":0,"category":"direction","symbol":"BTCUSDT",
+ "symbol_b":null,"threshold_pct":null,"agent_direction":"long","match":null,
+ "nonce":"0123456789abcdef0123456789abcdef","dealt_at":"2026-10-22T00:00:05.000Z",
+ "odds":{"long":1.9,"short":1.9},"odds_source":"table-2026-10"}
+```
+
+`odds` maps each pick that takes chips to its decimal odds; a pass is never
+in it, because a pass cannot be wrong and chips on it could only come back
+or win. `odds` is `null` for a round dealt without chips, as a football match
+is: the feed carries no prices, and odds nobody measured are not invented.
+The odds come from a published table by category and pick, never from the
+stance the round hides, so they say nothing about it. The payload opens on
+the same rule as v6.
+
+A call that carries chips (v4 + `chips`, `odds`, the decimal they were put
+at). A call without chips stays v4. Still free of every outcome field:
+
+```json
+{"v":9,"kind":"duel_pick","round_id":1,"day":"2026-10-22","category":"direction","symbol":"BTCUSDT",
+ "symbol_b":null,"threshold_pct":null,"handle":null,"pick":"long","entry_price":60000,
+ "entry_price_b":null,"resolves_at":"2026-10-23T09:30:00.000Z",
+ "picked_at":"2026-10-22T09:30:00.000Z","chips":50,"odds":1.9}
+```
+
+The settlement of such a call (v7 + `chips`, `odds_used`, `payout`, `held_until`):
+
+```json
+{"v":9,"kind":"duel_settle","round_id":1,"call_seal":"<64 hex>","round_seal":"<64 hex>",
+ "category":"direction","pick":"long","settle_state":"settled","settle_price":61200,
+ "settle_price_b":null,"outcome":"up","result":"correct","marks":1,
+ "settled_at":"2026-10-23T10:00:00.000Z",
+ "second_source":{"provider":"CoinGecko","price":61190,"source_at":"2026-10-23T09:55:00.000Z"},
+ "second_source_b":null,"disputed":false,"chips":50,"odds_used":1.9,"payout":45,"held_until":null}
+```
+
+`payout` is the signed movement the verdict gives the chips: `round(chips ×
+(odds_used − 1))` for `correct`, `−chips` for `wrong`, `0` for `push` and
+`unresolved`. `held_until` is set when `disputed` is `true`: the verdict and
+its marks stand, and the chips are paid as the verdict stands only from that
+instant (the settlement plus two hours), so a disputed settlement is never
+shown as won or lost before then. It is `null` otherwise. A player's stack is
+never stored: it is the season float plus the paid payouts minus the chips
+still on the table, recomputed from these receipts' rows on every read.
+
 ---
 
 ## 3 · Addressing
@@ -328,6 +384,13 @@ this format, but it is a good one and worth copying: an amount tells a reader
 nothing about skill that a percentage does not, and it turns a verification
 surface into a disclosure surface.
 
+Duel chips (§2.8) are the one count that looks like an amount, and they are
+sealed because the receipt is the proof of what was put before the market
+answered. They are not a currency: every player is handed the same float
+each season, nobody can buy, sell, send or withdraw a chip, and it is worth
+nothing outside the game. The public board shows a player's return on the
+float as a percent and how many calls carried chips, and no count of chips.
+
 ---
 
 ## 7 · Version history
@@ -342,6 +405,7 @@ surface into a disclosure surface.
 | 6 | A dealt duel round, the agent's stance committed before anyone calls |
 | 7 | A duel settlement: prices or score, outcome and verdict, naming the call |
 | 8 | A Memeclaw launch: the terms hash the chain recorded, the coin, the creator's buy |
+| 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

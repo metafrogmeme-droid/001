@@ -2123,6 +2123,25 @@
     "duel.sm_out": { en: "out" },
     "duel.st_disputed": { en: "disputed" },
     "duel.st_disputed_n": { en: "A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both." },
+    "duel.chips_k": { en: "Chips" },
+    "duel.chips_ph": { en: "none" },
+    "duel.chips_limits": { en: "{min}–{max}, or none; a pass takes none" },
+    "duel.chips_empty": { en: "No chips left this season: call for marks" },
+    "duel.chips_no_round": { en: "No chips on this round: call it for marks" },
+    "duel.chips_open": { en: "{c} chips on the table at {o}" },
+    "duel.chips_held": { en: "{c} chips held: disputed, paid when the check window closes" },
+    "duel.chips_held_in": { en: "{c} chips held: disputed, paid in {t}" },
+    "duel.chips_won": { en: "Won {w} chips at {o}" },
+    "duel.chips_lost": { en: "Lost {c} chips" },
+    "duel.chips_returned": { en: "{c} chips returned" },
+    "duel.chips_unread": { en: "{c} chips: their odds could not be read" },
+    "duel.stack_unread": { en: "Your chips could not be read" },
+    "duel.stack_table": { en: "{n} on the table" },
+    "duel.stack_held": { en: "{n} held" },
+    "duel.stack_unread_n": { en: "{n} calls not read" },
+    "duel.stack_how": { en: "{f} a season, play money with no cash value" },
+    "duel.chips_ret": { en: "Chips return" },
+    "duel.chips_note": { en: "Chips are play money: every player gets the same 1,000 each season, and nobody can buy, sell, send or cash them out. They are worth nothing outside this game. Put some on a call at the odds shown; a correct call pays them at those odds, a wrong one loses them, and a call with no result gives them back." },
     "duel.you_called": { en: "You called" },
     "duel.ag_hidden": { en: "Hidden until you call" },
     "duel.ag_passed": { en: "The Claw passed" },
@@ -2459,7 +2478,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"78b81439","zh":"1015fb10","pt":"7ec7e730","fr":"6b61fc16","de":"977183df","nl":"05ac50f1","ja":"523e9f09","ko":"619ec713","ru":"a8335e48","tr":"01cb8fc1","it":"761aad17","hi":"42652f70","ar":"c243c325"};
+  var CHUNKS = {"es":"ea8b94c7","zh":"0f3c27d8","pt":"3d24dc51","fr":"7050cfb9","de":"bc085611","nl":"97ae31bc","ja":"890a0f6f","ko":"52dbbad6","ru":"a1575e4a","tr":"38049515","it":"fa7897ef","hi":"a982c9a7","ar":"168e3a06"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

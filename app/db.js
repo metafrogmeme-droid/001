@@ -2574,6 +2574,8 @@ class MemoryDB {
         meta: col('META') == null ? null : String(col('META')),
         seal: col('SEAL') == null ? null : String(col('SEAL')),
         seal_payload: col('SEAL_PAYLOAD') == null ? null : String(col('SEAL_PAYLOAD')),
+        odds: col('ODDS') == null ? null : String(col('ODDS')),
+        odds_source: col('ODDS_SOURCE') == null ? null : String(col('ODDS_SOURCE')),
         created_at: col('CREATED_AT') || new Date().toISOString(),
         created_at: new Date().toISOString(),
       });
@@ -2621,6 +2623,7 @@ class MemoryDB {
         seal: pcol('SEAL') == null ? null : pcol('SEAL'),
         seal_payload: pcol('SEAL_PAYLOAD') == null ? null : pcol('SEAL_PAYLOAD'),
         settle_seal: null, settle_payload: null,
+        chips: pcol('CHIPS') == null ? null : Number(pcol('CHIPS')),
         created_at: pcol('CREATED_AT') || new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelPickId - 1 }, []];
@@ -3238,6 +3241,12 @@ const REQUIRED_DUEL_ROUND_COLUMNS = Object.freeze({
   // included, revealed once the player has called (lib/callseal.js).
   seal: 'VARCHAR(64) NULL',
   seal_payload: 'TEXT NULL',
+  // Chips (2026-10-22, lib/duel_chips.js): the decimal odds per pick the
+  // round was dealt at, as JSON text, and the table they came from. NULL is
+  // a round dealt without chips (the layer off, or a match the feed prices
+  // nowhere), never odds of zero.
+  odds: 'TEXT NULL',
+  odds_source: 'VARCHAR(24) NULL',
 });
 const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
   entry_price_b: 'DOUBLE NULL',
@@ -3251,6 +3260,10 @@ const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
   settle_second_price: 'DOUBLE NULL',
   settle_second_price_b: 'DOUBLE NULL',
   settle_disputed: 'TINYINT NULL',
+  // The chips put with the call (lib/duel_chips.js). NULL is "no chips were
+  // put", never 0: a call without chips and a call with none are one thing,
+  // and zero is refused at the door.
+  chips: 'INT NULL',
 });
 // The share card's book (2026-10-20): `trades` is on every production
 // database, so the ALTER below the fast path never runs there. Reconciled
@@ -4462,6 +4475,8 @@ async function migrate() {
         meta TEXT NULL,
         seal VARCHAR(64) NULL,
         seal_payload TEXT NULL,
+        odds TEXT NULL,
+        odds_source VARCHAR(24) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_round (day, idx),
         INDEX idx_duel_rounds_day (day)
@@ -4494,6 +4509,7 @@ async function migrate() {
         settle_second_price DOUBLE NULL,
         settle_second_price_b DOUBLE NULL,
         settle_disputed TINYINT NULL,
+        chips INT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_pick (user_id, round_id),
         INDEX idx_duel_picks_user (user_id),
@@ -4517,6 +4533,8 @@ async function migrate() {
       'ALTER TABLE duel_rounds ADD COLUMN meta TEXT NULL',
       'ALTER TABLE duel_rounds ADD COLUMN seal VARCHAR(64) NULL',
       'ALTER TABLE duel_rounds ADD COLUMN seal_payload TEXT NULL',
+      'ALTER TABLE duel_rounds ADD COLUMN odds TEXT NULL',
+      'ALTER TABLE duel_rounds ADD COLUMN odds_source VARCHAR(24) NULL',
       'ALTER TABLE duel_picks ADD COLUMN entry_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_seal VARCHAR(64) NULL',
@@ -4524,6 +4542,7 @@ async function migrate() {
       'ALTER TABLE duel_picks ADD COLUMN settle_second_price DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_second_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_disputed TINYINT NULL',
+      'ALTER TABLE duel_picks ADD COLUMN chips INT NULL',
       `ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`,
       'ALTER TABLE duel_picks MODIFY COLUMN entry_price DOUBLE NULL',
     ]) {

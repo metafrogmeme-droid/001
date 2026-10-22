@@ -1,9 +1,58 @@
 # Virtual stakes for the Daily Duel: the design
 
-*Status: proposal for review, 20 October 2026. Nothing here is built. It
-follows `docs/design/VIRTUAL_STAKES_INPUTS.md` (what the reference market
-does, what Nansen exposes, what the duel already has) and the four decisions
-proposed there, which this document takes as settled unless marked open.*
+*Status: proposal for review, 20 October 2026; the owner said go on 22
+October 2026, and the first phase is built behind `DUEL_CHIPS_ENABLED` (see
+"What was built" just below). It follows `docs/design/VIRTUAL_STAKES_INPUTS.md`
+(what the reference market does, what Nansen exposes, what the duel already
+has) and the four decisions proposed there, which this document takes as
+settled unless marked open.*
+
+## 0 · What was built (22 October 2026), and where it differs from below
+
+Phase one: odds dealt and sealed with the round, chips put with the call,
+paid at settlement, held while disputed, the stack on the website's duel page
+and the Arena panel, the board's return, and the receipts. Code:
+`app/lib/duel_chips.js` (the rules, pure), `app/lib/duel_service.js` (deal,
+put, settle), `app/lib/duel_receipts.js`, `app/routes/public_duel.js`,
+`app/public/js/duel.js`. Tests:
+`app/test/the_duel_pays_chips_at_the_odds_it_dealt.test.js` and
+`app/test/the_duel_page_puts_chips_with_a_call.smoke.test.js`.
+
+Where the build departs from the proposal, and why:
+
+- **No stack table and no chip-move table (§4).** A stack is recomputed on
+  every read from the calls: the chips each carries, the odds its round was
+  dealt at, the verdict `lib/duel.js` already gives it. That is how marks and
+  accuracy are computed, and a stored balance would be a second reading of
+  the same quantity. The schema gained three columns: `duel_rounds.odds`,
+  `duel_rounds.odds_source` and `duel_picks.chips`.
+- **The picks are the code's words (§3.2).** The table is direction
+  `long`/`short` 1.9/1.9, back/fade 1.9/1.9, range `break`/`hold` 2.2/1.7 and
+  mover `first`/`second` 1.9/1.9. A football round has no odds, because the
+  feed carries no prices.
+- **No chips on a pass.** A pass is correct on a flat market and a push on
+  any other, never wrong, so chips on it would be a free bet. A pass is still
+  a call, for marks.
+- **The seals are v9, not v8 (§5).** v8 had gone to the Memeclaw launch. One
+  version covers the round, the call and the settlement, each with its chips
+  facts appended (`docs/PROVABLE_CALLS_SPEC.md` §2.8). A call with no chips
+  stays v4. The settlement seals the payout the verdict gives and a
+  `held_until`; release needs no write, since the hold ends at a sealed instant.
+- **The board shows no chip count (§3.6).** It shows the return on the float
+  as a percent and how many calls carried chips. "Chips put" would be a sum of
+  play money on a public payload.
+- **The hold window is two hours.** Within it, a disputed settlement's chips
+  are held, shown as held, and paid as the verdict stands once it closes.
+
+The owner's open questions (§10) were answered with this document's own
+defaults: a 1,000 float, at most 200 a call, the words "chips" and "put".
+Questions 2 and 4, the review threshold and what a correction re-settles,
+belong to phase two.
+
+**Phase two, not built:** flags, the operator review queue and its
+`duel_review` receipt (§3.5), chips in the Pi app and on the Telegram cards
+(§6). Until then a call from the Pi app or Telegram carries no chips, and
+nothing there says otherwise.
 
 ## 1 · What it is, in one paragraph
 

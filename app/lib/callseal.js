@@ -412,6 +412,63 @@ function sealMemeclawLaunch(c) {
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
+/**
+ * v9 — THE CHIPS LAYER on the Daily Duel (lib/duel_chips.js), 2026-10-22.
+ * Three receipts, each its earlier kind with the chips facts appended inside
+ * the hashed bytes, field order otherwise unchanged:
+ *
+ *   duel_round   v6 + `odds` (decimal per pick, or null for a round dealt
+ *                without chips) and `odds_source` (the table it came from).
+ *                Sealed at the deal: the odds a player is offered cannot move
+ *                after anyone has called.
+ *   duel_pick    v4 + `chips` and `odds` (the decimal they were put at). Only
+ *                a call that carries chips is v9; one without stays v4. Still
+ *                free of outcome fields (spec §5 rule 2).
+ *   duel_settle  v7 + `chips`, `odds_used`, `payout` (the signed chip movement
+ *                the verdict gives) and `held_until` (when a disputed
+ *                settlement's chips are released; null when not held).
+ *
+ * The earlier builders make the bytes and this appends to their parse, so a
+ * field order lives in one place. Chips are a play-money count with no
+ * exchange rate (spec §6): never a dollar, never a token.
+ */
+function withChips(canonical, extra) {
+  return JSON.stringify({ ...JSON.parse(canonical), v: 9, ...extra });
+}
+
+function oddsMapOrNull(o) {
+  if (!o || typeof o !== 'object') return null;
+  const out = {};
+  for (const [k, v] of Object.entries(o)) out[String(k)] = Number(v);
+  return out;
+}
+
+function sealDuelRoundChips(r) {
+  const seal_payload = withChips(canonicalDuelRoundPayload(r), {
+    odds: oddsMapOrNull(r.odds),
+    odds_source: r.odds_source == null ? null : String(r.odds_source),
+  });
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
+function sealDuelPickChips(p) {
+  const seal_payload = withChips(canonicalDuelPayload(p), {
+    chips: Number(p.chips),
+    odds: numOrNull(p.odds),
+  });
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
+function sealDuelSettleChips(s) {
+  const seal_payload = withChips(canonicalDuelSettlePayload(s), {
+    chips: Number(s.chips),
+    odds_used: numOrNull(s.odds_used),
+    payout: numOrNull(s.payout),
+    held_until: s.held_until ? new Date(s.held_until).toISOString() : null,
+  });
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
 function inputDigest(text) {
   const buf = Buffer.from(String(text == null ? '' : text), 'utf8');
   return { sha256: crypto.createHash('sha256').update(buf).digest('hex'),
@@ -426,4 +483,5 @@ module.exports = {
   canonicalDuelSettlePayload, sealDuelSettle,
   canonicalScanPayload, sealScan, inputDigest,
   canonicalMemeclawLaunchPayload, sealMemeclawLaunch,
+  sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips,
 };

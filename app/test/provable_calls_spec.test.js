@@ -291,3 +291,31 @@ test('every implementation file the spec cites exists', () => {
     assert.ok(SPEC.includes(path.basename(rel)), `${rel} is cited`);
   }
 });
+
+test('the chips payloads (v9) are their earlier kinds with the chips appended, as the spec writes them', () => {
+  const block = SPEC.slice(SPEC.indexOf('### 2.8'), SPEC.indexOf('## 3 '));
+  assert.ok(block.length > 100, 'the spec has a v9 section');
+  const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
+  assert.deepEqual(examples.map((e) => e.kind), ['duel_round', 'duel_pick', 'duel_settle']);
+  const round = { day: 'd', idx: 0, kind: 'direction', symbol: 'B', agent_direction: 'long', nonce: 'n', dealt_at: AT };
+  const call = { round_id: 1, day: 'd', kind: 'direction', symbol: 'B', pick: 'long', entry_price: 1, resolves_at: AT, picked_at: AT };
+  const settle = { round_id: 1, call_seal: 'a'.repeat(64), round_seal: 'b'.repeat(64), kind: 'direction', pick: 'long',
+    settle_state: 'settled', settle_price: 2, outcome: 'up', result: 'correct', marks: 1, settled_at: AT };
+  const real = [
+    [seal.sealDuelRoundChips({ ...round, odds: { long: 1.9, short: 1.9 }, odds_source: 't' }), seal.canonicalDuelRoundPayload(round), ['odds', 'odds_source']],
+    [seal.sealDuelPickChips({ ...call, chips: 50, odds: 1.9 }), seal.canonicalDuelPayload(call), ['chips', 'odds']],
+    [seal.sealDuelSettleChips({ ...settle, chips: 50, odds_used: 1.9, payout: 45, held_until: null }),
+      seal.canonicalDuelSettlePayload(settle), ['chips', 'odds_used', 'payout', 'held_until']],
+  ];
+  real.forEach(([sealed, earlier, appended], i) => {
+    const keys = keysOf(sealed.seal_payload);
+    assert.equal(JSON.parse(sealed.seal_payload).v, 9);
+    assert.deepEqual(keys, keysOf(earlier).concat(appended), 'every earlier field in its earlier order, then the chips');
+    assert.deepEqual(Object.keys(examples[i]), keys, `the spec's ${examples[i].kind} names the sealed fields, in order`);
+    assert.equal(sealed.seal, crypto.createHash('sha256').update(sealed.seal_payload, 'utf8').digest('hex'));
+  });
+  const OUTCOME = ['result', 'outcome', 'payout', 'settle_price', 'settle_state', 'held_until'];
+  for (const k of keysOf(real[1][0].seal_payload)) assert.ok(!OUTCOME.includes(k), `a v9 call carries no outcome: ${k}`);
+  assert.strictEqual(JSON.parse(seal.sealDuelRoundChips({ ...round, odds: null, odds_source: null }).seal_payload).odds, null,
+    'a round dealt without chips seals null odds, never an empty map');
+});
