@@ -906,10 +906,14 @@ ranked per calendar-month season. Scoring is one pure module both surfaces
 share (app/lib/duel.js), accuracy is null-not-zero when nothing resolved and
 unresolved rounds are excluded from the denominator (`app/lib/duel.js::accuracy`),
 settlement runs lazily in batches on read (`app/lib/duel_service.js::settleDue`), and every
-pick is cryptographically SEALED at the moment it is made (`app/lib/duel_service.js::placePick#"const receipt = sealDuelPick("`
+pick is cryptographically SEALED at the moment it is made (`app/lib/duel_service.js::placePick#"const receipt = put === null ? sealDuelPick(facts)"`
 -> callseal.sealDuelPick, kind 'duel_pick' in `docs/PROVABLE_CALLS_SPEC.md::#'"v":4,"kind":"duel_pick"'`)
 so it rides into the day's Merkle root — a forecast committed before its
-outcome is known and re-derivable by a third party.
+outcome is known and re-derivable by a third party. Behind `DUEL_CHIPS_ENABLED`
+(off by default) a round is dealt at sealed odds and a call may carry
+play-money chips from a season float, checked at `app/lib/duel_chips.js::checkPut`
+and paid at the verdict (`app/lib/duel_chips.js::payoutFor`); the public board
+shows a percent return and a count of calls, never chips.
 
 *Gap.* Income. There is no entry fee, no prize pool, no payout and no token reward
 attached to a duel result — the §4 rule at `app/routes/duel.js::#"§4: virtual throughout"` forbids any
