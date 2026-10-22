@@ -101,16 +101,9 @@ Every incident behind these numbers, and every fix, is in the engineering log
 
 ## $RCLAW token
 
-<!-- rclaw-record:start — every address, link and figure below is the token record's (token/config/rclaw.mainnet.json), and tests/test_the_readme_states_the_token_record.py fails when they differ -->
+<!-- rclaw-record:start — every address, link and figure below is the token record's as the website publishes it (app/content/rclaw.mainnet.json, written from token/config/rclaw.mainnet.json), and tests/test_the_readme_states_the_token_record.py fails when they differ -->
 
 The one official $RCLAW mint, on Solana: **`rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe`** ([Solscan](https://solscan.io/token/rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe)). Fixed supply of 1,000,000,000 (9 decimals); mint and freeze authority revoked. Any other address using the name is not ours.
-
-**Presale** on Smithii: **https://tools.smithii.io/launch/solana/RUNECLAW**
-
-- 15 Oct → 29 Oct 2026, or until the hard cap (opens 2026-10-15 14:00 UTC, closes 2026-10-29 14:00 UTC)
-- 30,000.3 RCLAW per SOL · 0.25–25 SOL per wallet · hard cap 5,000 SOL (soft cap 1,000 SOL: a target, not enforced)
-- Claim: 100% when the sale ends. No vesting for buyers. Refunds: none.
-- After the sale: The team creates the pool at the sale price with 80% of the SOL raised and burns the LP. The sale contract does not do this.
 
 **Locked allocations** (Smithii Token Vesting: no instruction to cancel or edit a lock; only the creating wallet can claim, on or after each date):
 
@@ -122,7 +115,7 @@ The one official $RCLAW mint, on Solana: **`rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71q
 
 **Treasury multisig** (Squads v4; that program cannot be upgraded): the vault [`G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76`](https://solscan.io/account/G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76) holds 309,997,299 RCLAW (read 2026-10-14): Treasury / DAO 200,000,000 · Partnerships & market makers 80,000,000 · Reserve / insurance fund 29,997,299. Moving tokens out, or changing these rules, needs 2 of 3 members and then a 48-hour time lock. Multisig account [`3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ`](https://solscan.io/account/3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ). This is custody with a delay, not a lock.
 
-Smithii's programs were audited by [Halborn](https://www.halborn.com/audits/smithii/vesting-1ae001) (Token Vesting, 2025) and by CoinFabrik ([Mantis Protocol, the sale program](https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/06-2024-coinfabrik-smithii_mantis_protocol_audit.pdf), 2024; [Smithii project](https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/05-2024-coinfabrik-smithii_project_audit.pdf), 2024). Those are audits of Smithii's code, not of RUNECLAW: Smithii can upgrade both programs, and both were last deployed before their latest audit's final report, so the code running is not shown to be the audited code. The findings Halborn's fixes closed (multi-recipient Merkle vesting splits, zero-amount locks) do not touch these locks. Each address above was read back from the chain (`npm run presale:smithii-verify`, `npm run presale:locks-verify`, `npm run presale:multisig-verify` in `token/`). The live version is at **https://www.humanoid-traders.com/token** and in the bot (`/rclaw`). We never DM first and never ask for a seed phrase.
+Smithii's Token Vesting program, which holds these locks, was audited by [Halborn](https://www.halborn.com/audits/smithii/vesting-1ae001) (2025). That is an audit of Smithii's code, not of RUNECLAW: Smithii can upgrade the program, and it was last deployed before the audit's final report, so the code running is not shown to be the audited code. The findings Halborn's fixes closed (multi-recipient Merkle vesting splits, zero-amount locks) do not touch these locks. Each address above was read back from the chain (`npm run presale:locks-verify`, `npm run presale:multisig-verify` in `token/`). The live version is at **https://www.humanoid-traders.com/token** and in the bot (`/rclaw`). We never DM first and never ask for a seed phrase.
 
 <!-- rclaw-record:end -->
 
@@ -556,7 +549,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/livebalance` | your real exchange balance (your own account, read-only) |
 | `/disconnect` | remove your linked credentials |
 | `/linkwallet` | link a Solana wallet (read-only) for $RCLAW tier access |
-| `/rclaw` | the $RCLAW token: mint address, supply and presale status |
+| `/rclaw` | the $RCLAW token: mint address, supply, locks and multisig |
 | `/lang` | switch language |
 | `/version` | bot version and mode |
 | `/health` | system health |

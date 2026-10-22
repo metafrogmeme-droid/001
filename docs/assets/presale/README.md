@@ -7,7 +7,6 @@ Three PNGs for Smithii's pages. Smithii is the venue of record (`token/presale/s
 | `rclaw_tokenomics_1500x750.png` | the sale form, step 3 of 4, **Tokenomics Image (1500x750)** | a URL, not a file |
 | `rclaw_roadmap_1500x750.png` | the sale form, the roadmap image | a URL, not a file |
 | `rclaw_tokenomics_1000x1000.png` | the Token Vesting tool, Advanced Options, **Tokenomics Image (optional)**, `.png · .jpg · 1000×1000 px` | an upload, once per lock (`npm run presale:locks-plan` names it) |
-| `rclaw_tokenomics_1000x1000.png` (again) | the website's `/token` page, served as `app/public/rclaw_tokenomics_1000x1000.png` because the web deploy ships `app/` alone | a byte-identical copy: `app/test/the_token_page_shows_the_guarded_tokenomics_card.test.js` fails when the two differ, and holds the page's description of it (every language) to the figures drawn in it. Redraw here, copy there, bump its `?v=` in `app/public/token.html` |
 
 The two sale-form images are served from this repository once they are on `main`:
 

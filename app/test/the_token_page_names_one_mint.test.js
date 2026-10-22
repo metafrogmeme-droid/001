@@ -1,18 +1,21 @@
 'use strict';
 /**
- * /token paints the one $RCLAW record and invents nothing.
+ * /token paints the one $RCLAW record and invents nothing, and carries no presale.
  *
  * The token was minted on Solana mainnet on 2026-09-30. The facts live in one
  * file, token/config/rclaw.mainnet.json, which the bot's /rclaw card reads;
- * the website reads its byte-identical copy in app/content/ (the web deploy
- * ships app/ alone), so the two surfaces cannot name two mints. Three values for every
- * field a chain can leave empty: a null authority is "none (revoked)", a null
- * presale term is "not announced yet", and a record that did not arrive paints
- * NO address — a guessed mint is worse than none. The presale was announced on
- * 2026-10-10: its terms are sentences token/presale/the_record_states_the_sale
- * .test.mjs holds to the sale config, and its sale link is printed only when
- * it is https on smithii.io (tests/fixtures/sale_url_cases.json, which the
- * bot's /rclaw card is held to as well).
+ * the website reads its copy in app/content/ (the web deploy ships app/
+ * alone), so the two surfaces cannot name two mints. Three values for every
+ * field a chain can leave empty: a null authority is "none (revoked)", and a
+ * record that did not arrive paints NO address — a guessed mint is worse than
+ * none.
+ *
+ * NO PRESALE. The owner took the presale off the website and the bot on
+ * 22 October 2026. The original record may still hold a `presale` block (the
+ * token tooling's account of the Smithii sale); the website's copy is written
+ * without it (app/scripts/sync_content.js, websiteRecord), /api/token drops
+ * one anyway, and no page, string or image of the site names a sale. The
+ * bot's half is tests/test_the_token_card_reads_the_one_record.py.
  */
 
 const test = require('node:test');
@@ -24,16 +27,17 @@ const express = require('express');
 
 const rclaw = require('../lib/rclaw_token');
 const page = require('../public/js/token-page');
+const sync = require('../scripts/sync_content');
 
 const MINT = 'rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe';
 const APP = path.join(__dirname, '..');
+const PUB = path.join(APP, 'public');
+const ORIGINAL = path.join(APP, '..', 'token', 'config', 'rclaw.mainnet.json');
 const record = () => JSON.parse(JSON.stringify(rclaw.publicRecord(rclaw.readRecord())));
-const SALE_URL_CASES = JSON.parse(fs.readFileSync(
-  path.join(APP, '..', 'tests', 'fixtures', 'sale_url_cases.json'), 'utf8'));
-const TERM_KEYS = page.TERMS.map(([k]) => k);
-const esc = (t) => String(t).replace(/[&<>"']/g, (c) => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const count = (hay, needle) => hay.split(needle).length - 1;
+/** A sale, in every language the site speaks: the words a reader would see. */
+const SALE_WORDS = /presale|pre-sale|preventa|prévente|pré-venda|prevendita|預售|预售|プレセール|프리세일|пресейл|ön satış|प्रीसेल|البيع المسبق|tools\.smithii\.io\/launch/i;
+/** A sale block of the shape the token tooling's record holds. */
+const SALE = { status: 'announced', price: '30,000.3 RCLAW per SOL', sale_url: 'https://tools.smithii.io/launch/solana/RUNECLAW' };
 
 function serve(fn) {
   const app = express();
@@ -54,41 +58,39 @@ function get(port) {
 
 // ── the record ───────────────────────────────────────────────────────────
 
-test('the record is the website\'s copy of the file the bot reads, byte for byte', () => {
+test('the record is the website\'s copy of the file the bot reads, without the sale', () => {
   // The web deploy ships app/ alone, so the website reads its copy
   // (app/scripts/sync_content.js); reading ../../token/ answered 503 live.
   assert.strictEqual(rclaw.RECORD_PATH, path.join(APP, 'content', 'rclaw.mainnet.json'));
-  assert.ok(fs.readFileSync(rclaw.RECORD_PATH).equals(
-    fs.readFileSync(path.join(APP, '..', 'token', 'config', 'rclaw.mainnet.json'))),
-  'run `node app/scripts/sync_content.js`');
+  assert.ok(fs.readFileSync(rclaw.RECORD_PATH).equals(sync.websiteRecord()), 'run `node app/scripts/sync_content.js`');
   const r = rclaw.readRecord();
   assert.strictEqual(r.mint, MINT);
   assert.strictEqual(r.token_program, 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
   assert.strictEqual(r.mint_authority, null);
   assert.strictEqual(r.freeze_authority, null);
-  assert.strictEqual(r.presale.status, 'announced');
-  for (const k of TERM_KEYS) {
-    assert.ok(typeof r.presale[k] === 'string' && r.presale[k].trim(), k);
+  assert.ok(!('presale' in r), 'the website\'s copy carries a presale block');
+  // Editor notes (`_comment`) name the token tooling's own paths (token/presale/…) and are never
+  // served; what the site serves is the record without them.
+  assert.ok(!SALE_WORDS.test(JSON.stringify(record())), 'what the website serves names a sale');
+  // Both arms: everything else in the original arrives, field for field.
+  const original = JSON.parse(fs.readFileSync(ORIGINAL, 'utf8'));
+  for (const k of Object.keys(original)) {
+    if (k === 'presale' || k === 'smithii_audits') continue;
+    assert.deepStrictEqual(r[k], original[k], k);
   }
-  // The sale was created and read back on 2026-10-13 (token/presale/the_record_states_the_sale
-  // .test.mjs holds the link to the launch it opens); the page prints it as a link.
-  assert.strictEqual(r.presale.sale_url, 'https://tools.smithii.io/launch/solana/RUNECLAW');
-  assert.ok(page.isSaleUrl(r.presale.sale_url));
-  assert.ok(page.render(r).includes('<a href="https://tools.smithii.io/launch/solana/RUNECLAW"'));
 });
 
-/** The sale window: read with the clock for the status, never printed as a term. */
-const WINDOW_KEYS = new Set(['opens_at', 'closes_at']);
-
-test('the page prints every term the record announces, and no other', () => {
-  // Both ways: a term added to the record and not to TERMS would go unprinted,
-  // and a TERMS key the record lacks would read "unreadable" to every visitor.
-  const announced = Object.keys(record().presale).filter((k) => !WINDOW_KEYS.has(k) && k !== 'status' && k !== 'sale_url');
-  // The bot's TERMS is held to the same record by tests/test_the_token_card_reads_the_one_record.py.
-  assert.deepStrictEqual(announced, TERM_KEYS);
+test('the copy keeps only the audits of the program that holds the locks', () => {
+  const vesting = JSON.parse(fs.readFileSync(path.join(APP, '..', 'token', 'presale', 'locks.plan.json'), 'utf8')).tool.program;
+  const original = JSON.parse(fs.readFileSync(ORIGINAL, 'utf8')).smithii_audits.items;
+  const kept = rclaw.readRecord().smithii_audits.items;
+  assert.ok(kept.length >= 1, 'the vesting program\'s audit was dropped too');
+  assert.ok(kept.every((it) => it.program === vesting), 'an audit of another program is on the website');
+  assert.deepStrictEqual(kept, original.filter((it) => it.program === vesting));
+  assert.ok(original.some((it) => it.program !== vesting), 'the fixture must hold an audit to drop, or the filter is untested');
 });
 
-test('a bad record throws; the real one does not', () => {
+test('a bad record throws; the real one does not, and a record with no sale is whole', () => {
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'rclaw-'));
   const file = path.join(dir, 'r.json');
   const good = rclaw.readRecord();
@@ -96,7 +98,7 @@ test('a bad record throws; the real one does not', () => {
     ['[]', 'TokenRecordInvalid'],
     [JSON.stringify({ ...good, mint: 'not-an-address' }), 'TokenRecordInvalid'],
     [JSON.stringify({ ...good, mint: '0'.repeat(44) }), 'TokenRecordInvalid'],
-    [JSON.stringify({ ...good, presale: { date: null } }), 'TokenRecordInvalid'],
+    [JSON.stringify({ ...good, explorer: undefined }), 'TokenRecordInvalid'],
     ['{not json', 'SyntaxError'],
   ]) {
     fs.writeFileSync(file, body);
@@ -104,23 +106,37 @@ test('a bad record throws; the real one does not', () => {
   }
   fs.writeFileSync(file, JSON.stringify(good));
   assert.strictEqual(rclaw.readRecord(file).mint, MINT);
+  assert.ok(!rclaw.REQUIRED_KEYS.includes('presale'), 'a record is not whole without a sale');
   assert.throws(() => rclaw.readRecord(path.join(dir, 'absent.json')), (e) => e.code === 'ENOENT');
 });
 
 // ── the route ────────────────────────────────────────────────────────────
 
-test('GET /api/token serves the record without its editor notes', async () => {
+test('GET /api/token serves the record without its editor notes or a sale', async () => {
   await serve(async (port) => {
     const res = await get(port);
     assert.strictEqual(res.status, 200);
     const t = res.body.token;
     assert.strictEqual(t.mint, MINT);
     assert.ok(!('basis' in t) && !('_comment' in t), 'editor notes stay in the file');
-    assert.ok(!('_comment' in t.presale));
-    // §4: no dollar figure on a public payload. The presale price is a SOL rate.
-    assert.match(t.presale.price, / per SOL$/);
+    assert.ok(!('presale' in t), 'a presale block on the public route');
+    assert.ok(!SALE_WORDS.test(JSON.stringify(res.body)), 'the public route names a sale');
+    // §4: no dollar figure on a public payload.
     assert.ok(!/\$\s?\d/.test(JSON.stringify(res.body)), 'a dollar amount on a public route');
   });
+});
+
+test('a copy that still carried a sale block would not serve it', async () => {
+  const real = rclaw.readRecord;
+  rclaw.readRecord = () => ({ ...real(), presale: { ...SALE, _comment: 'note' } });
+  try {
+    await serve(async (port) => {
+      const res = await get(port);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.token.mint, MINT, 'the rest of the record is served');
+      assert.ok(!('presale' in res.body.token));
+    });
+  } finally { rclaw.readRecord = real; }
 });
 
 test('an unreadable record is a 503 naming the class, with no address', async () => {
@@ -147,84 +163,6 @@ test('the page names the mint, the supply and the revoked authorities', () => {
   assert.ok(html.includes('<b>1,000,000,000 RCLAW</b>'));
   assert.strictEqual((html.match(/none \(revoked\)/g) || []).length, 2);
   assert.ok(html.includes('2026-09-30 UTC'));
-});
-
-test('an unannounced presale reads "not announced yet" for every term', () => {
-  const blank = { status: 'coming_soon', sale_url: null };
-  for (const k of TERM_KEYS) blank[k] = null;
-  const html = page.presaleHtml(blank, 'RCLAW');
-  assert.ok(html.includes('Coming soon'));
-  assert.strictEqual(count(html, 'not announced yet'), TERM_KEYS.length);
-  assert.strictEqual(count(html, esc(page.SALE_LINK_NONE)), 1);
-  assert.ok(html.includes(esc(page.BODY_SOON)) && !html.includes(esc(page.BODY_ANNOUNCED)));
-  assert.ok(!/\$\s?\d/.test(html));
-});
-
-test('the announced presale prints each term as written', () => {
-  const presale = record().presale;
-  // Before the window opens, so the status is the record's own word: the phase reads the clock,
-  // and a test that asked the real one would say something else on each day of the sale (the
-  // phases are driven below, at fixed instants).
-  const html = page.presaleHtml(presale, 'RCLAW', Date.parse('2026-10-14T00:00:00Z'));
-  assert.ok(html.includes('<span class="tok-status">Announced</span>'));
-  for (const k of TERM_KEYS.filter((key) => key !== 'allocation_tokens')) {
-    assert.ok(html.includes(`<b>${esc(presale[k])}</b>`), k);
-  }
-  assert.ok(html.includes('<dt>For sale</dt><dd><b>150,000,000 RCLAW</b></dd>'));
-  assert.ok(html.includes('<dt>Price</dt><dd><b>30,000.3 RCLAW per SOL</b></dd>'));
-  assert.ok(!html.includes('not announced yet'));
-  assert.strictEqual(count(html, '<a href="https://tools.smithii.io/launch/solana/RUNECLAW"'), 1);
-  assert.strictEqual(count(html, esc(page.SALE_LINK_NONE)), 0);
-  // and a link not set yet says so, in its own words
-  assert.strictEqual(count(page.presaleHtml({ ...presale, sale_url: null }, 'RCLAW'), esc(page.SALE_LINK_NONE)), 1);
-  assert.ok(html.includes(esc(page.BODY_ANNOUNCED)) && !html.includes(esc(page.BODY_SOON)));
-  assert.ok(!/\$\s?\d/.test(html));
-  // one term withdrawn reads "not announced yet" beside the others as written
-  const partial = page.presaleHtml({ ...presale, price: null }, 'RCLAW');
-  assert.strictEqual(count(partial, 'not announced yet'), 1);
-  assert.ok(partial.includes(`<b>${esc(presale.venue)}</b>`));
-});
-
-test('a term missing from the record is unreadable, not "not announced"', () => {
-  assert.ok(page.presaleCell({}, 'date').includes('unreadable'));
-  assert.ok(page.presaleCell({ date: null }, 'date').includes('not announced yet'));
-  const noStatus = page.presaleHtml({ date: null, price: null, venue: null });
-  assert.ok(noStatus.includes('unreadable') && !noStatus.includes('Coming soon'));
-  // a status this page does not know is named, with no prose that would claim either state
-  const odd = page.presaleHtml({ ...record().presale, status: 'paused_for_review' });
-  assert.ok(odd.includes('paused for review'));
-  assert.ok(!odd.includes(esc(page.BODY_SOON)) && !odd.includes(esc(page.BODY_ANNOUNCED)));
-  for (const k of [...TERM_KEYS, 'sale_url']) {
-    const p = record().presale;
-    delete p[k];
-    assert.strictEqual(count(page.presaleHtml(p, 'RCLAW'), '>unreadable<'), 1, k);
-  }
-  assert.strictEqual(count(page.presaleHtml(record().presale, 'RCLAW'), '>unreadable<'), 0);
-});
-
-test('a token count that is not digits is unreadable, never a number', () => {
-  for (const raw of ['1.5e8', '150,000,000', '-1', '', 42.5]) {
-    assert.ok(page.allocationCell({ allocation_tokens: raw }, 'RCLAW').includes('unreadable'), String(raw));
-  }
-  assert.strictEqual(page.allocationCell({ allocation_tokens: '150000000' }, 'RCLAW'), '<b>150,000,000 RCLAW</b>');
-  assert.ok(page.allocationCell({ allocation_tokens: null }, 'RCLAW').includes('not announced yet'));
-});
-
-test('a sale link on smithii.io is a link; anything else is unreadable and not printed', () => {
-  for (const url of SALE_URL_CASES.accept) {
-    const cell = page.saleLinkCell({ sale_url: url });
-    assert.ok(cell.startsWith(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">`), url);
-  }
-  for (const url of [...SALE_URL_CASES.refuse, 42, ['https://smithii.io'], { href: 'https://smithii.io' }]) {
-    const cell = page.saleLinkCell({ sale_url: url });
-    assert.ok(cell.includes('unreadable') && !cell.includes('<a '), JSON.stringify(url));
-    if (typeof url === 'string' && url.trim()) {
-      assert.ok(!cell.includes(url.trim()) && !cell.includes(esc(url.trim())), url);
-    }
-  }
-  assert.ok(!page.isSaleUrl('https://tools.smithii.io/' + 'a'.repeat(300)), 'an overlong link');
-  assert.ok(page.saleLinkCell({}).includes('unreadable'));
-  assert.ok(page.saleLinkCell({ sale_url: null }).includes(esc(page.SALE_LINK_NONE)));
 });
 
 test('a record that did not arrive paints no address at all', () => {
@@ -259,22 +197,78 @@ test('a supply that is not digits is unreadable, never a number', () => {
   assert.ok(page.render(r).includes('unreadable'));
 });
 
+
+test('the page renders no sale, even from a record that holds one', () => {
+  const html = page.render({ ...record(), presale: SALE });
+  assert.ok(html.includes(MINT), 'the page rendered the token');
+  assert.ok(!SALE_WORDS.test(html), 'the page names a sale');
+  assert.ok(!html.includes('tok-presale') && !html.includes('per SOL'), 'a sale block was painted');
+  for (const k of Object.keys(page)) assert.ok(!/presale|sale/i.test(k), `token-page.js still exports ${k}`);
+});
+
 // ── the doors ────────────────────────────────────────────────────────────
 
-test('the landing page announces the token, says what the record says, and links /token', () => {
-  const landing = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
-  assert.match(landing, /<a class="hero-token" href="\/token">/);
-  // The strip's one claim is the presale's status, so it is held to the record:
-  // "coming soon" beside an announced sale, or "announced" before one, is a second answer.
-  const STRIP = { coming_soon: 'presale coming soon', announced: 'presale announced' };
-  const said = STRIP[rclaw.readRecord().presale.status];
-  assert.ok(said, 'a record status the strip has no words for');
-  const en = `$RCLAW is live on Solana — ${said}`;
-  assert.ok(landing.includes(`data-i18n="home.token_live">${en}<`), 'the markup');
-  const i18n = require('../public/js/i18n.js');
-  assert.strictEqual(i18n.translate('home.token_live', 'en'), en, 'the English string the other languages translate');
+test('no page loads the sale bar, and the bar is gone', () => {
+  assert.ok(!fs.existsSync(path.join(PUB, 'js', 'presale.js')), 'presale.js is still served');
+  const pages = fs.readdirSync(PUB).filter((f) => f.endsWith('.html'));
+  assert.ok(pages.length > 30, 'the scan read the pages');
+  for (const f of pages) {
+    const html = fs.readFileSync(path.join(PUB, f), 'utf8');
+    assert.ok(!html.includes('presale.js'), `${f} loads the sale bar`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'test', 'asset_versions.json'), 'utf8'));
+  assert.ok(!('js/presale.js' in manifest), 'the manifest still versions the bar');
+});
+
+test('the landing page carries no token strip, and the token is still one menu link away', () => {
+  const landing = fs.readFileSync(path.join(PUB, 'index.html'), 'utf8');
+  assert.ok(!landing.includes('hero-token'), 'the hero still carries the token strip');
+  assert.ok(!landing.includes('token-page.js'), 'the landing page loads the token page\'s script for nothing');
+  assert.ok(!SALE_WORDS.test(landing), 'the landing page names a sale');
+  assert.match(landing, /<a href="\/token" data-i18n="nav.token">/);
   assert.match(fs.readFileSync(path.join(APP, 'server.js'), 'utf8'),
     /app\.get\('\/token', [^\n]*'token\.html'\)/);
+});
+
+test('/token names no sale: its text, its link preview and its images', () => {
+  const html = fs.readFileSync(path.join(PUB, 'token.html'), 'utf8');
+  assert.ok(!SALE_WORDS.test(html), 'token.html names a sale');
+  assert.ok(!/tokenomics/i.test(html), 'the tokenomics card (with its presale slice) is still on the page');
+  assert.match(html, /<meta property="og:image" content="https:\/\/www\.humanoid-traders\.com\/og_image_1200x630\.jpg">/);
+  assert.match(html, /<meta name="twitter:image" content="https:\/\/www\.humanoid-traders\.com\/og_image_1200x630\.jpg">/);
+  for (const f of ['rclaw_presale_og_1200x630.jpg', 'rclaw_tokenomics_1000x1000.png']) {
+    assert.ok(!fs.existsSync(path.join(PUB, f)), `${f} is still served`);
+  }
+  assert.ok(fs.existsSync(path.join(PUB, 'og_image_1200x630.jpg')), 'the preview names an image the site has');
+});
+
+test('no string in any language names a sale', () => {
+  const { STRINGS, LANGS } = require('../public/js/i18n.js');
+  let read = 0;
+  for (const [key, byLang] of Object.entries(STRINGS)) {
+    assert.ok(!/^(bar\.presale|tok\.presale|home\.token_)/.test(key), `${key} is still in the dictionary`);
+    for (const [lang, text] of Object.entries(byLang)) {
+      read += 1;
+      assert.ok(!SALE_WORDS.test(text), `${key} [${lang}] names a sale: ${text.slice(0, 80)}`);
+    }
+  }
+  assert.ok(read > 1000 && LANGS.length === 14, 'the scan read the dictionary');
+  // The three sentences that stayed say what the page shows, in every language.
+  for (const l of LANGS) {
+    for (const k of ['tok.lede', 'tok.not_offer', 'tok.audits_body']) assert.ok(STRINGS[k][l.code], `${k} has no ${l.code}`);
+    assert.ok(STRINGS['tok.audits_body'][l.code].includes('2025-02-03'), `${l.code}: the vesting program's deploy date`);
+    assert.ok(!STRINGS['tok.audits_body'][l.code].includes('2024-06-29'), `${l.code}: the sale program's deploy date`);
+  }
+  assert.strictEqual(STRINGS['tok.audits_body'].en, page.AUDITS_BODY);
+});
+
+test('the docs the site serves name no sale', () => {
+  const dir = path.join(APP, 'content', 'docs');
+  const docs = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+  assert.ok(docs.includes('token-roadmap.md') && docs.length > 5, 'the scan read the docs');
+  for (const f of docs) {
+    assert.ok(!SALE_WORDS.test(fs.readFileSync(path.join(dir, f), 'utf8')), `/docs/${f} names a sale`);
+  }
 });
 
 test('the page points at the bot command that exists', () => {
@@ -283,190 +277,5 @@ test('the page points at the bot command that exists', () => {
   const i18n = require('../public/js/i18n.js');
   for (const l of i18n.LANGS) {
     assert.ok(i18n.translate('tok.bot_hint', l.code).endsWith('/rclaw'), l.code);
-  }
-});
-
-// ── the link preview ─────────────────────────────────────────────────────
-
-/** The JPEG's size and its runeclaw-presale-og comment, read from the bytes. */
-function jpegFacts(buf) {
-  assert.ok(buf[0] === 0xff && buf[1] === 0xd8, 'not a JPEG');
-  let i = 2;
-  let facts = null;
-  let size = null;
-  while (i + 4 <= buf.length && buf[i] === 0xff) {
-    const marker = buf[i + 1];
-    const len = buf.readUInt16BE(i + 2);
-    const body = buf.subarray(i + 4, i + 2 + len);
-    if (marker === 0xfe && body.subarray(0, 20).toString('latin1') === 'runeclaw-presale-og\0') {
-      facts = JSON.parse(body.subarray(20).toString('utf8'));
-    }
-    if (marker >= 0xc0 && marker <= 0xc2) size = { height: body.readUInt16BE(1), width: body.readUInt16BE(3) };
-    if (marker === 0xda) break;
-    i += 2 + len;
-  }
-  return { facts, size };
-}
-
-test('the presale link preview prints what the record says', () => {
-  const html = fs.readFileSync(path.join(APP, 'public', 'token.html'), 'utf8');
-  const og = html.match(/<meta property="og:image" content="https:\/\/www\.humanoid-traders\.com\/([^"]+)">/);
-  const tw = html.match(/<meta name="twitter:image" content="https:\/\/www\.humanoid-traders\.com\/([^"]+)">/);
-  assert.ok(og && tw && og[1] === tw[1], 'og:image and twitter:image name one file on the canonical host');
-  const { facts, size } = jpegFacts(fs.readFileSync(path.join(APP, 'public', og[1])));
-  assert.ok(facts, `${og[1]} carries no runeclaw-presale-og record: it was re-saved, or is not the drawn card`);
-  assert.deepStrictEqual(size, { width: 1200, height: 630 });
-  assert.match(html, /<meta property="og:image:width" content="1200">/);
-  assert.match(html, /<meta property="og:image:height" content="630">/);
-  const p = rclaw.readRecord().presale;
-  assert.strictEqual(p.status, 'announced', 'a presale card on a page whose record has not announced one');
-  assert.ok(p.date.startsWith(`${facts.window},`), `the card says ${facts.window}; the record ${p.date}`);
-  assert.strictEqual(p.price, `${facts.rate} RCLAW per SOL`);
-  assert.ok(p.hard_cap.startsWith(`${facts.hardCapSol} SOL `), `the card says ${facts.hardCapSol}; the record ${p.hard_cap}`);
-  assert.ok(facts.footer.includes('No refunds') && p.refunds === 'None');
-  assert.ok(facts.footer.includes('no buyer vesting') && /No vesting for buyers/.test(p.claim));
-  assert.ok(html.includes(`<link rel="canonical" href="https://www.${facts.link}">`), 'the card names this page');
-});
-
-
-// ── live or ended: the window and the clock ──────────────────────────────
-
-const PHASES = JSON.parse(fs.readFileSync(path.join(APP, '..', 'tests', 'fixtures', 'presale_phase_cases.json'), 'utf8'));
-const at = (iso) => Date.parse(iso);
-
-/** A presale built from the fixture's window, with one field replaced or removed. */
-function windowed(over) {
-  const p = { ...record().presale, ...PHASES.window };
-  for (const [k, v] of Object.entries(over || {})) {
-    if (v === '__absent__') delete p[k];
-    else p[k] = v;
-  }
-  return p;
-}
-
-test('the phase follows the window and the clock, as the bot reads it', () => {
-  for (const c of PHASES.clock) {
-    assert.strictEqual(page.presalePhase(windowed(), at(c.now)), c.expect, c.now);
-  }
-  for (const over of PHASES.unreadable_window) {
-    assert.strictEqual(page.presalePhase(windowed(over), at(PHASES.unreadable_now)), 'announced', JSON.stringify(over));
-  }
-  for (const status of PHASES.no_phase_status) {
-    assert.strictEqual(page.presalePhase(windowed({ status }), at(PHASES.unreadable_now)), null, String(status));
-  }
-});
-
-test('the record carries the window the sale was created with', () => {
-  const p = record().presale;
-  assert.strictEqual(p.opens_at, PHASES.window.opens_at);
-  assert.strictEqual(p.closes_at, PHASES.window.closes_at);
-});
-
-test('the presale card says announced, live or ended, with the time beside it', () => {
-  const live = page.presaleHtml(windowed(), 'RCLAW', at('2026-10-20T00:00:00Z'));
-  const ended = page.presaleHtml(windowed(), 'RCLAW', at('2026-10-29T14:00:00Z'));
-  const opening = page.presaleHtml(windowed(), 'RCLAW', at('2026-10-15T13:59:00Z'));
-  assert.match(opening, /class="tok-status">Announced</);
-  assert.ok(opening.includes(esc('Opens 2026-10-15 14:00 UTC.')), opening);
-  assert.match(live, /class="tok-status"><span class="tok-live">Live now<\/span></);
-  assert.ok(live.includes(esc('Open until 2026-10-29 14:00 UTC, or until the hard cap is reached.')), live);
-  assert.match(ended, /class="tok-status">Ended</);
-  assert.ok(ended.includes(esc('Closed at 2026-10-29 14:00 UTC, or earlier if the hard cap was reached.')), ended);
-  // One phase per card: no card carries another phase's words.
-  for (const [html, not] of [[opening, ['Live now', 'Ended', 'Open until', 'Closed at']],
-    [live, ['>Announced<', '>Ended<', 'Opens ', 'Closed at']],
-    [ended, ['Live now', '>Announced<', 'Opens ', 'Open until']]]) {
-    for (const w of not) assert.ok(!html.includes(w), `${w} in ${html.slice(0, 200)}`);
-  }
-  // An unreadable window keeps the record's status and states no time at all.
-  const blind = page.presaleHtml(windowed({ closes_at: null }), 'RCLAW', at('2026-10-20T00:00:00Z'));
-  assert.match(blind, /class="tok-status">Announced</);
-  assert.ok(!/Opens |Open until|Closed at|tok-phase/.test(blind), blind);
-  // Every term is still printed in every phase.
-  for (const html of [opening, live, ended]) {
-    for (const k of TERM_KEYS) assert.ok(html.includes(esc(record().presale[k])) || k === 'allocation_tokens', k);
-  }
-});
-
-test('the home strip says live or ended once the record does, and keeps its sentence otherwise', () => {
-  const el = {
-    attrs: { 'data-i18n': 'home.token_live' },
-    textContent: '$RCLAW is live on Solana — presale announced',
-    setAttribute(k, v) { this.attrs[k] = v; },
-  };
-  const token = { presale: windowed() };
-  assert.strictEqual(page.stripPhase(el, token, at('2026-10-15T13:00:00Z')), null);
-  assert.strictEqual(el.attrs['data-i18n'], 'home.token_live');
-  assert.strictEqual(el.textContent, '$RCLAW is live on Solana — presale announced');
-  assert.strictEqual(page.stripPhase(el, token, at('2026-10-20T00:00:00Z')), 'live');
-  assert.deepStrictEqual([el.attrs['data-i18n'], el.textContent], ['home.token_presale_live', page.STRIP_LIVE]);
-  assert.strictEqual(page.stripPhase(el, token, at('2026-11-01T00:00:00Z')), 'ended');
-  assert.deepStrictEqual([el.attrs['data-i18n'], el.textContent], ['home.token_presale_ended', page.STRIP_ENDED]);
-  // A record with no presale moves nothing.
-  const quiet = { ...el, attrs: { 'data-i18n': 'home.token_live' }, textContent: 'x' };
-  assert.strictEqual(page.stripPhase(quiet, {}, at('2026-10-20T00:00:00Z')), null);
-  assert.strictEqual(quiet.textContent, 'x');
-  // The landing page loads the reader and names the element it updates.
-  const landing = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
-  assert.ok(landing.includes('<span id="hero-token-text" data-i18n="home.token_live">'));
-  assert.match(landing, /<script src="\/js\/token-page\.js\?v=\d+" defer><\/script>/);
-});
-
-test('every phase sentence is translated, with its time in every language', () => {
-  const i18n = require('../public/js/i18n.js');
-  const EN = {
-    'tok.presale_live': page.PHASE_LIVE, 'tok.presale_ended': page.PHASE_ENDED,
-    'tok.presale_opens_at': page.PHASE_OPENS, 'tok.presale_open_until': page.PHASE_OPEN_UNTIL,
-    'tok.presale_closed_at': page.PHASE_CLOSED,
-    'home.token_presale_live': page.STRIP_LIVE, 'home.token_presale_ended': page.STRIP_ENDED,
-  };
-  for (const [key, en] of Object.entries(EN)) {
-    assert.strictEqual(i18n.translate(key, 'en'), en, key);
-    for (const l of i18n.LANGS) {
-      const v = i18n.translate(key, l.code);
-      assert.ok(v && v.trim(), `${key} ${l.code}`);
-      assert.strictEqual(v.includes('{t}'), en.includes('{t}'), `${key} ${l.code}: the time placeholder`);
-    }
-  }
-});
-
-test('loaded on the landing page, the script finds the strip, reads the record and moves it', async () => {
-  // Driven through the module's own browser boot: a stand-in document that holds the strip and
-  // no /token root, a stand-in fetch that answers the record, and a clock inside the window.
-  const el = {
-    attrs: { 'data-i18n': 'home.token_live' },
-    textContent: '$RCLAW is live on Solana — presale announced',
-    setAttribute(k, v) { this.attrs[k] = v; },
-  };
-  const asked = [];
-  const saved = { document: global.document, fetch: global.fetch, now: Date.now };
-  const modPath = require.resolve('../public/js/token-page.js');
-  global.document = { getElementById: (id) => (id === 'hero-token-text' ? el : null) };
-  global.fetch = async (url) => {
-    asked.push(url);
-    return { status: 200, json: async () => ({ token: { presale: windowed() } }) };
-  };
-  Date.now = () => Date.parse('2026-10-20T00:00:00Z');
-  try {
-    delete require.cache[modPath];
-    require(modPath);
-    for (let i = 0; i < 50 && el.attrs['data-i18n'] === 'home.token_live'; i++) {
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    assert.deepStrictEqual(asked, ['/api/token']);
-    assert.deepStrictEqual([el.attrs['data-i18n'], el.textContent], ['home.token_presale_live', page.STRIP_LIVE]);
-    // A record that cannot be read leaves the markup's sentence standing.
-    const kept = { ...el, attrs: { 'data-i18n': 'home.token_live' }, textContent: 'kept' };
-    global.document = { getElementById: (id) => (id === 'hero-token-text' ? kept : null) };
-    global.fetch = async () => ({ status: 503, json: async () => ({ error: 'token_record_unreadable' }) });
-    delete require.cache[modPath];
-    require(modPath);
-    await new Promise((r) => setTimeout(r, 50));
-    assert.deepStrictEqual([kept.attrs['data-i18n'], kept.textContent], ['home.token_live', 'kept']);
-  } finally {
-    global.document = saved.document;
-    global.fetch = saved.fetch;
-    Date.now = saved.now;
-    delete require.cache[modPath];
   }
 });

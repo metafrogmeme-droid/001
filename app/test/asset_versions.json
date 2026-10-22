@@ -188,8 +188,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 204,
-    "sha": "21d5ad03a8c917ee"
+    "v": 205,
+    "sha": "c0d7264bb0ca5cbc"
   },
   "js/icons.js": {
     "v": 6,
@@ -283,13 +283,13 @@
     "v": 1,
     "sha": "3c147ef2a8704aa3"
   },
-  "js/presale.js": {
-    "v": 2,
-    "sha": "1ffb64e68ac77855"
-  },
   "js/radar3d.js": {
     "v": 3,
     "sha": "bcb4a613a57ea9dc"
+  },
+  "js/receipt-card.js": {
+    "v": 1,
+    "sha": "7c1ef1a52b4f1817"
   },
   "js/record-panel.js": {
     "v": 1,
@@ -310,10 +310,6 @@
   "js/risk-backstop-model.js": {
     "v": 1,
     "sha": "6e482731fe53921c"
-  },
-  "js/receipt-card.js": {
-    "v": 1,
-    "sha": "7c1ef1a52b4f1817"
   },
   "js/risk-bridge.js": {
     "v": 1,
@@ -396,8 +392,8 @@
     "sha": "0a41f855dcb11f74"
   },
   "js/token-page.js": {
-    "v": 8,
-    "sha": "f27ee2e74bc76ea4"
+    "v": 9,
+    "sha": "01a149c27daf1a32"
   },
   "js/trade-confirm-model.js": {
     "v": 2,

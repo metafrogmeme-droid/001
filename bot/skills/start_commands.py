@@ -155,7 +155,7 @@ class StartCommands:
             f"Mode: <code>{mode}</code>")
 
     async def _cmd_rclaw(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/rclaw — the $RCLAW mint, its fixed-supply facts and the presale status.
+        """/rclaw — the $RCLAW mint, its fixed-supply facts, its locks and its multisig.
 
         Read from the one record (``token/config/rclaw.mainnet.json``); the
         website's /token page reads its byte-identical copy in
@@ -247,10 +247,9 @@ class StartCommands:
             lang = get_user_lang(self.users, tg_id)
             notified = await self._request_operator_admission(
                 tg_id, (user_tg.first_name if user_tg else ""), ctx)
-            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 user_name, tg_id, access="needs_approval",
-                operator_notified=notified, lang=lang) + presale_live_note())
+                operator_notified=notified, lang=lang))
             return
 
         # Authorized user — GetClaw ready
@@ -444,9 +443,6 @@ class StartCommands:
             msg += f"\n\n<i>{t('closed_record_unread', lang)}</i>"
         if _practice_note:
             msg += f"\n\n{_practice_note}"
-        # While the presale is live: the official sale link and /rclaw.
-        from bot.formatters.token_card import presale_live_note
-        msg += presale_live_note()
         await self._send(update, msg, reply_markup=_KB_WARROOM)
 
     async def _handle_unknown_command(self, update: Update,

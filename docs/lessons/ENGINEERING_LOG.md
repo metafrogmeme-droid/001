@@ -19775,7 +19775,7 @@ says so.
 https link on smithii.io or a subdomain, written plainly (no port, no userinfo,
 no whitespace, at most 300 characters). Anything else reads "unreadable", and
 the refused text is not printed at all. The two readers are two languages, so
-the rule lives twice; `tests/fixtures/sale_url_cases.json` is the one list both
+the rule lives twice; tests/fixtures/sale_url_cases.json (removed with the presale, 2026-10-22) is the one list both
 are driven against (a `.` in a lookalike host, `@` userinfo, a backslash, a
 trailing newline Python's `$` would have accepted, which is why the bot uses
 `fullmatch`). Both readers list the terms they print, and each list is held to
@@ -19802,7 +19802,7 @@ Create fixed on chain (`opens_at`, `closes_at`, derived from `smithii.config.jso
 by `recordWindow` and held to it), and both readers answer announced, live or
 ended from it (`presalePhase` in `token-page.js`, `presale_phase` in
 `token_card.py`). The two languages share one table of cases
-(`tests/fixtures/presale_phase_cases.json`): the instants either side of the open
+(tests/fixtures/presale_phase_cases.json (removed with the presale, 2026-10-22)): the instants either side of the open
 and the close, and windows that cannot be read. An unreadable window says only
 the record's own word, "announced", which stays true of a sale that has opened,
 and states no time. The hard cap can end the sale before `closes_at`, which
@@ -19849,8 +19849,8 @@ killed after one fixture fix: dropping the "only a 200 is a read" check survived
 503 the test served carried no token, so it could not produce the state the check exists for.
 It now also serves a 503 whose body is a live record (a stale copy a proxy kept), and the bar
 stays down.
-(`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`,
-`tests/test_the_bot_says_the_presale_is_live.py`.)
+(the_presale_bar_says_live_and_steps_aside.smoke.test.js (removed with the presale, 2026-10-22),
+test_the_bot_says_the_presale_is_live.py (removed with the presale, 2026-10-22).)
 
 **THE COMMUNITY LOCK RAN AHEAD OF ITS LINE AT EVERY STEP, AND ITS NOTE SAID ONLY AT TGE.** The
 plan of 2026-10-10 made the community lock five equal 20% steps, and its note called it "the one
@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 279 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 280 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **506 of 1363** reach for source text through `source_scan`, `code_only`
+Driven, **507 of 1362** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 506 is a FLOOR and the honest shape is
+source scan that rule does not see, so 507 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -25676,12 +25676,12 @@ The general shape: a dismissal is a claim about the visitor's intent, and
 reports a missing element, a fresh visit that shows it is not an answer; the
 question is what state the reporter's browser is in that a fresh visit is not.
 
-(`app/test/the_presale_is_on_a_phones_first_screen.smoke.test.js` draws the
+(the_presale_is_on_a_phones_first_screen.smoke.test.js (removed with the presale, 2026-10-22) draws the
 home page in Chromium at 412x780 and 360x640 with the real record and the clock
 inside the window: with the bar up and with it closed, the presale line ends
 inside the first screen, is drawn, says the sale is live and sits above the
 headline, and an invite link does not push it down.
-`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js` now holds
+the_presale_bar_says_live_and_steps_aside.smoke.test.js (removed with the presale, 2026-10-22) now holds
 both arms of the day, the old-shape value and the future stamp. Four mutants,
 all killed.)
 
@@ -26126,7 +26126,7 @@ depends on now: on a page that carries `presale.js` it holds for the
 `/api/token` response (a 500 is an answer too, so the no-bar arms wait the
 same way), and keeps the beat after it; a page without the script waits for
 nothing. A fixed delay in a browser test is a measurement of the box it was
-written on. (`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`.)
+written on. (the_presale_bar_says_live_and_steps_aside.smoke.test.js (removed with the presale, 2026-10-22).)
 
 **THE ONE PRIVACY POLICY ANSWERED 404 AT ITS OWN CANONICAL URL, AND A SECOND COPY WOULD HAVE BEEN THE FIX THAT REPEATS THE INCIDENT.**
 On 2026-10-17 Pi's Developer Portal refused to list the Pi app without a
@@ -29109,3 +29109,65 @@ it says READY under the new gate.
   After the fixes, 39 of 40 were killed and 1 is equivalent. The 7 mutants
   on the rewritten branches were then run alone: 6 killed, 1 equivalent
   (`t_lower is not None` after the branch that handles None).
+
+## TAKING A SALE OFF A SITE IS A SWEEP OF EVERY SURFACE THAT ADVERTISED IT, AND THE RECORD THE TOOLING KEEPS IS NOT THE RECORD THE WEBSITE SHOWS
+
+22 October 2026, with the sale's window still open on chain: the owner asked
+for the presale to come off the bot and the website. Three choices were
+theirs, asked first: the home page's token strip goes, the tokenomics image
+goes (its allocation names a "Public presale 15%"), and nothing replaces the
+sale with a sentence about it. The token's own facts stay: the mint, the
+supply, the revoked authorities, the locks, the multisig, and the audit of
+the program that holds the locks.
+
+**Where the sale was.** The sweep found it on 40 pages (a bar loaded by
+`presale.js`), the home page's first line, `/token`'s sale block and its link
+preview, 32 strings in 14 languages, the bot's /rclaw card, the line /start
+and both welcome messages appended, /rclaw's description in 14 languages, the
+docs `/docs` serves, and both READMEs. Each is gone. The search ran over the
+sale's word in every language the site speaks, not the English one: a sweep
+for "presale" misses "preventa", "預售" and "пресейл", which are the same
+claim to their readers.
+
+**The record is two records now, on purpose.** `token/config/rclaw.mainnet.json`
+is the token tooling's account of what Smithii created on chain, and its
+`presale` block is held to the sale's config by the tooling's tests; it
+stays. The website's copy is no longer byte-exact: `sync_content.js`
+(`websiteRecord`) writes it without the `presale` block and with only the
+audits of the program that holds the locks (`locks.plan.json`, tool.program),
+and its drift check compares the copy with that transform, so the copy still
+cannot fall behind. `publicRecord` drops a `presale` block too, so a copy
+that carried one could not serve it. The bot reads the original and no
+longer requires or reads the block. Both readers stopped requiring it: a
+record without a sale is whole.
+
+**The tooling's tests read the website's page.** The token workspace held
+the GitBook roadmap (which `/docs` serves) to the sale's terms, its window,
+its venue table and its allocation, and held the website's audits sentence
+to both programs' deploy dates. Those were checks that the website described
+the sale honestly; with no sale on the website, the invariant is that it
+describes none. The sale's terms are still held where the sale is still
+described, the tooling's own `docs/TOKEN_ROADMAP.md`.
+
+**What the guard tests hold now.**
+- `app/test/the_token_page_names_one_mint.test.js`: the copy is the
+  transform of the original; the route serves no sale even from a record
+  that holds one; no page loads `presale.js`; the landing page has no strip;
+  `/token`'s text, preview and images name no sale; no string in any
+  language does; the docs `/docs` serves do not.
+- `tests/test_the_token_card_reads_the_one_record.py`: the card renders the
+  same with or without a sale block in the record; /start and both welcomes
+  carry no sale line; /rclaw's description names no sale in any language.
+- `tests/test_the_readme_states_the_token_record.py`: both READMEs are held
+  to the record as the website publishes it, and name no sale.
+
+The guards that kept the sale off the Pi, Telegram, DogeOS and Memeclaw pages
+stay as they are: they hold "no token here" as much as "no sale here".
+
+Mutation round: 8 mutants on the transform, the route's drop, both readers'
+required keys and the audits sentence; all 8 killed.
+
+**What this does not do.** The sale on Smithii is a contract on Solana; no
+change here opens, closes or alters it, and the sale page Smithii hosts is
+Smithii's. The token tooling (`token/`, `docs/TOKEN_ROADMAP.md`,
+`docs/assets/presale/`) still documents the sale for the operator.

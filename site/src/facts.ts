@@ -174,7 +174,7 @@ export const CAPABILITIES: readonly Claim[] = [
  * writing a headline. `docs/ROADMAP.md` marks these gated or vision-only, and
  * `docs/TOKEN_ROADMAP.md` opens: the token is minted but not launched, and no
  * sale has run. The ticker stays off this site; the web app's /token page
- * carries the mint address and the presale status.
+ * carries the mint address, the locks and the multisig.
  */
 export const MUST_NOT_CLAIM: readonly string[] = [
   '$RCLAW token, staking, fee discounts, or any token-dependent reward',

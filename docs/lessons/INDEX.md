@@ -444,7 +444,7 @@ about to change before changing it.
 - L19650: THE ROADMAP PROMISED STREAMS THE LOCK TOOL CANNOT MAKE, AND THE SALE'S DATES LIVED IN PROSE
 - L19747: ANNOUNCING THE SALE MADE THE TOKEN RECORD A COPY OF THE SALE CONFIG — `app/test/the_token_page_names_one_mint.test.js`, `tests/test_the_token_card_reads_the_one_record.py`
 - L19795: THE SALE OPENED AND EVERY SURFACE STILL SAID "ANNOUNCED" — `app/test/the_token_page_names_one_mint.test.js`, `tests/test_the_token_card_reads_the_one_record.py`
-- L19828: THE BAR AND THE BOT'S LINE ASK THE SAME QUESTION, SO THE PHASE MOVED OUT OF THE PAGE THAT FIRST ASKED IT — `app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`, `tests/test_the_bot_says_the_presale_is_live.py`
+- L19828: THE BAR AND THE BOT'S LINE ASK THE SAME QUESTION, SO THE PHASE MOVED OUT OF THE PAGE THAT FIRST ASKED IT
 - L19855: THE COMMUNITY LOCK RAN AHEAD OF ITS LINE AT EVERY STEP, AND ITS NOTE SAID ONLY AT TGE
 - L19873: A LOCK CANNOT BE EDITED, SO ITS ADDRESS IS PUBLISHED ONLY AFTER THE CHAIN HAS BEEN READ — `app/test/the_token_page_shows_the_locks.test.js`, `tests/test_the_rclaw_card_shows_the_locks.py`
 - L19923: THE GITHUB PAGE WAS A PUBLIC SURFACE THAT NAMED NO MINT, AND LINKED THE HOSTING PROVIDER — `app/test/canonical_host.test.js`, `tests/test_public_pages_link_the_live_repository.py`, `tests/test_the_readme_counts_what_runs.py`, `tests/test_the_readme_states_the_token_record.py`
@@ -579,7 +579,7 @@ about to change before changing it.
 - L25468: SIX SETTINGS, FIVE DOORS, AND THREE ANSWERS TO "DOES IT SURVIVE A RESTART" — `app/test/the_admin_page_is_the_operators_and_a_change_needs_2fa.test.js`, `tests/test_every_operator_setting_has_one_write_path.py`
 - L25530: TWENTY PEOPLE SCANNING IN ONE SECOND RAN TWENTY SCANS, AND ASKED THE TRADING CLIENT FOR 360 CANDLE SERIES — `app/test/a_crowd_that_misses_together_fetches_once.test.js`, `tests/test_a_crowd_that_scans_together_shares_one_read.py`
 - L25625: THE ADMIN PAGE'S FIRST READER WAS A PHONE, AND ITS FIRST WARNING WAS A SECOND READING OF THE MAILER — `app/test/the_admin_page_fits_a_phone.smoke.test.js`, `app/test/the_mail_warning_asks_the_mailer.test.js`
-- L25657: THE PRESALE WAS LIVE AND THE OPERATOR COULD NOT FIND IT — `app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`, `app/test/the_presale_is_on_a_phones_first_screen.smoke.test.js`
+- L25657: THE PRESALE WAS LIVE AND THE OPERATOR COULD NOT FIND IT
 - L25688: ONE SIGNED-IN USER COULD SPEND THE CHAT BUDGET EVERYONE ELSE ANSWERED FROM — `tests/test_one_user_cannot_spend_chats_whole_share.py`
 - L25727: FOUR COMMANDS CHANGED A MEMBER, EACH WITH ITS OWN RULES, AND NOTHING SAID WHO — `app/test/the_admin_members_are_the_operators_and_a_grant_is_telegrams.test.js`, `tests/test_a_member_changes_through_one_path.py`
 - L25773: EVERY CARD ASKED THE VENUE FOR THE SAME BALANCE, AND THE FUNDS CARD ADDED WHAT ANSWERED — `tests/conftest.py`, `tests/test_one_venue_read_serves_every_card.py`
@@ -592,7 +592,7 @@ about to change before changing it.
 - L26011: LIVE HAD A WIN RATE AND A PROFIT FACTOR AND NO SHARPE, BECAUSE NOTHING KEPT A DAY'S EQUITY — `tests/test_live_equity_is_recorded_once_a_day.py`
 - L26032: LIVE AND `--HONEST` MEASURED DIFFERENT SYSTEMS, AND THE AS-LIVE RUN SAYS WHICH DIFFERENCES MATTER — `tests/test_the_as_live_backtest_trades_the_way_live_does.py`
 - L26088: THE HONEST SWITCHES STAYED ON FOR THE REST OF THE SESSION, AND THE FLAKE FILTER FORGAVE EVERY TEST THEY BROKE — `tests/conftest.py`
-- L26114: THE PRESALE BAR'S TEST MEASURED THE PAGE BEFORE THE BAR, AND ONLY ON A LOADED BOX — `app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`
+- L26114: THE PRESALE BAR'S TEST MEASURED THE PAGE BEFORE THE BAR, AND ONLY ON A LOADED BOX
 - L26131: THE ONE PRIVACY POLICY ANSWERED 404 AT ITS OWN CANONICAL URL, AND A SECOND COPY WOULD HAVE BEEN THE FIX THAT REPEATS THE INCIDENT — `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_policies_are_served_on_www.test.js`, `app/test/the_website_carries_what_it_serves.test.js`
 - L26210: SIGN IN WITH PI ON THE WEBSITE: THE TOKEN ARRIVES WHERE NO SERVER CAN READ IT, SO THE FLOW IS A PAGE, A STATE AND A QUESTION TO PI — `app/test/pi_signin_callback.smoke.test.js`, `app/test/pi_signin_on_the_website.test.js`
 - L26266: THE ARENA COULD READ NO PRICE ON THE LIVE HOST, AND EVERY SURFACE THAT COULD HAVE SAID SO SAID NOTHING — `app/test/the_arena_reads_its_prices_through_the_path_that_answers.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`, `tests/test_verify_deploy_guard.py`
@@ -704,3 +704,6 @@ about to change before changing it.
 
 
 ## VOTERS THAT KEEP THEIR SIGNS ARE NOT WEIGHTS THAT PICK BETTER TRADES, AND A READY THAT LAPSES IS SAID (line 29014)
+
+
+## TAKING A SALE OFF A SITE IS A SWEEP OF EVERY SURFACE THAT ADVERTISED IT, AND THE RECORD THE TOOLING KEEPS IS NOT THE RECORD THE WEBSITE SHOWS (line 29113)

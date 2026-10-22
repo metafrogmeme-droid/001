@@ -239,66 +239,22 @@ function saleWindowText() {
   return `${day(smithii.schedule.startUtc, false)} → ${day(smithii.schedule.endUtc, true)}`;
 }
 
-test('E: the GitBook names the venue the config says the sale runs on', () => {
-  assert.equal(smithii.venue, 'smithii-launchpad');
-  assert.match(rowOf(gitbook, '\\*\\*Smithii Launchpad\\*\\*') ?? '', /\*\*Chosen\*\*/, 'the Smithii row must say Chosen');
-  assert.match(rowOf(gitbook, '\\*\\*Metaplex Genesis\\*\\*') ?? '', /\*\*Alternative\*\*/, 'the Genesis row must say Alternative');
-  assert.doesNotMatch(rowOf(gitbook, '\\*\\*Metaplex Genesis\\*\\*') ?? '', /Chosen/);
-});
-
-test('E: the GitBook\'s numbers are the config\'s', () => {
-  const TERMS = [
-    ['soft cap', smithii.sale.softCapSol, /Soft cap \*\*([\d,]+) SOL\*\*/],
-    ['hard cap', smithii.sale.hardCapSol, /hard cap \*\*([\d,]+) SOL\*\*/],
-    ['min contribution', smithii.sale.minContributionSol, /Min \*\*([\d.]+) SOL\*\*/],
-    ['max contribution', smithii.sale.maxContributionSol, /max \*\*([\d.]+) SOL\*\* per wallet/],
-  ];
-  const bad = [];
-  for (const [label, value, pattern] of TERMS) {
-    const m = gitbook.match(pattern);
-    if (!m) { bad.push(`${label}: not stated in the GitBook`); continue; }
-    const published = Number(m[1].replace(/,/g, ''));
-    if (published !== value) bad.push(`${label}: GitBook says ${published}, config says ${value}`);
-  }
-  assert.deepEqual(bad, [], bad.join('\n'));
-
-  const price = rowOf(gitbook, 'Price') ?? '';
-  const rate = sale.price.tokensPerSol.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  assert.ok(price.includes(`**${rate} RCLAW per SOL**`), `Price row must state the STORED rate ${rate}: ${price}`);
-  assert.ok(price.includes(`${Number(sale.price.sdkLamports).toLocaleString('en-US')} lamports per token`), `Price row must state ${sale.price.sdkLamports} lamports: ${price}`);
-
-  assert.ok((rowOf(gitbook, 'Public sale') ?? '').includes(`${smithii.publicPhaseHours} hours`), 'Public sale row must state the phase length');
-  assert.ok((rowOf(gitbook, 'Public sale') ?? '').includes(saleWindowText()), `Public sale row must state the window the config sets: ${saleWindowText()}`);
-  assert.ok((rowOf(gitbook, 'Liquidity') ?? '').includes(`${smithii.liquidity.intendedPercentOfGrossRaise}% of the gross raise`), 'Liquidity row must state the pool share');
-  assert.ok((rowOf(gitbook, 'Program') ?? '').includes(`\`${short(smithii.program.upgradeAuthority)}\``), 'Program row must name the upgrade authority');
-
-  const m = (u) => (Number(u / 10n ** 9n) / 1e6).toFixed(1);
-  assert.ok(gitbook.includes(`**${m(sale.softCap.poolTokensBase)}M RCLAW at the soft cap and ${m(sale.hardCap.poolTokensBase)}M at the hard cap**`),
-    'the GitBook must state the pool sizes the plan derives');
-});
-
-// Each disclosure the config carries, the row of the GitBook that must say it, and what it must say.
-const DISCLOSURE_ANCHORS = {
-  noRefund: ['Refund', /\*\*None\.\*\*/],
-  softCapNotEnforced: ['Soft cap \\/ hard cap', /target, not a floor/],
-  noBuyerVesting: ['Buyer vesting', /\*\*None\.\*\*/],
-  noWalletWhitelist: ['Public sale', /no whitelist round/],
-  liquidityIsAnOperatorAction: ['Liquidity', /\*\*The team creates the pool\*\*/],
-  programIsUpgradeable: ['Program', /\*\*upgradeable\*\*/],
-  auditScope: ['Program', /covers Smithii's program, not RUNECLAW/],
-  proceedsGoToTheSigningWallet: ['Proceeds', /Paid directly to the team's launch wallet at each purchase/],
-};
-
-test('E: every required disclosure has an anchor, and the GitBook states each in its own row', () => {
-  assert.deepEqual(Object.keys(DISCLOSURE_ANCHORS).sort(), [...REQUIRED_DISCLOSURES].sort(),
-    'a disclosure was added or removed without deciding where the GitBook states it');
-  const missing = [];
-  for (const [key, [label, pattern]] of Object.entries(DISCLOSURE_ANCHORS)) {
+// The GitBook's token page is served by the website at /docs, and the owner took the presale off
+// the website and the bot on 22 October 2026: it describes the token (locks, multisig, tiers) and
+// no sale. The sale's terms, venue and disclosures are held where the sale is still described, the
+// token tooling's own roadmap (docs/TOKEN_ROADMAP.md, the F tests below).
+test('E: the GitBook, which the website serves, describes no sale', () => {
+  const SALE = /presale|smithii\.io\/launch|per SOL|hard cap|soft cap|buyer vesting|launchpad|\bTGE\b.*sale|gross raise/i;
+  const hits = gitbook.split('\n').filter((line) => SALE.test(line));
+  assert.deepEqual(hits, [], 'the GitBook still describes the sale');
+  assert.equal(rowOf(gitbook, '\\*\\*Smithii Launchpad\\*\\*'), undefined, 'the venue table is still on the page');
+  // Both arms: the page is the token's, and the locks are still on it.
+  assert.match(gitbook, /## Locks and treasury/);
+  assert.ok(gitbook.includes('not called audited'), 'the locks still do not borrow another program\'s audit');
+  // The disclosures the config requires are each anchored in the roadmap instead.
+  for (const key of REQUIRED_DISCLOSURES) {
     assert.ok(typeof smithii.disclosures[key] === 'string' && smithii.disclosures[key].length > 100, `config disclosure ${key}`);
-    const cell = rowOf(gitbook, label);
-    if (cell === undefined || !pattern.test(cell)) missing.push(`${key}: the GitBook's "${label.replace(/\\/g, '')}" row does not say ${pattern}`);
   }
-  assert.deepEqual(missing, [], missing.join('\n'));
 });
 
 test('E: the GitBook no longer carries the sentences the Smithii program makes false', () => {
@@ -357,16 +313,13 @@ test('F: the numbers the roadmap quotes are the ones the plan derives', () => {
     `the roadmap's Public sale row must state ${saleWindowText()} and ${smithii.publicPhaseHours} hours: ${publicSale}`);
 });
 
-test('F: the allocation tables in the roadmap and the GitBook agree, and each sums to 100%', () => {
+test('F: the roadmap\'s allocation table sums to 100%, and the GitBook carries none', () => {
   const rowsOf = (text) => [...text.matchAll(/^\|\s*([^|]+?)\s*\|\s*([\d.]+)%\s*\|/gm)].map((m) => [m[1], Number(m[2])]);
   const pct = (text, name) => rowsOf(text).find(([n]) => n.startsWith(name))?.[1];
-  for (const name of ['Public presale', 'DEX liquidity', 'Community', 'Team', 'Treasury', 'Partnerships', 'Advisors', 'Reserve']) {
-    assert.ok(pct(roadmap, name) !== undefined, `roadmap table has no "${name}" row`);
-    assert.equal(pct(gitbook, name), pct(roadmap, name), `${name}: GitBook ${pct(gitbook, name)}% vs roadmap ${pct(roadmap, name)}%`);
-  }
-  for (const [label, text] of [['roadmap', roadmap], ['GitBook', gitbook]]) {
-    const allocation = ['Public presale', 'DEX liquidity', 'Community', 'Team', 'Treasury', 'Partnerships', 'Advisors', 'Reserve']
-      .reduce((sum, n) => sum + pct(text, n), 0);
-    assert.ok(Math.abs(allocation - 100) < 1e-9, `${label}'s allocation rows sum to ${allocation}%, not 100%`);
-  }
+  const NAMES = ['Public presale', 'DEX liquidity', 'Community', 'Team', 'Treasury', 'Partnerships', 'Advisors', 'Reserve'];
+  for (const name of NAMES) assert.ok(pct(roadmap, name) !== undefined, `roadmap table has no "${name}" row`);
+  const allocation = NAMES.reduce((sum, n) => sum + pct(roadmap, n), 0);
+  assert.ok(Math.abs(allocation - 100) < 1e-9, `the roadmap's allocation rows sum to ${allocation}%, not 100%`);
+  // The allocation names the sale's slice, so the page the website serves carries no table of it.
+  assert.equal(pct(gitbook, 'Public presale'), undefined, 'the GitBook still carries the allocation table');
 });

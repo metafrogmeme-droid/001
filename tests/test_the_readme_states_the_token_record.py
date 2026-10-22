@@ -1,19 +1,24 @@
 """The GitHub page states the token record, and only the token record.
 
-The repository's README is the first page many people see, and a presale is
-when a forged mint or sale link costs money. Both READMEs (English and
-繁體中文) carry a $RCLAW section between ``rclaw-record`` markers: the mint,
-the sale link, the sale window and terms, the three locks and the treasury
-multisig. Each is a
-second copy of ``token/config/rclaw.mainnet.json``, which the website's /token
-page and the bot's /rclaw card print and which the token tests hold to the
-chain, so this file holds every copy here to that record: a changed address,
-link, date or figure in the record that is not carried into both READMEs, or
-an address in the section that the record does not name, fails here.
+The repository's README is the first page many people see, and a forged
+mint costs money. Both READMEs (English and 繁體中文) carry a $RCLAW section
+between ``rclaw-record`` markers: the mint, the three locks, the treasury
+multisig and the audit of the program that holds the locks. Each is a second
+copy of the record as the website publishes it
+(``app/content/rclaw.mainnet.json``, written from
+``token/config/rclaw.mainnet.json`` by ``app/scripts/sync_content.js``),
+which the website's /token page and the bot's /rclaw card print and which the
+token tests hold to the chain, so this file holds every copy here to that
+record: a changed address, link, date or figure in the record that is not
+carried into both READMEs, or an address in the section that the record does
+not name, fails here.
+
+NO PRESALE. The owner took the presale off the bot and the website on
+22 October 2026, and the GitHub page with them: the section names no sale,
+no sale link and no sale term.
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -21,6 +26,10 @@ import pytest
 
 from bot.formatters import token_card
 from bot.token.record import load_record
+
+#: The record as the website publishes it: no sale block, and only the audit
+#: of the program that holds the locks.
+PUBLISHED = Path(__file__).resolve().parents[1] / "app" / "content" / "rclaw.mainnet.json"
 
 ROOT = Path(__file__).resolve().parents[1]
 READMES = ("README.md", "README.zh-TW.md")
@@ -46,7 +55,7 @@ def _numbers(text: str) -> list[str]:
 
 @pytest.fixture(scope="module")
 def record():
-    return load_record()
+    return load_record(PUBLISHED)
 
 
 @pytest.mark.parametrize("name", READMES)
@@ -70,27 +79,16 @@ def test_every_address_in_the_section_is_one_the_record_names(name, record):
 
 
 @pytest.mark.parametrize("name", READMES)
-def test_the_sale_link_window_and_terms_are_the_records(name, record):
+def test_the_section_names_no_sale(name, record):
     section = _section(name)
-    presale = record["presale"]
-    assert token_card.is_sale_url(presale["sale_url"])
-    # Every sale link in the section, whole: a substring test passes ".../RUNECLAW2".
+    assert "presale" not in record, "the published record carries a sale block"
+    # The tooling's npm scripts are named presale:* (token/package.json); they are commands, not a sale.
+    prose = re.sub(r"`npm run presale:[a-z-]+`", "", section)
+    assert not re.search(r"presale|pre-sale|預售|smithii\.io/launch|per SOL|hard cap|硬頂", prose, re.I), name
+    # The only Smithii links left are the locks' certificates.
     links = re.findall(r"https://[^\s*)<>\]`]+", section)
-    sale_links = [u for u in links if "smithii.io/launch" in u]
-    assert sale_links and all(u == presale["sale_url"] for u in sale_links), (name, sale_links)
-    smithii = [u for u in links if "smithii.io" in u]
-    allowed = {presale["sale_url"]} | {i["certificate_url"] for i in record["locks"]["items"]}
-    assert set(smithii) <= allowed, (name, sorted(set(smithii) - allowed))
-    cfg = json.loads((ROOT / "token" / "presale" / "smithii.config.json").read_text(encoding="utf-8"))
-    for instant in (cfg["schedule"]["startUtc"], cfg["schedule"]["endUtc"]):
-        assert f"{instant[:10]} {instant[11:16]} UTC" in section, (name, instant)
-    # Every figure in the price, the per-wallet limits and the caps, in either language.
-    for key in ("price", "per_wallet", "hard_cap"):
-        for number in _numbers(presale[key]):
-            assert number in section, (name, key, number)
-    if name == "README.md":
-        for key in ("date", "price", "per_wallet", "hard_cap", "claim", "after_sale"):
-            assert presale[key] in section, (name, key)
+    smithii = {u for u in links if "smithii.io" in u}
+    assert smithii == {i["certificate_url"] for i in record["locks"]["items"]}, (name, smithii)
     assert not re.search(r"\$\s?\d", section), "no dollar amount on a public page"
 
 
@@ -152,5 +150,7 @@ def test_smithii_s_audits_are_the_records_and_say_what_they_cover(name, record):
     links = re.findall(r"\]\((https://[^)\s]+)\)", section)
     audit_links = {u for u in links if "halborn.com" in u or "CoinFabrik" in u}
     assert audit_links == {i["url"] for i in record["smithii_audits"]["items"]}, (name, audit_links)
+    assert audit_links, f"{name}: the locks' program audit is gone too"
     if name == "README.md":
         assert "not of RUNECLAW" in section and "not shown to be the audited code" in section
+        assert "the sale program" not in section

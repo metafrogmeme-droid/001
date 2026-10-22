@@ -4093,10 +4093,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if access == "needs_approval":
                 notified = await self._request_operator_admission(
                     tg_id, _name, ctx)
-            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 html.escape(_name or "Trader"), tg_id, access=access,
-                operator_notified=notified, lang=self._lang(update)) + presale_live_note())
+                operator_notified=notified, lang=self._lang(update)))
             return
 
         # Registered but not authorized — /revoke is the only way to be here.
@@ -5720,11 +5719,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # the old copy told an allowlisted operator to "wait for approval".
             self.users.register(tg_id, name=(
                 update.effective_user.first_name if update.effective_user else ""))
-            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 html.escape(update.effective_user.first_name
                             if update.effective_user else "Trader"),
-                tg_id, access="granted", lang=lang) + presale_live_note())
+                tg_id, access="granted", lang=lang))
             return False
 
         # Role-based permission check. The REASON matters: "role" is permanent

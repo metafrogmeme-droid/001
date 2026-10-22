@@ -2,14 +2,16 @@
 
 ``token/config/rclaw.mainnet.json`` holds what was read back from Solana
 mainnet for the mint (address, token program, decimals, supply, the two
-revoked authorities) and what has been announced about the presale: since
-2026-10-10 the Smithii sale's terms. A presale field still ``null`` is
-rendered *not announced yet* by every reader -- never as a date of 0, an
-empty cell or a placeholder. The website reads a byte-identical copy
+revoked authorities), its locks and its multisig. The website reads a copy
 (``app/content/rclaw.mainnet.json``, written by
 ``app/scripts/sync_content.js``; the web deploy ships ``app/`` alone), and a
 web test fails when the two differ, so the bot's /rclaw card and the /token
 page cannot name two mints.
+
+The record may still hold a ``presale`` block: the token tooling's account
+of the Smithii sale (``token/presale/``). The bot and the website carry no
+presale since 22 October 2026, so it is neither required nor read here, and
+the website's copy is written without it.
 
 A record that cannot be read RAISES. The mint address is the one thing a
 caller comes for, and a guessed or defaulted address is worse than none:
@@ -26,7 +28,7 @@ RECORD_PATH = Path(__file__).resolve().parents[2] / "token" / "config" / "rclaw.
 REQUIRED_KEYS = (
     "name", "symbol", "chain", "cluster", "mint", "token_program", "standard",
     "decimals", "supply_tokens", "mint_authority", "freeze_authority",
-    "explorer", "presale",
+    "explorer",
 )
 
 _BASE58 = frozenset("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
@@ -53,7 +55,4 @@ def load_record(path: Path = RECORD_PATH) -> dict[str, Any]:
         raise TokenRecordInvalid(f"the record lacks {missing}")
     if not is_base58_address(data["mint"]):
         raise TokenRecordInvalid("the mint is not a base58 address")
-    presale = data["presale"]
-    if not isinstance(presale, dict) or "status" not in presale:
-        raise TokenRecordInvalid("the presale block has no status")
     return data

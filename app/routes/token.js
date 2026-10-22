@@ -3,7 +3,7 @@
  * GET /api/token — the $RCLAW record the /token page paints.
  *
  * Public by construction: a mint address, a token program, a supply, two
- * revoked authorities and a presale block in which nothing is announced.
+ * revoked authorities, the locks and the multisig, and no presale block.
  * No account is in scope, nothing is priced, and the one file it reads is
  * in the repository. An unreadable record is a 503 that names the exception
  * class — never a 200 with an empty token, which a page would paint as a

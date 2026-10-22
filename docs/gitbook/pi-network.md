@@ -1,6 +1,6 @@
 # Pi Network
 
-RUNECLAW reaches Pi Network two ways. **RUNECLAW Local** is a self-hosted package that Pi Node operators install from SoloHost, inside Pi Desktop. **The Arena in the Pi Browser** is the paper Arena as a Pi app, signed in with Pi. Neither carries the $RCLAW token or its presale.
+RUNECLAW reaches Pi Network two ways. **RUNECLAW Local** is a self-hosted package that Pi Node operators install from SoloHost, inside Pi Desktop. **The Arena in the Pi Browser** is the paper Arena as a Pi app, signed in with Pi. Neither carries the $RCLAW token.
 
 ## RUNECLAW Local on Pi Desktop (SoloHost)
 
@@ -70,7 +70,7 @@ Each card offers one action at most, depending on where the call stands:
 - A list that cannot be read says so. That message is never a claim that there are no signals.
 - The chart library is the site's own copy, served from our domain, and the candles come from our relay. The page's security policy is unchanged.
 
-**What is not on it.** No token, no presale and no link to the rest of the site except the two policies, which open in a new tab. The page is built from the Farcaster Mini App's parts and loads none of the site's pages. Its payments are an optional tip and, when the operator prices it, Coach Plus.
+**What is not on it.** No token and no link to the rest of the site except the two policies, which open in a new tab. The page is built from the Farcaster Mini App's parts and loads none of the site's pages. Its payments are an optional tip and, when the operator prices it, Coach Plus.
 
 **Ask the Claw.** The Coach tab is a chat with the owl about the Duel, a signal, your practice trades or any trading word. Every signal card has a plain-language line ("The call: BTC rises toward 67000. It is given up if BTC falls to 64000.") and a **Why? Ask the Claw** button; every Duel round has **Explain this round**. Both open the coach on that card.
 
@@ -119,7 +119,7 @@ In the Developer Portal:
 - **Verify App Domain** shows a key. Set it as `PI_VALIDATION_KEY` on the website server, restart, then press **Verify Domain**. The portal reads `https://www.humanoid-traders.com/pi/validation-key.txt`.
 - **Ecosystem listing** asks for a privacy policy and terms of service. They are `https://www.humanoid-traders.com/privacy` and `https://www.humanoid-traders.com/terms`.
 
-**The privacy policy and the terms** are written once, in the marketing site (`site/src/routes/privacy.tsx`, `site/src/routes/terms.tsx`). Tests there check what they say against the code. The website serves each built page's text at `/privacy` and `/terms` in a plain page: no script, no presale, and no link beyond the two policies, because Pi's listing links them. The web deploy ships the `app/` folder alone, so the website reads a copy of the built pages under `app/content/site/`. The site build refreshes the copy, and a test fails if it differs from the built pages.
+**The privacy policy and the terms** are written once, in the marketing site (`site/src/routes/privacy.tsx`, `site/src/routes/terms.tsx`). Tests there check what they say against the code. The website serves each built page's text at `/privacy` and `/terms` in a plain page: no script and no link beyond the two policies, because Pi's listing links them. The web deploy ships the `app/` folder alone, so the website reads a copy of the built pages under `app/content/site/`. The site build refreshes the copy, and a test fails if it differs from the built pages.
 
 ## Sign in with Pi on the website
 

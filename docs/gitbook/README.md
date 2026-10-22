@@ -57,7 +57,7 @@ Structured Audit Log
 - [Telegram Confirmation Flow](telegram-confirmation.md) -- How a trade idea is confirmed, re-checked and executed
 - [AI Learning System](ai-learning-system.md) -- The learning modules and the safety policy that governs them
 - [Solana Ecosystem Mode](solana-ecosystem.md) -- The scanner's Solana focus
-- [$RCLAW Token Roadmap](token-roadmap.md) -- The token: utility, allocation, locks and treasury
+- [$RCLAW Token Roadmap](token-roadmap.md) -- The token: utility, tiers, locks and treasury
 - [Pre-Trade Risk Checks](risk-checks-18.md) -- Every check a trade idea must pass
 - [Risk Framework](risk-framework.md) -- How risk is managed and enforced
 - [Agent Hub Alignment](agent-hub-alignment.md) -- How RUNECLAW maps to the Bitget Agent Hub
@@ -77,7 +77,7 @@ Structured Audit Log
 ## Quick Links
 
 - **Website:** [humanoid-traders.com](https://www.humanoid-traders.com/)
-- **$RCLAW token:** [humanoid-traders.com/token](https://www.humanoid-traders.com/token) -- the official mint, the presale's terms, the locks and the treasury multisig
+- **$RCLAW token:** [humanoid-traders.com/token](https://www.humanoid-traders.com/token) -- the official mint, the locks and the treasury multisig
 - **Try the Bot:** [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot) -- live on Telegram, try it now
 - **GitHub:** [RUNECLAW](https://github.com/metafrogmeme-droid/001)
 - **Telegram:** [Join Community](https://t.me/+VRNgsmkR5pszZTdk)
