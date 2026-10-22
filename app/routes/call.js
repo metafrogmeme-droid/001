@@ -21,6 +21,7 @@ const express = require('express');
 const { pool } = require('../db');
 const { anchorFor } = require('../lib/seal_roots');
 const { signedIn, signalResolved, receiptFor, viewerCacheControl } = require('../lib/signal_access');
+const { rateLimit, ipKey } = require('../lib/rate_limit');
 
 // Identifies, never refuses. Lazy, as routes/sync.js requires it.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
@@ -270,6 +271,26 @@ router.get('/:key/bundle', optionalAuth, async (req, res) => {
   } catch (err) {
     console.error('Proof bundle error:', err.name || 'Error');
     res.status(500).json({ error: 'Proof bundle unavailable' });
+  }
+});
+
+// GET /:key/qr — the QR code a receipt card carries (public/js/receipt-card.js):
+// this receipt's page on the public origin lib/public_origin.js answers, as a
+// module matrix the page draws (lib/receipt_qr.js). It reads no receipt: the
+// page asks only after it has one, and a QR for a key that names nothing opens
+// a page that says so. The origin may come from the request when none is
+// configured, so no shared cache keeps the answer.
+router.get('/:key/qr', optionalAuth, rateLimit({ name: 'call.qr', windowMs: 60000, max: 30, key: ipKey }), (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const key = String(req.params.key || '');
+  if (!KEY_RE.test(key)) return res.status(400).json({ error: 'Invalid call id' });
+  const po = require('../lib/public_origin').resolve(req);
+  if (po.error) return res.status(503).json({ error: 'no_public_origin' });
+  try {
+    return res.json(require('../lib/receipt_qr').qrFor(po.origin, key));
+  } catch (err) {
+    console.error('Receipt QR error:', err.name || 'Error');
+    return res.status(500).json({ error: 'QR unavailable', exception: err.name || 'Error' });
   }
 });
 

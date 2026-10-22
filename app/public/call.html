@@ -8,6 +8,10 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/styles.css?v=52">
 <style>
+  .rc-card { margin-top: var(--s4); }
+  .rc-note { margin: 8px 0 0; font-size: var(--fs-xs); }
+  .rc-img { display: block; width: 100%; max-width: 540px; height: auto; margin-top: var(--s3); border-radius: 22px; }
+  .rc-acts { display: flex; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
   .call-wrap { max-width: 720px; margin: 0 auto; padding: var(--s5) var(--s4); }
   .topnav { display: flex; gap: var(--s3); margin-bottom: var(--s4); font-size: var(--fs-sm); }
   .verdict { border-radius: var(--radius); padding: var(--s4); margin: var(--s4) 0; font-family: var(--font-data); }
@@ -97,6 +101,8 @@ function sameAfterStorage(key, sealed, live) {
 <script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/signal-status-model.js?v=4"></script>
 <script src="/js/anchor_cell.js?v=5"></script>
+<script src="/js/duel.js?v=9"></script>
+<script src="/js/receipt-card.js?v=1"></script>
 <script>
 (function () {
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -105,6 +111,84 @@ function sameAfterStorage(key, sealed, live) {
   var out = document.getElementById('out');
   function fail(msg) { out.innerHTML = '<div class="verdict bad"><div class="big">✖ ' + esc(msg) + '</div></div>'; }
   if (!key) { fail('No call id in the URL'); return; }
+
+  /**
+   * The receipt card (public/js/receipt-card.js), made on request from the
+   * payload this page has just checked. Its settlement is hashed here too
+   * before its verdict is used; a settlement that does not check, or does not
+   * answer, leaves the card saying the result is on the receipt.
+   */
+  function wireCard(d, p) {
+    var C = window.RCReceiptCard;
+    var D = window.RCDuel;
+    var box = document.getElementById('rcCard');
+    if (!box || !C || !D) return;
+    var lang = 'en';
+    try { lang = (window.RCI18N && RCI18N.getLang()) || 'en'; } catch (e) { lang = 'en'; }
+    var t = function (k, en) { try { return (window.RCI18N && RCI18N.translate(k, lang)) || en; } catch (e) { return en; } };
+    var btn = box.querySelector('#rcMake');
+    var note = box.querySelector('.rc-note');
+    var res = box.querySelector('.rc-out');
+    btn.textContent = t('rc.make', 'Make a card');
+    var getJson = function (url) {
+      return fetch(url, { headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+    };
+    var checkedSettle = function () {
+      if (!d.settlement || !d.settlement.key) return Promise.resolve(null);
+      return getJson('/api/call/' + encodeURIComponent(d.settlement.key)).then(function (sr) {
+        if (!sr || typeof sr.seal_payload !== 'string') return null;
+        return sha256hex(sr.seal_payload).then(function (hex) { return C.settleFrom(sr, hex); });
+      }).catch(function () { return null; });
+    };
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      note.textContent = t('rc.making', 'Making the card…');
+      var fonts = document.fonts && document.fonts.load
+        ? Promise.all([document.fonts.load('600 64px InterVar'), document.fonts.load('700 34px Cinzel')]).catch(function () { return null; })
+        : Promise.resolve(null);
+      Promise.all([
+        getJson('/api/call/' + encodeURIComponent(key) + '/qr'),
+        checkedSettle(),
+        d.anchor && d.anchor.day ? getJson('/api/roots/quorum/' + encodeURIComponent(d.anchor.day)) : Promise.resolve(null),
+        fonts,
+      ]).then(function (got) {
+        var qr = got[0];
+        var m = C.model(d, p, { intact: true, settle: got[1], quorum: got[2], t: t, duel: D, lang: lang });
+        if (!m || !qr || !Array.isArray(qr.rows) || !qr.rows.length) {
+          note.textContent = t('rc.failed', 'The card could not be made just now.');
+          btn.disabled = false;
+          return;
+        }
+        var cv = document.createElement('canvas');
+        cv.width = C.W;
+        cv.height = C.H;
+        var ctx = cv.getContext('2d');
+        var measure = function (font, text) { ctx.font = font; return ctx.measureText(text).width; };
+        C.paint(ctx, C.ops(m, qr, measure));
+        var url = cv.toDataURL('image/png');
+        var name = 'runeclaw-duel-' + String(d.seal).slice(0, 8) + '.png';
+        var alt = m.market + ' · ' + m.pick + ' · ' + m.steps.map(function (s) { return s.label + ' ' + (s.state === 'done' ? '✓' : s.state === 'unknown' ? '?' : '—'); }).join(' · ');
+        res.innerHTML = '<img class="rc-img" alt="' + esc(alt) + '" src="' + url + '">'
+          + '<div class="rc-acts"><a class="btn" id="rcSave" download="' + esc(name) + '" href="' + url + '">' + esc(t('rc.save', 'Save image')) + '</a></div>';
+        note.textContent = '';
+        btn.hidden = true;
+        cv.toBlob(function (blob) {
+          if (!blob || typeof File !== 'function' || !navigator.canShare) return;
+          var file = new File([blob], name, { type: 'image/png' });
+          if (!navigator.canShare({ files: [file] })) return;
+          var share = document.createElement('button');
+          share.type = 'button';
+          share.className = 'btn';
+          share.textContent = t('rc.share', 'Share');
+          share.addEventListener('click', function () {
+            navigator.share({ files: [file], title: m.market + ' · ' + m.pick, url: qr.url }).catch(function () { /* the sheet was closed */ });
+          });
+          res.querySelector('.rc-acts').appendChild(share);
+        }, 'image/png');
+      });
+    });
+  }
 
   function sha256hex(str) {
     return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (buf) {
@@ -354,8 +438,13 @@ function sameAfterStorage(key, sealed, live) {
           }
           html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
           html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';
+          if (intact && p.kind === 'duel_pick' && d.kind === 'duel_pick') {
+            html += '<div class="rc-card" id="rcCard"><button type="button" class="btn" id="rcMake">Make a card</button>'
+              + '<p class="rc-note muted" aria-live="polite"></p><div class="rc-out"></div></div>';
+          }
           out.innerHTML = html;
           appendAnchor(d);
+          if (intact && p.kind === 'duel_pick') wireCard(d, p);
           return;
         }
         if (p && p.kind === 'memeclaw_launch') {
@@ -530,7 +619,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=203"></script>
+<script src="/js/i18n-core.js?v=204"></script>
 <script src="/js/presale.js?v=2"></script>
   <script>
   (function () {

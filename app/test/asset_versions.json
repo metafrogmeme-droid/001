@@ -188,8 +188,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 203,
-    "sha": "ade4cff37a107af3"
+    "v": 204,
+    "sha": "21d5ad03a8c917ee"
   },
   "js/icons.js": {
     "v": 6,
@@ -310,6 +310,10 @@
   "js/risk-backstop-model.js": {
     "v": 1,
     "sha": "6e482731fe53921c"
+  },
+  "js/receipt-card.js": {
+    "v": 1,
+    "sha": "7c1ef1a52b4f1817"
   },
   "js/risk-bridge.js": {
     "v": 1,
