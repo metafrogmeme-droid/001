@@ -20,9 +20,12 @@
  */
 const express = require('express');
 const { listRoots, rootForDay, anchorsFor, recordAnchor } = require('../lib/seal_roots');
-const { buildAnchorPlan, verifyAnchor, publicChains, chainInfo, DEFAULT_CHAIN } = require('../lib/root_anchor');
+const { buildAnchorPlan, verifyAnchor, publicChains, chainInfo, DEFAULT_CHAIN, easStampOf } = require('../lib/root_anchor');
 const { authMiddleware } = require('../auth');
-const { rateLimit, userKey } = require('../lib/rate_limit');
+const rootOts = require('../lib/root_ots');
+const ots = require('../lib/opentimestamps');
+const { rateLimit, userKey, ipKey } = require('../lib/rate_limit');
+const { anchorCheck, bitcoinCheck, dayQuorum } = require('../lib/day_quorum');
 
 const router = express.Router();
 
@@ -38,6 +41,10 @@ router.get('/', async (req, res) => {
   try {
     if (!cache.body || Date.now() - cache.at > 60000) {
       const roots = await listRoots(30);
+      // Bitcoin (OpenTimestamps), from our own row: whether the day was
+      // submitted and the height this server checked. A page re-checks it
+      // live (/ots/:day) before painting it as in Bitcoin.
+      for (const r of roots) r.ots = await otsSummary(r.day);
       cache = { at: Date.now(), body: {
         construction: 'leaves = day seals (64-hex) deduped + sorted asc; parent = sha256(utf8(leftHex+rightHex)); odd node promoted; single leaf = root',
         chains: publicChains(),
@@ -60,6 +67,62 @@ router.get('/chains', (req, res) => {
   res.json({ default: DEFAULT_CHAIN, chains: publicChains() });
 });
 
+/** The feed's Bitcoin line for a day: null when the row could not be read. */
+async function otsSummary(day) {
+  try {
+    const row = await rootOts.rowFor(day);
+    return row ? { submitted: true, bitcoin_height: row.bitcoin_height == null ? null : Number(row.bitcoin_height) }
+      : { submitted: false, bitcoin_height: null };
+  } catch (e) { return null; }
+}
+
+// GET /api/roots/ots/:day — the day's root in Bitcoin, through OpenTimestamps,
+// re-checked live against Bitcoin block headers (lib/root_ots.js checkProof).
+// The proof and the statement it timestamps download beside it, for
+// `ots verify RCROOT1-<day>.txt` against your own Bitcoin node.
+router.get('/ots/:day', async (req, res) => {
+  try {
+    const row = await rootForDay(String(req.params.day || ''));
+    if (!row) return res.status(404).json({ error: 'No root for that day' });
+    const body = await bitcoinCheck(row);
+    res.set('Cache-Control', body.status === 'verified' ? 'public, max-age=300' : 'public, max-age=60');
+    res.json(body);
+  } catch (err) {
+    console.error('Bitcoin timestamp check error:', err.name || 'Error');
+    res.status(500).json({ error: 'Bitcoin timestamp check unavailable' });
+  }
+});
+
+// GET /api/roots/ots/:day/proof — the detached OpenTimestamps proof file.
+router.get('/ots/:day/proof', async (req, res) => {
+  try {
+    const row = await rootForDay(String(req.params.day || ''));
+    if (!row) return res.status(404).json({ error: 'No root for that day' });
+    const rec = await rootOts.rowFor(row.day);
+    if (!rec || rec.root !== row.root) return res.status(404).json({ error: 'No Bitcoin timestamp for that day yet' });
+    res.set('Content-Type', 'application/octet-stream');
+    res.set('Content-Disposition', `attachment; filename="RCROOT1-${row.day}.txt.ots"`);
+    res.send(Buffer.from(String(rec.proof), 'base64'));
+  } catch (err) {
+    console.error('Bitcoin proof download error:', err.name || 'Error');
+    res.status(500).json({ error: 'Proof unavailable' });
+  }
+});
+
+// GET /api/roots/ots/:day/statement — the exact bytes the proof timestamps.
+router.get('/ots/:day/statement', async (req, res) => {
+  try {
+    const row = await rootForDay(String(req.params.day || ''));
+    if (!row) return res.status(404).json({ error: 'No root for that day' });
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="RCROOT1-${row.day}.txt"`);
+    res.send(ots.statementFor(row.day, row.root));
+  } catch (err) {
+    console.error('Bitcoin statement download error:', err.name || 'Error');
+    res.status(500).json({ error: 'Statement unavailable' });
+  }
+});
+
 // GET /api/roots/anchor-plan/:day?chain= — the exact zero-value transaction
 // that anchors a completed day's root on that chain. DRY RUN: the server
 // never signs.
@@ -73,6 +136,18 @@ router.get('/anchor-plan/:day', async (req, res) => {
     if (have) {
       return res.json({ already_anchored: true, day: row.day, root: row.root, chain: chain.key, anchor_tx: have.tx });
     }
+    if (chain.method === 'eas_timestamp') {
+      // EAS keeps one stamp per root: a wallet asked to stamp a root that is
+      // already stamped would pay for a transaction that reverts. Ask first.
+      const s = await easStampOf(row.root, undefined, chain.key);
+      if (s.status === 'stamped') {
+        return res.json({ already_stamped: true, day: row.day, root: row.root, chain: chain.key, stamped_at: s.stamped_at });
+      }
+      if (s.status !== 'unstamped') {
+        return res.status(503).json({ error: `Could not read ${chain.name} to see whether the root is stamped — try again shortly`,
+          reason: s.reason });
+      }
+    }
     res.json(buildAnchorPlan(row.day, row.root, chain.key));
   } catch (err) {
     console.error('Anchor plan error:', err.stack || err.message);
@@ -84,36 +159,40 @@ router.get('/anchor-plan/:day', async (req, res) => {
 // chain, LIVE. Public and cached: this is the self-audit surface — anyone can
 // ask the server to re-check its own claim, and the server reports exactly
 // what the chain said, unknown included.
-const _verifyCache = new Map();          // `${day}|${chain}` -> { at, body }
 router.get('/verify/:day', async (req, res) => {
   try {
     const chain = chainOf(req);
     if (!chain) return res.status(400).json({ error: 'Unknown chain' });
-    const day = String(req.params.day || '');
-    const row = await rootForDay(day);
+    const row = await rootForDay(String(req.params.day || ''));
     if (!row) return res.status(404).json({ error: 'No root for that day' });
     const have = (await anchorsFor(row.day, row)).find((a) => a.chain === chain.key);
     if (!have) {
       return res.json({ day: row.day, root: row.root, chain: chain.key, chain_name: chain.name, status: 'unanchored' });
     }
-    const key = `${day}|${chain.key}`;
-    const hit = _verifyCache.get(key);
-    if (hit && Date.now() - hit.at < 5 * 60000) {
-      res.set('Cache-Control', 'public, max-age=60');
-      return res.json(hit.body);
-    }
-    const v = await verifyAnchor(have.tx, row.day, row.root, undefined, chain.key);
-    const body = { day: row.day, root: row.root, chain: chain.key, chain_name: chain.name,
-      anchor_tx: have.tx, explorer: chain.explorer_tx + have.tx,
-      status: v.status, block_time: v.block_time || null,
-      from: v.from || null, reason: v.reason || null };
-    // Cache verified results; an unknown answer is retried on the next ask.
-    if (v.status === 'verified') _verifyCache.set(key, { at: Date.now(), body });
+    const body = await anchorCheck(row, chain, have);
     res.set('Cache-Control', 'public, max-age=60');
     res.json(body);
   } catch (err) {
     console.error('Anchor verify error:', err.stack || err.message);
     res.status(500).json({ error: 'Anchor verify unavailable' });
+  }
+});
+
+// GET /api/roots/quorum/:day — the day's Anchor Quorum (lib/anchor_quorum.js):
+// every recorded anchor and the Bitcoin timestamp, each checked live by the
+// same checks /verify and /ots answer, and whether at least k INDEPENDENT
+// chains hold the root. One request per day for a page or an app; time-
+// proven, not performance.
+router.get('/quorum/:day', rateLimit({ name: 'roots.quorum', windowMs: 60000, max: 30, key: ipKey }), async (req, res) => {
+  try {
+    const row = await rootForDay(String(req.params.day || ''));
+    if (!row) return res.status(404).json({ error: 'No root for that day' });
+    const body = await dayQuorum(row);
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json(body);
+  } catch (err) {
+    console.error('Anchor quorum error:', err.name || 'Error');
+    res.status(500).json({ error: 'Anchor quorum unavailable', exception: err.name || 'Error' });
   }
 });
 

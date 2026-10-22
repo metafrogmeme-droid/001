@@ -28,7 +28,12 @@ test('an RPC override is used by the server and never served to a page or a wall
   const served = JSON.stringify(anchor.publicChains(env));
   assert.ok(!served.includes('SECRETKEY') && !served.includes('k3y-abc'), served);
   const doge = anchor.publicChains(env).find((c) => c.key === 'dogeos-testnet');
-  assert.deepEqual(doge.rpcs, anchor.DOGEOS_TESTNET_RPCS, 'pages get the keyless default');
+  assert.deepEqual(doge.rpcs, anchor.DOGEOS_TESTNET_PUBLIC_RPCS, 'pages get the keyless default');
+  // Unset, the server reads through the official endpoint and dRPC's; a page
+  // is still handed the official one only.
+  assert.deepEqual(anchor.chainInfo('dogeos-testnet', {}).rpcs, anchor.DOGEOS_TESTNET_RPCS);
+  assert.ok(anchor.DOGEOS_TESTNET_RPCS.length >= 2, 'the server has a second reader');
+  assert.deepEqual(anchor.publicChains({}).find((c) => c.key === 'dogeos-testnet').rpcs, anchor.DOGEOS_TESTNET_PUBLIC_RPCS);
 
   // The route, end to end, with the override in the process environment.
   const before = { ...process.env };

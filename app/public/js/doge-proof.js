@@ -154,7 +154,7 @@
             return true;
           }
           if (r.status === 503 && tries > 1) {
-            notes[day] = 'Sent ' + txHash + ' — waiting for DogeOS to mine it…';
+            notes[day] = 'Sent ' + txHash + ' — waiting for DogeOS to mine it and confirm it 17 blocks deep (about a minute)…';
             ctx.render();
             return new Promise(function (resolve) { setTimeout(resolve, POLL_MS); })
               .then(function () { return submit(day, txHash, tries - 1); });
@@ -189,7 +189,7 @@
             ctx.render();
             return eth.request({ method: 'eth_sendTransaction', params: [{ from: from, to: from, value: '0x0', data: plan.data }] });
           }).then(function (txHash) {
-            notes[day] = 'Sent ' + txHash + ' — waiting for DogeOS to mine it…';
+            notes[day] = 'Sent ' + txHash + ' — waiting for DogeOS to mine it and confirm it 17 blocks deep (about a minute)…';
             ctx.render();
             return submit(day, String(txHash), POLL_TRIES);
           });

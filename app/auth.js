@@ -19,11 +19,10 @@ const { erasurePlan } = require('./lib/account_erasure');
 const { aggregateStats } = require('./public/js/trade-stats');
 const { secLog } = require('./lib/seclog');
 
-// Self-custody sign-in verifier — optional dependency. Lazy so the app still
-// boots (and every other auth route works) if ethers isn't installed on a
-// deployment; the wallet routes then report themselves unavailable (503).
-let _ethers = null;
-try { _ethers = require('ethers'); } catch (_) { /* wallet sign-in disabled */ }
+// Self-custody sign-in verifier, in-house (lib/eth_signature.js). It used to
+// be `ethers.verifyMessage`, which the stub production resolves `ethers` to
+// does not have: every wallet sign-in answered 401 until 21 October 2026.
+const { recoverPersonalSignAddress } = require('./lib/eth_signature');
 
 const router = express.Router();
 
@@ -1146,7 +1145,7 @@ router.get('/config', (_req, res) => {
     // only when configured.
     oauth_providers: [...oauth2.configuredProviders(), ...(piSignin.configured() ? ['pi'] : [])],
     // Self-custody wallet sign-in is available when the verifier is installed.
-    wallet_login: !!_ethers,
+    wallet_login: true,
     // Footer social links — operator-set, rendered only when present (no guessing).
     social_links: {
       x: process.env.SOCIAL_X_URL || null,
@@ -1174,7 +1173,6 @@ const _NONCE_TTL_MS = 5 * 60 * 1000;
 const _linkStore = require('./lib/wallet_link_store');
 
 router.post('/wallet/nonce', async (req, res) => {
-  if (!_ethers) return res.status(503).json({ error: 'Wallet sign-in is not available on this deployment.' });
   const clientIp = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
   if (!(await checkRateLimit(clientIp))) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
   const address = String((req.body || {}).address || '').trim();
@@ -1189,7 +1187,6 @@ router.post('/wallet/nonce', async (req, res) => {
 
 router.post('/wallet/verify', async (req, res) => {
   try {
-    if (!_ethers) return res.status(503).json({ error: 'Wallet sign-in is not available on this deployment.' });
     const address = String((req.body || {}).address || '').trim();
     const signature = String((req.body || {}).signature || '').trim();
     if (!_ADDR_RE.test(address) || !signature) {
@@ -1199,9 +1196,8 @@ router.post('/wallet/verify', async (req, res) => {
     if (!rec || rec.expires < Date.now()) {
       return res.status(400).json({ error: 'Login request expired — please try again.' });
     }
-    let recovered;
-    try { recovered = _ethers.verifyMessage(rec.message, signature); }
-    catch (_) { return res.status(401).json({ error: 'Signature verification failed.' }); }
+    const recovered = recoverPersonalSignAddress(rec.message, signature);
+    if (recovered === null) return res.status(401).json({ error: 'Signature verification failed.' });
     if (String(recovered).toLowerCase() !== address.toLowerCase()) {
       return res.status(401).json({ error: 'Signature does not match the wallet.' });
     }
@@ -1225,7 +1221,6 @@ router.post('/wallet/verify', async (req, res) => {
 // mirroring only, never any signing surface.
 router.post('/wallet/link', authMiddleware, async (req, res) => {
   try {
-    if (!_ethers) return res.status(503).json({ error: 'Wallet linking is not available on this deployment.' });
     const address = String((req.body || {}).address || '').trim();
     const signature = String((req.body || {}).signature || '').trim();
     if (!_ADDR_RE.test(address) || !signature) {
@@ -1236,9 +1231,8 @@ router.post('/wallet/link', authMiddleware, async (req, res) => {
     if (!rec || rec.expires < Date.now()) {
       return res.status(400).json({ error: 'Link request expired — please try again.' });
     }
-    let recovered;
-    try { recovered = _ethers.verifyMessage(rec.message, signature); }
-    catch (_) { return res.status(401).json({ error: 'Signature verification failed.' }); }
+    const recovered = recoverPersonalSignAddress(rec.message, signature);
+    if (recovered === null) return res.status(401).json({ error: 'Signature verification failed.' });
     if (String(recovered).toLowerCase() !== lower) {
       return res.status(401).json({ error: 'Signature does not match the wallet.' });
     }
@@ -1284,7 +1278,6 @@ const publicOrigin = (req) => _publicOrigin.resolve(req);
 
 router.post('/wallet/link-code', authMiddleware, async (req, res) => {
   try {
-    if (!_ethers) return res.status(503).json({ error: 'Wallet linking is not available on this deployment.' });
     // Work out the public URL BEFORE burning a code: a code issued against an
     // origin the phone cannot reach is a code the user can never redeem.
     const po = publicOrigin(req);
@@ -1308,7 +1301,6 @@ router.post('/wallet/link-code', authMiddleware, async (req, res) => {
 // Redeemed FROM THE PHONE — no JWT; the single-use code carries the binding.
 router.post('/wallet/link-by-code', async (req, res) => {
   try {
-    if (!_ethers) return res.status(503).json({ error: 'Wallet linking is not available on this deployment.' });
     const code = String((req.body || {}).code || '').trim();
     const address = String((req.body || {}).address || '').trim();
     const signature = String((req.body || {}).signature || '').trim();
@@ -1324,9 +1316,8 @@ router.post('/wallet/link-by-code', async (req, res) => {
     if (!nrec || nrec.expires < Date.now()) {
       return res.status(400).json({ error: 'Signing request expired — try again.' });
     }
-    let recovered;
-    try { recovered = _ethers.verifyMessage(nrec.message, signature); }
-    catch (_) { return res.status(401).json({ error: 'Signature verification failed.' }); }
+    const recovered = recoverPersonalSignAddress(nrec.message, signature);
+    if (recovered === null) return res.status(401).json({ error: 'Signature verification failed.' });
     if (String(recovered).toLowerCase() !== lower) {
       return res.status(401).json({ error: 'Signature does not match the wallet.' });
     }

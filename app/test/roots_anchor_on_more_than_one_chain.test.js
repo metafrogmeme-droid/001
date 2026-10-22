@@ -82,9 +82,9 @@ const TX_WRONG = '0x' + 'f'.repeat(64);
  */
 const LEDGER = {
   dogeos: {
-    [TX_DOGE]: { hash: TX_DOGE, blockHash: '0x1', input: payloadFor(DAY, ROOT), from: '0xd06e' },
+    [TX_DOGE]: { hash: TX_DOGE, blockHash: '0x1', blockNumber: '0x10', input: payloadFor(DAY, ROOT), from: '0xd06e' },
     [TX_UNMINED]: { hash: TX_UNMINED, blockHash: null, input: payloadFor(DAY, ROOT) },
-    [TX_WRONG]: { hash: TX_WRONG, blockHash: '0x2', input: payloadFor(DAY, '1'.repeat(64)), from: '0xd06e' },
+    [TX_WRONG]: { hash: TX_WRONG, blockHash: '0x2', blockNumber: '0x11', input: payloadFor(DAY, '1'.repeat(64)), from: '0xd06e' },
   },
   base: {
     [TX_BASE]: { hash: TX_BASE, blockHash: '0x3', input: payloadFor(DAY, ROOT), from: '0xba5e' },
@@ -99,8 +99,12 @@ test.before(() => {
     const ledger = DOGEOS_TESTNET_RPCS.includes(url) ? LEDGER.dogeos : BASE_RPCS.includes(url) ? LEDGER.base : null;
     rpcCalls.push({ url, method, hash: params[0] });
     if (!ledger) return { ok: false, status: 502, json: async () => ({}) };
+    // The DogeOS head is far past every block here (the registry's reorg
+    // depth), and its finalized block has not reached them yet.
     const result = method === 'eth_getTransactionByHash' ? (ledger[params[0]] || null)
-      : method === 'eth_getBlockByHash' ? (BLOCKS[params[0]] || null) : null;
+      : method === 'eth_getBlockByHash' ? (BLOCKS[params[0]] || null)
+        : method === 'eth_blockNumber' ? '0x1000'
+          : method === 'eth_getBlockByNumber' ? { number: '0x1' } : null;
     return { ok: true, json: async () => ({ jsonrpc: '2.0', result }) };
   };
 });
@@ -117,7 +121,9 @@ test('the registry is served, and the plan names the chain the caller asked for'
   assert.equal(doge.chain_id, 6281971);
   assert.equal(doge.native.symbol, 'DOGE');
   assert.ok(doge.rpcs.length >= 1 && doge.explorer_tx.startsWith('https://'));
-  assert.deepEqual(Object.keys(chains()).sort(), ['base', 'dogeos-testnet']);
+  // Base and the DogeOS testnet (calldata), EAS on Base and Dogecoin itself
+  // (mainnet, 2026-10-21; app/test/a_day_is_stamped_on_mainnets.test.js).
+  assert.deepEqual(Object.keys(chains()).sort(), ['base', 'base-eas', 'dogecoin', 'dogeos-testnet']);
 
   const plan = await request('GET', `/api/roots/anchor-plan/${DAY}?chain=dogeos-testnet`);
   assert.equal(plan.status, 200);
@@ -162,6 +168,9 @@ test('a hash is verified on the chain it names, recorded once per chain, and lis
   assert.equal(vDoge.data.status, 'verified');
   assert.equal(vDoge.data.chain_name, 'DogeOS testnet');
   assert.equal(vDoge.data.anchor_tx, TX_DOGE);
+  // Deep enough to verify (head 0x1000, block 0x10), not yet final: the
+  // finalized block (0x1) has not reached it, and the route says so.
+  assert.strictEqual(vDoge.data.final, false);
 
   // Base gets its own anchor, mirrored into the older column. A second
   // player submits it: the submit route allows six a minute per user, and
@@ -177,7 +186,7 @@ test('a hash is verified on the chain it names, recorded once per chain, and lis
   assert.ok(row, 'the day is in the feed');
   assert.deepEqual(row.anchors.map((a) => [a.chain, a.tx]), [['base', TX_BASE], ['dogeos-testnet', TX_DOGE]]);
   assert.equal(row.anchor_tx, TX_BASE);
-  assert.ok(Array.isArray(feed.data.chains) && feed.data.chains.length === 2, 'the feed carries the registry for the pages');
+  assert.ok(Array.isArray(feed.data.chains) && feed.data.chains.length === Object.keys(chains()).length, 'the feed carries the registry for the pages');
 
   // Every verification went to the chain it was about, and only there.
   const dogeChecks = rpcCalls.filter((c) => c.hash === TX_DOGE && c.method === 'eth_getTransactionByHash');

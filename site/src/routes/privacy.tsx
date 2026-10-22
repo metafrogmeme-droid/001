@@ -228,6 +228,37 @@ function Privacy() {
         address and a signature and only ever verifies them.
       </P>
 
+      <H>The daily proof, and the chains it is written to</H>
+      <P>
+        Every seal the site makes in a UTC day (among them the agent&rsquo;s calls, Arena
+        practice trades, Daily Duel rounds, calls and settlements, Memeclaw
+        launches) goes into one Merkle root for that day, shown on{' '}
+        <code>/roots</code> and in its public feed. A seal is a hash and names
+        no one. A Duel call&rsquo;s receipt, opened by its own seal, shows the
+        call, its prices and outcome, and the handle you chose to show, if any.
+      </P>
+      <L items={[
+        <><strong>When your wallet anchors a day.</strong> You can write a
+          day&rsquo;s root to a public chain from your own wallet: to Base (a
+          transaction to your own address, or a stamp in the Ethereum
+          Attestation Service), to the DogeOS testnet, or to Dogecoin from
+          Dogecoin Core. Your wallet sends it; we never sign. Once the chain
+          confirms it, we keep and show publicly which chain, the transaction id
+          and the address that sent it. We do not record which account submitted
+          it. The same facts are on the chain itself, where nobody, us included,
+          can delete them; deleting your account does not remove them.</>,
+        <><strong>Bitcoin.</strong> Each day&rsquo;s root is sent to public
+          OpenTimestamps calendar servers, which put it into Bitcoin. What leaves
+          our servers is a SHA-256 digest of one line naming the day and its
+          root, and nothing about you.</>,
+        <><strong>Checking an anchor.</strong> To check one, our servers ask
+          public blockchain services about its transaction id: RPC providers for
+          Base and the DogeOS testnet, BlockCypher and SoChain for Dogecoin,
+          blockstream.info and mempool.space for Bitcoin, and, when the operator
+          has configured it, QuickNode through a data service. They see a
+          request from our server, not from you.</>,
+      ]} />
+
       <H>Memeclaw, the practice and testnet launchpad</H>
       <P>
         Memeclaw (<code>/memeclaw</code>, and on its own domain when we run one,

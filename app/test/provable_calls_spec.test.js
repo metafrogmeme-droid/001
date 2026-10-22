@@ -95,7 +95,7 @@ test('the dealt-round payload\'s field order (v6) matches the implementation exa
   assert.equal(p.v, 6);
   assert.equal(p.agent_direction, 'long', 'the stance IS in the commitment; that is the point');
   assert.strictEqual(p.match, null);
-  assert.match(seal.newRoundNonce(), /^[0-9a-f]{16}$/, 'sixteen hex characters, as the spec says');
+  assert.match(seal.newRoundNonce(), /^[0-9a-f]{32}$/, 'thirty-two hex characters (128 bits), as the spec says');
   assert.notEqual(seal.newRoundNonce(), seal.newRoundNonce());
 });
 

@@ -398,6 +398,12 @@ RULES: list[Rule] = [
                                    # counts by allowlist (app/lib/studies.js); no
                                    # account in scope, a dollar amount in the prose
                                    # refuses the registry; §4-tested.
+            "claw_record",         # mounted under /api/public — the Claw Record:
+                                   # the agent's own sealed calls, counts, percent
+                                   # and R only (app/lib/claw_record.js); a live
+                                   # call is counted and never shown, no account
+                                   # in scope; §4-tested in
+                                   # the_claw_record_counts_only_sealed_calls.
             "public_record",       # mounted under /api/public — the weekly
                                    # record committed under benchmark/record/:
                                    # percents, ratios and counts by allowlist
@@ -579,6 +585,12 @@ RULES: list[Rule] = [
             # Provable Calls v3 — the daily Merkle seal-root feed is public by
             # design; mirroring it is what makes the timestamp independent.
             "roots.js:GET /", "roots.js:GET /chains", "roots.js:GET /anchor-plan/:day", "roots.js:GET /verify/:day",
+            # The same proof's Bitcoin timestamp (OpenTimestamps): the live
+            # check, the proof file and the statement it timestamps, which
+            # anyone verifies against their own Bitcoin node; and the day's
+            # Anchor Quorum over the same public live checks. No account.
+            "roots.js:GET /ots/:day", "roots.js:GET /ots/:day/proof", "roots.js:GET /ots/:day/statement",
+            "roots.js:GET /quorum/:day",
             # Memeclaw, the DogeOS-testnet launchpad (routes/memeclaw.js).
             # Launching and trading need a WALLET, not a session: the chain
             # names who launched and who traded, a plan is a transaction the

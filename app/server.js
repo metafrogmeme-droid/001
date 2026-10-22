@@ -299,6 +299,9 @@ app.get('/diagz', (req, res) => {
     // disabled by configuration says `skipped` -- neither is silence.
     watchers: require('./lib/watch_health').snapshot(),
     alert_engine: require('./lib/alerts').engineStatus(),
+    // The daily proof's anchors, as the last watch pass found them
+    // (lib/anchor_watch.js); `findings: null` when it could not read.
+    anchors: require('./lib/anchor_watch').snapshot(),
   });
 });
 
@@ -306,6 +309,12 @@ app.get('/diagz', (req, res) => {
 // MEMECLAW_HOSTS, the launchpad is the home page and nothing else of this
 // website is answered. After the probes, which answer on every host.
 app.use(require('./lib/memeclaw_host').gate());
+
+// The Daily Duel's API for a front end hosted elsewhere (the DogeOS hackathon
+// entry on Noah AI): only the origins in API_CORS_ORIGINS, only the duel's
+// routes, never cookies (lib/api_cors.js). Before the body parsers, so a
+// preflight is answered without reading a body.
+app.use(require('./lib/api_cors').cors());
 
 // WEB-VISION: the chat route accepts optional image attachments (chart /
 // position screenshots, base64), which exceed the 1mb default. Give ONLY
@@ -380,6 +389,9 @@ app.use('/api/public/flight', require('./routes/public_flight'));
 app.use('/api/public/user-strategies', require('./routes/public_user_strategies'));
 app.use('/api/public/strategy-templates', require('./routes/strategy_templates'));
 app.use('/api/public/agent-record', require('./routes/agent_record'));
+// The Claw Record: the agent's own calls, counted only where sealed before
+// their outcome, with a sample floor before any verdict (lib/claw_record.js).
+app.use('/api/public/claw-record', require('./routes/claw_record'));
 // '/api/public/agent' below is a string prefix of this path, which looks like a
 // shadowing hazard and is not one: Express matches a mount at SEGMENT
 // boundaries, so '/api/public/agent' only claims '/api/public/agent' and
@@ -581,6 +593,7 @@ app.get('/call/:key', (req, res) => {
 });
 // The daily Merkle roots, human-readable — the page people mirror from.
 app.get('/roots', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'roots.html')); });
+app.get('/claw-record', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'claw-record.html')); });
 // The complete third-party verification contract (payload formats, root
 // construction, copy-paste verification snippets) — no account, no trust.
 app.get('/explore', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'explore.html')); });
@@ -1095,4 +1108,14 @@ async function migrateWithRetry() {
   // trades, read from the chain once a minute. Skips at once while the
   // factory is not set and checked (lib/memeclaw_config.js).
   require('./lib/memeclaw_indexer').startMemeclawIndexer();
+
+  // Each completed day's seal root, timestamped in Bitcoin through
+  // OpenTimestamps: submitted to the public calendars (an HTTP POST of a
+  // hash; nothing signed, no transaction sent here), then completed once a
+  // calendar reaches a Bitcoin block (lib/root_ots.js).
+  require('./lib/root_ots').startRootOts();
+  // The anchors, watched (lib/anchor_watch.js): disagreeing readers, a
+  // recorded anchor that no longer checks out, a Bitcoin proof stuck or never
+  // sent, a day short of its quorum. Served on /diagz.
+  require('./lib/anchor_watch').startAnchorWatch();
 })();

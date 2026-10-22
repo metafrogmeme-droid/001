@@ -73,10 +73,14 @@ test('a wrong root, a missing tx and an unmined tx each answer honestly', async 
 });
 
 test('an unreadable chain answers UNKNOWN — never a guess', async () => {
-  const down = async () => { throw new Error('ECONNREFUSED'); };
+  const down = async () => { const e = new Error('connect ECONNREFUSED https://rpc.example/KEY123'); e.name = 'ConnectionError'; throw e; };
   const v = await verifyAnchor(TX, DAY, ROOT, down);
   assert.equal(v.status, 'unknown');
-  assert.match(v.reason, /ECONNREFUSED/);
+  // Each reader is named, with the exception's class: its message can carry
+  // a URL, and a configured URL can carry a key.
+  assert.match(v.reason, /mainnet\.base\.org could not be read \(ConnectionError\)/);
+  assert.match(v.reason, /base-rpc\.publicnode\.com could not be read \(ConnectionError\)/);
+  assert.doesNotMatch(v.reason, /KEY123|ECONNREFUSED/);
 });
 
 test('the routes gate on chain verification, and the first anchor wins', () => {
@@ -101,16 +105,8 @@ test('the shim honours the anchor UPDATE with first-write-wins', () => {
     'the per-chain table is first-write-wins per (day, chain) under the shim too');
 });
 
-test('the verify endpoint is the public self-audit — cached only when verified', () => {
-  const src = read('routes', 'roots.js');
-  const at = src.indexOf("router.get('/verify/:day'");
-  assert.ok(at > -1);
-  const slice = src.slice(at, at + 1600);
-  assert.match(slice, /status: 'unanchored'/, 'an unanchored day answers honestly, not 404');
-  assert.match(slice, /verifyAnchor\(have\.tx, row\.day, row\.root, undefined, chain\.key\)/);
-  assert.match(slice, /if \(v\.status === 'verified'\) _verifyCache\.set/,
-    'caching an UNKNOWN answer would freeze a transient RPC failure into fact');
-});
+// The verify route keeping a verdict and never an unknown is driven through
+// the route in a_day_is_proven_only_by_readers_and_chains_that_agree.test.js.
 
 test('the call page states the on-chain leg — present or honestly absent', () => {
   const page = read('public', 'call.html');
@@ -154,9 +150,9 @@ test('the roots feed and page carry the anchor honestly', () => {
   // now follows the seam rather than asserting the strings are still inline:
   // pointing it back at the page would either fail on the fix or, worse, pass
   // on a page that had reverted to the database claim.
-  const page = read('public', 'roots.html');
+  const page = require('./helpers/code_only').codeOnly(read('public', 'roots.html'));
   assert.match(page, /RCAnchorCell\.anchorCell\(/, 'the page no longer uses the tested renderer');
-  assert.match(page, /api\/roots\/verify\//, 'the page never asks the chain');
+  assert.match(page, /fetch\('\/api\/roots\/quorum\/'/, 'the page never asks the chain');
 
   const cell = read('public', 'js', 'anchor_cell.js');
   assert.match(cell, /rt\.anchored/);
@@ -182,11 +178,14 @@ test('the verifier reads the chain it is told, and refuses one it does not know'
     seen.push(url);
     const { method } = JSON.parse(opts.body);
     return { ok: true, json: async () => ({ jsonrpc: '2.0', result:
-      method === 'eth_getTransactionByHash' ? { hash: TX, blockHash: '0x1', input: payloadFor(DAY, ROOT), from: '0xd06e' }
-        : { timestamp: '0x688a0d80' } }) };
+      method === 'eth_getTransactionByHash' ? { hash: TX, blockHash: '0x1', blockNumber: '0x64', input: payloadFor(DAY, ROOT), from: '0xd06e' }
+        : method === 'eth_blockNumber' ? '0x80'
+          : method === 'eth_getBlockByNumber' ? { number: '0x70' }
+            : { timestamp: '0x688a0d80' } }) };
   };
   const v = await verifyAnchor(TX, DAY, ROOT, onDoge, 'dogeos-testnet');
   assert.equal(v.status, 'verified');
+  assert.equal(v.final, true, 'the finalized block (0x70) has passed the anchor (0x64)');
   assert.ok(seen.length && seen.every((u) => DOGEOS_TESTNET_RPCS.includes(u)), `asked ${seen}`);
   // A chain this build does not know is refused before any RPC is asked —
   // never verified "as Base" by falling through to the default.
@@ -198,4 +197,51 @@ test('the verifier reads the chain it is told, and refuses one it does not know'
   assert.equal(buildAnchorPlan(DAY, ROOT, 'solana'), null);
   assert.equal(chainInfo('solana'), null);
   assert.equal(chainInfo('dogeos-testnet').chain_id, 6281971);
+});
+
+test('a DogeOS anchor is verified only past the reorg depth, and says whether it is final', async () => {
+  const { chainInfo } = require('../lib/root_anchor.js');
+  const depth = chainInfo('dogeos-testnet').reorg_depth;
+  assert.strictEqual(depth, 17, 'docs.dogeos.com: reorgs up to 17 blocks deep');
+  const at = 1000n;
+  const fake = ({ head, finalized, headNull = false }) => async (url, opts) => {
+    const { method, params } = JSON.parse(opts.body);
+    const result = method === 'eth_getTransactionByHash' ? { hash: TX, blockHash: '0x1', blockNumber: '0x' + at.toString(16), input: payloadFor(DAY, ROOT), from: '0xd06e' }
+      : method === 'eth_blockNumber' ? (headNull ? null : '0x' + head.toString(16))
+        : method === 'eth_getBlockByNumber' && params[0] === 'finalized' ? (finalized === undefined ? null : { number: '0x' + finalized.toString(16) })
+          : { timestamp: '0x688a0d80' };
+    return { ok: true, json: async () => ({ jsonrpc: '2.0', result }) };
+  };
+  // Shallow: not a verdict yet, and the answer says how far along it is.
+  let v = await verifyAnchor(TX, DAY, ROOT, fake({ head: at + 5n }), 'dogeos-testnet');
+  assert.strictEqual(v.status, 'unknown');
+  assert.match(v.reason, /5 of the 17 confirmations/);
+  v = await verifyAnchor(TX, DAY, ROOT, fake({ head: at + 16n }), 'dogeos-testnet');
+  assert.strictEqual(v.status, 'unknown', 'one block short is still short');
+  // Deep enough: verified; final only once the finalized block has passed it.
+  v = await verifyAnchor(TX, DAY, ROOT, fake({ head: at + 17n, finalized: at - 1n }), 'dogeos-testnet');
+  assert.strictEqual(v.status, 'verified');
+  assert.strictEqual(v.final, false);
+  v = await verifyAnchor(TX, DAY, ROOT, fake({ head: at + 3000n, finalized: at }), 'dogeos-testnet');
+  assert.strictEqual(v.final, true);
+  // The finalized tag not read: verified, finality unknown, never guessed.
+  v = await verifyAnchor(TX, DAY, ROOT, fake({ head: at + 17n }), 'dogeos-testnet');
+  assert.strictEqual(v.status, 'verified');
+  assert.strictEqual(v.final, null);
+  // An unreadable head is "could not be read", with no internal error text.
+  v = await verifyAnchor(TX, DAY, ROOT, fake({ headNull: true }), 'dogeos-testnet');
+  assert.strictEqual(v.status, 'unknown');
+  assert.match(v.reason, /block height could not be read/);
+  // Base has no reorg depth in the registry: unchanged, and never asked for the head.
+  const asked = [];
+  const onBase = async (url, opts) => {
+    const { method } = JSON.parse(opts.body);
+    asked.push(method);
+    return { ok: true, json: async () => ({ jsonrpc: '2.0', result: method === 'eth_getTransactionByHash'
+      ? { hash: TX, blockHash: '0x1', blockNumber: '0x1', input: payloadFor(DAY, ROOT), from: '0xba5e' } : { timestamp: '0x688a0d80' } }) };
+  };
+  v = await verifyAnchor(TX, DAY, ROOT, onBase, 'base');
+  assert.strictEqual(v.status, 'verified');
+  assert.ok(!('final' in v));
+  assert.ok(!asked.includes('eth_blockNumber'));
 });

@@ -27904,3 +27904,339 @@ one.
 (`tests/test_the_weekly_public_record.py`,
 `app/test/the_agents_page_shows_the_weekly_record.test.js`,
 `app/test/letter.test.js`.)
+
+## A TEST SUITE THAT IMPORTS THE REAL LIBRARY CANNOT SEE THE STUB PRODUCTION RUNS, A FRONT END ON ANOTHER ORIGIN NEEDS A DOOR, AND A CHAIN THAT REORGS 17 BLOCKS IS NOT CONFIRMED AT ONE
+
+21 October 2026. A read of DogeOS's own documentation and a probe of the live
+site for the Vibe Code on DOGE entry found four defects in code that had
+passed every test (`docs/hackathon/VIBE_CODE_ON_DOGE.md`).
+
+**Wallet sign-in had never worked in production.** `auth.js` called
+`ethers.verifyMessage` inside a `try`. Production resolves `ethers` to a stub
+with no such function (the stub `app/test/ethers_stub_calldata.test.js`
+reproduces, the same one that turned keccak256 into SHA-256 on 23 August), so
+the call threw and every signature, right or wrong, was answered 401
+"Signature verification failed". Every wallet test signed and verified with
+the real `ethers` installed on the build machine and passed. The probe that
+showed it was the one that tells a working check from a dead one: a
+well-formed signature from a *different* key, which a working check answers
+"Signature does not match the wallet". The verifier is now in-house
+(`app/lib/eth_signature.js`: EIP-191 hashing and secp256k1 recovery), the
+third module moved off the stub after `keccak256.js` and `abi_call.js`.
+- **Held to the reference, signature by signature.** The test signs with
+  real `ethers` on random keys and asks both for the address, both recovery
+  parities, v as 0/1 and EIP-2098's 64-byte compact form. Comparing found a
+  gap the first draft had: `ethers` accepts the compact form, and the draft
+  refused it. Every refusal case is also asserted refused by `ethers`, or it
+  proves nothing (`app/test/wallet_sign_in_works_without_ethers.test.js`).
+- **Then the stub, then the routes.** The same file installs production's
+  stub in the require cache and signs in through the routes, both arms: the
+  owner's key gets a session, another key gets "does not match".
+- **The lesson is the 23 August one, one call further.** A library the tests
+  import is not the library production resolves. A new call into `ethers` on
+  the server is a call into the stub until a test says otherwise.
+
+**A front end on another origin could not call the API.** The hackathon must
+be built with Noah AI, so the entry is a page hosted on Noah calling this
+server. The server sent no `Access-Control-Allow-Origin` header anywhere, so
+a browser would have blocked every call, and nothing here would have shown
+it: a same-origin page and a server-side test never send `Origin`.
+`app/lib/api_cors.js` opens a door only for the origins in `API_CORS_ORIGINS`
+(exact https origins, or `https://*.host`), only on the routes a duel front
+end calls, GET and POST, and never with credentials, so the site's session
+cookie never crosses; a hosted page signs in with a wallet and sends the
+token as a Bearer header, as `/doge` does. The test holds the prefixes to the
+`/api` calls the duel's own scripts make, so a new call on `/doge` without a
+door fails, and refuses a second file that sets the header itself
+(`app/test/a_hosted_front_end_can_call_the_duel_api.test.js`).
+
+**An anchor one block deep was recorded as final, on a chain that documents
+17-block reorgs.** DogeOS's documentation says its testnet can reorg up to 17
+blocks and that `finalized` trails the head by about 3,000 blocks (about 2.5
+hours). The anchor route recorded a root as soon as its transaction had a
+receipt, and the Memeclaw indexer waited 3 blocks. The registry now carries
+`reorg_depth: 17` for the DogeOS testnet (one reading, cited), and:
+- `verifyAnchor` answers "unknown" until the transaction is that deep, with
+  the count in words, and "unknown" when the head itself cannot be read; past
+  it, it reads `finalized` and says `final` true, false, or nothing when the
+  chain could not say (`app/lib/root_anchor.js`; `/api/roots/verify` carries
+  it).
+- Memeclaw's receipt reads wait the same depth before a launch or a trade is
+  recorded (`app/lib/memeclaw.js` `waitForDepth`), and the indexer's
+  confirmation count is read from the registry, not written twice
+  (`app/lib/memeclaw_indexer.js`).
+- The registry also lists dRPC's public endpoint as a server-side fallback
+  (pages and wallets are still handed only DogeOS's own) and Blockscout as a
+  second explorer.
+
+**A note for a contest is a claim about the code too.** The hackathon note's
+prompt pack, written before the duel's API settled, named fields the API
+does not have (`question`, `status`, `settles_at`, `round_seal`). A Noah build
+from it would have rendered blanks. The note now names the fields the routes
+answer, read from `publicRound`, `publicPick`, `placePick` and `/me`, and the
+prize it listed ("Community & Social") was not one the rules offer.
+
+**Mutation round.** Thirty-one mutants across the verifier, the sign-in
+routes, the CORS door, the depth checks and the indexer constant: thirty
+killed, one equivalent (accepting `r = 0`, which the curve check refuses
+anyway, because secp256k1 has no point with x = 0). The first pass left
+two real survivors, each a missing case rather than a wrong one: no test read
+`final` off the route, and no signature had an `r` off the curve. Placing the
+mutants also showed the factory's deployment check had no test at all. Each
+now has one.
+
+## THREE MAINNETS, NO KEY OF OURS: A STAMP IS READ BACK FROM THE REGISTRY, A BITCOIN PROOF FROM THE HEADER, AND A PAYLOAD THAT DOES NOT FIT IS GIVEN ITS OWN TAG
+
+21 October 2026. The owner: "Go mainnet included", then "Build the mainnet
+ones too". Each completed day's seal root can now be put on three mainnets,
+each without a key, a wallet or a transaction of the server's
+(`app/test/a_day_is_stamped_on_mainnets.test.js`).
+
+**EAS on Base: the registry, not the calldata, is the final word.** A
+visitor's wallet calls `timestamp(root)` on the Ethereum Attestation Service
+at Base's OP Stack predeploy (`0x4200…0021`, version 1.0.1, read live). EAS
+keeps one stamp per root, so a call whose calldata is exactly right can still
+have stamped nothing: a second stamp reverts. `verifyEasStamp`
+(`app/lib/root_anchor.js`) therefore checks the transaction's target and
+calldata, then its receipt, then asks EAS itself (`getTimestamp(root)`) and
+requires that answer to equal the block's time. Calldata alone is the claim
+the self-send anchors make; here it would accept a reverted transaction. The
+plan route asks EAS first and answers `already_stamped` rather than hand a
+wallet a transaction that would revert, and the page refuses a plan whose
+target is not the registry's EAS. Tested against a real Base transaction
+found by its `Timestamped` event.
+
+**Bitcoin through OpenTimestamps: a hash goes out, a header comes back.**
+The server POSTs SHA-256 of the same statement the chains carry
+(`RCROOT1:<day>:<root>`) to the four public calendars; they pay for and send
+the Bitcoin transaction. The proof format is parsed and written in-house
+(`app/lib/opentimestamps.js`), held to the OpenTimestamps project's own
+example proof byte for byte, whose path leads to block 358391's Merkle root.
+A height is written only after this server read that block's header from a
+Bitcoin header API, compared the root, and saw the block six deep
+(`app/lib/root_ots.js` `checkProof`); the page re-checks it live before
+painting it green. The proof and the statement download from the roots page
+for `ots verify` against one's own node.
+
+**Dogecoin: the text did not fit, so it is a different format.** Dogecoin
+Core relays one OP_RETURN of at most 80 bytes; `RCROOT1:<day>:<64 hex>` is 83.
+Rather than shorten the shared text (every EVM anchor and the Bitcoin
+statement use it), Dogecoin gets its own tag, `RCD1:<day>:` followed by the
+root's 32 raw bytes, 48 bytes in all (`app/lib/dogecoin_anchor.js`), so no
+reader parses one as the other. The owner's own Dogecoin Core sends it from
+four console commands the plan prints; the server reads the transaction back
+through BlockCypher's keyless API, the only keyless reader that answered
+(Blockchair blacklisted the address, Trezor's Blockbook challenged it), so a
+silent BlockCypher is "unknown", never a verdict, and a verdict is cached for
+six hours against its 100-reads-an-hour limit. A browser path (MyDoge's
+`requestPsbt`) needs a page-built transaction and a live wallet test first.
+
+**A stand-in calendar cut its own answer at the wrong place.** The first
+fake calendar sliced a whole proof file at a fixed offset to get a timestamp,
+which is right for a 32-byte digest and wrong for a commitment of 57: the
+upgrade parsed garbage, swallowed the error, and the test read "not
+upgraded". The library's own writer (`writeTimestamp`) is now exported and
+the stand-in uses it. A hand-written stand-in forgets the next attribute; a
+hand-written offset forgets the next length.
+
+**Mutation round.** Twenty-seven mutants across the EAS verifier, the plan
+route, the stamp button, the Dogecoin reader, the proof library, the job and
+the Bitcoin cell, all killed. The first pass left one alive: without the
+check, a Bitcoin tip that could not be read is `null`, the depth comes out
+negative, and the day reads "0 of the 6 confirmations", a measurement nobody
+made, instead of "could not be read". No test had a header source that
+answered blocks but not the tip; one does now.
+
+## A TRACK RECORD COUNTS ONLY WHAT WAS SEALED BEFORE IT RESOLVED, AND SAYS WHEN ITS SAMPLE IS TOO SMALL TO MEAN ANYTHING
+
+21 October 2026. The Claw Record (`/claw-record`, `GET /api/public/claw-record`,
+`app/lib/claw_record.js`) is the agent's own calls as a public record, the
+"Agent Scorecard" the hackathon note promised, renamed because
+`app/public/js/agent-scorecard.js` already names the backtest card.
+
+**Sealed before the outcome, or not counted.** `/api/signals/stats` counts
+every resolved signal, including rows from before sealing began. This record
+counts a call only when it carries a seal whose time is not after its
+outcome: a seal after the fact proves nothing about foresight. The calls it
+leaves out are counted apart, by reason (`excluded.unsealed`,
+`excluded.sealed_after_outcome`), so the record never reads as larger or
+cleaner than it is.
+
+**No outcome is not a loss, flat is not a loss, nothing is not 0%.** A call
+with no outcome (live, expired, ambiguous) is counted under its own status
+word and left out of the rate. A break-even is its own count. Over nothing
+resolved the rate is `null`.
+
+**A floor before a verdict.** Below 350 resolved sealed calls the numbers
+are shown, muted, beside "Too few to judge"; the figure is the sample a power
+analysis for AI forecasting agents put on detecting a small edge (Foresight
+Arena, arXiv, May 2026). The rate is never painted green either way.
+
+**A live call is counted, never shown.** Its side is a member's
+(`lib/signal_access.js`); the record lists only resolved calls, each with its
+`/call/<key>` receipt, and the test checks a live call's market and key are
+absent from the payload.
+
+**An async throw is an unanswered request.** In the mutation round one
+mutant hung the test file instead of failing it: the computation threw, the
+route had no `try` around it, Express 4 does not catch an async throw, and
+the client waited forever. The route now answers 500 with the exception
+class, and a test drives a database answering in a shape the record cannot
+read. Fifteen mutants, all killed.
+
+## A VERDICT NEEDS TWO READERS THAT AGREE, AND A DAY NEEDS TWO CHAINS THAT DO NOT SHARE A FATE
+
+21 October 2026, acting on the multichain report's first gaps (reader
+diversity, an anchor quorum). The April 2026 bridge loss it cites was a
+verifier fed by one set of poisoned RPCs, not a contract bug.
+
+**Silence was handled; a lie was not.** Every anchor check asked its readers
+in turn and believed the first that answered: Base's two RPCs, Bitcoin's two
+header sources, Dogecoin's one explorer, and QuickNode, which since #96
+verified a Base anchor alone when both RPCs were down. "Unreadable is never a
+verdict" kept a dead reader from turning a day green. It did nothing about a
+reader that answered wrongly. `app/lib/reader_agreement.js::agree` is now the
+one rule for all of them: every reader is asked; a verdict needs two giving
+the same one, in the same block (`same`, the block hash), with none
+contradicting; anything less is `unknown`, and readers that contradict each
+other are `disagreement: true`, never settled by counting. `requiredOf` is
+two, or every reader when fewer are configured: a list of one URL is one
+reader deciding alone, which `.env.example` now says beside the variables.
+
+**QuickNode became a seat, not the bench.** The test that pinned "RPCs down,
+QuickNode answers: verified, from QuickNode" was rewritten, because the rule
+it pinned is the one this chapter retires: QuickNode alone is one reader. It
+now fills the seat of an RPC that did not answer and must agree with the one
+that did, in the same block; two RPCs that disagree are not settled by
+asking a third.
+
+**The Bitcoin tip is the lowest the sources report.** Depth is tip minus
+height. One source reporting a higher tip than the chain has would make a
+shallow block look six deep, so `app/lib/root_ots.js::bitcoinTip` asks both
+and takes the lower, and answers nothing when only one answered.
+
+**A reader's name can carry a key.** The old reasons carried exception
+messages, and `app/test/root_anchor.test.js` asserted that one did
+(`ECONNREFUSED`). A fetch error's message can carry its URL, and a configured
+RPC URL often carries a provider key. A verdict now names a keyless default by
+its host, a configured URL by its place (`configured rpc 1`), and a failure by
+its class; the test asserts the message and the URL are absent.
+
+**Two chains that share a fate are one witness.**
+`app/lib/anchor_quorum.js::quorumOf` calls a day multi-anchored when at least
+two independence groups verify it live (`GET /api/roots/quorum/:day`, one
+request per day on `/roots`). A Base calldata anchor and an EAS stamp on Base
+are one group (`ethereum-l2`), and so would another Ethereum L2 be; the DogeOS
+testnet is shown and never counted, because a testnet can be reset. Three
+values: `multi_anchored`, `short`, and `unknown` only when an unreadable
+witness, in a group not already verified, could have made up the difference.
+Beside the badge, always: time-proven, not performance. The DogeOS testnet's
+two readers are DogeOS's own RPC and dRPC's; whether dRPC's nodes are
+independent of DogeOS's is not measured, which is one more reason the testnet
+does not count.
+
+**Two source scans were passing on the wrong thing.** The verify route's
+"cached only when verified" test sliced 1,600 characters after the route
+string; extracting the check into a function moved the line out of the
+slice. It is now driven through the route: a 3-confirmation answer is not
+kept, a verdict is. And two pins that `/roots` "asks the chain" matched
+`/api/roots/verify/`, which after the page moved to the quorum route was
+still present only in the page's own comment. They now read `codeOnly` and
+match the quorum fetch.
+
+**The Claw Record page missed four site rules**, none of which its own
+tests could see, all found by running the whole app suite on this branch: it
+did not load `api-retry.js` first, did not load the sale bar every page with
+the i18n runtime carries, was linked from nowhere on the landing page, and
+its window buttons' `aria-label` was English in every language. A new page's
+own test file is not the gate; the suite of rules every page answers to is.
+
+**The privacy page now says what the proof publishes.** A wallet that
+anchors or stamps a day has its address and transaction shown on `/roots`
+and in the API, and kept on the chain where nobody can delete it; each day's
+root goes to public OpenTimestamps calendars as a digest; checking an anchor
+asks public blockchain services about a transaction id. The page had said
+none of it. The roadmap lists this as a gate before Base goes live; the
+wording is a factual update, and legal sign-off stays with the owner.
+
+**The Duel round nonce is 128 bits.** A round's stance is hidden behind
+sha256(payload) for up to a day; sixteen hex characters (64 bits) is a bill a
+determined guesser can pay in that time, thirty-two is not. Rounds dealt
+before keep their sixteen; the check is the same.
+
+**The mutation round found a seat nobody could fill.** Twenty-nine mutants,
+one survivor: making QuickNode count toward nothing (`required` from the RPCs
+alone) changed no test, because with Base's two default RPCs two readers are
+needed either way. The case it hid was real: with one configured RPC and
+QuickNode, two readers are needed, but QuickNode was asked only when an RPC
+had failed, so that setup could never verify anything. QuickNode is now asked
+whenever fewer readers answered than are needed, and a test drives one
+configured RPC with QuickNode both ways. A mutant restoring the old condition
+is the thirtieth; thirty of thirty killed.
+
+## A WATCH THAT COULD NOT READ HAS NO FINDINGS, NOT ZERO OF THEM
+
+21 October 2026, the roadmap's monitoring gate ("anchor jobs, OTS pending,
+reader disagreement"). `app/lib/anchor_watch.js` checks the last three
+completed days every thirty minutes through the same live checks `/roots`
+shows, now in one place (`app/lib/day_quorum.js`, which the verify, Bitcoin
+and quorum routes also answer from), and serves its last pass on `/diagz`
+under `anchors`. Nothing is pushed to a chat: the channel is the owner's
+choice, and the findings are ready for it. `docs/LIVE_HARDENING_RUNBOOK.md`
+says how to read them.
+
+**Three levels, each with its time.** An alarm is a reader disagreement or a
+recorded anchor that no longer checks out, raised at once. A warning is a
+Bitcoin proof still pending a day after it was sent, or a completed day the
+stamping job never sent (two hours after the day ended; the job runs every
+ten minutes), or a check that could not be read. A to-do is a day not in two
+independent chains a day and a half after it ended: Base anchoring is a
+wallet's act, so a short day is the operator's next step, not a fault. Each
+boundary is driven on both sides.
+
+**`anchorsFor` read an unreadable table as no anchors.** That is the right
+reading for the feed, which says so; for a quorum it would report a day
+short of witnesses it could not see, and the watch would file a to-do for an
+outage. It gained `{ strict: true }`, which the quorum uses: an unreadable
+table is a 500 naming the class on `/api/roots/quorum/:day`, and a
+`check_failed` warning in the watch, both tested.
+
+**A pass that could not read the roots is `findings: null` with the error's
+class, and `counts: null`**, never an empty list that reads as all clear;
+the watcher's own state goes to `failed` in `watchers`. A mutant that turned
+the failure into an empty list is killed by the test. Thirteen mutants, all
+killed.
+
+## A TEST THAT READS THE WALL CLOCK FAILS AT NIGHT, AND A PUBLIC ROUTE IS PUBLIC ONLY WHERE IT SAYS SO
+
+21 October 2026, the full preflight on the merged stack, run in the evening
+(UTC). Three gates failed that had passed in the afternoon.
+
+**Five Duel route tests failed every evening, on `main` too.** The football
+round is dealt only for a match kicking off on the card's own UTC day and at
+least an hour away (`app/lib/sports_feed.js` `LEAD_MS`). The test's stand-in
+match kicked off "three hours from now": after 21:00 UTC that is tomorrow,
+and after 23:00 no match can be dealt at all. CI on #657 ran at 20:10 and was
+green. `app/test/duel_routes.test.js` now moves the clock to half past nine
+of the real day and leaves it running. A frozen clock was tried first and
+broke a receipt test, because a call's seal covers its time: two players
+calling the same side in the same instant seal the same payload, and a
+frozen clock makes every call that instant.
+
+**A Pi app smoke test raced its own request log.** After Refresh, the
+charts are drawn again by the render that brings the button back, and
+Playwright reports their bar requests to the test a moment after the page
+makes them; under the preflight's load the assertion ran first. It now waits
+for the bars, bounded at five seconds. With the reload's cache clear removed,
+it still fails: the wait does not weaken the claim. (A first mutation run
+reported that mutant surviving: `--test-name-pattern` matched the subtest but
+not its parent, so nothing ran. "Pass 1" was the skipped parent.)
+
+**New public routes were public by accident of omission.** The guard check
+(`scripts/guard_lint.py`) refuses an `/api` route module that never applies
+`authMiddleware`, and an unauthenticated route in a module that guards its
+others, unless the route is listed as public with a reason. The Claw Record
+module and the Bitcoin and quorum routes on `/api/roots` were public by
+design and listed nowhere; each is listed now, with its reason. The
+stacked branches had run their app suites, not the full preflight, which is
+where this gate lives.

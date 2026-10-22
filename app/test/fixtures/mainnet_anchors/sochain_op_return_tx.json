@@ -1,0 +1,45 @@
+{
+ "_source": "SoChain https://sochain.com/api/v3/transaction/DOGE/9a9c79ecf23380e5d19033976c96450444486aeadc4f94146f0cf2d7fb953191 read 2026-10-21: the same Dogecoin transaction as dogecoin_op_return_tx.json (a THORChain swap memo), trimmed to the fields the verifier reads.",
+ "status": "success",
+ "data": {
+  "hash": "9a9c79ecf23380e5d19033976c96450444486aeadc4f94146f0cf2d7fb953191",
+  "confirmations": 41,
+  "block_hash": "db7219ba7a54ec84feeaaaa8e1c90cd38d8ca024a77f2d098bd8383c621e2d9e",
+  "block_height": 6424734,
+  "time": 1792606412,
+  "inputs": [
+   {
+    "address": "DAueyYT7AChqUeYh3qkQ5YoQJz3pzkAhpt"
+   }
+  ],
+  "outputs": [
+   {
+    "index": 0,
+    "value": "50.00000000",
+    "address": "DTNqHV51o3KruyDyG19onew6VHD1Mzs9Ht",
+    "type": "pubkeyhash",
+    "script": {
+     "hex": "76a914f3ebdb5160752be983fadea83913a040c80d5e9588ac"
+    }
+   },
+   {
+    "index": 1,
+    "value": "0.00000000",
+    "address": "op_return",
+    "type": "nulldata",
+    "script": {
+     "hex": "6a4c4e3d3a4253432e555344543a3078376435386235353263654534306562323564613763423844333043394239393736303864386133343a3338303533333437352f302f303a2d5f2f74313a302f3730"
+    }
+   },
+   {
+    "index": 2,
+    "value": "19.31683434",
+    "address": "DAueyYT7AChqUeYh3qkQ5YoQJz3pzkAhpt",
+    "type": "pubkeyhash",
+    "script": {
+     "hex": "76a9143f4601e4d9a880b4dccc2b314afbf63bc1618e3688ac"
+    }
+   }
+  ]
+ }
+}

@@ -216,12 +216,17 @@ function sealDuelPick(p) {
  * was fixed then, not written to fit afterwards.
  *
  * `nonce`: a three-way stance behind a bare hash is a three-guess secret.
- * Sixteen random hex characters in the payload make the commitment hide
- * what it commits to until it is opened. A round with no stance (a range, a
- * mover, a match) carries the nonce too; one payload shape, one rule.
+ * Random hex characters in the payload make the commitment hide what it
+ * commits to until it is opened. A round with no stance (a range, a mover, a
+ * match) carries the nonce too; one payload shape, one rule. 128 bits since
+ * 2026-10-21 (sixteen hex characters, 64 bits, before): the round stays
+ * closed for up to a day, and 2^64 guesses is a bill a determined guesser
+ * can pay in that time, where 2^128 is not. A round dealt before keeps its
+ * sixteen; its seal is over its own payload either way.
  */
+const ROUND_NONCE_BYTES = 16;
 function newRoundNonce() {
-  return crypto.randomBytes(8).toString('hex');
+  return crypto.randomBytes(ROUND_NONCE_BYTES).toString('hex');
 }
 
 function canonicalDuelRoundPayload(r) {

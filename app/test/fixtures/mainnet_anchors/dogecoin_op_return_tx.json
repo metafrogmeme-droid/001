@@ -1,0 +1,35 @@
+{
+ "_source": "BlockCypher https://api.blockcypher.com/v1/doge/main/txs/9a9c79ecf23380e5d19033976c96450444486aeadc4f94146f0cf2d7fb953191 read 2026-10-21: a real Dogecoin transaction with one OP_RETURN output (a THORChain swap memo), not a RUNECLAW anchor. Outputs trimmed to the fields the verifier reads.",
+ "hash": "9a9c79ecf23380e5d19033976c96450444486aeadc4f94146f0cf2d7fb953191",
+ "block_height": 6424734,
+ "block_hash": "db7219ba7a54ec84feeaaaa8e1c90cd38d8ca024a77f2d098bd8383c621e2d9e",
+ "confirmations": 2,
+ "confirmed": "2026-10-21T18:13:32Z",
+ "double_spend": false,
+ "inputs": [
+  {
+   "addresses": [
+    "DAueyYT7AChqUeYh3qkQ5YoQJz3pzkAhpt"
+   ]
+  }
+ ],
+ "outputs": [
+  {
+   "value": 5000000000,
+   "script": "76a914f3ebdb5160752be983fadea83913a040c80d5e9588ac",
+   "script_type": "pay-to-pubkey-hash"
+  },
+  {
+   "value": 0,
+   "script": "6a4c4e3d3a4253432e555344543a3078376435386235353263654534306562323564613763423844333043394239393736303864386133343a3338303533333437352f302f303a2d5f2f74313a302f3730",
+   "script_type": "null-data",
+   "data_hex": "3d3a4253432e555344543a3078376435386235353263654534306562323564613763423844333043394239393736303864386133343a3338303533333437352f302f303a2d5f2f74313a302f3730",
+   "data_string": "=:BSC.USDT:0x7d58b552ceE40eb25da7cB8D30C9B997608d8a34:380533475/0/0:-_/t1:0/70"
+  },
+  {
+   "value": 1931683434,
+   "script": "76a9143f4601e4d9a880b4dccc2b314afbf63bc1618e3688ac",
+   "script_type": "pay-to-pubkey-hash"
+  }
+ ]
+}

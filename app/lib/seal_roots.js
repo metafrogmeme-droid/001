@@ -129,8 +129,11 @@ async function listRoots(limit = 30, scan = 7) {
  * table holds no Base row. A day with none answers an empty list — "not yet
  * anchored" is a fact about the chains, and an unreadable table is read as
  * none the same way the feed reads an unreadable root list as empty.
+ * `{ strict: true }` throws instead: a quorum or a watch that counted an
+ * unreadable table as "no anchors" would report a day short of witnesses it
+ * could not see (lib/day_quorum.js).
  */
-async function anchorsFor(day, rootRow) {
+async function anchorsFor(day, rootRow, { strict = false } = {}) {
   let rows = [];
   try {
     const [r] = await pool.execute(
@@ -139,7 +142,10 @@ async function anchorsFor(day, rootRow) {
       chain: String(a.chain), tx: String(a.tx), from: a.from_addr || null,
       block_time: a.block_time || null, verified_at: a.verified_at || null,
     }));
-  } catch (e) { rows = []; }
+  } catch (e) {
+    if (strict) throw e;
+    rows = [];
+  }
   const legacy = rootRow && rootRow.anchor_tx;
   if (legacy && !rows.some((a) => a.chain === 'base')) {
     rows.push({ chain: 'base', tx: String(legacy), from: null,

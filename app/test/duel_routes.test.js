@@ -68,6 +68,23 @@ function req(method, path, { token, body } = {}) {
 const POOL_SIZE = 10;   // the register limiter allows ten per address
 const U = [];
 
+// The clock, moved to half past nine (UTC) of the real day and left running.
+// A football round is dealt only for a match on the card's own UTC day and at
+// least an hour away (lib/sports_feed.js LEAD_MS): on the real clock "three
+// hours from now" fell on the next day from 21:00 UTC, and after 23:00 no
+// match can be dealt at all, so five tests failed every evening. The clock
+// keeps running rather than standing still because a call's seal covers its
+// time: two players calling the same side in the same instant seal the same
+// payload, and a frozen clock makes every call that instant.
+{
+  const RealDate = Date;
+  const offset = RealDate.parse(`${new RealDate().toISOString().slice(0, 10)}T09:30:00Z`) - RealDate.now();
+  global.Date = class extends RealDate {
+    constructor(...a) { if (a.length) super(...a); else super(RealDate.now() + offset); }
+    static now() { return RealDate.now() + offset; }
+  };
+}
+
 // The football feed, answered by a stand-in: today's match kicks off three
 // hours from now, and nothing has finished unless a test says so.
 const KICKOFF = new Date(Date.now() + 3 * 3600000).toISOString();
@@ -698,7 +715,7 @@ test('a classic round’s receipt is locked to a visitor, opens for the player w
   assert.equal(p.v, 6);
   assert.equal(p.kind, 'duel_round');
   assert.strictEqual(p.agent_direction, picked.body.agent_direction, 'the stance revealed by the call is the one sealed when dealt');
-  assert.match(p.nonce, /^[0-9a-f]{16}$/);
+  assert.match(p.nonce, /^[0-9a-f]{32}$/, '128 bits: a day is too long for 64 to hide three stances');
   assert.equal(p.symbol, target.symbol);
   assert.equal(p.day, card.body.day);
   assert.strictEqual(open.body.current.agent_direction, picked.body.agent_direction);

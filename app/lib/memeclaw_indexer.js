@@ -12,8 +12,10 @@
  * READ IN ORDER, REMEMBERED ACROSS INSTANCES. The next block to read lives in
  * job_state (lib/job_state.js), and moves only after every event up to it is
  * written. A range the RPC refuses as too wide is halved and asked again. It
- * reads only blocks CONFIRMATIONS behind the head, so a reorg on the testnet
- * does not leave a trade here the chain no longer has.
+ * reads only blocks CONFIRMATIONS behind the head, the chain's documented
+ * reorg depth (17 on the DogeOS testnet, lib/root_anchor.js), so a reorg does
+ * not leave a trade here the chain no longer has. It was 3 until 21 October
+ * 2026, under the depth DogeOS documents.
  *
  * WHERE IT STARTS. MEMECLAW_FACTORY_BLOCK, the block the factory was deployed
  * in (the operator's deploy check prints it). Without it, the indexer starts
@@ -32,7 +34,8 @@ const JOB = 'memeclaw_indexer';
 const CHUNK = 2000;
 const MIN_CHUNK = 50;
 const MAX_CHUNKS = 10;
-const CONFIRMATIONS = 3;
+// The registry's reorg depth for the chain, never fewer than 3.
+const CONFIRMATIONS = Math.max(3, (require('./root_anchor').chainInfo(mchain.CHAIN_KEY) || {}).reorg_depth || 0);
 const MAX_BACKFILL = 10000;
 const PLAN_DAYS = 1;
 
