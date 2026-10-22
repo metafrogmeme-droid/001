@@ -91,7 +91,7 @@ test('a pass checks the newest days only, names a failed check by its class, and
   const failed = out.findings.find((f) => f.kind === 'check_failed');
   assert.strictEqual(failed.detail, 'ConnectionError');
   assert.ok(!JSON.stringify(out).includes('10.0.0.1'), 'the class, never the message');
-  assert.deepStrictEqual(watch.snapshot().counts, { alarm: 0, warn: 1, todo: 2 });
+  assert.deepStrictEqual((await watch.snapshot()).counts, { alarm: 0, warn: 1, todo: 2 });
   assert.strictEqual(health.snapshot()[watch.JOB].state, 'ok');
 });
 
@@ -99,10 +99,10 @@ test('roots that cannot be read are no findings at all, never an empty all-clear
   const real = pool.execute;
   pool.execute = async () => { const e = new Error('connect ECONNREFUSED'); e.name = 'ConnectionError'; throw e; };
   try {
-    const out = await watch.runOnce({ now: Date.parse('2026-10-12T12:00:00Z') });
+    const out = await watch.runOnce({ now: Date.parse('2026-10-12T14:00:00Z') });
     assert.strictEqual(out.findings, null);
     assert.strictEqual(out.error, 'ConnectionError');
   } finally { pool.execute = real; }
-  assert.strictEqual(watch.snapshot().counts, null);
+  assert.strictEqual((await watch.snapshot()).counts, null);
   assert.strictEqual(health.snapshot()[watch.JOB].state, 'failed');
 });

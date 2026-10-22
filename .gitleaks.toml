@@ -99,6 +99,9 @@ stopwords = [
   # Listed by value rather than by path so the file stays scanned: a real key
   # pasted into it tomorrow is still caught.
   "sk-abcdefghijklmnopqrs",
+  # The Discord webhook row's example (and the alert tests' fixture hook):
+  # a token spelled "token" ten times, which no Discord hook issues.
+  "tokentokentokentokentokentokentokentoken",
   "bg_1234567890abcdef1234567890abcdef",
   "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4YQ",
   # THE FOURTH EXAMPLE WAS INVISIBLE UNTIL IT WAS RENDERED. The same table's

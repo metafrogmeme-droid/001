@@ -68,7 +68,7 @@ def test_the_rows_are_the_rows():
     """Adding or removing a shape is a deliberate act that edits this list in
     the same commit, with the reason in the module docstring."""
     assert [s.name for s in SHAPES] == [
-        "telegram_bot_token", "bearer_token", "provider_key", "jwt",
+        "telegram_bot_token", "bearer_token", "provider_key", "jwt", "discord_webhook",
         "named_key_value", "prose_key_label", "env_name_value", "secret_query_param",
     ]
 

@@ -441,8 +441,41 @@ curl -s -H "X-Diag-Token: $DIAG_TOKEN" https://YOUR_HOST/diagz | jq '.anchors'
 - `findings: null` with an `error` class means the pass could not read the
   roots: nothing was checked, which is not the same as nothing wrong.
 
-Nothing is pushed to a chat yet; which channel the findings go to is the
-owner's choice.
+**Alerts go to Discord** (the owner's choice, 22 October 2026). After each
+pass the watch posts one message saying what changed: a new finding at once,
+one still open again after 6 hours (alarm) or 24 hours (warn, todo), one that
+cleared, or whose day left the three-day window, once. A finding that drops
+out only because its check could not be read this time is not reported as
+cleared. It stays open until a pass can read that check. Mentions are off, so
+no message can ping the channel.
+
+To turn it on:
+
+1. In Discord, open the ops channel's **Edit Channel → Integrations →
+   Webhooks → New Webhook** and choose **Copy Webhook URL**.
+2. Put it in `~/runeclaw-persist/web.env` as
+   `ANCHOR_ALERTS_DISCORD_WEBHOOK=…`, never in the bot's `.env`, a chat or a
+   commit. The URL is a credential: its last segment lets anyone holding it
+   post as the hook.
+3. Publish `app/` again. The first pass after that posts everything already
+   open, because nothing was recorded as said while no hook was set.
+
+Then check it:
+
+```bash
+curl -s -H "X-Diag-Token: $DIAG_TOKEN" https://YOUR_HOST/diagz | jq '.anchors.alerts'
+```
+
+- `configured: false` with `reason: "not a Discord webhook URL"`: the setting
+  is not a `https://discord.com/api/webhooks/<id>/<token>` URL, and nothing is
+  posted anywhere.
+- `last_error`: why the last send failed (`DiscordHttpError`, or a class
+  such as `AbortError`). The same findings are sent again on the next pass.
+  The URL is never in this answer, a log or an error.
+- `open`: how many findings have been said and not yet cleared.
+
+If the hook's URL is ever exposed, delete that webhook in Discord, create a
+new one, and replace the setting.
 
 **When the reason is `db_error`,** the driver's own code appears beside the
 category in both stdout and that file — one word, no stack-reading. Send it and

@@ -276,33 +276,39 @@ app.get('/readyz', (req, res) => {
 //
 // Fail-CLOSED: with DIAG_TOKEN unset the route 404s as though it were not
 // mounted, so an unconfigured deployment exposes nothing at all.
-app.get('/diagz', (req, res) => {
-  const expected = process.env.DIAG_TOKEN || '';
-  if (!expected) return res.status(404).json({ error: 'Not found' });
+app.get('/diagz', async (req, res, next) => {
+  // Async for the anchor snapshot's shared-state read; Express 4 does not
+  // catch an async throw, so one is handed on rather than left hanging.
+  try {
+    const expected = process.env.DIAG_TOKEN || '';
+    if (!expected) return res.status(404).json({ error: 'Not found' });
 
-  const given = String(req.get('X-Diag-Token') || '');
-  // Length-independent compare, and never confirm a partial match.
-  const ok = given.length === expected.length
-    && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
-  if (!ok) return res.status(404).json({ error: 'Not found' });
+    const given = String(req.get('X-Diag-Token') || '');
+    // Length-independent compare, and never confirm a partial match.
+    const ok = given.length === expected.length
+      && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+    if (!ok) return res.status(404).json({ error: 'Not found' });
 
-  res.setHeader('Cache-Control', 'no-store');
-  res.json({
-    ...readiness.snapshot(),
-    version: require('./lib/version').buildInfo(),
-    // Categories, codes and counts — the same discipline as every other
-    // surface here. No error message is ever recorded, so none can be served.
-    events: bootLog.recent(),
-    // Which background sweeps are alive. Each records its own passes
-    // (lib/watch_health.js); the tripwire engine keeps the same accounting
-    // in lib/alerts.js. A sweep that has never completed says `never`, one
-    // disabled by configuration says `skipped` -- neither is silence.
-    watchers: require('./lib/watch_health').snapshot(),
-    alert_engine: require('./lib/alerts').engineStatus(),
-    // The daily proof's anchors, as the last watch pass found them
-    // (lib/anchor_watch.js); `findings: null` when it could not read.
-    anchors: require('./lib/anchor_watch').snapshot(),
-  });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ...readiness.snapshot(),
+      version: require('./lib/version').buildInfo(),
+      // Categories, codes and counts — the same discipline as every other
+      // surface here. No error message is ever recorded, so none can be served.
+      events: bootLog.recent(),
+      // Which background sweeps are alive. Each records its own passes
+      // (lib/watch_health.js); the tripwire engine keeps the same accounting
+      // in lib/alerts.js. A sweep that has never completed says `never`, one
+      // disabled by configuration says `skipped` -- neither is silence.
+      watchers: require('./lib/watch_health').snapshot(),
+      alert_engine: require('./lib/alerts').engineStatus(),
+      // The daily proof's anchors, as the last watch pass found them, read
+      // from the shared job state with a time limit so this still answers
+      // while the database does not (lib/anchor_watch.js); `findings: null`
+      // when it could not read. Its Discord alerts' state, never the hook URL.
+      anchors: await require('./lib/anchor_watch').snapshot().catch(() => null),
+    });
+  } catch (err) { next(err); }
 });
 
 // Memeclaw's own domain (lib/memeclaw_host.js): on a host named in
