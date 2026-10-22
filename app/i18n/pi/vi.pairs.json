@@ -372,5 +372,15 @@
 ["Close price", "Giá đóng cửa"],
 ["The season prizes could not be read just now.", "Hiện không đọc được giải thưởng mùa giải."],
 ["Season prizes", "Giải thưởng mùa giải"],
-["Free to enter. When the season ends, the top names on this board with at least {n} closed trades are paid in Pi. Names tied on return share their places’ prizes.", "Tham gia miễn phí. Khi mùa giải kết thúc, những tên dẫn đầu bảng này có ít nhất {n} giao dịch đã đóng sẽ được trả thưởng bằng Pi. Các tên bằng nhau về lợi nhuận sẽ chia nhau giải thưởng của các hạng đó."]
+["Free to enter. When the season ends, the top names on this board with at least {n} closed trades are paid in Pi. Names tied on return share their places’ prizes.", "Tham gia miễn phí. Khi mùa giải kết thúc, những tên dẫn đầu bảng này có ít nhất {n} giao dịch đã đóng sẽ được trả thưởng bằng Pi. Các tên bằng nhau về lợi nhuận sẽ chia nhau giải thưởng của các hạng đó."],
+["Your chips could not be read", "Không đọc được chip của bạn"],
+["{n} on the table", "{n} đang đặt"],
+["{n} held", "{n} đang giữ"],
+["{n} calls not read", "{n} lượt dự đoán chưa đọc được"],
+["{f} a season, play money with no cash value", "{f} mỗi mùa, tiền chơi không có giá trị tiền mặt"],
+["No chips left this season: call for marks", "Mùa này đã hết chip: hãy dự đoán để lấy điểm"],
+["Chips", "Chip"],
+["none", "không"],
+["{min}–{max}, or none; a pass takes none", "{min}–{max}, hoặc không; bỏ qua thì không có chip"],
+["No chips on this round: call it for marks", "Vòng này không có chip: hãy dự đoán để lấy điểm"]
 ]

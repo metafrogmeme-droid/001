@@ -10,6 +10,9 @@
  * off by default, and the only identity shown is the anonymous handle the
  * player chose. No email, no user id, and no amount of any currency: §4 holds
  * here by construction, since a duel has no stake to report in the first place.
+ * Chips (lib/duel_chips.js) are play money and still never an amount here: a
+ * player's standing carries their return on the season float as a percent and
+ * how many calls carried chips, and not one chip count.
  *
  * Honesty: a player or squad whose record is too short to read is COUNTED and
  * reported as warming up, never ranked at 0% and never silently dropped — a
@@ -21,6 +24,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { pool } = require('../db');
 const duel = require('../lib/duel');
 const squads = require('../lib/duel_squads');
+const chips = require('../lib/duel_chips');
 const { ROUND_COLS, PICK_COLS: OWN_PICK_COLS } = require('../lib/duel_service');
 
 const router = express.Router();
@@ -69,9 +73,18 @@ async function loadSeason(season) {
     id: u.id, handle: u.leaderboard_handle, referred_by: u.referred_by,
   }));
   const standings = new Map();
+  const chipsOn = chips.enabled();
   for (const m of members) {
-    const entries = duel.scoreEntries(inSeason, byUser.get(String(m.id)) || []);
-    standings.set(String(m.id), squads.playerStanding(m.handle, entries));
+    const mine = byUser.get(String(m.id)) || [];
+    const entries = duel.scoreEntries(inSeason, mine);
+    const standing = squads.playerStanding(m.handle, entries);
+    // A percent and a count, never chips: the public half of the stack. Shown
+    // while the layer is on, or for a season that had chips in it.
+    const stack = chips.stackOf(inSeason, mine, season);
+    if (chipsOn || stack.calls_with_chips > 0) {
+      standing.chips = { return_pct: stack.return_pct, calls_with_chips: stack.calls_with_chips, paid: stack.paid };
+    }
+    standings.set(String(m.id), standing);
   }
   return { standings, members };
 }

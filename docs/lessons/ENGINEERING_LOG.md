@@ -28326,3 +28326,83 @@ post, still open), then they agree (cleared). With that test, all
 thirty-seven are killed. The first round also hung on the
 timeout mutant until the round's own limit stopped it; a hang is a kill,
 but the round now runs each test file with a per-test timeout.
+
+## CHIPS ARE A COUNT RECOMPUTED FROM THE CALLS, AND A CALL'S COLUMN LIST WAS MISSING THE FLAG THEY DEPEND ON
+
+22 October 2026. The owner approved the virtual-stakes design
+(`docs/design/VIRTUAL_STAKES_DESIGN.md`), and its first phase is built behind
+`DUEL_CHIPS_ENABLED`. While the flag is on, each round is dealt at a table of
+odds and sealed with them (v9). A player may put 10 to 200 chips on a call
+from a season float of 1,000. At settlement the call wins chips × (odds − 1),
+loses the chips, or gets them back. The rules are in `app/lib/duel_chips.js`,
+which is pure, like `lib/duel.js`.
+
+**No balance is stored.** The design proposed a stack table and a
+chip-move table. Instead, a stack is computed on every read from the calls:
+the chips on each, the odds its round was dealt at, and the verdict
+`lib/duel.js` already gives it. Marks and accuracy have always been computed
+this way. A stored balance would be a second reading of the same quantity,
+and a test would have to chase the two as they drift. The schema gained three
+columns.
+
+**The design's odds table named picks the code does not have.** It said
+`up`/`down`; the duel's words are `long`/`short`, plus a `pass` on every
+round. A pass is correct on a flat market and a push on any other, never
+wrong, so chips on it could only come back or win. That makes it a free bet,
+and it is refused at the door. A football round has no odds because the feed
+carries no prices, so it is dealt without chips and still called for marks.
+
+**The column list the duel shares had never selected the dispute flag.**
+`PICK_COLS`, the one list every reader of `duel_picks` uses, omitted
+`settle_disputed` and both second-price columns that the settlement writes.
+In MySQL every later read therefore got a call with no dispute: a disputed
+settlement lost its "disputed" note after its first page load. The receipt
+read the flag through the same list and lost it too. The in-memory database
+returns whole rows whatever the projection, so no test could see the gap.
+Chips hold a disputed settlement's payout, so they depend on the flag. A test
+now holds both lists to every column the tables reconcile.
+
+**A held payout needs no release write.** The v9 settlement seals the payout
+the verdict gives and a `held_until`, two hours on, when a second source
+disputed it. Before that instant the chips read as held: neither won nor
+lost, still on the table. After it, they are paid as the verdict stands.
+Nothing has to run at the end of the window, so no job can miss it.
+
+**Two puts sent at once could spend the same chips.** The stack is read and
+the call written in one transaction, under a `FOR UPDATE` lock on the
+player's own row, as Memeclaw's practice trades are. The in-memory database
+runs one statement at a time and cannot show the race, so this guard rests
+on MySQL's lock.
+
+**A public count of chips would be an amount.** The board carries each
+player's return on the float as a percent, and how many calls carried chips.
+It never carries a sum of chips; a test bans every stack field from the
+payload. The receipts do carry chips: the receipt is the proof of what was
+put before the market answered, and chips are no currency. The spec's §6
+says so.
+
+**The verify page compared two maps as "[object Object]".** Its drift check
+stringifies any non-number, so a round's sealed odds and its live odds could
+never differ in its eyes. It compares a map whole now. A settlement's live
+fact is named `paid` rather than `payout`: while held, what has been paid is
+null and what the verdict gives is not, and naming both alike would report a
+held settlement as a receipt that drifted.
+
+Phase two is not built: flags, the operator review queue with its own
+receipt, and chips in the Pi app and on the Telegram cards. A call from either
+carries no chips meanwhile, and neither surface claims otherwise.
+
+**Forty mutants, and three survived the first round.** Each survivor was a
+test gap, not dead code:
+- odds of exactly 1, which pay nothing on a win, were refused by nothing a
+  test could see; the table check now refuses any odds of 1 or below, by
+  test;
+- a chips block marked off mid-season still offered the field on the card;
+- with the layer off mid-season, the page still said what chips are.
+
+The last two are now driven: the renderer is given an off block, and the
+browser test switches the layer off with chips still out. The full web suite
+also caught two of my own defects:
+- the stack label read an absent stack as `Number(null)`, which is 0;
+- the call's INSERT sat outside the `try` that catches its duplicate key.
+Both are fixed.

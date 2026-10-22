@@ -13,6 +13,11 @@
  *   settle:<seal>  one settlement (v7): the prices or the score, the verdict,
  *                  and the call seal it settles.
  *
+ * With chips (v9, lib/duel_chips.js) each carries its chips fact beside the
+ * rest: the round its odds, the call its chips and the odds they were put at,
+ * the settlement the chips it moved. A call without chips names none: the
+ * field is absent, never a zero.
+ *
  * A seal is its own address: sixty-four hex characters nobody can guess
  * from public data, as §3 asks. §4: prices, a score, states and counts;
  * the handle a player opted into; never an amount.
@@ -25,6 +30,7 @@ const { pool } = require('../db');
 const duel = require('./duel');
 const { ROUND_COLS, PICK_COLS } = require('./duel_service');
 const { anchorFor } = require('./seal_roots');
+const chips = require('./duel_chips');
 
 const SEAL_RE = /^[0-9a-f]{64}$/;
 
@@ -71,6 +77,9 @@ async function roundReceipt(round, now, viewerHasCalled = false) {
     threshold_pct: round.threshold_pct == null ? null : Number(round.threshold_pct),
   };
   if (revealed) current.agent_direction = round.agent_direction == null ? null : String(round.agent_direction);
+  // A round dealt under the chips layer names its odds, or null for one
+  // dealt without; a round from before the layer carries no such field.
+  if (round.odds_source != null || round.odds != null) current.odds = chips.oddsOf(round);
   const body = {
     kind: 'duel_round',
     seal: round.seal,
@@ -89,7 +98,17 @@ async function roundReceipt(round, now, viewerHasCalled = false) {
   return body;
 }
 
-/** The v7 receipt of a settlement. */
+/** A settlement's chips as they stand now: what was put, what moved, and whether it is held. */
+function settleChips(pick, round) {
+  const c = round ? chips.pickChips(pick, round) : null;
+  if (!c) return {};
+  // `paid`, not `payout`: the sealed payout is what the verdict gives; what
+  // has been paid is null while the chips are held, and naming both alike
+  // would read a held settlement as a receipt that drifted.
+  return { chips: c.chips, chips_state: c.state, paid: c.payout, ...(c.held_until ? { held_until: c.held_until } : {}) };
+}
+
+/** The v7 receipt of a settlement (v9 with chips). */
 async function settleReceipt(pick, round) {
   return {
     kind: 'duel_settle',
@@ -107,6 +126,7 @@ async function settleReceipt(pick, round) {
       second_price: pick.settle_second_price == null ? null : Number(pick.settle_second_price),
       second_price_b: pick.settle_second_price_b == null ? null : Number(pick.settle_second_price_b),
       disputed: pick.settle_disputed == null ? null : Boolean(Number(pick.settle_disputed)),
+      ...settleChips(pick, round),
     },
     proves: 'that this settlement, prices (or score) and verdict, was written at this time over the call whose seal it names.',
   };
@@ -129,6 +149,11 @@ async function callReceipt(pick, round) {
     current.symbol = round.symbol;
     current.symbol_b = round.symbol_b == null ? null : round.symbol_b;
     current.threshold_pct = round.threshold_pct == null ? null : Number(round.threshold_pct);
+  }
+  if (pick.chips != null) {
+    const table = round ? chips.oddsOf(round) : null;
+    current.chips = Number(pick.chips);
+    current.odds = table && pick.pick in table ? table[pick.pick] : null;
   }
   return {
     kind: 'duel_pick',

@@ -372,5 +372,15 @@
 ["Close price", "Presyo sa pagsara"],
 ["The season prizes could not be read just now.", "Hindi mabasa ang mga premyo ng season sa ngayon."],
 ["Season prizes", "Mga premyo ng season"],
-["Free to enter. When the season ends, the top names on this board with at least {n} closed trades are paid in Pi. Names tied on return share their places’ prizes.", "Libreng sumali. Pagtatapos ng season, babayaran sa Pi ang mga nangungunang pangalan sa leaderboard na ito na may hindi bababa sa {n} na naisarang trade. Ang mga pangalang tabla sa return ay maghahati sa mga premyo ng mga puwestong hawak nila."]
+["Free to enter. When the season ends, the top names on this board with at least {n} closed trades are paid in Pi. Names tied on return share their places’ prizes.", "Libreng sumali. Pagtatapos ng season, babayaran sa Pi ang mga nangungunang pangalan sa leaderboard na ito na may hindi bababa sa {n} na naisarang trade. Ang mga pangalang tabla sa return ay maghahati sa mga premyo ng mga puwestong hawak nila."],
+["Your chips could not be read", "Hindi mabasa ang iyong chips"],
+["{n} on the table", "{n} nasa mesa"],
+["{n} held", "{n} naka-hold"],
+["{n} calls not read", "{n} hula ang hindi nabasa"],
+["{f} a season, play money with no cash value", "{f} bawat season, perang laro na walang halagang pera"],
+["No chips left this season: call for marks", "Wala nang chips ngayong season: humula para sa marka"],
+["Chips", "Chips"],
+["none", "wala"],
+["{min}–{max}, or none; a pass takes none", "{min}–{max}, o wala; walang chips ang pasa"],
+["No chips on this round: call it for marks", "Walang chips sa round na ito: humula para sa marka"]
 ]

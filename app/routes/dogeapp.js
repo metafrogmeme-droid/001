@@ -44,7 +44,7 @@ const SCRIPTS = [
   '/js/embed-arena-view.js?v=4',
   '/js/miniapp-view.js?v=10',
   '/js/arena-session.js?v=10',
-  '/js/duel.js?v=8',
+  '/js/duel.js?v=9',
   // The in-app receipt check the Duel block's receipts open (pi-receipt.js).
   '/js/pi-receipt.js?v=3',
   '/js/pi-duel.js?v=8',

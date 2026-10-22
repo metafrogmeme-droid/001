@@ -23,6 +23,13 @@
  * the picks the server takes on it, and this file renders from those: the
  * question in words, the buttons in the round's own order, the words a call
  * is reported in. No list of which words a category takes lives here.
+ *
+ * CHIPS (2026-10-22, lib/duel_chips.js). Where the page offers them (the card
+ * carries a `chips` block and the caller passes it as `opts.chips`), a round
+ * dealt with odds shows each pick's odds and a chips field; one dealt without
+ * says so. A call's chips read in five states, and only won and lost take a
+ * colour: open, held and returned are not results, and unread is unknown. A
+ * surface that does not pass `opts.chips` (the Pi app) offers none.
  */
 (function (root, factory) {
   const api = factory();
@@ -342,6 +349,76 @@
    * mover round never had one.
    */
   /** The first eight characters of a seal, the way a reader quotes one. */
+  /** '1.9' -> '×1.9': a decimal odds, the way a button carries it. */
+  function oddsText(o) {
+    var n = Number(o);
+    return o != null && isFinite(n) && n > 1 ? '\u00d7' + String(n) : '';
+  }
+
+  /**
+   * One call's chips (my_call.chips), in words and a colour claim. Null when
+   * the call carried none: no line, rather than "0 chips".
+   */
+  function chipsLabel(c, t, now) {
+    var tr = t || IDENT;
+    if (!c || c.chips == null) return null;
+    var f = function (k, en) {
+      return tr(k, en).replace('{c}', c.chips).replace('{o}', oddsText(c.odds) || '—')
+        .replace('{w}', c.payout == null ? '—' : Math.abs(c.payout));
+    };
+    switch (c.state) {
+      case 'open': return { text: f('duel.chips_open', '{c} chips on the table at {o}'), tone: 'muted' };
+      case 'held': {
+        // Held for the check window: when it closes, the chips are paid as the
+        // verdict stands. A window whose end cannot be read is not given a time.
+        var left = timeLeftText(c.held_until, now, tr);
+        return { text: left ? f('duel.chips_held_in', '{c} chips held: disputed, paid in {t}').replace('{t}', left)
+          : f('duel.chips_held', '{c} chips held: disputed, paid when the check window closes'), tone: 'muted' };
+      }
+      case 'won': return { text: f('duel.chips_won', 'Won {w} chips at {o}'), tone: 'up' };
+      case 'lost': return { text: f('duel.chips_lost', 'Lost {c} chips'), tone: 'down' };
+      case 'returned': return { text: f('duel.chips_returned', '{c} chips returned'), tone: 'muted' };
+      default: return { text: f('duel.chips_unread', '{c} chips: their odds could not be read'), tone: 'muted' };
+    }
+  }
+
+  /**
+   * The season's stack (the card's or the record's `chips.stack`): what may
+   * still be put, with what is on the table and held beside it. A stack the
+   * server could not read is a dash, never 1,000.
+   */
+  function stackLabel(block, t) {
+    var tr = t || IDENT;
+    var s = block && block.stack;
+    // `Number(null)` is 0: an absent figure is refused before the coercion.
+    var n = s && s.available != null && s.available !== '' ? Number(s.available) : NaN;
+    if (!s || !isFinite(n)) return { text: '—', tone: 'muted', sub: tr('duel.stack_unread', 'Your chips could not be read'), how: '' };
+    var sub = [];
+    if (s.on_table > 0) sub.push(tr('duel.stack_table', '{n} on the table').replace('{n}', s.on_table));
+    if (s.held > 0) sub.push(tr('duel.stack_held', '{n} held').replace('{n}', s.held));
+    if (s.unread > 0) sub.push(tr('duel.stack_unread_n', '{n} calls not read').replace('{n}', s.unread));
+    return {
+      text: String(n),
+      tone: 'muted',
+      sub: sub.join(' \u00b7 '),
+      how: tr('duel.stack_how', '{f} a season, play money with no cash value').replace('{f}', block.float != null ? block.float : s.float),
+    };
+  }
+
+  /** The chips field for an open round: the limits, empty for "none". */
+  function chipsField(block, t) {
+    var tr = t || IDENT;
+    var s = block.stack || {};
+    var max = Math.min(Number(block.max), Number(s.available));
+    if (!(max >= Number(block.min))) {
+      return '<span class="d-note d-chips-none">' + esc(tr('duel.chips_empty', 'No chips left this season: call for marks')) + '</span>';
+    }
+    return '<label class="d-chips"><span class="d-pill-k">' + esc(tr('duel.chips_k', 'Chips')) + '</span>'
+      + '<input class="d-chips-in" type="number" inputmode="numeric" min="' + esc(block.min) + '" max="' + esc(max) + '" step="10" placeholder="'
+      + esc(tr('duel.chips_ph', 'none')) + '">'
+      + '<small class="d-note">' + esc(tr('duel.chips_limits', '{min}–{max}, or none; a pass takes none').replace('{min}', block.min).replace('{max}', max)) + '</small></label>';
+  }
+
   function shortSeal(seal) {
     return /^[0-9a-f]{64}$/.test(String(seal || '')) ? String(seal).slice(0, 8) + '…' : null;
   }
@@ -421,6 +498,11 @@
     const clawWord = (rr) => (rr.agent_direction === 'long' ? tr('duel.b_long', 'LONG')
       : rr.agent_direction === 'short' ? tr('duel.b_short', 'SHORT') : tr('duel.b_pass', 'PASS'));
 
+    // Chips are offered only where the page offers them, and only while
+    // the layer is on: `opts.chips` is the card's chips block.
+    const chipsBlock = opts && opts.chips && opts.chips.enabled ? opts.chips : null;
+    const odds = chipsBlock && r.odds && typeof r.odds === 'object' ? r.odds : null;
+
     let body;
     let status;
     let is;
@@ -444,8 +526,10 @@
         receiptHtml('settle', r.my_call.settle_seal, tr('duel.rc_settle', 'Settlement {h}'), links, check),
         receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links, check),
       ].filter(Boolean);
+      const cl = chipsLabel(r.my_call.chips, tr, now);
       body = '<div class="d-called">'
         + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + '</div>'
+        + (cl ? '<span class="d-chips-st tone-' + esc(cl.tone) + '">' + esc(cl.text) + '</span>' : '')
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
         + scoreNote
         + (receipts.length ? '<div class="d-receipts">' + receipts.join('') + '</div>' : '')
@@ -456,10 +540,13 @@
       body = '<div class="d-actions" data-round="' + esc(r.id) + '">'
         + options.map((pick) => {
           const icon = pickIcon(pick);
+          const o = odds ? oddsText(odds[pick]) : '';
           return '<button class="d-btn d-btn--' + esc(pick) + (pick === 'pass' ? ' d-btn--pass' : '')
             + '" data-pick="' + esc(pick) + '">' + (icon ? '<span class="d-bi">' + icon + '</span>' : '')
-            + esc(pickLabel(pick, r, tr)) + '</button>';
+            + esc(pickLabel(pick, r, tr)) + (o ? ' <span class="d-odds">' + esc(o) + '</span>' : '') + '</button>';
         }).join('')
+        + (odds ? chipsField(chipsBlock, tr)
+          : chipsBlock ? '<span class="d-note d-chips-none">' + esc(tr('duel.chips_no_round', 'No chips on this round: call it for marks')) + '</span>' : '')
         + '</div>';
     } else if (r.callable) {
       is = 'unknown';
@@ -500,5 +587,5 @@
       + '</article>';
   }
 
-  return { esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
+  return { oddsText, chipsLabel, stackLabel, chipsField, esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
 }));

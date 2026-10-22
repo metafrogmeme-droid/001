@@ -81,6 +81,10 @@ function sameAfterStorage(key, sealed, live) {
     if (!isFinite(ta) || !isFinite(tb)) return String(sealed) === String(live);
     return Math.abs(ta - tb) < STORAGE_TIME_GRANULARITY_MS;
   }
+  // A round's odds are a map: compared whole, never as two "[object Object]"s.
+  if (key === 'odds' && sealed && typeof sealed === 'object') {
+    return JSON.stringify(sealed) === JSON.stringify(live);
+  }
   if (typeof sealed === 'number' || typeof live === 'number') {
     return Math.abs((Number(sealed) || 0) - (Number(live) || 0)) < 1e-9;
   }
@@ -271,13 +275,18 @@ function sameAfterStorage(key, sealed, live) {
           + 'sha256(sealed payload) ' + (intact ? '=' : '≠') + ' stored seal</div>';
         if (p && (p.kind === 'duel_round' || p.kind === 'duel_pick' || p.kind === 'duel_settle')) {
           // Provable Calls v6 / v4 / v7 — the Daily Duel's chain: the round as
-          // dealt (stance included), the call, the settlement. §4: prices, a
-          // score, states and counts; never an amount.
+          // dealt (stance included), the call, the settlement; v9 is each of
+          // them with its chips. §4: prices, a score, states and counts; chips
+          // are a play-money count, never an amount of any currency.
           var val = function (x) { return (x === null || x === undefined) ? '—' : String(x); };
           var row = function (k, v) { return '<span class="k">' + esc(k) + '</span><span>' + v + '</span>'; };
           var link = function (rel) { return rel && rel.key ? '<a href="/call/' + esc(rel.key) + '">' + esc(rel.key.slice(0, 14)) + '…</a>' : '—'; };
           var title = p.kind === 'duel_round' ? 'Daily Duel · round as dealt'
             : p.kind === 'duel_pick' ? 'Daily Duel · call' : 'Daily Duel · settlement';
+          var oddsText = function (o) {
+            return o && typeof o === 'object' ? Object.keys(o).map(function (k) { return esc(k.toUpperCase()) + ' ' + esc(o[k]); }).join(' · ') : '';
+          };
+          var signed = function (n) { return n == null ? '—' : (n > 0 ? '+' : '') + String(n); };
           var market = p.match ? esc(val(p.match.home)) + ' vs ' + esc(val(p.match.away))
             : esc(val(p.symbol)) + (p.symbol_b ? ' vs ' + esc(p.symbol_b) : '');
           html += '<div class="kv">' + row('Receipt', esc(title));
@@ -286,12 +295,15 @@ function sameAfterStorage(key, sealed, live) {
               + row('Claw’s call', p.agent_direction === null ? '<span class="muted">none on this round</span>' : '<b>' + esc(String(p.agent_direction).toUpperCase()) + '</b> — sealed before anyone called')
               + (p.threshold_pct != null ? row('Band', '±' + esc(p.threshold_pct) + '%') : '')
               + (p.match && p.match.kickoff ? row('Kick-off', esc(p.match.kickoff)) : '')
+              + ('odds' in p ? row('Odds', p.odds ? oddsText(p.odds) + ' <span class="muted">(' + esc(val(p.odds_source)) + ')</span>'
+                : '<span class="muted">none — dealt without chips</span>') : '')
               + row('Dealt at', esc(val(p.dealt_at)));
           } else if (p.kind === 'duel_pick') {
             html += row('Call', '<b>' + esc(String(p.pick).toUpperCase()) + '</b> on ' + market + ' · ' + esc(val(p.category)) + ' · ' + esc(val(p.day)))
               + row('Player', p.handle ? esc(p.handle) : '<span class="muted">anonymous at the call</span>')
               + row('Entry', p.entry_price === null ? '<span class="muted">none — settled on a score</span>' : esc(val(p.entry_price)) + (p.entry_price_b != null ? ' / ' + esc(p.entry_price_b) : ''))
               + row('Resolves at', esc(val(p.resolves_at)))
+              + ('chips' in p ? row('Chips', esc(val(p.chips)) + ' at ' + esc(val(p.odds)) + ' <span class="muted">play money, sealed with the call</span>') : '')
               + row('Called at', esc(val(p.picked_at)))
               + row('Round receipt', link(d.round))
               + row('Settlement', d.settlement ? link(d.settlement) + ' · ' + esc(d.settlement.state || '') : '<span class="muted">none yet — the call is still running</span>');
@@ -307,6 +319,8 @@ function sameAfterStorage(key, sealed, live) {
                 : '<span class="muted">none — not checked</span>'))
               + (p.category === 'sports' ? '' : row('Disputed', p.disputed === true ? '<b>yes</b> — the second source disagreed past the tolerance; the venue’s close settles'
                 : p.disputed === false ? 'no — the second source agreed' : '<span class="muted">not checked</span>'))
+              + ('chips' in p ? row('Chips', esc(val(p.chips)) + ' at ' + esc(val(p.odds_used)) + ' → <b>' + esc(signed(p.payout)) + '</b>'
+                + (p.held_until ? ' <span class="muted">held until ' + esc(p.held_until) + ' (disputed)</span>' : '')) : '')
               + row('Settled at', esc(val(p.settled_at)))
               + row('Call receipt', link(d.call))
               + row('Round receipt', link(d.round));
@@ -500,7 +514,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=199"></script>
+<script src="/js/i18n-core.js?v=200"></script>
 <script src="/js/presale.js?v=2"></script>
   <script>
   (function () {
