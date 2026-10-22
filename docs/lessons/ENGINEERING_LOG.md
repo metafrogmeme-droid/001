@@ -28589,3 +28589,50 @@ a header button, and the smoke test holds the bar at five.
 used the class names `p-proof-row`, `p-proof-hd` and `p-proof-root`, and no
 stylesheet defined them. The rows now share one card style in `embed.css`,
 in both apps.
+
+## A HOST IS POST-QUANTUM WHEN IT CHOOSES THE HYBRID, AND A HANDSHAKE THAT NEVER HAPPENED IS NOT A CLASSICAL ONE
+
+22 October 2026. The Base mainnet gate in the roadmap asks for
+post-quantum TLS (X25519MLKEM768) on the site, the API and the webhooks.
+TLS ends at each host's edge, not in this code, so what the repository can
+own is the check. `app/lib/pq_tls.js` makes one handshake that offers what a
+current browser offers, the hybrid first and then the classical groups. It
+reads the group the server chose from the connection. The operator runs it
+with `app/scripts/pq_tls_check.js`. The guard test is
+`app/test/a_host_is_post_quantum_only_when_it_negotiates_the_hybrid.test.js`.
+It drives real handshakes against local servers: one that knows the hybrid,
+one classical-only, a closed port, and one that accepts the connection and
+never answers.
+
+**The server's choice is the answer.** A server that supports the hybrid
+but prefers X25519 gives browsers X25519. Asking "does it accept the hybrid
+if offered alone" would call that server post-quantum. The check offers the
+whole list and reports the group it was given.
+
+**Four outcomes, and only two are verdicts.** The hybrid chosen is `pq`. A
+classical group chosen is `classical`. No handshake, whether refused, timed
+out or failed for another reason, is `unknown`, reported by the error's code
+and never its message. A local TLS library that cannot offer the hybrid at
+all is `cannot_check`. The exit status follows `verify_deploy.sh`: `0`, `1`,
+or `3` for "not a verdict". A classical host is a finding even when another
+host could not be read, and an empty host list checked nothing, so it exits
+`3`.
+
+**From this sandbox the check would measure the proxy.** Outbound HTTPS
+here passes through a TLS-intercepting proxy, so a live run would report
+the proxy's key exchange. No figure for the live hosts is recorded. The
+runbook says to run it from a machine that reaches the hosts directly.
+
+**The hosts come from the variables that already name them**: WEB_URL and
+its www twin, MEMECLAW_HOSTS, and BOT_GATEWAY_URL when it is https. A second
+hand-written host list would drift from the deploy the first time a domain
+changed.
+
+**A handshake can complete with no group to name.** The first version
+read the group's name and called a missing one "could not be read". The
+mutation round found that line unreached, and asking why found the case
+behind it. A TLS 1.2 server with static RSA key transport completes the
+handshake and reports no ephemeral key at all. Finite-field DH reports a
+type and a size but no name. Both are classical, and the first is not even
+forward-secret, so neither is "unknown". A real TLS 1.2 RSA server in the
+test holds it. Ten mutants, all killed after that.
