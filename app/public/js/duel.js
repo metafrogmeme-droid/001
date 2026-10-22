@@ -419,6 +419,30 @@
       + '<small class="d-note">' + esc(tr('duel.chips_limits', '{min}–{max}, or none; a pass takes none').replace('{min}', block.min).replace('{max}', max)) + '</small></label>';
   }
 
+  /**
+   * A settled call's flag and review, for the player who made it: the
+   * review's decision when there is one (with its receipt), "flagged" while
+   * one is awaited, or a button to flag it while the check window is open.
+   * Nothing for a call that is none of these.
+   */
+  function reviewHtml(round, t, links, check) {
+    const tr = t || IDENT;
+    const c = (round || {}).my_call || {};
+    const rv = c.review;
+    if (rv && rv.state) {
+      const text = rv.state === 'stands' ? tr('duel.rv_stands', 'Reviewed: the result stands')
+        : rv.state === 'push' ? tr('duel.rv_push', 'Reviewed: no result')
+          : tr('duel.rv_corrected', 'Reviewed: corrected to {o}').replace('{o}', String(rv.outcome || '—').toUpperCase());
+      const rc = receiptHtml('review', rv.seal, tr('duel.rc_review', 'Review {h}'), links, check);
+      return '<span class="d-note d-review">' + esc(text) + (rc ? ' ' + rc : '') + '</span>';
+    }
+    if (c.flagged) return '<span class="d-note d-review">' + esc(tr('duel.flagged', 'Flagged: waiting for a review')) + '</span>';
+    if (c.flaggable && links === true) {
+      return '<button type="button" class="d-flag" data-flag="' + esc(round.id) + '">' + esc(tr('duel.flag_btn', 'Flag this result')) + '</button>';
+    }
+    return '';
+  }
+
   function shortSeal(seal) {
     return /^[0-9a-f]{64}$/.test(String(seal || '')) ? String(seal).slice(0, 8) + '…' : null;
   }
@@ -531,6 +555,7 @@
         + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + '</div>'
         + (cl ? '<span class="d-chips-st tone-' + esc(cl.tone) + '">' + esc(cl.text) + '</span>' : '')
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
+        + reviewHtml(r, tr, links, check)
         + scoreNote
         + (receipts.length ? '<div class="d-receipts">' + receipts.join('') + '</div>' : '')
         + '</div>';
@@ -587,5 +612,5 @@
       + '</article>';
   }
 
-  return { oddsText, chipsLabel, stackLabel, chipsField, esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
+  return { reviewHtml, oddsText, chipsLabel, stackLabel, chipsField, esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
 }));

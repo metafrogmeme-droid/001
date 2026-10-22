@@ -59,6 +59,12 @@
                 background: var(--bg); color: var(--text-1); font-family: var(--font-data); font-size: var(--fs-sm); }
   .d-chips-none { flex-basis: 100%; }
   .d-chips-st { font-family: var(--font-data); font-size: var(--fs-sm); }
+  .d-flag { align-self: flex-start; padding: 4px 10px; border-radius: 999px; border: 1px dashed var(--line-2); background: none;
+            color: var(--text-3); font-size: var(--fs-xs); cursor: pointer; }
+  .d-flag:hover { color: var(--gold-bright); border-color: var(--gold-bright); }
+  .rv-row { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+  .rv-row input, .rv-row select { padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg); color: var(--text-1); }
+  .rv-acts { display: flex; gap: 6px; flex-wrap: wrap; }
   .d-round-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: var(--s2); }
   .d-kind { display: inline-flex; align-items: center; gap: 5px; }
   .d-icon { font-size: 12px; line-height: 1; }
@@ -128,6 +134,14 @@
       <button class="d-btn" id="shareBtn" style="flex:0 0 auto" data-i18n="duel.share">Share your record</button>
       <span class="note" id="shareHint" hidden data-i18n="duel.share_optin">Join the board with a handle to share a card.</span>
     </p>
+  </section>
+
+  <!-- The operator's review queue: drawn only when /api/duel/review answers
+       200, which it does for the operator alone (lib/operator_view.js). An
+       operator tool, in English. -->
+  <section class="panel" id="reviewPanel" hidden>
+    <h2>Review queue (operator)</h2>
+    <div id="reviewQueue"></div>
   </section>
 
   <section class="panel" id="boardPanel" hidden>
@@ -318,6 +332,83 @@
   }).catch(function () { /* omitted, not faked */ });
 
   $('shareBtn').addEventListener('click', shareRecord);
+
+  function post(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, tok ? { Authorization: 'Bearer ' + tok } : {}),
+      body: JSON.stringify(body),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j }; }); });
+  }
+
+  function reload() {
+    return get('/api/duel/today', true).then(drawCard)
+      .then(function () { return get('/api/duel/me', true).then(drawRecord); });
+  }
+
+  // A flag on one of your own settlements (lib/duel_review.js).
+  $('rounds').addEventListener('click', function (ev) {
+    var btn = ev.target.closest ? ev.target.closest('.d-flag') : null;
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    post('/api/duel/flag', { round_id: Number(btn.getAttribute('data-flag')) }).then(function (r) {
+      if (!r.ok) { notice(r.d && r.d.error ? r.d.error : T('duel.flag_fail', 'Could not record your flag.')); btn.disabled = false; return; }
+      return reload();
+    }).catch(function () { notice(T('duel.flag_fail', 'Could not record your flag.')); btn.disabled = false; });
+  });
+
+  // The operator's queue. Anyone else is answered 403 and the panel stays hidden.
+  function drawQueue(d) {
+    var items = (d && d.items) || [];
+    var nf = function (x) { return x == null ? '—' : String(x); };
+    $('reviewQueue').innerHTML = items.length ? items.map(function (it) {
+      return '<div class="rv-row" data-pick="' + esc(it.pick_id) + '">'
+        + '<div><b>' + esc(nf(it.symbol)) + (it.symbol_b ? ' vs ' + esc(it.symbol_b) : '') + '</b> · ' + esc(nf(it.kind)) + ' · ' + esc(nf(it.day))
+        + ' · called <b>' + esc(String(it.pick || '').toUpperCase()) + '</b> · settled ' + esc(nf(it.outcome)) + ' (' + esc(nf(it.result)) + ')'
+        + (it.disputed ? ' · <b>disputed</b>' : '') + (it.flagged ? ' · <b>flagged</b>' : '') + (it.chips != null ? ' · ' + esc(it.chips) + ' chips' : '') + '</div>'
+        + '<div class="note">entry ' + esc(nf(it.entry_price)) + ' · close ' + esc(nf(it.settle_price)) + (it.settle_price_b != null ? ' / ' + esc(it.settle_price_b) : '')
+        + ' · second source ' + esc(nf(it.second_price)) + ' · settled ' + esc(nf(it.settled_at)) + '</div>'
+        + '<input class="rv-ev" maxlength="500" placeholder="What did you check? (on the public receipt)">'
+        + '<div class="rv-acts"><button class="d-btn rv-go" data-decision="stands">Stands</button>'
+        + '<button class="d-btn rv-go" data-decision="push">No result</button>'
+        + '<select class="rv-out">' + (it.outcomes || []).filter(function (o) { return o !== it.outcome; }).map(function (o) {
+          return '<option value="' + esc(o) + '">' + esc(o) + '</option>';
+        }).join('') + '</select><button class="d-btn rv-go" data-decision="corrected">Corrected</button></div></div>';
+    }).join('') : '<p class="note">Nothing is waiting for review.</p>';
+    $('reviewPanel').hidden = false;
+  }
+  // 401/403 is everyone but the operator, and the panel stays hidden. Any
+  // other failure reaches only the operator (lib/operator_view.js answers 403
+  // when it cannot read the role), so the panel says the queue was not read
+  // rather than showing an empty one or a stale one.
+  function queueUnread() {
+    $('reviewQueue').innerHTML = '<p class="note tone-muted">The queue could not be read, so whether anything is waiting is unknown.</p>';
+    $('reviewPanel').hidden = false;
+  }
+  function loadQueue() {
+    return fetch('/api/duel/review', { credentials: 'same-origin', headers: tok ? { Authorization: 'Bearer ' + tok } : {} })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) return null;
+        return r.ok ? r.json().then(drawQueue) : queueUnread();
+      })
+      .catch(function () { if (!$('reviewPanel').hidden) queueUnread(); });
+  }
+  if (signedIn) loadQueue();
+  $('reviewQueue').addEventListener('click', function (ev) {
+    var btn = ev.target.closest ? ev.target.closest('.rv-go') : null;
+    if (!btn) return;
+    var row = btn.closest('.rv-row');
+    var decision = btn.getAttribute('data-decision');
+    var body = { pick_id: Number(row.getAttribute('data-pick')), decision: decision,
+      evidence: row.querySelector('.rv-ev').value };
+    if (decision === 'corrected') body.outcome = row.querySelector('.rv-out').value;
+    btn.disabled = true;
+    post('/api/duel/review', body).then(function (r) {
+      if (!r.ok) { notice(r.d && r.d.error ? r.d.error : 'The review was not recorded.'); btn.disabled = false; return; }
+      return loadQueue();
+    }).catch(function () { notice('The review was not recorded.'); btn.disabled = false; });
+  });
 
   // One delegated listener rather than one per button, so a redraw cannot
   // accumulate duplicates.

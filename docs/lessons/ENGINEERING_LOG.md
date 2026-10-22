@@ -28406,3 +28406,88 @@ also caught two of my own defects:
 - the stack label read an absent stack as `Number(null)`, which is 0;
 - the call's INSERT sat outside the `try` that catches its duplicate key.
 Both are fixed.
+
+## A REVIEW NAMES THE SETTLEMENT AND NEVER REWRITES IT, ONE VERDICT IS READ EVERYWHERE, AND A QUEUE THAT COULD NOT BE READ IS NOT EMPTY
+
+22 October 2026, later the same day. The owner said to do every open item
+and to lift the rules that conflict with them, Memeclaw's testnet excepted.
+This is the chips' second phase. A player may now flag their own
+settlement, once, within two hours of it being written. The operator
+decides each flagged or disputed settlement: it stands, it is a push, or it
+is corrected to another outcome. The decision is a receipt of its own (v9
+`duel_review`, `docs/PROVABLE_CALLS_SPEC.md` §2.9). The rules are in
+`app/lib/duel_review.js`, which is pure. The guard tests are
+`app/test/a_settlement_can_be_flagged_and_reviewed.test.js` and
+`app/test/the_duel_page_flags_and_reviews_a_settlement.smoke.test.js`.
+
+**The design counted flags on a thing the code does not have.** It sent a
+settlement to review when three of a round's callers flagged it, or a tenth
+of them. That pictures one settlement per round. The duel settles each call
+on its own, at its own entry price and its own instant, so a settlement has
+exactly one player, and there is nothing for three of them to agree on. One
+flag queues it. A settlement a second source disputed is queued with no flag.
+The threshold, the owner's open question 2, has no object, and the
+`duel_flags` table the design proposed is a column on the call.
+
+**A correction is applied by one function, read by every scorer.**
+`verdictOf(round, pick)` in `lib/duel.js` returns the verdict as a review
+left it. `scoreEntries` calls it, so the record, the board and the quests
+read the review. The card reads it, and so does `pickChips`, and through it
+the stack. A correction that re-scored chips but not marks would be a second
+reading of one call, right in one place and wrong in another. Before
+calling it done, every `FROM duel_picks` read was checked to go through
+`PICK_COLS`. It does, so the review columns reach every scorer in MySQL too.
+That is the gap the previous chapter found.
+
+**The settlement is never rewritten.** The review receipt names the call,
+the settlement and the round by seal and carries the operator's evidence. A
+review without evidence is refused. The settlement's bytes and seal are the
+ones that were sealed, and a test compares them before and after. The review
+is a leaf in the root of the day it was written. A settlement's receipt
+names its review, and the review's names the settlement.
+
+**"Once" is a guard in the SQL, and the stand-in did not honour it.** A flag
+and a review are each written with `AND <column> IS NULL` after the id, so a
+second write lands nowhere even when two requests pass the read together.
+The in-memory database's handler matched `WHERE id = ?` and would have
+ignored the clause after it. Every "only once" test would then have measured
+the service's read, which a race walks past. The handler now honours the
+guard as MySQL does. A test sends two flags and two decisions at once and
+asserts that one of each was written and the other refused, with the first
+decision's evidence intact.
+
+**A queue that could not be read said nothing was waiting.** The operator's
+panel stayed hidden on any failure, the same as for a player who is not the
+operator. `isOperator` fails closed to 403 when it cannot read the role, so
+401 and 403 are everyone else's answers. Any other failure is the
+operator's, and the panel now says the queue was not read. A browser test
+drives 401, 403, 503 and a read queue.
+
+**The Pi app linked a receipt its checker refused.** The shared renderer
+draws a reviewed call with a "Review …" receipt button. In the Pi app that
+button is answered by `pi-receipt.js`, whose key pattern knew round, duel
+and settle. It would have said "That is not a receipt this app can check"
+about a receipt the same screen had just offered. The pattern and the facts
+now include the review, in all sixteen Pi languages. A test runs the app's
+own `check()` against the real review receipt.
+
+**A late correction can leave a stack below what was put.** Chips held on a
+flagged settlement are paid as it stood once the two hours end. A review may
+still come within seven days, and a stack recomputed on every read moves
+with it. A correction from a win to a loss takes back chips the player may
+already have put again, and a stack near empty can fall below zero. It then
+takes no more chips until it recovers. The design says so rather than
+freezing a stack at an answer the review overturned.
+
+**The privacy section the owner signed off named the seals in a day's
+root.** A review is one more, so the section now names it. That was a
+factual update under the owner's instruction, and its new digest is pinned
+in `site/test/privacy_truth.test.js`.
+
+**Thirty-seven mutants, one survivor, and it was a test gap.** The round
+mutated the rules, the verdict, the hold, both write guards, the shim's guard,
+the queue, the receipts, the root, the operator gate, the renderer, the Pi
+checker and the page. One survived: the service handing the raw evidence to
+the seal instead of the normalised line. Every test's evidence was already
+one clean line, so nothing could tell them apart. A test now sends whitespace
+(refused as no evidence) and a pasted block (sealed folded and bounded).

@@ -220,6 +220,13 @@
 ["Final score", "Skor akhir"],
 ["none, unresolved", "tidak ada, tidak terselesaikan"],
 ["Settled at", "Diselesaikan pada"],
+["A review of your settlement", "Tinjauan atas penyelesaian kamu"],
+["Decision", "Keputusan"],
+["The result stands", "Hasilnya tetap"],
+["No result: the call scores nothing", "Tanpa hasil: prediksi tidak mendapat nilai"],
+["Corrected to {outcome}", "Dikoreksi menjadi {outcome}"],
+["Evidence", "Bukti"],
+["Reviewed at", "Ditinjau pada"],
 ["A receipt of a kind this app does not describe", "Jenis bukti yang tidak dijelaskan aplikasi ini"],
 ["Verified in your browser", "Terverifikasi di browser kamu"],
 ["The SHA-256 of what was sealed equals this seal, so not one character of it has changed since.", "SHA-256 dari isi yang disegel sama dengan segel ini, jadi tidak ada satu karakter pun yang berubah sejak itu."],
@@ -382,5 +389,11 @@
 ["Chips", "Chip"],
 ["none", "tidak ada"],
 ["{min}–{max}, or none; a pass takes none", "{min}–{max}, atau tidak ada; lewati tidak memakai chip"],
-["No chips on this round: call it for marks", "Tidak ada chip di babak ini: tebak untuk poin"]
+["No chips on this round: call it for marks", "Tidak ada chip di babak ini: tebak untuk poin"],
+["Flag this result", "Laporkan hasil ini"],
+["Flagged: waiting for a review", "Dilaporkan: menunggu peninjauan"],
+["Reviewed: the result stands", "Ditinjau: hasil tetap"],
+["Reviewed: no result", "Ditinjau: tanpa hasil"],
+["Reviewed: corrected to {o}", "Ditinjau: dikoreksi menjadi {o}"],
+["Review {h}", "Tinjauan {h}"]
 ]

@@ -220,6 +220,13 @@
 ["Final score", "Tỷ số chung cuộc"],
 ["none, unresolved", "không có, chưa phân định"],
 ["Settled at", "Chốt lúc"],
+["A review of your settlement", "Xem xét lại kết quả chốt của bạn"],
+["Decision", "Quyết định"],
+["The result stands", "Kết quả giữ nguyên"],
+["No result: the call scores nothing", "Không có kết quả: dự đoán không được tính điểm"],
+["Corrected to {outcome}", "Đã sửa thành {outcome}"],
+["Evidence", "Bằng chứng"],
+["Reviewed at", "Xem xét lúc"],
 ["A receipt of a kind this app does not describe", "Loại biên nhận mà ứng dụng này không mô tả"],
 ["Verified in your browser", "Đã xác minh trong trình duyệt của bạn"],
 ["The SHA-256 of what was sealed equals this seal, so not one character of it has changed since.", "SHA-256 của nội dung được niêm phong trùng khớp với niêm phong này, nên từ đó đến nay không một ký tự nào bị thay đổi."],
@@ -382,5 +389,11 @@
 ["Chips", "Chip"],
 ["none", "không"],
 ["{min}–{max}, or none; a pass takes none", "{min}–{max}, hoặc không; bỏ qua thì không có chip"],
-["No chips on this round: call it for marks", "Vòng này không có chip: hãy dự đoán để lấy điểm"]
+["No chips on this round: call it for marks", "Vòng này không có chip: hãy dự đoán để lấy điểm"],
+["Flag this result", "Báo cáo kết quả này"],
+["Flagged: waiting for a review", "Đã báo cáo: đang chờ xem xét"],
+["Reviewed: the result stands", "Đã xem xét: kết quả giữ nguyên"],
+["Reviewed: no result", "Đã xem xét: không có kết quả"],
+["Reviewed: corrected to {o}", "Đã xem xét: sửa thành {o}"],
+["Review {h}", "Xem xét {h}"]
 ]

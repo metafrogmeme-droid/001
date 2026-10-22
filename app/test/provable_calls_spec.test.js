@@ -293,7 +293,7 @@ test('every implementation file the spec cites exists', () => {
 });
 
 test('the chips payloads (v9) are their earlier kinds with the chips appended, as the spec writes them', () => {
-  const block = SPEC.slice(SPEC.indexOf('### 2.8'), SPEC.indexOf('## 3 '));
+  const block = SPEC.slice(SPEC.indexOf('### 2.8'), SPEC.indexOf('### 2.9'));
   assert.ok(block.length > 100, 'the spec has a v9 section');
   const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
   assert.deepEqual(examples.map((e) => e.kind), ['duel_round', 'duel_pick', 'duel_settle']);
@@ -318,4 +318,26 @@ test('the chips payloads (v9) are their earlier kinds with the chips appended, a
   for (const k of keysOf(real[1][0].seal_payload)) assert.ok(!OUTCOME.includes(k), `a v9 call carries no outcome: ${k}`);
   assert.strictEqual(JSON.parse(seal.sealDuelRoundChips({ ...round, odds: null, odds_source: null }).seal_payload).odds, null,
     'a round dealt without chips seals null odds, never an empty map');
+});
+
+test('the review receipt (v9 duel_review) is written as the spec writes it, and names what it decides', () => {
+  const block = SPEC.slice(SPEC.indexOf('### 2.9'), SPEC.indexOf('## 3 '));
+  assert.ok(block.length > 100, 'the spec has a review section');
+  const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
+  assert.deepEqual(examples.map((e) => e.kind), ['duel_review']);
+  const r = { round_id: 1, call_seal: 'a'.repeat(64), settle_seal: 'b'.repeat(64), round_seal: 'c'.repeat(64),
+    kind: 'direction', pick: 'long', decision: 'corrected', outcome: 'up', evidence: 'checked', reviewed_at: AT };
+  const sealed = seal.sealDuelReview(r);
+  const p = JSON.parse(sealed.seal_payload);
+  assert.equal(p.v, 9);
+  assert.deepEqual(Object.keys(examples[0]), keysOf(sealed.seal_payload), 'the spec names the sealed fields, in order');
+  assert.equal(sealed.seal, crypto.createHash('sha256').update(sealed.seal_payload, 'utf8').digest('hex'));
+  assert.deepEqual([p.call_seal, p.settle_seal, p.round_seal], [r.call_seal, r.settle_seal, r.round_seal]);
+  for (const k of ['result', 'marks', 'settle_price', 'payout']) assert.ok(!(k in p), `a review rescores nothing itself: ${k}`);
+  assert.strictEqual(JSON.parse(seal.sealDuelReview({ ...r, decision: 'stands', outcome: null }).seal_payload).outcome, null);
+  // The decisions the spec's table lists are the ones the code takes.
+  const table = [...block.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]);
+  assert.deepEqual(table, [...require('../lib/duel_review').DECISIONS]);
+  assert.match(block, new RegExp(`at most ${require('../lib/duel_review').EVIDENCE_MAX} characters`));
+  assert.match(SPEC, /`review:<seal>`/, 'the spec addresses it');
 });

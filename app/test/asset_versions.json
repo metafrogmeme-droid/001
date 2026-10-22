@@ -121,7 +121,7 @@
   },
   "js/duel.js": {
     "v": 9,
-    "sha": "0dd7efc9a3169667"
+    "sha": "f0d7bc03bed8a44f"
   },
   "js/embed-arena-view.js": {
     "v": 4,
@@ -189,7 +189,7 @@
   },
   "js/i18n-core.js": {
     "v": 200,
-    "sha": "a00e5e8727d74765"
+    "sha": "217d8a0abddf43f9"
   },
   "js/icons.js": {
     "v": 6,
@@ -264,8 +264,8 @@
     "sha": "c401aff666606a0d"
   },
   "js/pi-receipt.js": {
-    "v": 3,
-    "sha": "759f0e52e2fbf694"
+    "v": 4,
+    "sha": "bded1f83c98b13ee"
   },
   "js/pi-signals.js": {
     "v": 7,

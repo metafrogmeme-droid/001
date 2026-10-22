@@ -33,7 +33,7 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3'];
  * which checks a launch receipt in the browser so the page never sends
  * anyone to the main site's receipt page), then the page.
  */
-const SCRIPTS = ['/js/evm-wallet.js?v=1', '/js/pi-receipt.js?v=3', '/js/memeclaw.js?v=1'];
+const SCRIPTS = ['/js/evm-wallet.js?v=1', '/js/pi-receipt.js?v=4', '/js/memeclaw.js?v=1'];
 const STYLES = ['/memeclaw.css?v=1'];
 
 function page() {

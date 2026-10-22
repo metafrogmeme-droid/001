@@ -220,6 +220,13 @@
 ["Final score", "Huling iskor"],
 ["none, unresolved", "wala, hindi na-resolve"],
 ["Settled at", "Na-settle noong"],
+["A review of your settlement", "Isang review ng settlement mo"],
+["Decision", "Desisyon"],
+["The result stands", "Nananatili ang resulta"],
+["No result: the call scores nothing", "Walang resulta: walang puntos ang hula"],
+["Corrected to {outcome}", "Itinama sa {outcome}"],
+["Evidence", "Ebidensya"],
+["Reviewed at", "Na-review noong"],
 ["A receipt of a kind this app does not describe", "Isang uri ng resibo na hindi inilalarawan ng app na ito"],
 ["Verified in your browser", "Na-verify sa browser mo"],
 ["The SHA-256 of what was sealed equals this seal, so not one character of it has changed since.", "Katumbas ng selyong ito ang SHA-256 ng sinelyuhan, kaya wala ni isang character nito ang nagbago mula noon."],
@@ -382,5 +389,11 @@
 ["Chips", "Chips"],
 ["none", "wala"],
 ["{min}–{max}, or none; a pass takes none", "{min}–{max}, o wala; walang chips ang pasa"],
-["No chips on this round: call it for marks", "Walang chips sa round na ito: humula para sa marka"]
+["No chips on this round: call it for marks", "Walang chips sa round na ito: humula para sa marka"],
+["Flag this result", "I-flag ang resultang ito"],
+["Flagged: waiting for a review", "Na-flag: naghihintay ng review"],
+["Reviewed: the result stands", "Na-review: nananatili ang resulta"],
+["Reviewed: no result", "Na-review: walang resulta"],
+["Reviewed: corrected to {o}", "Na-review: itinama sa {o}"],
+["Review {h}", "Review {h}"]
 ]

@@ -135,7 +135,7 @@ const SCRIPTS = [
   // The Daily Duel: the website's round renderer, then the block.
   '/js/duel.js?v=9',
   // The in-app receipt check, before the block that uses it.
-  '/js/pi-receipt.js?v=3',
+  '/js/pi-receipt.js?v=4',
   '/js/pi-duel.js?v=8',
   // Ask the Claw, the coach tab.
   '/js/pi-coach.js?v=2',

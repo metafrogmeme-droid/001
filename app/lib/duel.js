@@ -79,11 +79,16 @@ const DAY_MS = 86400000;
  * range round has no such outcome, so a PASS on it is always declined.
  */
 const KINDS = Object.freeze({
-  direction: Object.freeze({ picks: Object.freeze(['long', 'short', 'pass']), neutral: 'flat' }),
-  backfade: Object.freeze({ picks: Object.freeze(['back', 'fade', 'pass']), neutral: 'flat' }),
-  range: Object.freeze({ picks: Object.freeze(['break', 'hold', 'pass']), neutral: null }),
-  mover: Object.freeze({ picks: Object.freeze(['first', 'second', 'pass']), neutral: 'tie' }),
-  sports: Object.freeze({ picks: Object.freeze(['home', 'draw', 'away', 'pass']), neutral: null }),
+  direction: Object.freeze({ picks: Object.freeze(['long', 'short', 'pass']), neutral: 'flat',
+    outcomes: Object.freeze(['up', 'down', 'flat']) }),
+  backfade: Object.freeze({ picks: Object.freeze(['back', 'fade', 'pass']), neutral: 'flat',
+    outcomes: Object.freeze(['up', 'down', 'flat']) }),
+  range: Object.freeze({ picks: Object.freeze(['break', 'hold', 'pass']), neutral: null,
+    outcomes: Object.freeze(['break', 'hold']) }),
+  mover: Object.freeze({ picks: Object.freeze(['first', 'second', 'pass']), neutral: 'tie',
+    outcomes: Object.freeze(['first', 'second', 'tie']) }),
+  sports: Object.freeze({ picks: Object.freeze(['home', 'draw', 'away', 'pass']), neutral: null,
+    outcomes: Object.freeze(['home', 'draw', 'away']) }),
 });
 const KIND_NAMES = Object.freeze(Object.keys(KINDS));
 /** The classic round's picks, kept under their old name for the callers that
@@ -314,6 +319,40 @@ function scoreCall(kind, pick, outcome, agentDirection) {
     : { state: 'wrong', marks: 0, beat_agent: false };
 }
 
+/**
+ * The verdict a stored call stands at: the rules' score of its outcome, as a
+ * review left it (lib/duel_review.js). A review never rewrites the settlement
+ * or its receipt; it is a fact of its own that this reading applies:
+ *
+ *   stands      the settlement's verdict, unchanged
+ *   push        no result: marks and chips as for a push
+ *   corrected   scored again at the outcome the review names
+ *
+ * Every reader that scores a stored call asks here (scoreEntries, the card,
+ * the chips), so a review cannot reach one surface and miss another.
+ */
+function verdictOf(round, pick) {
+  const kind = kindOf(round);
+  if (kind === null || !pick) return { state: 'invalid', marks: 0, beat_agent: false };
+  const review = pick.review_state || null;
+  if (review === 'push') return { state: 'push', marks: 0, beat_agent: false, reviewed: 'push' };
+  const res = scoreCall(kind, pick.pick, scoredOutcome(round, pick), round.agent_direction);
+  return review ? Object.assign({}, res, { reviewed: review }) : res;
+}
+
+/**
+ * The outcome a stored call is scored at: a correction's, when a review
+ * corrected it to an outcome its category knows, else the settlement's. A
+ * stored correction the category does not know corrects nothing, and is not
+ * shown as the outcome either.
+ */
+function scoredOutcome(round, pick) {
+  const kind = kindOf(round);
+  if (kind !== null && pick && pick.review_state === 'corrected'
+    && KINDS[kind].outcomes.indexOf(pick.review_outcome) >= 0) return pick.review_outcome;
+  return callOutcome(round, pick);
+}
+
 /** Score one classic call: the three-argument form every older caller uses. */
 function scorePick(pick, outcome, agentDirection) {
   return scoreCall('direction', pick, outcome, agentDirection);
@@ -335,8 +374,8 @@ function scoreEntries(rounds, picks) {
     if (!round) continue;
     const kind = kindOf(round);
     if (kind === null) continue;
-    const outcome = callOutcome(round, p);
-    const res = scoreCall(kind, p.pick, outcome, round.agent_direction);
+    const res = verdictOf(round, p);
+    const outcome = scoredOutcome(round, p);
     const entry = {
       round_id: round.id,
       day: round.day,
@@ -744,6 +783,10 @@ function publicPick(pick, { now = new Date(), round = null } = {}) {
     // false (agreed), null (not checked). The verdict stands either way; a
     // surface says "disputed" beside it.
     disputed: p.settle_disputed == null ? null : Boolean(Number(p.settle_disputed)),
+    // Whether the player flagged the settlement, and what a review decided:
+    // null until each happens (lib/duel_review.js).
+    flagged: p.flagged_at ? true : false,
+    review: p.review_state ? { state: p.review_state, outcome: p.review_outcome || null, seal: p.review_seal || null } : null,
   };
   if (kind === 'mover') out.entry_price_b = Number(p.entry_price_b);
   const outcome = round ? callOutcome(round, p) : pickOutcome(p);
@@ -769,7 +812,7 @@ module.exports = {
   kindOf, picksFor, normPick, normDirection, dayKey, dayStartMs, horizonFor, rangeBandFor,
   metaOf, kickoffMs, sportsHorizonFor, roundSealRevealed,
   movePct, outcomeOf, rangeOutcome, moverOutcome, sportsOutcome, pickOutcome, callOutcome,
-  scoreCall, scorePick, scoreEntries, accuracy, computeMarks,
+  scoreCall, scorePick, verdictOf, scoredOutcome, scoreEntries, accuracy, computeMarks,
   duelStreak, weeklyDuelQuests,
   buildRounds, isCallable, isDue, isAbandoned, publicRound, publicPick,
 };

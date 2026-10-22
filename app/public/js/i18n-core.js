@@ -2141,6 +2141,13 @@
     "duel.stack_unread_n": { en: "{n} calls not read" },
     "duel.stack_how": { en: "{f} a season, play money with no cash value" },
     "duel.chips_ret": { en: "Chips return" },
+    "duel.flag_btn": { en: "Flag this result" },
+    "duel.flagged": { en: "Flagged: waiting for a review" },
+    "duel.rv_stands": { en: "Reviewed: the result stands" },
+    "duel.rv_push": { en: "Reviewed: no result" },
+    "duel.rv_corrected": { en: "Reviewed: corrected to {o}" },
+    "duel.rc_review": { en: "Review {h}" },
+    "duel.flag_fail": { en: "Could not record your flag." },
     "duel.chips_note": { en: "Chips are play money: every player gets the same 1,000 each season, and nobody can buy, sell, send or cash them out. They are worth nothing outside this game. Put some on a call at the odds shown; a correct call pays them at those odds, a wrong one loses them, and a call with no result gives them back." },
     "duel.you_called": { en: "You called" },
     "duel.ag_hidden": { en: "Hidden until you call" },
@@ -2478,7 +2485,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"ea8b94c7","zh":"0f3c27d8","pt":"3d24dc51","fr":"7050cfb9","de":"bc085611","nl":"97ae31bc","ja":"890a0f6f","ko":"52dbbad6","ru":"a1575e4a","tr":"38049515","it":"fa7897ef","hi":"a982c9a7","ar":"168e3a06"};
+  var CHUNKS = {"es":"f1fa2ab3","zh":"9a9323d4","pt":"fe05938b","fr":"d2004e57","de":"594f76c7","nl":"15e42ea6","ja":"afe30bdc","ko":"41e9c020","ru":"89c6a725","tr":"79f6591c","it":"70b05870","hi":"231a16d2","ar":"08ed2d04"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

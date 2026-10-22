@@ -469,6 +469,35 @@ function sealDuelSettleChips(s) {
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
+/**
+ * v9 `duel_review` — the operator's decision on a flagged or disputed
+ * settlement (lib/duel_review.js). It names the settlement it decides on, the
+ * call and the round, and never rewrites any of them: `decision` is stands,
+ * push or corrected, `outcome` the corrected outcome (null otherwise), and
+ * `evidence` what the operator checked, in their words.
+ */
+function canonicalDuelReviewPayload(r) {
+  return JSON.stringify({
+    v: 9,
+    kind: 'duel_review',
+    round_id: Number(r.round_id),
+    call_seal: r.call_seal ? String(r.call_seal) : null,
+    settle_seal: r.settle_seal ? String(r.settle_seal) : null,
+    round_seal: r.round_seal ? String(r.round_seal) : null,
+    category: r.kind == null ? 'direction' : String(r.kind),
+    pick: String(r.pick),
+    decision: String(r.decision),
+    outcome: r.outcome == null ? null : String(r.outcome),
+    evidence: String(r.evidence || ''),
+    reviewed_at: new Date(r.reviewed_at || Date.now()).toISOString(),
+  });
+}
+
+function sealDuelReview(r) {
+  const seal_payload = canonicalDuelReviewPayload(r);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
 function inputDigest(text) {
   const buf = Buffer.from(String(text == null ? '' : text), 'utf8');
   return { sha256: crypto.createHash('sha256').update(buf).digest('hex'),
@@ -484,4 +513,5 @@ module.exports = {
   canonicalScanPayload, sealScan, inputDigest,
   canonicalMemeclawLaunchPayload, sealMemeclawLaunch,
   sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips,
+  canonicalDuelReviewPayload, sealDuelReview,
 };

@@ -49,6 +49,10 @@ async function sealsForDay(day) {
     'SELECT seal FROM duel_rounds WHERE created_at >= ? AND created_at < ?',
     'SELECT seal FROM duel_picks WHERE created_at >= ? AND created_at < ?',
     'SELECT settle_seal AS seal FROM duel_picks WHERE settled_at >= ? AND settled_at < ?',
+    // A review of a flagged or disputed settlement (v9, 2026-10-22) is a
+    // receipt of its own, minted the day the operator decided: the root then
+    // commits to the decision, and the settlement it names stays as sealed.
+    'SELECT review_seal AS seal FROM duel_picks WHERE reviewed_at >= ? AND reviewed_at < ?',
     // A Memeclaw launch (v8, 2026-10-21), sealed once the website read it
     // from the chain: the day's root then commits to the terms each coin
     // launched under, beside the block the chain itself dated them at.
@@ -60,7 +64,8 @@ async function sealsForDay(day) {
       for (const r of rows) {
         // The in-memory shim answers the settlement sweep with whole rows,
         // so the alias above is read either way.
-        const leaf = q.includes('settle_seal') ? (r.settle_seal || r.seal) : r.seal;
+        const leaf = q.includes('settle_seal') ? (r.settle_seal || r.seal)
+          : q.includes('review_seal') ? (r.review_seal || r.seal) : r.seal;
         if (leaf) out.push(String(leaf));
       }
     } catch (e) {

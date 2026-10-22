@@ -280,6 +280,46 @@ shown as won or lost before then. It is `null` otherwise. A player's stack is
 never stored: it is the season float plus the paid payouts minus the chips
 still on the table, recomputed from these receipts' rows on every read.
 
+### 2.9 · `v: 9` — a review of a Daily Duel settlement
+
+A settlement can be wrong in ways its two price reads do not show: a venue
+print the index never traded, a match result corrected after the feed read
+it. A player may **flag** their own settlement once, within two hours of it
+being written; a settlement the second source disputed (§2.6) is queued
+without one. The operator then decides it, and the decision is a receipt of
+its own. It names the settlement and never rewrites it: the settlement's
+bytes, and its seal, are the ones that were sealed.
+
+```json
+{"v":9,"kind":"duel_review","round_id":1,"call_seal":"<64 hex>","settle_seal":"<64 hex>",
+ "round_seal":"<64 hex>","category":"direction","pick":"long","decision":"corrected",
+ "outcome":"up","evidence":"The venue candle printed a wick the index never traded.",
+ "reviewed_at":"2026-10-23T11:00:00.000Z"}
+```
+
+`decision` is one of three words:
+
+| decision | what it does to the call |
+|---|---|
+| `stands` | nothing: the settlement's verdict was right |
+| `push` | no result: marks cleared, chips returned |
+| `corrected` | the market's answer was `outcome` instead; the call is scored again at it, marks and chips alike |
+
+`outcome` is `null` unless the decision is `corrected`, and a correction
+must name an outcome the category knows that differs from the one the
+settlement gave. `evidence` says what was checked, as one line of plain text
+of at most 500 characters; a review without it is refused. A settlement is
+reviewed at most once. A flag holds a call's chips as a dispute does, until
+the review or the end of the two hours, whichever comes first; a reviewed
+settlement's chips are paid at the reviewed verdict. A verifier that reads a
+settlement SHOULD look for a review naming it and read the verdict from the
+review when there is one.
+
+The review is not trusted because the operator wrote it. It is sealed, folded
+into the root of the day it was written (§4), and names the evidence, so a
+reader can check what was claimed against the same public prices the
+settlement read.
+
 ---
 
 ## 3 · Addressing
@@ -288,11 +328,12 @@ Receipts are served by an opaque key. Two forms are in use:
 
 - `sig:<id>` — an engine signal
 - `arena:<18 hex>` — a paper trade, from 9 random bytes
-- `round:<seal>`, `duel:<seal>`, `settle:<seal>` — a Daily Duel round (§2.5),
-  call (§2.3) and settlement (§2.6), addressed by their own seal: sixty-four
-  hex characters nobody can derive from public data. A call's receipt names
-  its round seal and, once there is one, its settlement; a settlement's names
-  the call it settles.
+- `round:<seal>`, `duel:<seal>`, `settle:<seal>`, `review:<seal>` — a Daily
+  Duel round (§2.5), call (§2.3), settlement (§2.6) and review (§2.9),
+  addressed by their own seal: sixty-four hex characters nobody can derive
+  from public data. A call's receipt names its round seal and, once there is
+  one, its settlement; a settlement's names the call it settles and, once
+  there is one, its review; a review's names the settlement it decides.
 - `launch:<seal>` — a Memeclaw launch (§2.7). A launch is public on the chain,
   so this key is a convenience, not a capability.
 
@@ -324,7 +365,8 @@ Three details that implementations get wrong:
   "the day is still open", never a hash.
 - **A seal belongs to the day it was minted**, not to the day of the thing it
   describes: a Daily Duel round sealed as dealt, the call made on it and the
-  settlement written for it are three leaves on up to three days. Adding a
+  settlement written for it are three leaves on up to three days, and a
+  review of that settlement a fourth. Adding a
   surface never moves a stored root; days completed before the surface was
   sealed keep the root they had.
 
@@ -405,7 +447,7 @@ float as a percent and how many calls carried chips, and no count of chips.
 | 6 | A dealt duel round, the agent's stance committed before anyone calls |
 | 7 | A duel settlement: prices or score, outcome and verdict, naming the call |
 | 8 | A Memeclaw launch: the terms hash the chain recorded, the coin, the creator's buy |
-| 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold |
+| 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold; a settlement's review |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

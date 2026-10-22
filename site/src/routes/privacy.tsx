@@ -48,14 +48,19 @@
  * operator; it is not a lawyer's review, and the paragraph above still
  * stands. The approval is of that text, so `site/test/privacy_truth.test.js`
  * pins the section's digest: an edit to it fails there until the owner
- * approves the new text. The anchor watch's Discord alerts, added the same
+ * approves the new text. Later the same day the owner told us to make the
+ * factual updates the open items need, and two facts changed: a call's
+ * receipt now shows the chips put on it (the clause "and the chips you put
+ * on it, if any"), and reviews of settlements are seals in a day's root (a
+ * review names a call by its seal and no one by name). The pinned digest is
+ * of the text with both. The anchor watch's Discord alerts, added the same
  * day, carry no personal data (a day, a chain and what is wrong), so this
  * page says nothing about them.
  */
 import { createFileRoute } from '@tanstack/react-router'
 import { Gap, H, L, P } from '../components/Prose'
 
-const UPDATED = '21 October 2026'
+const UPDATED = '22 October 2026'
 
 function Privacy() {
   return (
@@ -240,11 +245,13 @@ function Privacy() {
       <H>The daily proof, and the chains it is written to</H>
       <P>
         Every seal the site makes in a UTC day (among them the agent&rsquo;s calls, Arena
-        practice trades, Daily Duel rounds, calls and settlements, Memeclaw
-        launches) goes into one Merkle root for that day, shown on{' '}
+        practice trades, Daily Duel rounds, calls, settlements and reviews of
+        settlements, Memeclaw launches) goes into one Merkle root for that day, shown on{' '}
         <code>/roots</code> and in its public feed. A seal is a hash and names
         no one. A Duel call&rsquo;s receipt, opened by its own seal, shows the
-        call, its prices and outcome, and the handle you chose to show, if any.
+        call, its prices and outcome, the handle you chose to show, if any, and
+        the chips you put on it, if any: play money that cannot be bought,
+        sold or cashed out.
       </P>
       <L items={[
         <><strong>When your wallet anchors a day.</strong> You can write a

@@ -913,7 +913,11 @@ outcome is known and re-derivable by a third party. Behind `DUEL_CHIPS_ENABLED`
 (off by default) a round is dealt at sealed odds and a call may carry
 play-money chips from a season float, checked at `app/lib/duel_chips.js::checkPut`
 and paid at the verdict (`app/lib/duel_chips.js::payoutFor`); the public board
-shows a percent return and a count of calls, never chips.
+shows a percent return and a count of calls, never chips. A player may flag
+their own settlement once, inside two hours (`app/lib/duel_review.js::canFlag`),
+and the operator's decision on a flagged or disputed one is a sealed receipt of
+its own (`app/lib/duel_service.js::writeReview`), applied wherever a call is
+scored (`app/lib/duel.js::verdictOf`).
 
 *Gap.* Income. There is no entry fee, no prize pool, no payout and no token reward
 attached to a duel result — the §4 rule at `app/routes/duel.js::#"§4: virtual throughout"` forbids any

@@ -90,8 +90,9 @@ async function lookupCall(key, viewer = {}) {
         verify: 'sha256 over the UTF-8 bytes of seal_payload, verbatim, is `seal`. The seal is a leaf in that day\'s Merkle root — see /api/roots.',
       } };
     }
-    // The Daily Duel's three receipts (lib/duel_receipts.js), addressed by seal.
-    if (/^(round|duel|settle):/.test(key)) {
+    // The Daily Duel's receipts (lib/duel_receipts.js), addressed by seal: the
+    // round, the call, the settlement and, since v9, a review.
+    if (/^(round|duel|settle|review):/.test(key)) {
       // A signed-in player who has called the round opens its payload now;
       // everyone else when the round's day ends.
       const found = await require('../lib/duel_receipts').lookupDuel(key, { userId: viewer.userId || null });
