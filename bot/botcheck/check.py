@@ -52,6 +52,8 @@ _SIGNING_TEXT = {
 class CatalogError(Exception):
     """The catalog could not be read. The message is a fixed token, not the file."""
 
+    pass  # a docstring-only body does not parse once code_only blanks it
+
 
 def flag_on(env: Optional[Mapping[str, str]] = None) -> bool:
     """True only for 1 / true / yes / on. Unset and everything else are off.
