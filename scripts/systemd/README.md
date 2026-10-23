@@ -65,6 +65,12 @@ sudo systemctl enable --now runeclaw-daily-duel
 scripts/systemd/runeclaw-status.sh
 ```
 
+`/scam` on that bot is Scam or Safe? Daily. It stays unregistered unless
+`SCAM_OR_SAFE_V0` is `1` (also `true`, `on`, or `yes`) in the same environment.
+The website page is `/scam` and the Pi tab appears only under the same flag.
+The flag defaults off. It reuses `DAILY_DUEL_BOT_TOKEN` and `DAILY_DUEL_ID_SALT`;
+it does not add a token or a salt of its own.
+
 A box without the token or the salt leaves the unit uninstalled, and the
 status script lists it as `OPTIONAL`. Installed without either value, or with
 a token equal to `TELEGRAM_BOT_TOKEN` or `DUEL_BOT_TOKEN`, the process exits

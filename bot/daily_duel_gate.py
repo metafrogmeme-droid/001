@@ -58,6 +58,10 @@ def node_runner(command: str, payload: Mapping[str, Any]) -> dict:
 # drops it unless the flag is on, so listing it here cannot put it on a
 # receipt by itself.
 _SEAL_KEYS = ("now", "pick", "symbol", "marks", "confidence")
+# Scam or Safe uses the same gate. The player key is the salted hash the bot
+# already computed. A Telegram id is not a key this list forwards.
+_SOS_OFFER_KEYS = ("now", "player_key")
+_SOS_SEAL_KEYS = ("now", "pick", "player_key", "puzzle_id")
 
 
 class DuelGate:
@@ -87,6 +91,19 @@ class DuelGate:
     def seal(self, facts: Mapping[str, Any]) -> dict:
         clean = {k: facts[k] for k in _SEAL_KEYS if k in facts and facts[k] is not None}
         return self._call("seal", clean)
+
+    def sos_offer(self, now: Optional[str] = None, player_key: Optional[str] = None) -> dict:
+        payload: dict[str, Any] = {}
+        if now:
+            payload["now"] = now
+        if player_key:
+            payload["player_key"] = player_key
+        clean = {k: payload[k] for k in _SOS_OFFER_KEYS if k in payload}
+        return self._call("sos-offer", clean)
+
+    def sos_seal(self, facts: Mapping[str, Any]) -> dict:
+        clean = {k: facts[k] for k in _SOS_SEAL_KEYS if k in facts and facts[k] is not None}
+        return self._call("sos-seal", clean)
 
     def streak(self, picked_at: list[str], now: Optional[str] = None) -> dict:
         payload: dict[str, Any] = {"picked_at": list(picked_at)}
