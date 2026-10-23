@@ -12,6 +12,7 @@ const path = require('node:path');
 
 const express = require('express');
 
+const { optionalAuth } = require('../auth');
 const { PREVIEW, access } = require('../lib/srb_flag');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -37,7 +38,7 @@ function loadReport() {
   return parsed;
 }
 
-router.get('/signals', (req, res) => {
+router.get('/signals', optionalAuth, (req, res) => {
   access(req, res).then((decision) => {
     if (!decision.ok) return res.status(404).type('text/plain').send('Not found');
     let report;
