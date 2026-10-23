@@ -106,6 +106,15 @@ class CallStore:
             ).fetchall()
         return [str(r["picked_at"]) for r in rows]
 
+    def payloads(self, player_key: str) -> list[str]:
+        """The sealed receipts, oldest day first. The rating lives inside them."""
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT seal_payload FROM calls WHERE player_key = ? ORDER BY day",
+                (player_key,),
+            ).fetchall()
+        return [str(r["seal_payload"]) for r in rows]
+
     def record(self, row: Mapping[str, Any], *, telegram_id: Optional[str] = None) -> tuple[dict[str, Any], bool]:
         """Insert. ``(stored, created)``. A second call for the same day
         returns the first receipt and ``created=False``; it does not overwrite.

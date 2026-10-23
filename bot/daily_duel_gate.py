@@ -54,7 +54,10 @@ def node_runner(command: str, payload: Mapping[str, Any]) -> dict:
 
 
 # What a seal is allowed to be told. Identity is not on this list.
-_SEAL_KEYS = ("now", "pick", "symbol", "marks")
+# `confidence` is the player's own rating (low, medium, high). The gate
+# drops it unless the flag is on, so listing it here cannot put it on a
+# receipt by itself.
+_SEAL_KEYS = ("now", "pick", "symbol", "marks", "confidence")
 
 
 class DuelGate:
@@ -92,4 +95,13 @@ class DuelGate:
         body = self._call("streak", payload)
         if not body.get("ok"):
             raise GateDown(str(body.get("error") or "streak"))
+        return body
+
+    def calibration(self, payloads: list[str], now: Optional[str] = None) -> dict:
+        payload: dict[str, Any] = {"payloads": list(payloads)}
+        if now:
+            payload["now"] = now
+        body = self._call("calibration", payload)
+        if not body.get("ok"):
+            raise GateDown(str(body.get("error") or "calibration"))
         return body

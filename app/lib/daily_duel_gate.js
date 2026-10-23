@@ -23,6 +23,7 @@
 const duel = require('./duel');
 const { sealDuelPick } = require('./callseal');
 const tickers = require('./tickers');
+const confidence = require('./duel_confidence');
 
 const PICKS = Object.freeze({ up: 'long', down: 'short', long: 'long', short: 'short' });
 
@@ -32,6 +33,8 @@ function rules() {
     horizon_hours: duel.HORIZON_HOURS,
     price_reader: 'getTickers',
     price_module: 'app/lib/tickers.js',
+    // The one reading of the flag. Off, this is false and nothing else changes.
+    confidence: confidence.enabled(),
   };
 }
 
@@ -83,6 +86,7 @@ function describe(day, now, marks) {
     unreadable: entry_price == null,
     price_reader: 'getTickers',
     price_module: 'app/lib/tickers.js',
+    confidence: confidence.enabled(),
   };
 }
 
@@ -143,6 +147,15 @@ async function sealCall(input) {
     resolves_at,
     picked_at,
   };
+  // Off: a rating on the input is dropped, so the sealed string is the one
+  // a call without it has always been. On: a valid rating is sealed with the
+  // call; a missing one is still a call (other clients of this gate do not
+  // send one); a present one that is not low, medium or high is refused.
+  if (confidence.enabled() && src.confidence != null && src.confidence !== '') {
+    const level = confidence.levelOf(src.confidence);
+    if (!level) return { ok: false, error: 'confidence', day, cutoff_at: cutoffFor(day) };
+    facts.confidence = level;
+  }
   const receipt = sealDuelPick(facts);
   return {
     ok: true,
@@ -157,6 +170,43 @@ async function sealCall(input) {
     cutoff_at: cutoffFor(day),
     horizon_hours: duel.HORIZON_HOURS,
   };
+}
+
+/**
+ * How often high-confidence calls were right, for the anonymous bot.
+ *
+ * The bot stores no settlement. A call whose window has not ended, a call
+ * this function cannot price, and a call that is not a direction call are
+ * left out of the rate — not counted wrong. The price is the one read now,
+ * after the window, the same reader the entry used. Off, this does not read
+ * a price and reports the flag.
+ */
+async function calibrationOf(input) {
+  if (!confidence.enabled()) return { ok: true, enabled: false };
+  const src = input || {};
+  const now = src.now ? new Date(src.now) : new Date();
+  if (Number.isNaN(now.getTime())) return { ok: false, error: 'clock' };
+  const marks = await readMarks(src);
+  const nowIso = now.toISOString();
+  const rows = [];
+  const payloads = Array.isArray(src.payloads) ? src.payloads : [];
+  for (const raw of payloads) {
+    let body;
+    try { body = JSON.parse(String(raw || '')); } catch (e) { continue; }
+    if (!body || typeof body !== 'object') continue;
+    const level = confidence.levelOf(body.confidence);
+    if (!level) continue;
+    const resolves = typeof body.resolves_at === 'string' ? body.resolves_at : '';
+    const priced = resolves && nowIso >= resolves && (!body.category || body.category === 'direction');
+    const price = priced && marks ? priceOf(marks, body.symbol) : null;
+    if (!priced || price == null) {
+      rows.push({ confidence: level, state: null });
+      continue;
+    }
+    const outcome = duel.outcomeOf(body.entry_price, price);
+    rows.push({ confidence: level, state: duel.scorePick(body.pick, outcome, null).state });
+  }
+  return { ok: true, enabled: true, high: confidence.calibration(rows) };
 }
 
 /** Consecutive duel days with a call. `duel.duelStreak`, not a second definition. */
@@ -190,12 +240,13 @@ async function main() {
   } else if (cmd === 'offer') out = await offer(input);
   else if (cmd === 'seal') out = await sealCall(input);
   else if (cmd === 'streak') out = streak(input);
+  else if (cmd === 'calibration') out = await calibrationOf(input);
   else out = { ok: false, error: 'command' };
   process.stdout.write(JSON.stringify(out));
 }
 
 module.exports = {
-  rules, cutoffFor, offer, sealCall, streak, directionRound, priceOf,
+  rules, cutoffFor, offer, sealCall, streak, calibrationOf, directionRound, priceOf,
 };
 
 if (require.main === module) {

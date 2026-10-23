@@ -111,6 +111,12 @@ later change to the band table cannot rescore a round. Carries the horizon
 (`resolves_at`) as a sealed fact, so the window a call was made for cannot be
 widened afterwards to make it look right.
 
+A call may also carry `"confidence"` after `"picked_at"`, one of `"low"`,
+`"medium"` or `"high"`: the player's own rating of that call, sealed with
+it. A receipt with no rating omits the key. Verifiers hash the stored
+string and do not require the key, so a receipt sealed before the rating
+still checks. The rating is not money and not a price.
+
 Receipts sealed before 2026-10-19 are `v: 3`, which carried none of the
 category fields. Its order is frozen:
 

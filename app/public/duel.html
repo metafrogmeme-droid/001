@@ -161,7 +161,7 @@
 
 <script src="/js/api-retry.js?v=3"></script>
 <script src="/js/i18n-core.js?v=207"></script>
-<script src="/js/duel.js?v=9"></script>
+<script src="/js/duel.js?v=10"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -206,7 +206,9 @@
       // The horizon is the card's, and every question names it.
       // The website may link a receipt to its verify page; the Pi app may not.
       // Chips are offered here when the card carries them (lib/duel_chips.js).
-      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T, undefined, { links: true, chips: data.chips });
+      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T, undefined, {
+        links: true, chips: data.chips, confidenceLevels: data.confidence ? data.confidence_levels : null,
+      });
     }).join('');
     $('chipsNote').hidden = !(data.chips && data.chips.enabled);
     // Only a feed that FAILED is reported; a day with no match says nothing.
@@ -222,6 +224,7 @@
       stat(T('duel.acc_k', 'Accuracy'), D.accuracyLabel(me.accuracy, T))
       + stat(T('duel.marks_k', 'Marks'), D.marksLabel(me.marks, T))
       + stat(T('duel.streak_k', 'Streak'), streak)
+      + (me.calibration ? stat(T('duel.cal_k', 'High confidence'), D.calibrationLabel(me.calibration, T)) : '')
       // The season's chips, when there are any to show; left out otherwise.
       + (me.chips ? stat(T('duel.chips_k', 'Chips'), D.stackLabel(me.chips, T)) : '');
     $('recPanel').hidden = false;
@@ -313,6 +316,14 @@
       cols.push({ h: T('duel.chips_ret', 'Chips return'), n: true, get: function (r) {
         var p = r.chips ? r.chips.return_pct : null;
         return p == null ? '—' : (p > 0 ? '+' : '') + p + '%';
+      } });
+    }
+    // A rating's hit rate, only where a player has one. A dash is "no rate
+    // yet", never 0%.
+    if (d.rows.some(function (r) { return r.high_confidence; })) {
+      cols.push({ h: T('duel.cal_k', 'High confidence'), n: true, get: function (r) {
+        var h = r.high_confidence;
+        return h && h.pct != null ? h.pct + '%' : '—';
       } });
     }
     $('board').innerHTML = boardTable(d.rows, cols) + warming(d);
@@ -416,7 +427,22 @@
     if (!btn || btn.disabled) return;
     var wrap = btn.closest('.d-actions');
     if (!wrap) return;
-    var body = { round_id: Number(wrap.getAttribute('data-round')), pick: btn.getAttribute('data-pick') };
+    var level = btn.getAttribute('data-confidence');
+    var pick = btn.getAttribute('data-pick');
+    // The rating step: choosing a direction reveals it and does not post.
+    // A rating button then posts the direction already chosen.
+    if (level === 'low' || level === 'medium' || level === 'high') {
+      pick = wrap.getAttribute('data-chosen');
+      if (!pick) return;
+    } else if (wrap.getAttribute('data-ask-confidence') === 'yes' && pick) {
+      wrap.setAttribute('data-chosen', pick);
+      var ask = wrap.querySelector('.d-conf-ask');
+      if (ask) ask.hidden = false;
+      Array.prototype.forEach.call(wrap.querySelectorAll('.d-conf'), function (el) { el.hidden = false; });
+      return;
+    }
+    var body = { round_id: Number(wrap.getAttribute('data-round')), pick: pick };
+    if (level === 'low' || level === 'medium' || level === 'high') body.confidence = level;
     // Chips ride with the call when the field has a value; empty is none. The
     // server checks every limit and says why when it refuses.
     var inp = wrap.querySelector('.d-chips-in');

@@ -155,6 +155,12 @@
     var pickWord = sports && p.pick === 'home' ? t('rc.p_home', 'HOME WIN')
       : sports && p.pick === 'away' ? t('rc.p_away', 'AWAY WIN')
         : duel.pickLabel(p.pick, p, t);
+    // A self-rating sealed with the call. Absent on a receipt that has none,
+    // so those cards say what they said.
+    var rating = p.confidence === 'low' ? t('rc.conf_low', 'LOW')
+      : p.confidence === 'medium' ? t('rc.conf_med', 'MEDIUM')
+        : p.confidence === 'high' ? t('rc.conf_high', 'HIGH') : '';
+    if (rating) pickWord += ' · ' + rating;
     var sealedAt = when(p.picked_at || d.sealed_at, opt.lang) || '—';
     var settled = Boolean(d.settlement && d.settlement.key);
     var verdict = settled ? verdictOf(opt.settle || null, t) : null;
