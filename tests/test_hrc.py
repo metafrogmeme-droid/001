@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from bot.caps.strictest import (
+    BATCH_3,
     CapRefused,
     apply_cap_down,
     effective_cap,
@@ -50,9 +51,12 @@ from bot.hrc.index import (
 from bot.hrc.keccak import keccak256
 from bot.hrc.model import (
     DEFAULT_SPREAD_CEIL,
+    FUNDING_BASELINE,
     KIND_CAP,
     KIND_DIGITAL,
     KIND_SPREAD,
+    PER_USER_BORROW_CAP,
+    baseline_crossover,
     borrow_apy,
     borrow_apy_matching_funding,
     can_unfreeze,
@@ -62,6 +66,7 @@ from bot.hrc.model import (
     collateral_for,
     collateral_for_series,
     crossover_utilization,
+    default_carry_strike,
     freeze_reason,
     hour_payoff,
     points_below,
@@ -150,21 +155,24 @@ def test_checkpoints_and_a_missing_utilization_is_not_the_base_rate():
     assert utilization_of(True, 1) is None  # type: ignore[arg-type]
 
 
-def test_the_crossover_is_derived_and_rounds_to_81_4_percent():
+def test_the_funding_baseline_is_11_6_percent_and_the_crossover_is_derived():
     src = (ROOT / "bot/hrc/model.py").read_text(encoding="utf-8")
-    assert "0.8125" not in src
-    assert "0.814" not in src
-    funding = Decimal("0.1095")
-    got = crossover_utilization(funding)
-    assert got == utilization_for_borrow_apy(borrow_apy_matching_funding(funding))
-    naive = utilization_for_borrow_apy(funding)
-    assert naive != got
-    pct = (got * Decimal(100)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
-    assert pct == Decimal("81.4")
+    assert "0.1095" not in src
+    assert "0.8139" not in src
+    assert "81.39" not in src
+    got = baseline_crossover()
+    assert got == utilization_for_borrow_apy(FUNDING_BASELINE)
+    assert default_carry_strike() == FUNDING_BASELINE == Decimal("0.116")
+    pct = (got * Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    assert pct == Decimal("81.39")
+    # A continuous print still goes through exp. The baseline does not.
+    printed = crossover_utilization(Decimal("0.1095"))
+    assert printed == utilization_for_borrow_apy(borrow_apy_matching_funding(Decimal("0.1095")))
+    assert printed != got
 
 
-def test_truncation_tolerance_accepts_the_real_word_and_rejects_six_bp():
-    assert truncation_tolerance() == Decimal("0.000575")
+def test_truncation_tolerance_accepts_the_real_word_and_rejects_two_bp():
+    assert truncation_tolerance() == Decimal("0.0002")
     words = MAINNET["precompile"]["words"]
     supplied, borrowed, rate_bps, util_word = words[6], words[7], words[0], words[3]
     assert (borrowed * 10000) % supplied != 0
@@ -179,12 +187,12 @@ def test_truncation_tolerance_accepts_the_real_word_and_rejects_six_bp():
 
     above_s, above_b = 1_000_000, 820_099
     above = utilization_of(above_s, above_b)
-    gap = abs(borrow_apy(above) - Decimal(1450) / Decimal(10000))
-    assert gap > Decimal("0.0001")
-    assert gap <= truncation_tolerance()
-    assert quote_matches(above, 1450) is True
-    assert quote_matches(above, 1448) is False
-    assert quoted_rate_matches(above, borrow_apy(above) - Decimal("0.0006")) is False
+    assert quote_matches(above, 1453) is True
+    assert quote_matches(above, 1452) is False
+    assert quote_matches(above, 1450) is False
+    exact = borrow_apy(above)
+    assert quoted_rate_matches(above, exact - Decimal("0.000199")) is True
+    assert quoted_rate_matches(above, exact - Decimal("0.0002")) is False
 
 
 def test_a_short_or_oversized_word_is_not_a_sample_of_zeros():
@@ -214,6 +222,9 @@ def test_settlement_takes_the_lower_rate_and_pays_zero_when_both_are_missing():
     assert gap["rate"] == low
     assert gap["payout_zero"] is False
     assert choose_settlement("nope", None)["source"] == "none"  # type: ignore[arg-type]
+    edge = choose_settlement(Decimal("0.05"), Decimal("0.0502"))
+    assert edge["source"] == "lower_of"
+    assert choose_settlement(Decimal("0.05"), Decimal("0.0501"))["source"] == "precompile"
 
 
 def test_a_short_window_or_a_missing_hour_is_not_a_mean_of_zero():
@@ -446,6 +457,7 @@ def test_run_on_mainnet_does_not_read_the_signing_key():
 # ── caps ─────────────────────────────────────────────────────────────────────
 
 def test_the_strictest_proposal_wins_and_absent_is_not_zero(tmp_path):
+    assert BATCH_3 == ("RXB", "HRC", "T2C")
     book = empty_book()
     assert effective_cap(book, "usdc") is None
     apply_cap_down(book, "HRC", "usdc", Decimal(10))
@@ -680,6 +692,9 @@ def test_the_hourly_replay_and_the_corewriter_record_stay_off_the_settlement_pat
     assert Decimal(curve["0.10"]["withdrawal_tokens"]) > 0
     assert curve["1.01"]["reachable"] is False
     assert curve["1.01"]["withdrawal_tokens"] is None
+    assert report["manipulation"]["per_user_borrow_cap_tokens"] == "50000000"
+    assert PER_USER_BORROW_CAP == Decimal(50_000_000)
+    assert Decimal(curve["0.10"]["withdrawal_over_per_user_cap"]) > 0
     blob = json.dumps(report)
     assert "$" not in blob
     assert "total_supplied_usd" not in blob
@@ -694,4 +709,9 @@ def test_the_hourly_replay_and_the_corewriter_record_stay_off_the_settlement_pat
     assert record["withdraw"]["eth_call"] == "success"
     market = (ROOT / "contracts/kinkcap/KinkCapMarket.sol").read_text(encoding="utf-8")
     assert "3333333333333333333333333333333333333333" not in market
+    assert "PRECOMPILE_GAS = 20720" in market
+    assert "staticcall{gas: PRECOMPILE_GAS}" in market
+    assert "RAW_PER_TOKEN = 1e8" in market
+    assert "FUNDING_BASELINE_BPS = 1160" in market
+    assert "575e12" not in market
     assert "corewriter_action15" not in (ROOT / "bot/hrc/model.py").read_text(encoding="utf-8")

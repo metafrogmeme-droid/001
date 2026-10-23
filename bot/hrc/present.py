@@ -17,10 +17,11 @@ from bot.hrc.collector import _as_raw, history_path, load_history
 from bot.hrc.model import (
     DEFAULT_SPREAD_CEIL,
     KINK,
+    PER_USER_BORROW_CAP,
     RAW_PER_TOKEN,
+    baseline_crossover,
     borrow_apy,
     cap_hit_pays,
-    crossover_utilization,
     points_below,
     rate_shock_loss_24h,
     replay_withdrawal,
@@ -30,7 +31,9 @@ from bot.hrc.model import (
 from bot.hrc.rfq import quote_for
 
 BORROW_CAP_HUMAN = Decimal(500_000_000)
-_SCENARIOS = (("scenario_a", 21_500_000), ("scenario_b", 50_000_000))
+# scenario_b withdraws one per-user borrow cap. The pool cap above is the
+# cap-hit denominator, and it is not this number.
+_SCENARIOS = (("scenario_a", 21_500_000), ("scenario_b", int(PER_USER_BORROW_CAP)))
 _SOURCES = ("precompile", "signed_feed", "lower_of", "none", "info_api")
 
 
@@ -132,8 +135,7 @@ def dashboard(reading: dict) -> dict:
     _put(out, "utilization", util)
     _put(out, "borrow_apy", rate)
     _put(out, "points_to_kink", points_below(KINK, util))
-    funding = _dec(reading.get("funding_apr"))
-    cross = crossover_utilization(funding)
+    cross = baseline_crossover()
     _put(out, "points_to_crossover", points_below(cross, util) if cross is not None else None)
     human = _human_borrows(reading)
     if human is not None:

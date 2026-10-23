@@ -2,9 +2,9 @@
 
 The layout is the eight uint64 words in Hyperliquid's L1Read.sol, ABI-encoded
 as eight 32-byte words (256 bytes). Each word is an integer: basis points or
-raw token units. Utilization in the struct is the ratio, floored. The rate
-we keep is the curve on the raw totals, and only after the floored quote
-sits inside the truncation tolerance.
+raw token units, 1e8 per USDC. Utilization is borrowed / supplied on those
+raw totals. The rate we keep is the curve on that ratio. ``borrowYearlyRateBps``
+is a cross-check, and a gap of 2 bp or more refuses the sample.
 
 Testnet bytes may be decoded. They are synthetic, so they are not a
 calibration. Calibration requires a mainnet reading whose ``synthetic`` flag
@@ -71,8 +71,8 @@ def accept_sample(decoded: Optional[dict]) -> Optional[dict]:
     """The formula rate for a sample whose quote and utilization word agree.
 
     The utilization word must be the floor of borrowed/supplied. The rate
-    word must sit within the truncation tolerance of the curve on the raw
-    ratio. The rate returned is that curve, not the truncated quote.
+    word is a cross-check and must sit under 2 bp from the curve on the
+    raw ratio. The rate returned is that curve, not the integer quote.
     """
     if not isinstance(decoded, dict):
         return None

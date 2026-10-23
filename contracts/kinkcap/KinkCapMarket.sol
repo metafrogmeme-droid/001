@@ -12,17 +12,17 @@ pragma solidity 0.8.37;
 ///         primary series, ceiling 40% when the caller passes 0. Kind 2 is
 ///         a carry-flip digital: it pays D when the six-hour mean is above
 ///         the strike. The rate is 0.05 + 4.75 * max(0, u - 0.8), checked
-///         against borrowYearlyRateBps from precompile 0x812 (token 0, the
-///         eight uint64 words in L1Read.sol). A quote outside the truncation
-///         tolerance freezes the series. A gap of more than two hours
-///         freezes it. A base rate that is no longer 5% below the kink
-///         freezes it as a model change. The guardian may unfreeze after two
+///         on the raw 0x812 totals (1e8 units per USDC). borrowYearlyRateBps
+///         is a cross-check: a gap of 2 bp or more freezes the series. The
+///         precompile read is budgeted at about 20,720 gas. A gap of more
+///         than two hours freezes the series. A base rate that is no longer
+///         5% below the kink freezes it as a model change. The guardian may unfreeze after two
 ///         good hours, and only inside 24 hours. After that the series
 ///         settles at the last good hour.
 ///
 ///         The current hour may be read from 0x812 by anyone. A past hour
 ///         uses this market's own 2-of-3 feed. When both exist and they
-///         differ by more than the tolerance, the hour keeps the lower rate.
+///         differ by 2 bp or more, the hour keeps the lower rate.
 ///         When neither exists, that hour pays 0 and is not stored as a
 ///         measured 0% rate.
 interface IERC20 {
@@ -40,10 +40,16 @@ contract KinkCapMarket {
     uint256 public constant WAD = 1e18;
     uint256 public constant BASE = 0.05e18;
     uint256 public constant KINK = 0.8e18;
-    /// (4.75 + 1) / 10000, in wad. A few basis points: one floored basis
-    /// point of utilization, times the slope, plus one floored basis point
-    /// on the rate word.
-    uint256 public constant TOLERANCE = 575e12;
+    /// Exclusive cross-check bound, 2 bp in wad. The stored rate is the
+    /// formula on the raw totals. A gap of this size or larger is a mismatch.
+    uint256 public constant TOLERANCE = 2e14;
+    /// Measured cost of a 0x812 read. sample() forwards this much gas.
+    uint256 public constant PRECOMPILE_GAS = 20720;
+    /// Raw totals in the precompile are this many units per USDC.
+    uint256 public constant RAW_PER_TOKEN = 1e8;
+    /// Carry-flip default strike: the 11.6% funding baseline. A caller
+    /// who passes 0 gets this strike.
+    uint256 public constant FUNDING_BASELINE_BPS = 1160;
     uint256 public constant HOURS_PER_YEAR = 8760;
     uint256 public constant TRAILING = 6;
     uint256 public constant BPS = 10000;
@@ -221,6 +227,8 @@ contract KinkCapMarket {
         transfersEnabled = transfers;
         guardian = guardian_;
         feedSigners = signers;
+        // Authority slots stay CGC, RXB, T2C, HRC. Batch 3's build order
+        // is RXB, then HRC, then T2C, and the minimum does not use that order.
         sourceAuthority[SRC_CGC] = authorities[0];
         sourceAuthority[SRC_RXB] = authorities[1];
         sourceAuthority[SRC_T2C] = authorities[2];
@@ -243,11 +251,13 @@ contract KinkCapMarket {
         uint256 addressCap,
         uint32 digital
     ) external returns (uint256 id) {
-        (uint64 ceil, uint32 digitalOut) = _terms(kind, strikeBps, ceilBps, digital);
+        uint64 strike = strikeBps;
+        if (kind == KIND_DIGITAL && strike == 0) strike = uint64(FUNDING_BASELINE_BPS);
+        (uint64 ceil, uint32 digitalOut) = _terms(kind, strike, ceilBps, digital);
         require(endHour > startHour, "hours");
         require(maxNotional > 0, "max");
         require(addressCap > 0, "address cap");
-        id = _open(kind, strikeBps, ceil, startHour, endHour, maxNotional, addressCap, digitalOut);
+        id = _open(kind, strike, ceil, startHour, endHour, maxNotional, addressCap, digitalOut);
     }
 
     function _terms(uint8 kind, uint64 strikeBps, uint64 ceilBps, uint32 digital)
@@ -312,7 +322,8 @@ contract KinkCapMarket {
     }
 
     function effectiveCap(uint256 seriesId) public view returns (bool any, uint256 cap) {
-        bytes32[4] memory srcs = [SRC_CGC, SRC_RXB, SRC_T2C, SRC_HRC];
+        // Batch 3 build order is RXB, HRC, T2C. The minimum ignores order.
+        bytes32[4] memory srcs = [SRC_CGC, SRC_RXB, SRC_HRC, SRC_T2C];
         for (uint256 i = 0; i < 4; i++) {
             Proposal memory p = proposals[seriesId][srcs[i]];
             if (!p.exists) continue;
@@ -571,7 +582,7 @@ contract KinkCapMarket {
         if (sampleGood[hour]) {
             uint256 stored = samples[hour].rateBps;
             uint256 gapW = _gapWad(stored * WAD / BPS, uint256(rateBps) * WAD / BPS);
-            if (gapW <= TOLERANCE) {
+            if (gapW < TOLERANCE) {
                 if (fromPre && !sampleFromPrecompile[hour]) {
                     _write(hour, utilBps, rateBps, l1, l1Known, true);
                 }
@@ -708,7 +719,7 @@ contract KinkCapMarket {
         returns (uint64 utilBps, uint64 rateBps, bool fromPre)
     {
         uint256 gap = _gapWad(uint256(preRate) * WAD / BPS, uint256(feedRate) * WAD / BPS);
-        if (gap <= TOLERANCE || preRate <= feedRate) return (preUtil, preRate, true);
+        if (gap < TOLERANCE || preRate <= feedRate) return (preUtil, preRate, true);
         return (feedUtil, feedRate, false);
     }
 
@@ -717,7 +728,7 @@ contract KinkCapMarket {
     }
 
     function _precompile() internal view returns (bool decoded, uint64 utilBps, uint64 rateBps, uint8 fail) {
-        (bool success, bytes memory ret) = PRECOMPILE.staticcall(abi.encode(TOKEN_INDEX));
+        (bool success, bytes memory ret) = PRECOMPILE.staticcall{gas: PRECOMPILE_GAS}(abi.encode(TOKEN_INDEX));
         if (!success || ret.length != 256) return (false, 0, 0, 0);
         return _classify(ret);
     }
@@ -733,7 +744,7 @@ contract KinkCapMarket {
         if (quoted > BPS || borrowed * BPS / supplied != utilWord) return (true, 0, 0, FAIL_FORMULA);
         (bool ok, uint256 formula) = _formula(supplied, borrowed);
         if (!ok) return (true, 0, 0, FAIL_FORMULA);
-        if (_gapWad(formula, quoted * WAD / BPS) > TOLERANCE) {
+        if (_gapWad(formula, quoted * WAD / BPS) >= TOLERANCE) {
             return (true, 0, 0, utilWord <= KINK_BPS ? FAIL_MODEL : FAIL_FORMULA);
         }
         return (true, uint64(utilWord), uint64(formula * BPS / WAD), 0);
@@ -753,7 +764,7 @@ contract KinkCapMarket {
         uint256 utilWord = feed.borrowed * BPS / feed.supplied;
         (bool formulaOk, uint256 formula) = _formula(feed.supplied, feed.borrowed);
         if (!formulaOk) return (false, 0, 0);
-        if (_gapWad(formula, feed.rateBps * WAD / BPS) > TOLERANCE) return (false, 0, 0);
+        if (_gapWad(formula, feed.rateBps * WAD / BPS) >= TOLERANCE) return (false, 0, 0);
         bytes32 digest = feedDigest(hour, feed.supplied, feed.borrowed, feed.rateBps, feed.fundingWad);
         address a = _recover(digest, feed.v0, feed.r0, feed.s0);
         address b = _recover(digest, feed.v1, feed.r1, feed.s1);

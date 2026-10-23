@@ -25,9 +25,12 @@ from bot.hrc.model import (
     KIND_CAP,
     KIND_DIGITAL,
     KIND_SPREAD,
+    PER_USER_BORROW_CAP,
     TRAILING_HOURS,
     accrual_per_unit,
     borrow_apy,
+    default_carry_strike,
+    quoted_rate_matches,
     supply_to_hold,
     utilization_of,
 )
@@ -72,10 +75,11 @@ def _hour(stamp: str) -> Optional[datetime]:
 def load_hypebasis_usdc(path: Path) -> dict:
     """USDC rows from the HypeBasis CSV, one per capture.
 
-    The rate kept is the curve on supplied and borrowed, and only when the
-    published borrow rate sits inside the truncation tolerance. A row that
-    fails that check is an unreadable hour. Its rate is None. The dollar
-    columns in the file are not read.
+    The rate kept is the curve on supplied and borrowed. The published
+    borrow rate is a cross-check and must sit under 2 bp. A row that
+    fails that check is an unreadable hour. Its rate is None. These
+    amounts are human tokens; borrowed / supplied is the same ratio as
+    the raw 1e8 words. The dollar columns in the file are not read.
     """
     rows: list[dict] = []
     with path.open(encoding="utf-8", newline="") as handle:
@@ -92,7 +96,7 @@ def load_hypebasis_usdc(path: Path) -> dict:
                 continue
             util = borrowed / supplied
             rate = borrow_apy(util)
-            if rate is None or quoted is None or abs(rate - quoted) > Decimal("0.000575"):
+            if not quoted_rate_matches(util, quoted):
                 rows.append({
                     "ts": when, "rate": None, "utilization": util,
                     "supplied": supplied, "borrowed": borrowed, "reason": "formula",
@@ -228,7 +232,7 @@ def payout_table(samples: list[tuple[int, Optional[Decimal]]]) -> dict:
         spread[key] = summarize(replay(samples, kind=KIND_SPREAD, strike=strike, ceil=Decimal("0.40")))
         cap[key] = summarize(replay(samples, kind=KIND_CAP, strike=strike))
     digital = {}
-    for strike in (Decimal("0.04"), Decimal("0.05")):
+    for strike in (Decimal("0.04"), Decimal("0.05"), default_carry_strike()):
         digital[format(strike, "f")] = summarize(
             replay(samples, kind=KIND_DIGITAL, strike=strike, digital=Decimal("0.01"))
         )
@@ -242,8 +246,11 @@ def manipulation_curve(supplied: Decimal, borrowed: Decimal, oi_cap: Decimal = S
         held = supply_to_hold(supplied, borrowed, strike)
         withdrawal = held["withdrawal"]
         ratio = None
+        per_user = None
         if isinstance(withdrawal, Decimal) and oi_cap > 0:
             ratio = withdrawal / oi_cap
+        if isinstance(withdrawal, Decimal) and PER_USER_BORROW_CAP > 0:
+            per_user = withdrawal / PER_USER_BORROW_CAP
         rows.append({
             "strike": format(strike, "f"),
             "reachable": held["reachable"],
@@ -251,6 +258,8 @@ def manipulation_curve(supplied: Decimal, borrowed: Decimal, oi_cap: Decimal = S
             "withdrawal_tokens": _fmt(withdrawal),
             "oi_cap_tokens": format(oi_cap, "f"),
             "withdrawal_over_oi_cap": _fmt(ratio),
+            "per_user_borrow_cap_tokens": format(PER_USER_BORROW_CAP, "f"),
+            "withdrawal_over_per_user_cap": _fmt(per_user),
             "hours": 6,
         })
     return rows
@@ -305,10 +314,12 @@ def build_report(csv_path: Path, collector_fixture: dict) -> dict:
         "manipulation": {
             "definition": (
                 "Tokens of supply withdrawn so the borrow rate reaches the strike, "
-                "held for 6 hours, divided by a scenario open-interest cap of 1000000 tokens. "
+                "held for 6 hours, divided by a scenario open-interest cap of 1000000 tokens "
+                "and by the per-user borrow cap of 50000000 USDC tokens. "
                 "A withdrawal of 0 means utilization is already there. "
                 "An unreachable strike has no withdrawal, which is not zero."
             ),
+            "per_user_borrow_cap_tokens": format(PER_USER_BORROW_CAP, "f"),
             "as_of": last["ts"].strftime("%Y-%m-%dT%H:%M:%SZ") if last else None,
             "supplied_tokens": _fmt(last["supplied"]) if last else None,
             "borrowed_tokens": _fmt(last["borrowed"]) if last else None,

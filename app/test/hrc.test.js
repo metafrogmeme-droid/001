@@ -78,13 +78,13 @@ test('the curve matches the pinned checkpoints and derives the crossover', () =>
   assert.equal(M.fmt(M.borrowApy(M.parseDec('0.5'))), '0.05');
   assert.equal(M.fmt(M.borrowApy(M.parseDec('0'))), '0.05');
   assert.equal(M.borrowApy(null), null);
-  assert.equal(M.fmt(M.TOLERANCE), '0.000575');
-  const funding = M.parseDec('0.1095');
-  const got = M.crossoverUtilization(funding);
-  const naive = M.utilizationForBorrowApy(funding);
-  assert.equal(M.fmt(got), M.fmt(M.utilizationForBorrowApy(M.borrowApyMatchingFunding(funding))));
-  assert.notEqual(M.fmt(naive), M.fmt(got));
-  assert.equal(M.percentTenth(got), '81.4');
+  assert.equal(M.fmt(M.TOLERANCE), '0.0002');
+  assert.equal(M.fmt(M.FUNDING_BASELINE), '0.116');
+  assert.equal(src.includes('0.1095'), false);
+  assert.equal(src.includes('0.8139'), false);
+  const got = M.baselineCrossover();
+  assert.equal(M.fmt(got), M.fmt(M.utilizationForBorrowApy(M.FUNDING_BASELINE)));
+  assert.ok(M.fmt(got).startsWith('0.8138947368'));
 
   const supplied = 55236235337690993n;
   const borrowed = 42938185433855173n;
@@ -94,8 +94,9 @@ test('the curve matches the pinned checkpoints and derives the crossover', () =>
   assert.equal(M.quoteMatches(util, 500n), true);
   assert.equal(M.fmt(M.borrowApy(util)), '0.05');
   const above = M.utilizationOf(1000000n, 820099n);
-  assert.equal(M.quoteMatches(above, 1450n), true);
-  assert.equal(M.quoteMatches(above, 1448n), false);
+  assert.equal(M.quoteMatches(above, 1453n), true);
+  assert.equal(M.quoteMatches(above, 1452n), false);
+  assert.equal(M.quoteMatches(above, 1450n), false);
 
   const low = M.parseDec('0.05');
   const high = M.parseDec('0.525');

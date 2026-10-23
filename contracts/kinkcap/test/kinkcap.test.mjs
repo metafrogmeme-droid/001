@@ -199,7 +199,8 @@ function feedFrom(hour, supplied, borrowed, rateBps, fundingWad, wallets) {
 }
 
 const MAINNET = [500, 349, 12298058140850754n, 7773, 1, 0, 55236235337690993n, 42938185433855173n];
-const ABOVE = [1450, 0, 0, 8200, 1, 0, 1_000_000, 820099];
+// Formula on 820099/1000000 is 1454.7025 bp. 1453 is under 2 bp. 1450 is not.
+const ABOVE = [1453, 0, 0, 8200, 1, 0, 1_000_000, 820099];
 
 async function setWords(h, words) {
   const r = await h.call(alice, h.pre, preIface, 'set', [words]);
@@ -261,6 +262,10 @@ test('chain 999 and chain 1 are refused, and 998 deploys', async () => {
   assert.equal((await h.read(h.market, marketIface, 'CHAIN_ID', []))[0], 998n);
   assert.equal((await h.read(h.market, marketIface, 'PRECOMPILE', []))[0].toLowerCase(), PRECOMPILE);
   assert.equal((await h.read(h.market, marketIface, 'TOKEN_INDEX', []))[0], 0n);
+  assert.equal((await h.read(h.market, marketIface, 'PRECOMPILE_GAS', []))[0], 20720n);
+  assert.equal((await h.read(h.market, marketIface, 'RAW_PER_TOKEN', []))[0], 100000000n);
+  assert.equal((await h.read(h.market, marketIface, 'FUNDING_BASELINE_BPS', []))[0], 1160n);
+  assert.equal((await h.read(h.market, marketIface, 'TOLERANCE', []))[0], 2n * 10n ** 14n);
   assert.equal((await h.read(h.market, marketIface, 'transfersEnabled', []))[0], false);
   assert.equal((await h.read(h.market, marketIface, 'guardian', []))[0].toLowerCase(), carol);
   assert.equal((await h.read(h.market, marketIface, 'DEFAULT_CEIL_BPS', []))[0], 4000n);
@@ -405,6 +410,7 @@ test('each series keeps its own collateral, and a donation stays put', async () 
   const h = await setup();
   await setWords(h, FULL);
   const a = await create(h, 2, 0, 0, 7, 9, BIG, BIG, 100);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [a])).strikeBps, 1160n);
   const b = await create(h, 0, 5000, 0, 7, 9, BIG, BIG);
   await fund(h, BIG);
   await at(h, alice, 'mint', [a, 10000, bob], 1);
