@@ -17,6 +17,7 @@ const { getTickers } = require('./tickers');
 const { closeAt } = require('./candles');
 const { sealDuelPick, sealDuelRound, sealDuelSettle, newRoundNonce,
   sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips, sealDuelReview } = require('./callseal');
+const confidence = require('./duel_confidence');
 const duel = require('./duel');
 const chips = require('./duel_chips');
 const review = require('./duel_review');
@@ -446,6 +447,17 @@ async function placePick(userId, roundId, rawPick, now = new Date(), opts = {}) 
     threshold_pct: kind === 'range' ? Number(round.threshold_pct) : null,
     handle, pick, entry_price: entry, entry_price_b: entryB, resolves_at, picked_at,
   };
+  // The rating is sealed only while the flag is on, and only when it is one
+  // of the three words. Off, a client that sends one is ignored, so the
+  // receipt is the receipt it has always been. A word that is not one of the
+  // three is refused rather than stored as something else.
+  if (confidence.enabled() && opts && opts.confidence != null && opts.confidence !== '') {
+    const level = confidence.levelOf(opts.confidence);
+    if (!level) {
+      return { ok: false, status: 400, error: 'Choose low, medium or high. Your call was not recorded.' };
+    }
+    facts.confidence = level;
+  }
   // A call with chips is the v9 receipt (the chips and their odds sealed in
   // it); one without is the v4 receipt it always was.
   const receipt = put === null ? sealDuelPick(facts) : sealDuelPickChips({ ...facts, chips: put, odds: odds[pick] });
@@ -493,6 +505,7 @@ async function placePick(userId, roundId, rawPick, now = new Date(), opts = {}) 
     seal: receipt.seal,
   };
   if (put !== null) { out.chips = put; out.odds = odds[pick]; }
+  if (facts.confidence) out.confidence = facts.confidence;
   if (kind === 'mover') { out.symbol_b = round.symbol_b; out.entry_price_b = entryB; }
   if (kind === 'range') out.threshold_pct = Number(round.threshold_pct);
   if (kind === 'sports') {
@@ -543,6 +556,8 @@ async function cardFor(userId, now = new Date()) {
     if (chipsOn) view.odds = chips.oddsOf(r);
     if (pick) {
       view.my_call = duel.publicPick(pick, { now, round: r });
+      const rated = confidence.fromPayload(pick.seal_payload);
+      if (rated) view.my_call.confidence = rated;
       view.my_result = duel.verdictOf(r, pick);
       const c = chips.pickChips(pick, r, now);
       if (c) view.my_call.chips = c;
@@ -554,7 +569,7 @@ async function cardFor(userId, now = new Date()) {
     cards.push(view);
   }
 
-  return {
+  const out = {
     day,
     horizon_hours: duel.HORIZON_HOURS,
     rounds: cards,
@@ -567,6 +582,12 @@ async function cardFor(userId, now = new Date()) {
     chips: await chipsBlock(userId, picks, now),
     counts_only: true,
   };
+  // Off: the keys are absent, so a card is the card it was.
+  if (confidence.enabled()) {
+    out.confidence = true;
+    out.confidence_levels = confidence.LEVELS.slice();
+  }
+  return out;
 }
 
 /**
@@ -671,7 +692,8 @@ async function recordFor(userId, now = new Date()) {
     const c = chips.pickChips(pickOf.get(String(e.round_id)), roundOf.get(String(e.round_id)), now);
     if (c) e.chips = c;
   }
-  return {
+  const calibration = confidence.fromPicks(picks, entries);
+  const record = {
     chips: await chipsBlock(userId, picks, now),
     window_days: RECORD_WINDOW_DAYS,
     accuracy: duel.accuracy(entries),
@@ -680,6 +702,12 @@ async function recordFor(userId, now = new Date()) {
     quests: duel.weeklyDuelQuests(entries, now),
     entries,
   };
+  // Off, and no sealed rating in the window: the record is the record it was.
+  // A rating sealed while the flag was on is still counted after it is off.
+  if (confidence.enabled() || calibration.scored > 0 || calibration.unscored > 0) {
+    record.calibration = calibration;
+  }
+  return record;
 }
 
 module.exports = {

@@ -25,6 +25,7 @@ const { pool } = require('../db');
 const duel = require('../lib/duel');
 const squads = require('../lib/duel_squads');
 const chips = require('../lib/duel_chips');
+const confidence = require('../lib/duel_confidence');
 const { ROUND_COLS, PICK_COLS: OWN_PICK_COLS } = require('../lib/duel_service');
 
 const router = express.Router();
@@ -78,6 +79,14 @@ async function loadSeason(season) {
     const mine = byUser.get(String(m.id)) || [];
     const entries = duel.scoreEntries(inSeason, mine);
     const standing = squads.playerStanding(m.handle, entries);
+    // How often this player's high-confidence calls were right. Absent when
+    // they have none, so a board with no ratings is the board it was.
+    const cal = confidence.fromPicks(mine, entries);
+    if (cal.scored > 0 || cal.unscored > 0) {
+      standing.high_confidence = {
+        pct: cal.pct, correct: cal.correct, scored: cal.scored, unscored: cal.unscored,
+      };
+    }
     // A percent and a count, never chips: the public half of the stack. Shown
     // while the layer is on, or for a season that had chips in it.
     const stack = chips.stackOf(inSeason, mine, season);

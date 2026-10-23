@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "Ook dan is er nog een keten nodig, en alleen een wallet kan die stempelen."],
 ["It needs another chain, and only a wallet can stamp one.", "Er is nog een keten nodig, en alleen een wallet kan die stempelen."],
 ["Share this receipt", "Deel dit bewijs"],
-["Sealed before the result. Check it yourself:", "Verzegeld vóór de uitslag. Controleer het zelf:"]
+["Sealed before the result. Check it yourself:", "Verzegeld vóór de uitslag. Controleer het zelf:"],
+["How sure are you? This is your own rating.","Hoe zeker ben je? Dit is je eigen inschatting."],
+["Low","Laag"],
+["Medium","Gemiddeld"],
+["High","Hoog"],
+["Your rating","Jouw inschatting"],
+["No high-confidence call has settled yet","Nog geen call met hoge zekerheid is afgerond"],
+["No high-confidence call yet","Nog geen call met hoge zekerheid"],
+["of {n} high-confidence calls","van {n} calls met hoge zekerheid"],
+["How often your high-confidence calls were right","Hoe vaak je calls met hoge zekerheid klopten"],
+["High confidence","Hoge zekerheid"],
+["Choose low, medium or high. Your call was not recorded.","Kies laag, gemiddeld of hoog. Je call is niet vastgelegd."]
 ]

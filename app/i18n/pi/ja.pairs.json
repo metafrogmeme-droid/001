@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "それでも、もう一つのチェーンが必要で、そこに刻印できるのはウォレットだけです。"],
 ["It needs another chain, and only a wallet can stamp one.", "もう一つのチェーンが必要で、そこに刻印できるのはウォレットだけです。"],
 ["Share this receipt", "このレシートを共有"],
-["Sealed before the result. Check it yourself:", "結果が出る前に封印済み。自分で確かめてください："]
+["Sealed before the result. Check it yourself:", "結果が出る前に封印済み。自分で確かめてください："],
+["How sure are you? This is your own rating.","どのくらい確信がありますか？これはあなた自身の評価です。"],
+["Low","低"],
+["Medium","中"],
+["High","高"],
+["Your rating","あなたの評価"],
+["No high-confidence call has settled yet","確信度「高」のコールはまだ決済されていません"],
+["No high-confidence call yet","確信度「高」のコールはまだありません"],
+["of {n} high-confidence calls","確信度「高」のコール {n} 件中"],
+["How often your high-confidence calls were right","確信度「高」のコールがどれくらい当たったか"],
+["High confidence","高い確信"],
+["Choose low, medium or high. Your call was not recorded.","低・中・高のいずれかを選んでください。コールは記録されませんでした。"]
 ]
