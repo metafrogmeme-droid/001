@@ -22,6 +22,7 @@
  */
 
 const express = require('express');
+const { previewFlags, withBanner } = require('../lib/admin_preview');
 const piapp = require('./piapp');
 const PiI18n = require('../public/js/pi-i18n.js');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
@@ -91,11 +92,11 @@ function escAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function page(lang = 'en', offered = piapp._chunks()) {
+function page(lang = 'en', offered = piapp._chunks(), preview = false) {
   const code = lang === 'en' || Object.prototype.hasOwnProperty.call(offered, lang) ? lang : 'en';
   const list = scripts();
   if (code !== 'en') list.splice(1, 0, offered[code]);
-  return `<!doctype html>
+  const html = `<!doctype html>
 <html lang="${code}" dir="${PiI18n.dirOf(code)}"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -109,11 +110,18 @@ function page(lang = 'en', offered = piapp._chunks()) {
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${list.map((s) => `<script src="${s}" defer></script>`).join('\n')}
 </body></html>`;
+  return preview ? withBanner(html) : html;
 }
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   res.setHeader('Vary', 'Accept-Language');
-  res.type('html').send(page(piapp._pickLang(req)));
+  try {
+    const flags = await previewFlags(req);
+    if (flags.length) res.setHeader('Cache-Control', 'private, no-store');
+    res.type('html').send(page(piapp._pickLang(req), piapp._chunks(), flags.length > 0));
+  } catch (e) {
+    if (!res.headersSent) res.type('html').send(page(piapp._pickLang(req)));
+  }
 });
 
 module.exports = router;

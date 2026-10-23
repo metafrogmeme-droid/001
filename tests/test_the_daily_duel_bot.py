@@ -75,11 +75,15 @@ class FakeGate:
             body["confidence"] = True
         return body
 
-    def offer(self, now=None):
+    def offer(self, now=None, *, caller_is_admin=False):
         if self.fail == "offer":
             from bot.daily_duel_gate import GateDown
             raise GateDown("offer")
-        return dict(self.offer_body)
+        self.caller_is_admin = caller_is_admin
+        body = dict(self.offer_body)
+        if caller_is_admin:
+            body["confidence"] = True
+        return body
 
     def seal(self, facts):
         self.sealed.append(dict(facts))
@@ -110,7 +114,7 @@ class FakeGate:
         n = len(picked_at)
         return {"ok": True, "current": n, "best": n, "active_today": bool(n)}
 
-    def calibration(self, payloads, now=None):
+    def calibration(self, payloads, now=None, *, caller_is_admin=False):
         self.calibrated.append(list(payloads))
         if self.fail == "calibration":
             from bot.daily_duel_gate import GateDown
@@ -298,9 +302,9 @@ def test_build_app_registers_the_duel_and_the_digest_and_not_a_mini_app():
                 patterns.append(h.pattern.pattern)
     assert cmds == {
         "start", "help", "duel", "result", "streak", "leaderboard",
-        "watch", "digest", "stop",
+        "watch", "digest", "stop", "scam",
     }
-    assert patterns == [r"^dd:"]
+    assert patterns == [r"^dd:", r"^sos:"]
     assert "WebAppInfo" not in SRC
     assert "web_app" not in SRC
 

@@ -82,27 +82,41 @@ class DuelGate:
             raise GateDown("rules")
         return body
 
-    def offer(self, now: Optional[str] = None) -> dict:
-        body = self._call("offer", {"now": now} if now else {})
+    def offer(self, now: Optional[str] = None, *, caller_is_admin: bool = False) -> dict:
+        payload: dict[str, Any] = {}
+        if now:
+            payload["now"] = now
+        # Not an identity field. The gate uses it to admit one caller and
+        # does not copy it onto the receipt.
+        if caller_is_admin is True:
+            payload["caller_is_admin"] = True
+        body = self._call("offer", payload)
         if not body.get("ok"):
             raise GateDown(str(body.get("error") or "offer"))
         return body
 
     def seal(self, facts: Mapping[str, Any]) -> dict:
         clean = {k: facts[k] for k in _SEAL_KEYS if k in facts and facts[k] is not None}
+        if facts.get("caller_is_admin") is True:
+            clean["caller_is_admin"] = True
         return self._call("seal", clean)
 
-    def sos_offer(self, now: Optional[str] = None, player_key: Optional[str] = None) -> dict:
+    def sos_offer(self, now: Optional[str] = None, player_key: Optional[str] = None,
+                  *, caller_is_admin: bool = False) -> dict:
         payload: dict[str, Any] = {}
         if now:
             payload["now"] = now
         if player_key:
             payload["player_key"] = player_key
         clean = {k: payload[k] for k in _SOS_OFFER_KEYS if k in payload}
+        if caller_is_admin is True:
+            clean["caller_is_admin"] = True
         return self._call("sos-offer", clean)
 
     def sos_seal(self, facts: Mapping[str, Any]) -> dict:
         clean = {k: facts[k] for k in _SOS_SEAL_KEYS if k in facts and facts[k] is not None}
+        if facts.get("caller_is_admin") is True:
+            clean["caller_is_admin"] = True
         return self._call("sos-seal", clean)
 
     def streak(self, picked_at: list[str], now: Optional[str] = None) -> dict:
@@ -114,10 +128,13 @@ class DuelGate:
             raise GateDown(str(body.get("error") or "streak"))
         return body
 
-    def calibration(self, payloads: list[str], now: Optional[str] = None) -> dict:
+    def calibration(self, payloads: list[str], now: Optional[str] = None,
+                    *, caller_is_admin: bool = False) -> dict:
         payload: dict[str, Any] = {"payloads": list(payloads)}
         if now:
             payload["now"] = now
+        if caller_is_admin is True:
+            payload["caller_is_admin"] = True
         body = self._call("calibration", payload)
         if not body.get("ok"):
             raise GateDown(str(body.get("error") or "calibration"))
