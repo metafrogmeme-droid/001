@@ -147,6 +147,7 @@
     "crossasset": "contesto di correlazione cross-asset",
     "gates": "telemetria pass/fail per ogni gate",
     "flags": "flag opt-in per l'audit approfondito",
+    "rxb": "lettura della ricorsione per l'operatore, solo rapporti",
     "shadow": "libro ombra controfattuale",
     "audit": "report notturno di auto-audit",
     "parity": "parità live ↔ backtest",

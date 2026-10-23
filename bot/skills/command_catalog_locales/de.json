@@ -147,6 +147,7 @@
     "crossasset": "marktübergreifender Korrelationskontext",
     "gates": "Bestanden/Nicht-bestanden-Telemetrie pro Gate",
     "flags": "Opt-in-Flags für den Tiefen-Audit",
+    "rxb": "Rekursion-Durchsicht für den Betreiber, nur Verhältnisse",
     "shadow": "kontrafaktisches Schattenbuch",
     "audit": "nächtlicher Selbst-Audit-Bericht",
     "parity": "Parität Live ↔ Backtest",

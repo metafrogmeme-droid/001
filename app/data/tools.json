@@ -1,0 +1,11 @@
+[
+  {
+    "id": "recursion-breaker",
+    "name": "Recursion Breaker",
+    "description": "A look-through of collateral that is backed by itself.",
+    "chains": ["ethereum", "base"],
+    "route": "/rxb",
+    "status": "runtime",
+    "flag": "RXB_ENABLED"
+  }
+]

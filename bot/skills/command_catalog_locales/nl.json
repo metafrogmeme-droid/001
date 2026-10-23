@@ -147,6 +147,7 @@
     "crossasset": "correlatiecontext over activa heen",
     "gates": "geslaagd/gefaald-telemetrie per gate",
     "flags": "opt-in-flags voor diepe audit",
+    "rxb": "recursie-doorkijk voor de beheerder, alleen verhoudingen",
     "shadow": "contrafeitelijk schaduwboek",
     "audit": "nachtelijk zelfauditrapport",
     "parity": "pariteit live ↔ backtest",

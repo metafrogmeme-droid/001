@@ -513,6 +513,9 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
+// Recursion Breaker read API. 404 unless the caller is the operator.
+// The flag does not publish it. routes/rxb.js.
+app.use('/v1/node', require('./routes/rxb'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -595,6 +598,10 @@ app.get('/guard', (req, res) => {
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
+// /rxb is the admin look-through. It answers 404 for everyone else.
+app.get('/rxb', (req, res) => { require('./lib/rxb_page').sendRxb(req, res); });
+// /tools is the coming-soon list. The admin link is not on the public card.
+app.get('/tools', (req, res) => { require('./lib/tools_page').sendTools(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

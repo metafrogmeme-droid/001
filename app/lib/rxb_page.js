@@ -1,0 +1,100 @@
+'use strict';
+
+const { optionalAuth } = require('../auth');
+const operatorView = require('./operator_view');
+const { readPage } = require('./rxb_read');
+
+function esc(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function cell(value) {
+  if (value === null || value === undefined) return 'unreadable';
+  return String(value);
+}
+
+function render(model) {
+  const back = model && model.backtest ? model.backtest : {};
+  const nodes = model && Array.isArray(model.nodes) ? model.nodes : [];
+  const doc = model && model.onboarding && model.onboarding.readable === true
+    ? model.onboarding.text
+    : 'Onboarding document could not be read.';
+  const flag = model && (model.flag_on === true || model.flag_on === false)
+    ? (model.flag_on ? 'on' : 'off')
+    : 'unreadable';
+  const rows = nodes.map((row) => `<tr>
+    <td>${esc(cell(row.token))}</td>
+    <td>${esc(cell(row.cbf))}</td>
+    <td>${esc(cell(row.uf))}</td>
+    <td>${esc(cell(row.tripped))}</td>
+    <td>${esc(cell(row.reason))}</td>
+  </tr>`).join('\n');
+  const crossing = back.shows_crossing_before_2025_10_28 === false && back.all_clear === false
+    ? 'No crossing is shown before 2025-10-28. The earlier windows are not an all-clear.'
+    : (back.readable === false
+      ? 'The backtest could not be read.'
+      : 'See the onboarding note for how to read this result.');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUNECLAW — Recursion Breaker</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/rxb">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-family: var(--font-display); letter-spacing: .04em; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; }
+  pre { white-space: pre-wrap; font: inherit; color: var(--text-2); }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-family: var(--font-data); font-size: 14px; }
+  .muted { color: var(--text-2); }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>Recursion Breaker</h1>
+  <p class="muted">Admin view. Flag: ${esc(flag)}. Ratios only.</p>
+  <p>${esc(crossing)}</p>
+  <form method="get" action="/rxb">
+    <label for="token">Token</label>
+    <input id="token" name="token" maxlength="32" autocomplete="off">
+    <button type="submit">Read</button>
+  </form>
+  <div class="panel">
+    <table>
+      <thead><tr><th>Token</th><th>CBF</th><th>UF</th><th>Tripped</th><th>Note</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
+  <article class="panel"><pre>${esc(doc)}</pre></article>
+</main>
+</body>
+</html>`;
+}
+
+function sendRxb(req, res, deps) {
+  const auth = (deps && deps.optionalAuth) || optionalAuth;
+  const ask = (deps && deps.isOperator) || operatorView.isOperator;
+  const load = (deps && deps.readPage) || readPage;
+  auth(req, res, async () => {
+    let allowed = false;
+    try {
+      allowed = await ask(req) === true;
+    } catch (err) {
+      allowed = false;
+    }
+    if (!allowed) return res.status(404).type('text/plain').send('Not found');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.type('html').send(render(load()));
+  });
+}
+
+module.exports = { sendRxb, render };

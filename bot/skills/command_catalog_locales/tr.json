@@ -147,6 +147,7 @@
     "crossasset": "varlıklar arası korelasyon bağlamı",
     "gates": "kapı başına geçti/kaldı telemetrisi",
     "flags": "isteğe bağlı derin denetim bayrakları",
+    "rxb": "operatör için özyineleme okuması, yalnızca oranlar",
     "shadow": "karşı-olgusal gölge defter",
     "audit": "gecelik öz denetim raporu",
     "parity": "canlı ↔ geriye dönük test paritesi",
