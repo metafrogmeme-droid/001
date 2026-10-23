@@ -112,6 +112,20 @@ const ASSETS = [
     role: 'erc3643',
     note: 'ENEGRA (EGX). ERC-3643 / T-REX proxy, version 4.1.3. Factory tx 0x7c6e51916eab34afeca755264f669fed7bad661ce78fa19087b6e6795a4fda03.',
   },
+  {
+    file: 'bnb-tokenized-tbill.json',
+    chain: 'bnb',
+    asset: '0x5b4681F0d7A01B817675F25892D3Ad73572FD1D9',
+    role: 'tokenized',
+    note: 'OpenEden T-Bills (TBILL), a tokenized T-bill vault. The official T-REX factory 0x7F1fD450a5c4d91286f00F3297dCD5C12767f17f had no code on BNB Chain on 23 October 2026, and BNB Chain is not in the ERC-3643 association production list, so this is not an ERC-3643 reading. The vault does not name a feed through the getters this reader checks.',
+  },
+  {
+    file: 'zksync-tokenized-bcap.json',
+    chain: 'zksync',
+    asset: '0x57fd71a86522dc06d6255537521886057c1772a3',
+    role: 'tokenized',
+    note: 'Blockchain Capital Token (BCAP), a tokenized fund. The official T-REX factory 0x7F1fD450a5c4d91286f00F3297dCD5C12767f17f had no code on ZKsync Era on 23 October 2026, and ZKsync Era is not in the ERC-3643 association production list, so this is not an ERC-3643 reading. The bytecode is EraVM, so a selector that was not seen is not proof it is absent. The token does not name a feed through the getters this reader checks.',
+  },
 ];
 
 function recordingRpc(urls) {

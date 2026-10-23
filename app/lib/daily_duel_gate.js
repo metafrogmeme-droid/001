@@ -23,6 +23,7 @@
 const duel = require('./duel');
 const { sealDuelPick } = require('./callseal');
 const tickers = require('./tickers');
+const scam = require('./scam_or_safe');
 const confidence = require('./duel_confidence');
 
 const PICKS = Object.freeze({ up: 'long', down: 'short', long: 'long', short: 'short' });
@@ -240,6 +241,8 @@ async function main() {
   } else if (cmd === 'offer') out = await offer(input);
   else if (cmd === 'seal') out = await sealCall(input);
   else if (cmd === 'streak') out = streak(input);
+  else if (cmd === 'sos-offer') out = scam.offer(input);
+  else if (cmd === 'sos-seal') out = scam.sealPick(input);
   else if (cmd === 'calibration') out = await calibrationOf(input);
   else out = { ok: false, error: 'command' };
   process.stdout.write(JSON.stringify(out));
