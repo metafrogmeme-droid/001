@@ -21,9 +21,12 @@ from bot.approval_reader import ApprovalReader
 from bot.approval_watch_store import ApprovalWatchStore
 from bot.daily_duel_store import CallStore
 from bot.panic_button import (
+    CANNOT_RECOVER,
     COULD_READ,
     DEFAULT_PAGE,
+    HASH_CAP,
     NEVER_ASK,
+    NOT_ADVICE,
     NOT_AVAILABLE,
     SEED_WARNING,
     WHY_DELEGATION,
@@ -179,6 +182,17 @@ def test_the_reply_names_the_warning_the_gap_and_no_promise(monkeypatch):
     assert blob.startswith(SEED_WARNING)
     assert NEVER_ASK in blob
     assert COULD_READ in blob
+    assert f"We'll never DM you first. The only page is {DEFAULT_PAGE}" in blob
+    assert CANNOT_RECOVER in blob
+    assert NOT_ADVICE in blob
+    assert CANNOT_RECOVER == "We can't recover lost funds."
+    assert NOT_ADVICE == "Not financial advice."
+    assert WHY_DELEGATION == "active 7702 delegation to a contract we don't recognize"
+    assert WHY_KNOWN == "7702 delegation to a contract we recognize"
+    page = (ROOT / "app" / "public" / "panic.html").read_text(encoding="utf-8")
+    assert f"We'll never DM you first. The only page is {DEFAULT_PAGE}" in page
+    assert CANNOT_RECOVER in page
+    assert NOT_ADVICE in page
     assert "Could not read: Base." in blob
     assert "you're safe" not in blob.lower()
     assert "you are safe" not in blob.lower()
@@ -288,11 +302,20 @@ def test_help_names_panic_and_a_bad_address_is_the_digest_sentence(monkeypatch):
 
 
 def test_the_receipt_holds_hashes_and_a_time_only():
-    out = seal_receipt(["0x" + "ab" * 32, "0x" + "cd" * 32], now="2026-10-23T00:00:00.000Z")
+    assert HASH_CAP == 40
+    one = "0x" + "ab" * 32
+    out = seal_receipt([one, "0x" + "CD" * 32], now="2026-10-23T00:00:00.000Z")
     assert set(out) == {"cleaned_at", "hashes"}
     assert out["cleaned_at"] == "2026-10-23T00:00:00.000Z"
+    assert out["hashes"][1] == "0x" + "cd" * 32
     assert "telegram" not in out and "amount" not in out and "address" not in out
+    full = seal_receipt([one] * HASH_CAP, now="2026-10-23T00:00:00.000Z")
+    assert full["hashes"] == [one] * HASH_CAP
+    assert seal_receipt([one] * (HASH_CAP + 1)) == {"error": "bad hashes"}
     assert seal_receipt(["zz"]) == {"error": "bad hashes"}
+    assert seal_receipt(["0x" + "ab" * 31]) == {"error": "bad hashes"}
+    assert seal_receipt(["0x" + "gg" * 32]) == {"error": "bad hashes"}
+    assert seal_receipt(["ab" * 32]) == {"error": "bad hashes"}
     assert seal_receipt([]) == {"error": "bad hashes"}
 
 
@@ -334,6 +357,7 @@ def test_no_sign_or_broadcast_path_and_no_private_key_variable():
         ROOT / "app" / "lib" / "panic_tx.js",
         ROOT / "app" / "lib" / "panic_flag.js",
         ROOT / "app" / "routes" / "panic.js",
+        ROOT / "app" / "routes" / "panic_receipt.js",
         ROOT / "app" / "public" / "js" / "panic.js",
         ROOT / "app" / "public" / "panic.html",
     ]

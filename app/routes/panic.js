@@ -5,7 +5,9 @@
  * The address arrives in the POST body and leaves in the response the caller
  * is already looking at. It is not cached, not logged, and not written.
  * Revoke transactions are attached unsigned. This route does not sign them
- * and does not broadcast them.
+ * and does not broadcast them. The receipt is a different router
+ * (routes/panic_receipt.js): it is not this lookup and it is not exempt
+ * for this reason.
  */
 
 const express = require('express');
@@ -16,10 +18,9 @@ const { enabled, NOT_AVAILABLE } = require('../lib/panic_flag');
 const { attachRevokes } = require('../lib/panic_tx');
 
 const REPO = path.join(__dirname, '..', '..');
-// One address, or up to forty tx hashes. The app's 1mb parser would accept
-// the body first and leave a later limit unread, the same way the MCP cap
-// used to be a no-op, so this refuses on the header and also bounds a body
-// that arrives without one.
+// One address. The app's 1mb parser would accept the body first and leave a
+// later limit unread, the same way the MCP cap used to be a no-op, so this
+// refuses on the header and also bounds a body that arrives without one.
 const BODY_LIMIT_BYTES = 16 * 1024;
 
 function capBody(req, res, next) {
@@ -104,22 +105,6 @@ function off(res) {
   return res.type('text/plain').send(NOT_AVAILABLE);
 }
 
-router.post('/receipt', async (req, res) => {
-  if (!enabled()) return off(res);
-  try {
-    const hashes = req.body && req.body.hashes;
-    const result = await runner({ op: 'receipt', hashes: hashes });
-    if (!result || result.error || !result.cleaned_at || !Array.isArray(result.hashes)) {
-      return res.status(400).json({ message: 'bad hashes' });
-    }
-    res.set('Cache-Control', 'no-store');
-    res.json({ cleaned_at: result.cleaned_at, hashes: result.hashes });
-  } catch (e) {
-    console.error('Panic receipt error:', e && e.name ? e.name : 'Error');
-    res.status(500).json({ message: 'Panic read unavailable' });
-  }
-});
-
 router.post('/', async (req, res) => {
   if (!enabled()) return off(res);
   const address = req.body && typeof req.body.address === 'string' ? req.body.address : '';
@@ -143,3 +128,4 @@ module.exports = router;
 module.exports.setRunner = setRunner;
 module.exports.capBody = capBody;
 module.exports.bodyLimitBytes = BODY_LIMIT_BYTES;
+module.exports.run = defaultRunner;

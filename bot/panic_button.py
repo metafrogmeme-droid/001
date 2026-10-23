@@ -48,9 +48,12 @@ SEED_WARNING = (
     "Move your funds to a new wallet."
 )
 NEVER_ASK = "We never ask for your seed phrase or private key."
+CANNOT_RECOVER = "We can't recover lost funds."
+NOT_ADVICE = "Not financial advice."
 COULD_READ = "These are the approvals we could read."
 SECRET_REPLY = "Nothing was stored. " + NEVER_ASK
 DEFAULT_PAGE = "https://www.humanoid-traders.com/panic"
+HASH_CAP = 40
 _HASH = re.compile(r"^0x[0-9a-fA-F]{64}$")
 
 # No delegate has been reviewed as known-good. Every active 7702 delegation
@@ -59,8 +62,8 @@ _HASH = re.compile(r"^0x[0-9a-fA-F]{64}$")
 KNOWN_GOOD_DELEGATES: frozenset[str] = frozenset()
 
 WHY_EXPLOIT = "on the public exploit list"
-WHY_DELEGATION = "active 7702 delegation to a contract that is not on the known-good list"
-WHY_KNOWN = "7702 delegation to a contract on the known-good list"
+WHY_DELEGATION = "active 7702 delegation to a contract we don't recognize"
+WHY_KNOWN = "7702 delegation to a contract we recognize"
 WHY_RECENT_UNLIM = "unlimited allowance set in the last 7 days"
 WHY_RECENT_FORALL = "ApprovalForAll set in the last 7 days"
 WHY_UNLIM = "unlimited allowance"
@@ -256,8 +259,14 @@ def _line(n: int, item: Mapping[str, Any]) -> str:
     return f"{n}. {item['chain']} · {who}{extra} · {item['why']} · {when}"
 
 
+def never_dm(url: str) -> str:
+    return f"We'll never DM you first. The only page is {url}"
+
+
 def render_messages(result: Mapping[str, Any], url: str) -> list[str]:
-    header = "\n\n".join([SEED_WARNING, NEVER_ASK, COULD_READ])
+    header = "\n\n".join([
+        SEED_WARNING, NEVER_ASK, never_dm(url), CANNOT_RECOVER, NOT_ADVICE, COULD_READ,
+    ])
     lines: list[str] = []
     items = result.get("items") or []
     if not items:
@@ -317,11 +326,12 @@ def on_panic(
 
 
 def seal_receipt(hashes: Any, now: Optional[str] = None) -> dict[str, Any]:
-    """A cleaned-at note. Hashes only: no address, no chat id, no amounts.
+    """The time the caller reported these revoke hashes. Hashes only.
 
-    Returned to the caller. Not written anywhere.
+    Returned to the caller. Not written anywhere. No address, no chat id,
+    no amounts. At most HASH_CAP hashes, each 0x and 64 hex digits.
     """
-    if not isinstance(hashes, list) or not hashes or len(hashes) > 40:
+    if not isinstance(hashes, list) or not hashes or len(hashes) > HASH_CAP:
         return {"error": "bad hashes"}
     clean: list[str] = []
     for item in hashes:

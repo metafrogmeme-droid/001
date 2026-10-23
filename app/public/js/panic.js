@@ -132,7 +132,7 @@
           slot.textContent = 'The receipt was not sealed.';
           return;
         }
-        slot.textContent = 'Cleaned at ' + r.j.cleaned_at + '. Hashes recorded: ' + r.j.hashes.length + '.';
+        slot.textContent = 'Revokes you signed at ' + r.j.cleaned_at + '. Hashes recorded: ' + r.j.hashes.length + '.';
       })
       .catch(function () {
         document.getElementById('receipt').textContent = 'The receipt was not sealed.';

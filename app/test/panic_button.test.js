@@ -144,9 +144,6 @@ test('a flagged read returns the runner order with revokes and keeps no address'
   const seen = [];
   const route = require('../routes/panic');
   route.setRunner(async (body) => {
-    if (body.op === 'receipt') {
-      return { cleaned_at: '2026-10-23T00:00:00Z', hashes: body.hashes };
-    }
     seen.push(body.address);
     if (body.address !== WALLET) {
       return { available: true, items: [], unread_chains: ['Arbitrum'], exploit_list_read: true,
@@ -165,7 +162,7 @@ test('a flagged read returns the runner order with revokes and keeps no address'
         { rank: 1, chain_id: 1, chain: 'Ethereum', kind: 'erc20', token: TOKEN, spender: SPENDER,
           why: 'on the public exploit list', updated: '2026-10-01', permit2_expires: null, nft_id: null },
         { rank: 2, chain_id: 1, chain: 'Ethereum', kind: 'delegation_7702', token: '', spender: '0x' + 'd0'.repeat(20),
-          why: 'active 7702 delegation to a contract that is not on the known-good list', updated: null,
+          why: "active 7702 delegation to a contract we don't recognize", updated: null,
           permit2_expires: null, nft_id: null },
         { rank: 4, chain_id: 1, chain: 'Ethereum', kind: 'erc20', token: '0x' + 'bb'.repeat(20),
           spender: '0x' + 'c3'.repeat(20), why: 'unlimited allowance', updated: '2026-09-01',
@@ -188,6 +185,7 @@ test('a flagged read returns the runner order with revokes and keeps no address'
     assert.equal(body.items[0].tx.value, '0x0');
     assert.equal(tx.decodePrepared(body.items[0].tx).actions[0].params.amount, '0');
     assert.equal(tx.decodePrepared(body.items[1].tx).actions[0].tid, 'sgr.a_7702_clear');
+    assert.equal(body.items[1].why, "active 7702 delegation to a contract we don't recognize");
     assert.deepEqual(body.unread_chains, ['Base']);
     const blob = JSON.stringify(body);
     assert.ok(!blob.includes('nft_id'));
@@ -206,14 +204,6 @@ test('a flagged read returns the runner order with revokes and keeps no address'
     assert.equal(again.items.length, 0);
     assert.deepEqual(again.unread_chains, ['Arbitrum']);
     assert.deepEqual(seen, [WALLET, other]);
-    const receipt = await fetch(base + '/api/panic/receipt', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hashes: ['0x' + 'ab'.repeat(32)] }),
-    });
-    const sealed = await receipt.json();
-    assert.ok(sealed.cleaned_at);
-    assert.deepEqual(Object.keys(sealed).sort(), ['cleaned_at', 'hashes']);
-    assert.ok(!JSON.stringify(sealed).includes(WALLET));
   } finally {
     delete process.env.PANIC_BUTTON;
     route.setRunner(null);
@@ -300,6 +290,13 @@ test('the page copy leads with the seed warning and makes no safety promise', ()
   assert.ok(html.indexOf('If you entered your seed phrase anywhere') < html.indexOf('id="form"'));
   assert.ok(html.includes('We never ask for your seed phrase or private key.'));
   assert.ok(html.includes('These are the approvals we could read'));
+  const canon = (html.match(/<link rel="canonical" href="([^"]+)"/) || [])[1];
+  assert.equal(canon, 'https://www.humanoid-traders.com/panic');
+  assert.ok(html.includes(`We'll never DM you first. The only page is ${canon}`));
+  assert.ok(html.includes("We can't recover lost funds."));
+  assert.ok(html.includes('Not financial advice.'));
+  assert.ok(js.includes("Revokes you signed at ' + r.j.cleaned_at"));
+  assert.ok(!js.includes('Cleaned at'));
   assert.ok(!/you'?re safe/i.test(html + js));
   assert.ok(!html.includes('$RCLAW') && !js.includes('$RCLAW'));
   const server = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
@@ -307,6 +304,13 @@ test('the page copy leads with the seed warning and makes no safety promise', ()
   const flag = fs.readFileSync(path.join(APP, 'lib', 'panic_flag.js'), 'utf8');
   assert.ok(server.includes("app.use('/api/panic'"));
   assert.ok(server.includes("app.get('/panic'"));
+  const receiptAt = server.indexOf("app.use('/api/panic/receipt', panicReceipt);");
+  const lookupAt = server.indexOf("app.use('/api/panic', panicApi);");
+  assert.ok(receiptAt > 0 && lookupAt > receiptAt, 'the receipt router is mounted before the lookup');
+  assert.ok(!route.includes("'/receipt'") && !route.includes('"/receipt"'));
+  const receiptSrc = fs.readFileSync(path.join(APP, 'routes', 'panic_receipt.js'), 'utf8');
+  assert.ok(!receiptSrc.includes('CLAW_GUARD_V01'));
+  assert.ok(!receiptSrc.includes('authMiddleware'));
   // The existing Claw Guard comment in server.js stays. Panic must not turn
   // that flag on, and its own route and flag module must not name it.
   const mounts = server.split('\n').filter((line) => (
@@ -327,6 +331,7 @@ test('no sign or broadcast path and no private-key variable', () => {
   ];
   const files = [
     'lib/panic_tx.js', 'lib/panic_flag.js', 'lib/panic_read.js', 'routes/panic.js',
+    'routes/panic_receipt.js',
     'public/js/panic.js', 'public/panic.html', 'lib/allowances.js', 'server.js',
   ];
   for (const rel of files) {
@@ -337,4 +342,137 @@ test('no sign or broadcast path and no private-key variable', () => {
       assert.ok(!src.includes(word), `${rel} contains ${word}`);
     }
   }
+});
+
+function txHash(byte) {
+  return '0x' + byte.repeat(32);
+}
+
+function receiptServer() {
+  const receipt = require('../routes/panic_receipt');
+  const panic = require('../routes/panic');
+  const app = express();
+  app.set('trust proxy', true);
+  app.use('/api/panic', panic.capBody);
+  app.use(express.json({ limit: '1mb' }));
+  app.use('/api/panic/receipt', receipt);
+  return { receipt, app };
+}
+
+async function postReceipt(base, ip, body) {
+  const res = await fetch(base + '/api/panic/receipt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  return { status: res.status, text };
+}
+
+test('the receipt allows ten posts per IP and refuses the eleventh', async () => {
+  delete process.env.PANIC_BUTTON;
+  const { receipt, app } = receiptServer();
+  assert.equal(receipt.perMinute, 10);
+  const server = await listen(app);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const allowed = [];
+    for (let i = 0; i < 10; i++) allowed.push(await postReceipt(base, '198.51.100.70', { hashes: [txHash('ab')] }));
+    assert.deepEqual(allowed.map((r) => r.status), Array(10).fill(200));
+    assert.ok(allowed.every((r) => r.text === 'not available yet'));
+    const blocked = await postReceipt(base, '198.51.100.70', { hashes: [txHash('ab')] });
+    assert.equal(blocked.status, 429);
+    const other = await postReceipt(base, '198.51.100.71', { hashes: [txHash('ab')] });
+    assert.equal(other.status, 200);
+    assert.equal(other.text, 'not available yet');
+  } finally {
+    server.close();
+  }
+});
+
+test('the receipt accepts forty hashes and refuses forty-one', async () => {
+  process.env.PANIC_BUTTON = '1';
+  const { receipt, app } = receiptServer();
+  assert.equal(receipt.maxHashes, 40);
+  const calls = [];
+  receipt.setRunner(async (body) => {
+    calls.push(body.hashes);
+    return { cleaned_at: '2026-10-23T00:00:00.000Z', hashes: body.hashes };
+  });
+  const server = await listen(app);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const one = txHash('cd');
+  try {
+    const ok = await postReceipt(base, '198.51.100.80', { hashes: Array(40).fill(one) });
+    assert.equal(ok.status, 200);
+    const sealed = JSON.parse(ok.text);
+    assert.equal(sealed.hashes.length, 40);
+    assert.deepEqual(Object.keys(sealed).sort(), ['cleaned_at', 'hashes']);
+    assert.equal(calls.length, 1);
+    const over = await postReceipt(base, '198.51.100.80', { hashes: Array(41).fill(one) });
+    assert.equal(over.status, 400);
+    assert.equal(JSON.parse(over.text).message, 'bad hashes');
+    assert.equal(calls.length, 1);
+  } finally {
+    delete process.env.PANIC_BUTTON;
+    receipt.setRunner(null);
+    server.close();
+  }
+});
+
+test('the receipt accepts only a well-formed transaction hash', async () => {
+  process.env.PANIC_BUTTON = '1';
+  const { receipt, app } = receiptServer();
+  const calls = [];
+  receipt.setRunner(async (body) => {
+    calls.push(body.hashes);
+    return { cleaned_at: '2026-10-23T00:00:00.000Z', hashes: body.hashes };
+  });
+  const server = await listen(app);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const good = '0x' + 'AB'.repeat(32);
+  try {
+    const ok = await postReceipt(base, '198.51.100.90', { hashes: [good], address: WALLET });
+    assert.equal(ok.status, 200);
+    const sealed = JSON.parse(ok.text);
+    assert.deepEqual(sealed.hashes, [txHash('ab')]);
+    assert.deepEqual(Object.keys(sealed).sort(), ['cleaned_at', 'hashes']);
+    assert.ok(!ok.text.includes(WALLET));
+    assert.equal(calls.length, 1);
+    const rejected = [
+      { hashes: ['zz'] },
+      { hashes: ['0x' + 'ab'.repeat(31)] },
+      { hashes: ['0x' + 'gg'.repeat(32)] },
+      { hashes: ['ab'.repeat(32)] },
+      { hashes: [123] },
+      { hashes: [] },
+      { hashes: txHash('ab') },
+      {},
+      { hashes: [txHash('ab'), 'nope'] },
+    ];
+    for (const body of rejected) {
+      const res = await postReceipt(base, '198.51.100.90', body);
+      assert.equal(res.status, 400, JSON.stringify(body));
+      assert.equal(JSON.parse(res.text).message, 'bad hashes');
+    }
+    assert.equal(calls.length, 1);
+  } finally {
+    delete process.env.PANIC_BUTTON;
+    receipt.setRunner(null);
+    server.close();
+  }
+});
+
+test('the receipt exemption states its limits and the lookup stays read-only', () => {
+  const lint = fs.readFileSync(path.join(APP, '..', 'scripts', 'guard_lint.py'), 'utf8');
+  const lookupAt = lint.indexOf('"panic",');
+  const receiptAt = lint.indexOf('"panic_receipt"');
+  assert.ok(lookupAt > 0 && receiptAt > lookupAt);
+  const lookupReason = lint.slice(lookupAt, receiptAt);
+  const receiptReason = lint.slice(receiptAt, receiptAt + 900);
+  assert.match(lookupReason, /read-only/);
+  assert.match(receiptReason, /not the read-only lookup/);
+  assert.match(receiptReason, /10 requests a minute per IP/);
+  assert.match(receiptReason, /At most 40 hashes in one request/);
+  assert.match(receiptReason, /0x plus 64 hex digits/);
 });

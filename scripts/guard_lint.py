@@ -563,9 +563,24 @@ RULES: list[Rule] = [
                            # folder's own table. GET only.
             "spot", "market", "macro", "patterns", "signals", "insight",
             "today", "feed", "gas", "dapps", "allowances",
-            "panic",  # read-only public approvals list plus unsigned revokes, address not stored, no key, no signing
             # ^ market data and read-only chain lookups: no account is in scope,
             #   the inputs are a symbol or an address the caller already has.
+            "panic",
+                           # POST /api/panic — the read-only approval lookup.
+                           # The address arrives in the body and leaves in the
+                           # response the caller is already reading. Nothing is
+                           # cached or written, and the route does not sign.
+                           # The receipt is a different module.
+            "panic_receipt",
+                           # POST /api/panic/receipt seals the tx hashes the
+                           # caller reports. It is not the read-only lookup,
+                           # so it is not exempt for that reason. It stays
+                           # public with three limits, tested in
+                           # app/test/panic_button.test.js:
+                           # 10 requests a minute per IP.
+                           # At most 40 hashes in one request.
+                           # Each hash must be 0x plus 64 hex digits.
+                           # No address is stored.
         ],
         why=("An Express route module under /api/ that never applies authMiddleware. "
              "This is the SECOND HTTP surface in this repo — 228 routes, larger than "

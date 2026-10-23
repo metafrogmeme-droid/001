@@ -331,6 +331,7 @@ app.use('/api/chat', express.json({ limit: '7mb' }));
 // run before the 1mb parser, or that parser accepts the body and the cap
 // never sees it.
 const panicApi = require('./routes/panic');
+const panicReceipt = require('./routes/panic_receipt');
 app.use('/api/panic', panicApi.capBody);
 app.use(express.json({ limit: '1mb' })); // Cap payload size
 // Panic Button is off unless PANIC_BUTTON is 1 or true. The static file
@@ -502,6 +503,9 @@ app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
 // Panic Button: ranked approvals and unsigned revokes. Off unless PANIC_BUTTON
 // is 1 or true (routes/panic.js). Does not sign or broadcast.
+// The receipt is mounted first. It seals tx hashes and is not the lookup;
+// its limits live in routes/panic_receipt.js.
+app.use('/api/panic/receipt', panicReceipt);
 app.use('/api/panic', panicApi);
 // Claw Guard: a verdict on a transaction or a signature before signing it.
 // Public; a signed-in caller's verdict is sealed (routes/guard.js).
