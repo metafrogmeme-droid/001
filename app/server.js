@@ -342,9 +342,9 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
-// Sandwich restitution stays 404 for the public until SRB_ENABLED is set.
-// An operator still gets the page. Ahead of express.static so public/srb.html
-// is not a file a crawler can open while the flag is off.
+// Sandwich restitution is an operator preview. It stays 404 for everyone
+// else, flag on or off. Ahead of express.static so public/srb.html is not
+// a file a crawler can open.
 app.use(require('./lib/srb_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
@@ -483,8 +483,7 @@ app.use('/api/duel', require('./routes/duel'));
 // Scam or Safe? Daily. The page is a document; the call is the authed router.
 // Both answer 404 unless SCAM_OR_SAFE_V0 is on.
 app.use('/api/scam-or-safe', require('./routes/scam_or_safe'));
-// Shadow restitution. Public signals when SRB_ENABLED is on; 404 otherwise,
-// except the operator, who also receives the base-unit amounts.
+// Shadow restitution. Operator only. There is no public dashboard.
 app.use('/api/srb', require('./routes/srb'));
 app.use('/scam', require('./routes/scam_page'));
 app.use('/api/since', require('./routes/since'));
@@ -592,8 +591,8 @@ app.get('/guard', (req, res) => {
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
-// /srb — shadow restitution. 404 for the public until SRB_ENABLED. An
-// operator gets the page either way; the client paints the preview banner.
+// /srb — shadow restitution. 404 unless the caller is the operator. The
+// client paints the preview banner. The flag does not make this public.
 app.get('/srb', (req, res) => { require('./lib/srb_flag').sendPage(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });

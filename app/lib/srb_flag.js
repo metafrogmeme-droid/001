@@ -2,10 +2,10 @@
 /**
  * Sandwich restitution, behind SRB_ENABLED.
  *
- * Off unless the variable is "1" or "true". Read on each request. While it
- * is off, a caller who is not the operator gets the same 404 a missing path
- * gets. The operator still gets the page, and the client is told to show
- * "Admin preview. Not public."
+ * Off unless the variable is "1" or "true". The flag does not open a
+ * public page. A caller who is not the operator gets the same 404 a
+ * missing path gets, flag on or off. The operator gets the page, and the
+ * client is told to show "Admin preview. Not public."
  *
  * The page gate is mounted ahead of express.static. public/srb.html is on
  * disk so the page tests can read it; without this gate the file would be
@@ -41,20 +41,19 @@ function identify(req, res) {
 /**
  * Whether this caller may see the shadow page.
  *
- * The flag on: everyone. The flag off: the operator only, and the answer
- * is marked preview. A failed operator read is not an operator.
+ * The operator only. The flag does not admit anyone else: nothing here is
+ * public until the owner says so. A failed operator read is not an operator.
  */
 async function access(req, res) {
   await identify(req, res);
-  const on = flag_on();
   let admin = false;
   try {
     admin = await isOperator(req);
   } catch (err) {
     admin = false;
   }
-  if (!on && !admin) return { ok: false, preview: false, admin: false };
-  return { ok: true, preview: !on, admin: admin };
+  if (!admin) return { ok: false, preview: false, admin: false };
+  return { ok: true, preview: true, admin: true };
 }
 
 function sendPage(req, res) {

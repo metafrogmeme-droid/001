@@ -3,8 +3,9 @@
 Detect a same-pool front and back around a harmed swap, decide whether a
 bond would cover it, and record that decision. Nothing is transferred.
 
-Sources are a recorded fixture, or a devnet/testnet label read through an
-injected transport. A mainnet label is refused before any read.
+Sources are a recorded fixture, or a devnet, testnet, or mainnet label
+read through an injected transport. A mainnet read is observation only:
+no key, no signature, and no transfer.
 """
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ from typing import Any, Callable, Optional
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from bot.srb.flag import flag_on
 
 _WIDE_SLOTS = 3
 _BATCH_SECONDS = 30
@@ -69,8 +72,8 @@ def build_report(
 ) -> dict:
     """Run one recorded window. Returns a public view and an admin view.
 
-    ``transport`` is called only after the source has been classified as
-    devnet or testnet. A mainnet label raises and does not call it.
+    ``transport`` is called for a devnet, testnet, or mainnet source.
+    Mainnet is observation only and does not sign.
     """
     body = _load_body(fixture, transport)
     kind = _classify(str(body.get("cluster") if body.get("cluster") is not None else ""))
@@ -94,7 +97,7 @@ def build_report(
     _write_ledger(ledger_path, rows)
     return {
         "public": _public_view(kind, bond, outcomes),
-        "admin": _admin_view(bond, outcomes, rows, release["state"]),
+        "admin": _admin_view(kind, bond, outcomes, rows, release["state"]),
     }
 
 
@@ -116,7 +119,7 @@ def _load_body(fixture: dict, transport: Optional[Callable[[str], Any]]) -> dict
         raise FixtureUnreadable("cluster")
     kind = _classify(source)
     if fixture.get("fetch") is True:
-        if kind not in {"devnet", "testnet"}:
+        if kind not in {"devnet", "testnet", "mainnet"}:
             raise ClusterRefused("fetch")
         if transport is None:
             raise ClusterRefused("no transport")
@@ -126,7 +129,12 @@ def _load_body(fixture: dict, transport: Optional[Callable[[str], Any]]) -> dict
         inner = loaded.get("cluster")
         if not isinstance(inner, str):
             raise FixtureUnreadable("cluster")
-        _classify(inner)
+        inner_kind = _classify(inner)
+        # A mainnet label on either side stays observation. It must not
+        # fall through into the devnet signing path.
+        if kind == "mainnet" or inner_kind == "mainnet":
+            loaded = dict(loaded)
+            loaded["cluster"] = "mainnet"
         return loaded
     return fixture
 
@@ -136,7 +144,7 @@ def _classify(source: str) -> str:
     if not text:
         raise ClusterRefused("empty")
     if "mainnet" in text:
-        raise ClusterRefused("mainnet")
+        return "mainnet"
     if text in {"fixture", "recorded"} or text.startswith("fixture:"):
         return "fixture"
     if "devnet" in text:
@@ -387,9 +395,11 @@ def _maybe_release(bond: dict, requested: bool, now: int) -> dict:
 
 
 def _signer_seed(cluster_kind: str) -> bytes:
-    # Derived after classification. A mainnet label never reaches here.
-    _classify(cluster_kind)
-    return hashlib.sha256(f"srb-shadow-v0|{cluster_kind}".encode("utf-8")).digest()
+    # Derived after classification. Mainnet is refused before any key bytes.
+    kind = _classify(cluster_kind)
+    if kind == "mainnet":
+        raise ClusterRefused("sign")
+    return hashlib.sha256(f"srb-shadow-v0|{kind}".encode("utf-8")).digest()
 
 
 def _sign(cluster_kind: str, message: bytes) -> bytes:
@@ -435,10 +445,13 @@ def _evaluate(signal: dict, body: dict, swaps: list, linkage: dict, bond: dict,
     message = _receipt_message(
         kind, victim["sig"], recv_ts, bond["provider_id"], bond["policy_hash"], slippage,
     )
-    signature = _sign(kind, message)
-    if not _verify(kind, message, signature):
-        raise ShadowError("receipt")
-    digest = hashlib.sha256(message).hexdigest()
+    if kind == "mainnet":
+        digest = _observe_mainnet(message)
+    else:
+        signature = _sign(kind, message)
+        if not _verify(kind, message, signature):
+            raise ShadowError("receipt")
+        digest = hashlib.sha256(message).hexdigest()
     committed = _committed(digest, recv_ts, now, receipt.get("hold_back") is True)
     base = {
         "signal": signal,
@@ -671,6 +684,46 @@ def _write_ledger(path: Optional[str], rows: list) -> None:
     target.write_text(text, encoding="utf-8")
 
 
+_LAMPORTS_PER_SOL = 1_000_000_000
+
+
+def _observe_mainnet(message: bytes) -> str:
+    """Hash a mainnet receipt. No key, no signature, no transfer."""
+    return hashlib.sha256(message).hexdigest()
+
+
+def issue_claim_token(cluster: str, signal_id: str) -> dict:
+    """A subrogation claim token. Devnet and testnet only.
+
+    Mainnet is refused before a token id is built. The result is a shadow
+    record, not a mint and not a key.
+    """
+    kind = _classify(cluster)
+    if kind not in {"devnet", "testnet"}:
+        raise ClusterRefused("claim_token")
+    if not isinstance(signal_id, str) or not signal_id.strip():
+        raise FixtureUnreadable("signal_id")
+    token = hashlib.sha256(f"srb-claim-v0|{kind}|{signal_id}".encode("utf-8")).hexdigest()
+    return {"kind": "subrogation_claim", "cluster": kind, "signal_id": signal_id, "token": token}
+
+
+def _sol_text(lamports: int) -> str:
+    whole, frac = divmod(lamports, _LAMPORTS_PER_SOL)
+    if frac == 0:
+        return str(whole)
+    return f"{whole}.{frac:09d}".rstrip("0").rstrip(".")
+
+
+def _admin_label(bond: dict) -> str:
+    status = _provider_status(bond)
+    if status != "Bonded":
+        return status
+    amount = bond.get("amount_base_units")
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        return status
+    return f"Bonded ✓ {_sol_text(amount)} SOL"
+
+
 def _provider_status(bond: dict) -> str:
     if bond.get("released") is True or bond.get("bonded") is not True:
         if bond.get("unbond_requested_at") is not None and bond.get("released") is not True:
@@ -715,19 +768,24 @@ def _public_view(kind: str, bond: dict, outcomes: list) -> dict:
     }
 
 
-def _admin_view(bond: dict, outcomes: list, rows: list, release: str) -> dict:
+def _admin_view(kind: str, bond: dict, outcomes: list, rows: list, release: str) -> dict:
+    signals = []
+    for item in outcomes:
+        row = {
+            "signal_id": item["signal_id"],
+            "reason": item["reason"],
+            "loss_base_units": item["loss_base_units"],
+            "would_record_base_units": item["would_record_base_units"],
+        }
+        if item["decision"] == "would_record" and kind in {"devnet", "testnet"}:
+            row["claim_token"] = issue_claim_token(kind, item["signal_id"])
+        signals.append(row)
     return {
+        "label": _admin_label(bond),
+        "flag_on": flag_on(),
         "amounts": {
             "bond_base_units": bond["amount_base_units"],
-            "signals": [
-                {
-                    "signal_id": item["signal_id"],
-                    "reason": item["reason"],
-                    "loss_base_units": item["loss_base_units"],
-                    "would_record_base_units": item["would_record_base_units"],
-                }
-                for item in outcomes
-            ],
+            "signals": signals,
         },
         "ledger": rows,
         "release": release,

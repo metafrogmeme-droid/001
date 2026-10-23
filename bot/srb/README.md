@@ -6,13 +6,14 @@ that decision in shadow: it records the result and pays nothing.
 
 ## What v0 does
 
-- Reads a recorded fixture, or a devnet/testnet source through an injected
-  transport. A mainnet label is refused before any read. There is no live
-  mainnet shadow mode.
-- Signs a routing receipt (ed25519) over the transaction signature, receive
-  time, provider, policy hash and slippage cap. The signing key is derived
-  for that shadow cluster after the cluster check. No key is loaded from
-  disk and nothing is signed for mainnet.
+- Reads a recorded fixture, or a devnet, testnet, or mainnet source through
+  an injected transport. A mainnet read observes only. It holds no key, signs
+  nothing, and moves no funds.
+- Signs a routing receipt (ed25519) for a devnet, testnet, or fixture
+  cluster, over the transaction signature, receive time, provider, policy
+  hash and slippage cap. The signing key is derived for that shadow cluster
+  after the cluster check. No key is loaded from disk. Mainnet never reaches
+  that derivation.
 - Closes a receipt batch 30 seconds after receipt. A receipt that is not in
   the batch root cannot be claimed, signature or not.
 - Detects a same-pool front and back around a swap whose quoted output is
@@ -29,19 +30,24 @@ that decision in shadow: it records the result and pays nothing.
   than the claim window plus the dispute window. Releasing the bond does not
   transfer anything.
 
-The public record is a **public signal**: a slot window, an opaque pool
+The record a non-operator would have seen is a slot window, an opaque pool
 reference, basis points and the provider status `Bonded`, `Unbonding` or
-`Unbonded`. It does not name a wallet, and it does not carry an amount.
-Amounts are on the admin view only.
+`Unbonded`. It does not name a wallet and it does not carry an amount.
+There is no public dashboard. The operator's label for a bonded provider
+may read `Bonded ✓ X SOL`, with the bond counted in SOL from its lamports.
+That label is not on the public block.
 
-v0 does not mint a claim token, a subrogation claim, or any other token.
-No program is deployed. There is no deploy script and no program id.
+A subrogation claim token is a shadow record on devnet or testnet only.
+Asking for one on mainnet is refused before an id is built. It is not a
+mint. No program is deployed. There is no deploy script and no program id.
 
 ## Flag
 
-`SRB_ENABLED` is off unless it is `1` or `true`. While it is off the public
-site answers 404. An operator (the site's admin plan, or a Telegram admin)
-can still open it; the page says `Admin preview. Not public.`
+`SRB_ENABLED` is off unless it is `1` or `true`. The admin record is the
+one place that reads it, and says whether it is on. That reading does not
+open the page. A caller who is not the operator gets 404. An operator (the
+site's admin plan, or a Telegram admin) can open it; the page says
+`Admin preview. Not public.`
 
 ## Layout
 

@@ -32,9 +32,11 @@ function renderSrb(root, body) {
     banner.textContent = body.banner || PREVIEW;
   }
   var providers = body.public.providers || [];
+  var adminLabel = body.admin && typeof body.admin.label === 'string' ? body.admin.label : '';
   if (providers.length) {
     var row = providers[0];
-    provider.textContent = row.provider_id + ': ' + row.status;
+    var status = adminLabel ? adminLabel : row.status;
+    provider.textContent = row.provider_id + ': ' + status;
   } else {
     provider.textContent = 'No provider in this record.';
   }
@@ -73,6 +75,8 @@ function renderSrb(root, body) {
   var parts = [];
   if (typeof recorded === 'number') parts.push('Recorded base units: ' + String(recorded));
   if (typeof bond === 'number') parts.push('Bond base units: ' + String(bond));
+  if (body.admin && body.admin.flag_on === true) parts.push('SRB_ENABLED is on.');
+  else if (body.admin && body.admin.flag_on === false) parts.push('SRB_ENABLED is off.');
   if (parts.length) {
     amounts.hidden = false;
     amounts.textContent = parts.join(' · ');

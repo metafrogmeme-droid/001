@@ -1,9 +1,7 @@
 """Shadow restitution, for the operator.
 
-The public door is the website. This command stays operator-only even when
-SRB_ENABLED is on, so turning the flag on does not add a public slash
-command. Amounts are base units on this admin view. The status word is
-Bonded, Unbonding, or Unbonded, with no amount beside it.
+There is no public dashboard. This command stays operator-only whether or
+not SRB_ENABLED is set. The admin status line may name the bond.
 """
 from __future__ import annotations
 
@@ -12,7 +10,6 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.srb.flag import flag_on
 from bot.srb.shadow import demo_report
 from bot.utils.i18n import t
 
@@ -33,9 +30,7 @@ class SrbCommands:
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
-        lines: list[str] = []
-        if not flag_on():
-            lines.append("Admin preview. Not public.")
+        lines: list[str] = ["Admin preview. Not public."]
         try:
             report = demo_report()
         except Exception as exc:  # noqa: BLE001 — the chat is told the class only
@@ -46,9 +41,17 @@ class SrbCommands:
             await self._send(update, "SrbUnreadable")
             return
         providers = public.get("providers")
+        admin = report.get("admin")
+        flag_state = admin.get("flag_on") if isinstance(admin, dict) else None
+        if flag_state is True:
+            lines.append("SRB_ENABLED is on.")
+        elif flag_state is False:
+            lines.append("SRB_ENABLED is off.")
+        label = admin.get("label") if isinstance(admin, dict) else None
         if isinstance(providers, list) and providers and isinstance(providers[0], dict):
             row = providers[0]
-            lines.append(f"{row.get('provider_id')}: {row.get('status')}")
+            shown = label if isinstance(label, str) and label else row.get("status")
+            lines.append(f"{row.get('provider_id')}: {shown}")
         else:
             lines.append("No provider in this record.")
         signals = public.get("signals")
@@ -62,7 +65,6 @@ class SrbCommands:
                 bps = signal.get("restitution_bps")
                 if isinstance(bps, int):
                     lines.append(f"restitution {bps} bps")
-        admin = report.get("admin")
         amounts = admin.get("amounts") if isinstance(admin, dict) else None
         if isinstance(amounts, dict):
             bond = amounts.get("bond_base_units")

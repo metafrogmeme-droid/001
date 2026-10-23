@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from bot.srb.flag import flag_on
-from bot.srb.shadow import ClusterRefused, build_report, demo_report
+from bot.srb.shadow import ClusterRefused, build_report, demo_report, issue_claim_token
 
 ROOT = Path(__file__).resolve().parent.parent
 CASES = json.loads((ROOT / "tests" / "fixtures" / "srb_cases.json").read_text(encoding="utf-8"))
@@ -53,13 +53,22 @@ def _assert_public_signal(report: dict) -> None:
         assert "Nothing is paid." in signal["sentence"]
 
 
-def test_flag_on_is_off_unless_set():
+def test_flag_on_is_off_unless_set(monkeypatch):
     assert flag_on({}) is False
     assert flag_on({"SRB_ENABLED": ""}) is False
     assert flag_on({"SRB_ENABLED": "0"}) is False
     assert flag_on({"SRB_ENABLED": "false"}) is False
     assert flag_on({"SRB_ENABLED": "true"}) is True
     assert flag_on({"SRB_ENABLED": "1"}) is True
+    monkeypatch.delenv("SRB_ENABLED", raising=False)
+    off = _run("classic")
+    assert off["admin"]["flag_on"] is False
+    assert "flag_on" not in _public_blob(off)
+    monkeypatch.setenv("SRB_ENABLED", "1")
+    on = _run("classic")
+    assert on["admin"]["flag_on"] is True
+    assert "flag_on" not in _public_blob(on)
+    assert on["public"]["providers"][0]["status"] == "Bonded"
 
 
 def test_classic_records_a_public_signal_and_pays_nothing():
@@ -145,6 +154,7 @@ def test_provider_cannot_leave_before_the_delay():
     report = _run("exit_early")
     assert report["admin"]["release"] == "held"
     assert report["public"]["providers"][0]["status"] == "Unbonding"
+    assert report["admin"]["label"] == "Unbonding"
     assert str(BOND_UNITS) not in _public_blob(report)
     assert report["admin"]["amounts"]["bond_base_units"] == BOND_UNITS
     assert report["admin"]["ledger"][0]["paid"] is False
@@ -154,6 +164,7 @@ def test_provider_can_release_after_the_delay_without_a_payment():
     report = _run("exit_after_delay")
     assert report["admin"]["release"] == "released"
     assert report["public"]["providers"][0]["status"] == "Unbonded"
+    assert report["admin"]["label"] == "Unbonded"
     assert report["admin"]["ledger"][0]["paid"] is False
     assert "transfer" not in _public_blob(report)
 
@@ -189,10 +200,14 @@ def test_the_per_swap_cap_limits_the_recorded_figure():
     assert report["public"]["signals"][0]["restitution_bps"] == 1000
 
 
-def test_devnet_recorded_window_runs_and_mainnet_does_not(tmp_path):
+def test_devnet_recorded_window_runs_and_mainnet_observe_does_not_fetch(tmp_path):
     report = _run("devnet_recorded")
     assert report["public"]["cluster"] == "devnet"
     assert report["public"]["signals"][0]["restitution"] == "recorded"
+    assert "claim_token" not in _public_blob(report)
+    token = report["admin"]["amounts"]["signals"][0]["claim_token"]
+    assert token["kind"] == "subrogation_claim"
+    assert token["cluster"] == "devnet"
     ledger = tmp_path / "shadow.jsonl"
     calls = []
 
@@ -200,13 +215,18 @@ def test_devnet_recorded_window_runs_and_mainnet_does_not(tmp_path):
         calls.append(url)
         raise AssertionError("transport was called")
 
-    with pytest.raises(ClusterRefused):
-        build_report(CASES["mainnet_label"], transport=transport, ledger_path=str(ledger))
+    observed = build_report(
+        CASES["mainnet_label"], transport=transport, ledger_path=str(ledger),
+    )
     assert calls == []
-    assert not ledger.exists()
+    assert observed["public"]["cluster"] == "mainnet"
+    assert observed["public"]["pays"] is False
+    line = json.loads(ledger.read_text(encoding="utf-8"))
+    assert line["paid"] is False
+    assert "claim_token" not in json.dumps(observed)
 
 
-def test_a_live_devnet_read_uses_the_transport_and_mainnet_never_does():
+def test_a_live_devnet_read_signs_and_a_live_mainnet_read_does_not(monkeypatch):
     seen = []
 
     def transport(url):
@@ -222,15 +242,36 @@ def test_a_live_devnet_read_uses_the_transport_and_mainnet_never_does():
     assert seen == ["https://api.devnet.solana.com"]
     assert report["public"]["cluster"] == "devnet"
     assert report["public"]["signals"][0]["restitution"] == "recorded"
+    assert report["admin"]["amounts"]["signals"][0]["claim_token"]["cluster"] == "devnet"
 
-    def boom(url):
-        raise AssertionError(url)
+    def explode(*_args, **_kwargs):
+        raise AssertionError("signer")
 
-    with pytest.raises(ClusterRefused):
-        build_report(
-            {"cluster": "https://api.mainnet-beta.solana.com", "fetch": True},
-            transport=boom,
-        )
+    monkeypatch.setattr("bot.srb.shadow._sign", explode)
+    monkeypatch.setattr("bot.srb.shadow._signer_seed", explode)
+    monkeypatch.setattr(
+        "bot.srb.shadow.Ed25519PrivateKey.from_private_bytes", explode,
+    )
+    main_seen = []
+
+    def main_transport(url):
+        main_seen.append(url)
+        body = dict(CASES["mainnet_label"])
+        body["cluster"] = "mainnet-beta"
+        return body
+
+    observed = build_report(
+        {"cluster": "https://api.mainnet-beta.solana.com", "fetch": True},
+        transport=main_transport,
+    )
+    assert main_seen == ["https://api.mainnet-beta.solana.com"]
+    assert observed["public"]["cluster"] == "mainnet"
+    assert observed["public"]["pays"] is False
+    assert observed["admin"]["ledger"][0]["paid"] is False
+    blob = json.dumps(observed)
+    assert "signature" not in blob
+    assert "claim_token" not in blob
+    assert "keypair" not in blob.lower()
 
 
 def test_the_ledger_file_records_the_shadow_row_and_refuses_a_payment(tmp_path):
@@ -251,38 +292,58 @@ def test_the_demo_window_matches_the_classic_record():
     assert demo["admin"]["amounts"]["bond_base_units"] == BOND_UNITS
 
 
-def test_v0_has_no_claim_token_and_no_mainnet_signing_path():
-    src = "\n".join(
+def test_claim_token_runs_on_devnet_and_refuses_mainnet():
+    issued = issue_claim_token("devnet", "sig-v")
+    assert issued["kind"] == "subrogation_claim"
+    assert issued["cluster"] == "devnet"
+    assert issued["token"]
+    assert issue_claim_token("testnet", "sig-v")["cluster"] == "testnet"
+    for source in ("mainnet", "mainnet-beta", "https://api.mainnet-beta.solana.com"):
+        with pytest.raises(ClusterRefused):
+            issue_claim_token(source, "sig-v")
+    fixture = _run("classic")
+    assert "claim_token" not in json.dumps(fixture)
+
+
+def test_the_mainnet_path_has_no_signer_or_keypair():
+    import ast
+    import inspect
+
+    from bot.srb import shadow
+
+    src = inspect.getsource(shadow._observe_mainnet)
+    tree = ast.parse(src)
+    names = [node.id for node in ast.walk(tree) if isinstance(node, ast.Name)]
+    attrs = [node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)]
+    banned = {"_sign", "_signer_seed", "Keypair", "Ed25519PrivateKey", "from_private_bytes"}
+    assert banned.isdisjoint(set(names) | set(attrs))
+    tree_src = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (ROOT / "bot" / "srb").rglob("*.py")
     )
-    lowered = src.lower()
-    assert "subrogat" not in lowered
-    assert "claim_token" not in lowered
-    assert "bonded ✓" not in lowered
-    assert "mainnet-beta" not in src
-    assert "id.json" not in src
-    assert "Keypair" not in src
+    assert "Keypair" not in tree_src
+    assert "id.json" not in tree_src
 
 
-def test_product_copy_says_bonded_and_keeps_the_amount_off_the_page():
-    """The status is the word Bonded. The bond figure is not product copy."""
-    pages = [
-        ROOT / "app" / "public" / "srb.html",
-        ROOT / "app" / "public" / "js" / "srb.js",
-        ROOT / "bot" / "skills" / "srb_commands.py",
-        ROOT / "bot" / "srb" / "README.md",
-    ]
-    blob = "\n".join(path.read_text(encoding="utf-8") for path in pages)
-    assert "Bonded ✓" not in blob
-    assert "✓" not in blob
-    assert str(BOND_UNITS) not in blob
-    assert re.search(r"\bSOL\b", blob) is None
-    assert "$" not in blob
+def test_admin_label_names_the_bond_in_sol_and_the_public_status_does_not():
+    report = _run("classic")
+    assert report["admin"]["label"] == "Bonded ✓ 4.242424242 SOL"
+    assert report["public"]["providers"][0]["status"] == "Bonded"
+    assert "✓" not in _public_blob(report)
+    assert "SOL" not in _public_blob(report)
+    assert str(BOND_UNITS) not in _public_blob(report)
+
+
+def test_the_static_page_does_not_bake_in_the_bond():
+    html = (ROOT / "app" / "public" / "srb.html").read_text(encoding="utf-8")
+    assert "Bonded ✓" not in html
+    assert str(BOND_UNITS) not in html
+    assert re.search(r"\bSOL\b", html) is None
+    assert "$" not in html
     page = (ROOT / "app" / "public" / "js" / "srb.js").read_text(encoding="utf-8")
-    assert "Recorded base units:" in page
-    assert "Bond base units:" in page
+    assert str(BOND_UNITS) not in page
     assert "body.admin" in page
+    assert "admin.label" in page
 
 
 class _SrbHost:
@@ -321,6 +382,8 @@ def test_srb_command_refuses_a_non_admin_before_any_amount(monkeypatch):
     assert len(host.sent) == 1
     assert "operator command" in host.sent[0]
     assert "Bonded" not in host.sent[0]
+    assert "✓" not in host.sent[0]
+    assert re.search(r"\bSOL\b", host.sent[0]) is None
     assert str(BOND_UNITS) not in host.sent[0]
     assert "RuntimeError" not in host.sent[0]
     assert "secret" not in host.sent[0]
@@ -332,25 +395,23 @@ def test_srb_command_admin_preview_is_bonded_and_the_units_stay_here(monkeypatch
     asyncio.run(host._cmd_srb(None, None))
     text = host.sent[0]
     assert text.startswith("Admin preview. Not public.")
-    assert "provider-a: Bonded" in text
-    assert "Bonded ✓" not in text
-    assert "✓" not in text
-    assert re.search(r"\bSOL\b", text) is None
+    assert "SRB_ENABLED is off." in text
+    assert "provider-a: Bonded ✓ 4.242424242 SOL" in text
     assert "$" not in text
     assert f"Bond base units: {BOND_UNITS}" in text
     assert "Recorded base units: 2" in text
     assert "Nothing is paid." in text
 
 
-def test_srb_command_with_the_flag_on_drops_the_preview_banner(monkeypatch):
+def test_srb_command_stays_admin_when_the_flag_is_on(monkeypatch):
     monkeypatch.setenv("SRB_ENABLED", "1")
     host = _srb_host(True)
     asyncio.run(host._cmd_srb(None, None))
     text = host.sent[0]
-    assert "Admin preview. Not public." not in text
-    assert "provider-a: Bonded" in text
-    assert f"Bond base units: {BOND_UNITS}" in text
-    assert "Bonded ✓" not in text
+    assert text.startswith("Admin preview. Not public.")
+    assert "SRB_ENABLED is on." in text
+    assert "SRB_ENABLED is off." not in text
+    assert "provider-a: Bonded ✓ 4.242424242 SOL" in text
 
 
 def test_srb_command_names_the_exception_class_only(monkeypatch):

@@ -19,6 +19,6 @@
     "/admin": "The operator's settings page. It is linked from the dashboard for the operator only; every other account would land on a refusal, so the public landing page does not advertise it.",
     "/study": "The address people guess for the Study Room, whose door is labelled that; it answers a navigation page to /learn and is not a page of its own, so the landing page links /learn.",
     "/rwa": "behind the RWA flag, off. It answers 404.",
-    "/srb": "Behind SRB_ENABLED, off by default. It answers 404 until the flag is on, and until then only an operator sees an admin preview, so the landing page does not advertise it."
+    "/srb": "Operator preview only. SRB_ENABLED does not make it public, and there is no public dashboard, so the landing page does not advertise it."
   }
 }
