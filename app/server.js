@@ -327,6 +327,11 @@ app.use(require('./lib/api_cors').cors());
 // /api/chat a larger parser — it runs first for that path, so the global 1mb
 // parser below skips the already-parsed body; every other route stays at 1mb.
 app.use('/api/chat', express.json({ limit: '7mb' }));
+// The review-queue write is a name and a short note. This parser runs first
+// for /api/botcheck/submit, so the global parser below skips a body it
+// already parsed, and a payload over 1kb never reaches the handler.
+app.use('/api/botcheck/submit', express.json({ limit: '1kb' }));
+app.use('/api/botcheck/submit', require('./routes/botcheck_submit').rejectOversized);
 app.use(express.json({ limit: '1mb' })); // Cap payload size
 // Embeddable surfaces — mounted AHEAD of express.static because they serve
 // their own HTML and, uniquely in this app, their own frame policy. The global
@@ -480,6 +485,11 @@ app.use('/doge', require('./routes/dogeapp'));
 // (docs/memeclaw/MEMECLAW_PLAN.md).
 app.use('/memeclaw', require('./routes/memeclaw_page'));
 app.use('/api/duel', require('./routes/duel'));
+// Custodial-bot check. 404 unless BOTCHECK_ENABLED is 1, true, yes, or on.
+// The review-queue write is its own router (per-IP limit, the 1kb parser
+// above, numeric ids refused). The lookup router is the read.
+app.use('/api/botcheck/submit', require('./routes/botcheck_submit'));
+app.use('/api/botcheck', require('./routes/botcheck'));
 // Scam or Safe? Daily. The page is a document; the call is the authed router.
 // Both answer 404 unless SCAM_OR_SAFE_V0 is on.
 app.use('/api/scam-or-safe', require('./routes/scam_or_safe'));
@@ -609,6 +619,8 @@ app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache')
 app.get('/scanner', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'scanner.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
+// Public signals for one bot name. 404 unless BOTCHECK_ENABLED is 1, true, yes, or on.
+app.get('/botcheck', require('./routes/botcheck').page);
 // /token — the $RCLAW mint, its fixed-supply facts and the presale status.
 app.get('/token', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'token.html')); });
 // /docs and /docs/<page> — one shell; docs-page.js reads the page from the path,
