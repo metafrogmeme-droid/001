@@ -31,6 +31,9 @@ What this process does not do yet, and says so: score a call, rank Arena
 Season 1, accept an Arena handle code, or fold the receipt into the day's
 public root. Anchoring stays at humanoid-traders.com/doge, from the player's
 own wallet.
+
+/botcheck is registered only when BOTCHECK_ENABLED is 1, true, yes, or on.
+It reads a public catalog and can append a review line. It stores no Telegram id.
 """
 
 from __future__ import annotations
@@ -52,6 +55,8 @@ from bot.approval_digest import ApprovalDigest
 from bot.approval_hygiene import DIGEST_HELP, command_argument
 from bot.approval_reader import ApprovalReader, ExploitDirectory
 from bot.approval_watch_store import ApprovalWatchStore
+from bot.botcheck import flag_on
+from bot.botcheck import reply_for as botcheck_reply
 from bot.daily_duel_gate import DuelGate, GateDown
 from bot.daily_duel_store import CallStore, PayloadRefused, payload_carries_id, player_key
 from bot.duel_bot import EXIT_NOT_CONFIGURED, RateLimit, _clean_secret
@@ -149,9 +154,11 @@ def load_env() -> None:
     load_dotenv(dotenv_path=REPO_ROOT / ".env", override=False)
 
 
-def help_text(rules: Optional[Mapping[str, Any]]) -> str:
+def help_text(rules: Optional[Mapping[str, Any]], env: Optional[Mapping[str, str]] = None) -> str:
     """How the duel works. The cutoff and the horizon are the gate's, or the
-    sentence says they could not be read. The privacy line is always this one."""
+    sentence says they could not be read. The privacy line is always this one.
+    The /botcheck paragraph is included only when BOTCHECK_ENABLED is on.
+    The Scam or Safe paragraph is included only when SCAM_OR_SAFE_V0 is on."""
     if rules and rules.get("cutoff_at") and "horizon_hours" in rules:
         when = (
             f"Calls for a duel day close at {rules['cutoff_at']} — the moment the "
@@ -181,8 +188,16 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         "/digest — that digest now\n"
         "/stop — delete every watched address and the digest schedule",
         DIGEST_HELP,
-        "Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.",
-    ] + ([scam.SCAM_HELP] if scam.flag_on() else []))
+    ])
+    if flag_on(env):
+        parts.append(
+            "/botcheck <name> — public signals for one bot name. "
+            "Unknown stays unknown. "
+            "/botcheck submit <name> queues a name and does not publish it."
+        )
+    parts.append("Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.")
+    if scam.flag_on():
+        parts.append(scam.SCAM_HELP)
     return "\n\n".join(parts)
 
 
@@ -870,6 +885,18 @@ class DailyDuelBot:
         except Exception as exc:
             log.warning("approval digest catch-up failed: %s", type(exc).__name__)
 
+    async def cmd_botcheck(self, update, context) -> None:
+        """Public signals for one name. Registered only when the flag is on."""
+        if not flag_on():
+            return
+        who = self._key(update) or "anon"
+        if not self.commands.admit("bc:" + who):
+            await self._reply(update, "Slow down a little — try again in a minute.")
+            return
+        msg = getattr(update, "effective_message", None) or getattr(update, "message", None)
+        raw = getattr(msg, "text", "") if msg is not None else ""
+        await self._reply(update, botcheck_reply(command_argument(raw or "")))
+
     COMMANDS = (
         ("start", "cmd_start"), ("help", "cmd_help"), ("duel", "cmd_duel"),
         ("result", "cmd_result"), ("streak", "cmd_streak"), ("leaderboard", "cmd_leaderboard"),
@@ -883,6 +910,8 @@ class DailyDuelBot:
         app.add_handler(TypeHandler(Update, self.on_any_update), group=-1)
         for name, attr in self.COMMANDS:
             app.add_handler(CommandHandler(name, getattr(self, attr)))
+        if flag_on():
+            app.add_handler(CommandHandler("botcheck", self.cmd_botcheck))
         app.add_handler(CallbackQueryHandler(self.on_callback, pattern=r"^dd:"))
         # Off by default. /duel and its dd: callbacks stay as they are.
         if scam.flag_on():
