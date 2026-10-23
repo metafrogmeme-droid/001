@@ -96,7 +96,7 @@ def _bot(tmp_path, gate=None):
 
 def test_flag_off_leaves_the_duel_commands_and_the_help_text_unchanged(tmp_path, monkeypatch):
     monkeypatch.delenv("SCAM_OR_SAFE_V0", raising=False)
-    assert sos.enabled() is False
+    assert sos.flag_on() is False
     bot, gate, _ = _bot(tmp_path)
     cmds, patterns = _commands(bot.build_app(TOKEN))
     assert "scam" not in cmds
@@ -270,7 +270,7 @@ def test_an_unreadable_percent_is_not_printed_as_zero():
     assert "withheld until it carries its AI label" in unread
     assert sos.MADE_UP in unread
     for value, want in (("1", True), ("yes", True), ("off", False), ("", False)):
-        assert sos.enabled({"SCAM_OR_SAFE_V0": value}) is want
+        assert sos.flag_on({"SCAM_OR_SAFE_V0": value}) is want
 
 
 def test_a_real_sos_seal_round_trip_stores_one_call_and_a_second_pick_is_the_first(tmp_path, monkeypatch):

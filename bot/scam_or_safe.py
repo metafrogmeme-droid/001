@@ -41,7 +41,13 @@ SCAM_HELP = (
 )
 
 
-def enabled(env: Optional[Mapping[str, str]] = None) -> bool:
+def flag_on(env: Optional[Mapping[str, str]] = None) -> bool:
+    """Whether SCAM_OR_SAFE_V0 is on.
+
+    Not named ``enabled``. NewsRadar and ProofOfPnLPublisher both define that
+    method, and a module-level function of the same name drops it out of the
+    method-ambiguity sweep in tests/unreachable_methods_baseline.txt.
+    """
     e = env if env is not None else os.environ
     return str(e.get("SCAM_OR_SAFE_V0", "")).strip().lower() in _ON
 

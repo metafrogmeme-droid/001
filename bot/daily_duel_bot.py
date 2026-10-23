@@ -172,7 +172,7 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         "/stop — delete every watched address and the digest schedule",
         DIGEST_HELP,
         "Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.",
-    ] + ([scam.SCAM_HELP] if scam.enabled() else []))
+    ] + ([scam.SCAM_HELP] if scam.flag_on() else []))
 
 
 def _word(pick: str) -> str:
@@ -457,7 +457,7 @@ class DailyDuelBot:
         if await self._limited(update):
             return
         await self._reply(update, WELCOME)
-        if scam.enabled():
+        if scam.flag_on():
             await self._reply(update, scam.SCAM_WELCOME)
 
     async def cmd_help(self, update, context) -> None:
@@ -653,7 +653,7 @@ class DailyDuelBot:
     async def cmd_scam(self, update, context) -> None:
         if await self._limited(update):
             return
-        if not scam.enabled():
+        if not scam.flag_on():
             await self._reply(update, "Scam or Safe is not open. Nothing was sealed.")
             return
         await self._show_scam(update)
@@ -690,7 +690,7 @@ class DailyDuelBot:
             await query.answer()
         except Exception as exc:
             log.debug("callback answer failed: %s", type(exc).__name__)
-        if not scam.enabled():
+        if not scam.flag_on():
             await self._reply(update, "Scam or Safe is not open. Nothing was sealed.")
             return
         parsed = scam.parse_callback(str(getattr(query, "data", "") or ""))
@@ -790,7 +790,7 @@ class DailyDuelBot:
             app.add_handler(CommandHandler(name, getattr(self, attr)))
         app.add_handler(CallbackQueryHandler(self.on_callback, pattern=r"^dd:"))
         # Off by default. /duel and its dd: callbacks stay as they are.
-        if scam.enabled():
+        if scam.flag_on():
             app.add_handler(CommandHandler("scam", self.cmd_scam))
             app.add_handler(CallbackQueryHandler(self.on_sos, pattern=r"^sos:"))
         return app
