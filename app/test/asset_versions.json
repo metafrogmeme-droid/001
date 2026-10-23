@@ -191,6 +191,10 @@
     "v": 1,
     "sha": "c2dffd9f3305eabf"
   },
+  "js/hrc.js": {
+    "v": 1,
+    "sha": "66c4ed83bb7672eb"
+  },
   "js/i18n-core.js": {
     "v": 207,
     "sha": "d9cf94442adccc0f"

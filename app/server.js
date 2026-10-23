@@ -342,6 +342,9 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// Kink Cap stays 404 for anyone who is not the operator, flag on or off.
+// Ahead of express.static so public/hrc.html is not a public file.
+app.use(require('./lib/hrc_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -433,6 +436,7 @@ app.use('/api/replay', require('./routes/replay'));
 app.use('/api/letter', require('./routes/letter'));
 app.use('/api/wallet', require('./routes/wallet'));
 app.use('/api/gas', require('./routes/gas'));
+app.use('/api/hrc', require('./routes/hrc'));
 app.use('/api/defi', require('./routes/defi'));
 app.use('/api/networth', require('./routes/networth'));
 app.use('/api/holdings', require('./routes/holdings'));
@@ -585,6 +589,8 @@ app.get('/guard', (req, res) => {
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
+app.get('/hrc', (req, res) => { require('./lib/hrc_flag').sendPage(req, res); });
+app.get('/tools', (req, res) => { require('./lib/tools_page').sendPage(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

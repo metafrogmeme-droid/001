@@ -18,6 +18,8 @@
     "/signal": "One signal's thesis, opened from a stream row as /signal?key=. A bare landing link has no id, so the page can only say the link has none.",
     "/admin": "The operator's settings page. It is linked from the dashboard for the operator only; every other account would land on a refusal, so the public landing page does not advertise it.",
     "/study": "The address people guess for the Study Room, whose door is labelled that; it answers a navigation page to /learn and is not a page of its own, so the landing page links /learn.",
-    "/rwa": "behind the RWA flag, off. It answers 404."
+    "/rwa": "behind the RWA flag, off. It answers 404.",
+    "/hrc": "Operator preview of the Hyperliquid borrow-rate cap. The public gets 404, including while HRC_ENABLED is on, so the landing page does not advertise it.",
+    "/tools": "Operator catalog of runtime tools. It is not a public page, the card says coming soon, and the landing page does not link it."
   }
 }
