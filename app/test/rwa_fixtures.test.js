@@ -53,7 +53,9 @@ test('recorded fixtures cover an ERC-3643 contract and a feed where one was foun
   assert.ok(byRole.avalanche.has('por'));
   assert.ok(byRole.arbitrum.has('por'));
   assert.ok(byRole.polygon.has('por'));
-  assert.ok(!FILES.some((name) => name.startsWith('bnb-') || name.startsWith('zksync-') || name.startsWith('monad-')));
+  assert.ok(byRole.bnb && byRole.bnb.has('tokenized'), 'bnb tokenized');
+  assert.ok(byRole.zksync && byRole.zksync.has('tokenized'), 'zksync tokenized');
+  assert.ok(!FILES.some((name) => name.startsWith('monad-')));
 });
 
 for (const file of FILES) {
@@ -101,6 +103,12 @@ for (const file of FILES) {
       assert.equal(reading.code, 'marker');
       assert.ok(got.includes('selectors:not_evm'));
       assert.ok(!got.includes('forced_transfer:not_observed'));
+    }
+    if (fx.role === 'tokenized') {
+      assert.ok(!got.includes('erc3643:detected'), fx.chain);
+      assert.ok(fx.note.includes('had no code'), fx.chain);
+      assert.equal(typeof reading.token.name, 'string');
+      assert.ok(reading.token.name.length > 0, fx.chain);
     }
   });
 }
