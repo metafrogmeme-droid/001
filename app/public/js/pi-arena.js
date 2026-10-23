@@ -362,7 +362,8 @@
     noHandle: function () { return T('No leaderboard name yet. Choose one in'); },
     noHandleTab: 'leaders',
     legal: true,
-    extras: [
+    extras: (function () {
+      var blocks = [
       // The Daily Duel's card: quick to play, so the first tab after the arena.
       window.RCPiDuel.create({ coach: true }),
       // Ask the Claw: the coach, which every "Why?" on a card opens.
@@ -377,6 +378,11 @@
       // What this is, the policies and the tip, behind the header's About.
       { place: 'main', tab: 'about', bar: false, label: 'About', icon: '\u24D8',
         html: aboutHtml, click: aboutClick, signedIn: signedIn },
-    ],
+      ];
+      // Present only when the page included the script, which it does while
+      // SCAM_OR_SAFE_V0 is on. Absent, the tab list is the one it was.
+      if (window.RCScamOrSafe) blocks.splice(1, 0, window.RCScamOrSafe.create());
+      return blocks;
+    }()),
   });
 }());

@@ -1,0 +1,1186 @@
+[
+  {
+    "id": "sos-aa",
+    "chain": "ethereum",
+    "verdict": "risky",
+    "method": "approve",
+    "explanation": "This request would give a spender this account has not used an unlimited allowance on Ethereum. An unlimited allowance lets that spender move the coin later, without a new request. The amount is hidden here on purpose, and the spender is masked so it cannot be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "Ethereum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Ethereum"
+      },
+      {
+        "k": "Spender",
+        "v": "0x12ab…9f"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account has not used"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      },
+      {
+        "k": "Shape",
+        "v": "unlimited allowance"
+      }
+    ]
+  },
+  {
+    "id": "sos-ab",
+    "chain": "base",
+    "verdict": "safe",
+    "method": "approve",
+    "explanation": "This request clears an allowance for a spender this account already uses on Base. Clearing an allowance takes away that spender's ability to move the coin. It does not grant a new spender anything. The amount is hidden, and the spender is masked.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "Base"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Base"
+      },
+      {
+        "k": "Spender",
+        "v": "0x44cd…10"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      },
+      {
+        "k": "Shape",
+        "v": "allowance cleared"
+      }
+    ]
+  },
+  {
+    "id": "sos-ac",
+    "chain": "arbitrum",
+    "verdict": "risky",
+    "method": "setApprovalForAll",
+    "explanation": "This request would let an operator this account has not used move every item in a collection on Arbitrum. setApprovalForAll applies to the whole collection, not one item. The operator is masked, and nothing on this screen can send the request.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "Arbitrum"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on Arbitrum"
+      },
+      {
+        "k": "Operator",
+        "v": "0x91c4…e2"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator this account has not used"
+      },
+      {
+        "k": "Approved",
+        "v": "yes"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-ad",
+    "chain": "optimism",
+    "verdict": "safe",
+    "method": "setApprovalForAll",
+    "explanation": "This request removes an operator that is already set on this account, on Optimism. Removing an operator stops that operator from moving the collection. The operator is masked, and this page cannot send the request anywhere.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "Optimism"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on Optimism"
+      },
+      {
+        "k": "Operator",
+        "v": "0xab12…44"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator already set on this account"
+      },
+      {
+        "k": "Approved",
+        "v": "no"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-ae",
+    "chain": "bnb",
+    "verdict": "risky",
+    "method": "transfer",
+    "explanation": "This request would send a coin on BNB Chain to an account this one has not paid before. A transfer to a new account is a common way a lookalike request moves the coin. The amount is hidden and both accounts are masked, so neither can be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "BNB Chain"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on BNB Chain"
+      },
+      {
+        "k": "From",
+        "v": "0x77cd…01"
+      },
+      {
+        "k": "To",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "To note",
+        "v": "an account this one has not paid before"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-af",
+    "chain": "avalanche",
+    "verdict": "safe",
+    "method": "transfer",
+    "explanation": "This request would send a coin on Avalanche back to the same account that is sending it. The masked account on both sides is the same, which is a transfer to yourself. The amount is hidden. A transfer to yourself does not hand the coin to a new account.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "Avalanche"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Avalanche"
+      },
+      {
+        "k": "From",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To note",
+        "v": "the same account that is sending"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-ag",
+    "chain": "polygon",
+    "verdict": "risky",
+    "method": "permit",
+    "explanation": "This permit on Polygon is still open, and the spender name is one letter off a venue this account uses. A permit that is still open can be pulled by that spender without a second request. The amount is hidden and the spender is masked. A lookalike name is a reason to call it risky.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Polygon"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Polygon"
+      },
+      {
+        "k": "Spender",
+        "v": "0x51ae…c3"
+      },
+      {
+        "k": "Spender note",
+        "v": "the name shown is one letter off a venue this account uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "still open"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-ah",
+    "chain": "ethereum",
+    "verdict": "safe",
+    "method": "permit",
+    "explanation": "This permit on Ethereum has a deadline that has already closed, for a spender this account already uses. A closed permit cannot be pulled. The amount is hidden and the spender is masked. A closed window is why this one is the safe call.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Ethereum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Ethereum"
+      },
+      {
+        "k": "Spender",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "already closed"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-ai",
+    "chain": "base",
+    "verdict": "risky",
+    "method": "approve",
+    "explanation": "This request would give a spender this account has not used an unlimited allowance on Base. An unlimited allowance lets that spender move the coin later, without a new request. The amount is hidden here on purpose, and the spender is masked so it cannot be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "Base"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Base"
+      },
+      {
+        "k": "Spender",
+        "v": "0x12ab…9f"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account has not used"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      },
+      {
+        "k": "Shape",
+        "v": "unlimited allowance"
+      }
+    ]
+  },
+  {
+    "id": "sos-aj",
+    "chain": "arbitrum",
+    "verdict": "safe",
+    "method": "approve",
+    "explanation": "This request clears an allowance for a spender this account already uses on Arbitrum. Clearing an allowance takes away that spender's ability to move the coin. It does not grant a new spender anything. The amount is hidden, and the spender is masked.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "Arbitrum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Arbitrum"
+      },
+      {
+        "k": "Spender",
+        "v": "0x44cd…10"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      },
+      {
+        "k": "Shape",
+        "v": "allowance cleared"
+      }
+    ]
+  },
+  {
+    "id": "sos-ak",
+    "chain": "optimism",
+    "verdict": "risky",
+    "method": "setApprovalForAll",
+    "explanation": "This request would let an operator this account has not used move every item in a collection on Optimism. setApprovalForAll applies to the whole collection, not one item. The operator is masked, and nothing on this screen can send the request.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "Optimism"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on Optimism"
+      },
+      {
+        "k": "Operator",
+        "v": "0x91c4…e2"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator this account has not used"
+      },
+      {
+        "k": "Approved",
+        "v": "yes"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-al",
+    "chain": "bnb",
+    "verdict": "safe",
+    "method": "setApprovalForAll",
+    "explanation": "This request removes an operator that is already set on this account, on BNB Chain. Removing an operator stops that operator from moving the collection. The operator is masked, and this page cannot send the request anywhere.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "BNB Chain"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on BNB Chain"
+      },
+      {
+        "k": "Operator",
+        "v": "0xab12…44"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator already set on this account"
+      },
+      {
+        "k": "Approved",
+        "v": "no"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-am",
+    "chain": "avalanche",
+    "verdict": "risky",
+    "method": "transfer",
+    "explanation": "This request would send a coin on Avalanche to an account this one has not paid before. A transfer to a new account is a common way a lookalike request moves the coin. The amount is hidden and both accounts are masked, so neither can be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "Avalanche"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Avalanche"
+      },
+      {
+        "k": "From",
+        "v": "0x77cd…01"
+      },
+      {
+        "k": "To",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "To note",
+        "v": "an account this one has not paid before"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-an",
+    "chain": "polygon",
+    "verdict": "safe",
+    "method": "transfer",
+    "explanation": "This request would send a coin on Polygon back to the same account that is sending it. The masked account on both sides is the same, which is a transfer to yourself. The amount is hidden. A transfer to yourself does not hand the coin to a new account.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "Polygon"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Polygon"
+      },
+      {
+        "k": "From",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To note",
+        "v": "the same account that is sending"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-ao",
+    "chain": "ethereum",
+    "verdict": "risky",
+    "method": "permit",
+    "explanation": "This permit on Ethereum is still open, and the spender name is one letter off a venue this account uses. A permit that is still open can be pulled by that spender without a second request. The amount is hidden and the spender is masked. A lookalike name is a reason to call it risky.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Ethereum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Ethereum"
+      },
+      {
+        "k": "Spender",
+        "v": "0x51ae…c3"
+      },
+      {
+        "k": "Spender note",
+        "v": "the name shown is one letter off a venue this account uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "still open"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-ap",
+    "chain": "base",
+    "verdict": "safe",
+    "method": "permit",
+    "explanation": "This permit on Base has a deadline that has already closed, for a spender this account already uses. A closed permit cannot be pulled. The amount is hidden and the spender is masked. A closed window is why this one is the safe call.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Base"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Base"
+      },
+      {
+        "k": "Spender",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "already closed"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-aq",
+    "chain": "arbitrum",
+    "verdict": "risky",
+    "method": "approve",
+    "explanation": "This request would give a spender this account has not used an unlimited allowance on Arbitrum. An unlimited allowance lets that spender move the coin later, without a new request. The amount is hidden here on purpose, and the spender is masked so it cannot be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "Arbitrum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Arbitrum"
+      },
+      {
+        "k": "Spender",
+        "v": "0x12ab…9f"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account has not used"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      },
+      {
+        "k": "Shape",
+        "v": "unlimited allowance"
+      }
+    ]
+  },
+  {
+    "id": "sos-ar",
+    "chain": "optimism",
+    "verdict": "safe",
+    "method": "approve",
+    "explanation": "This request clears an allowance for a spender this account already uses on Optimism. Clearing an allowance takes away that spender's ability to move the coin. It does not grant a new spender anything. The amount is hidden, and the spender is masked.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "Optimism"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Optimism"
+      },
+      {
+        "k": "Spender",
+        "v": "0x44cd…10"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      },
+      {
+        "k": "Shape",
+        "v": "allowance cleared"
+      }
+    ]
+  },
+  {
+    "id": "sos-as",
+    "chain": "bnb",
+    "verdict": "risky",
+    "method": "setApprovalForAll",
+    "explanation": "This request would let an operator this account has not used move every item in a collection on BNB Chain. setApprovalForAll applies to the whole collection, not one item. The operator is masked, and nothing on this screen can send the request.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "BNB Chain"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on BNB Chain"
+      },
+      {
+        "k": "Operator",
+        "v": "0x91c4…e2"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator this account has not used"
+      },
+      {
+        "k": "Approved",
+        "v": "yes"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-at",
+    "chain": "avalanche",
+    "verdict": "safe",
+    "method": "setApprovalForAll",
+    "explanation": "This request removes an operator that is already set on this account, on Avalanche. Removing an operator stops that operator from moving the collection. The operator is masked, and this page cannot send the request anywhere.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "Avalanche"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on Avalanche"
+      },
+      {
+        "k": "Operator",
+        "v": "0xab12…44"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator already set on this account"
+      },
+      {
+        "k": "Approved",
+        "v": "no"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-au",
+    "chain": "polygon",
+    "verdict": "risky",
+    "method": "transfer",
+    "explanation": "This request would send a coin on Polygon to an account this one has not paid before. A transfer to a new account is a common way a lookalike request moves the coin. The amount is hidden and both accounts are masked, so neither can be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "Polygon"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Polygon"
+      },
+      {
+        "k": "From",
+        "v": "0x77cd…01"
+      },
+      {
+        "k": "To",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "To note",
+        "v": "an account this one has not paid before"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-av",
+    "chain": "ethereum",
+    "verdict": "safe",
+    "method": "transfer",
+    "explanation": "This request would send a coin on Ethereum back to the same account that is sending it. The masked account on both sides is the same, which is a transfer to yourself. The amount is hidden. A transfer to yourself does not hand the coin to a new account.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "Ethereum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Ethereum"
+      },
+      {
+        "k": "From",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To note",
+        "v": "the same account that is sending"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-aw",
+    "chain": "base",
+    "verdict": "risky",
+    "method": "permit",
+    "explanation": "This permit on Base is still open, and the spender name is one letter off a venue this account uses. A permit that is still open can be pulled by that spender without a second request. The amount is hidden and the spender is masked. A lookalike name is a reason to call it risky.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Base"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Base"
+      },
+      {
+        "k": "Spender",
+        "v": "0x51ae…c3"
+      },
+      {
+        "k": "Spender note",
+        "v": "the name shown is one letter off a venue this account uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "still open"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-ax",
+    "chain": "arbitrum",
+    "verdict": "safe",
+    "method": "permit",
+    "explanation": "This permit on Arbitrum has a deadline that has already closed, for a spender this account already uses. A closed permit cannot be pulled. The amount is hidden and the spender is masked. A closed window is why this one is the safe call.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Arbitrum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Arbitrum"
+      },
+      {
+        "k": "Spender",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "already closed"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-ay",
+    "chain": "optimism",
+    "verdict": "risky",
+    "method": "approve",
+    "explanation": "This request would give a spender this account has not used an unlimited allowance on Optimism. An unlimited allowance lets that spender move the coin later, without a new request. The amount is hidden here on purpose, and the spender is masked so it cannot be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "Optimism"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Optimism"
+      },
+      {
+        "k": "Spender",
+        "v": "0x12ab…9f"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account has not used"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      },
+      {
+        "k": "Shape",
+        "v": "unlimited allowance"
+      }
+    ]
+  },
+  {
+    "id": "sos-az",
+    "chain": "bnb",
+    "verdict": "safe",
+    "method": "approve",
+    "explanation": "This request clears an allowance for a spender this account already uses on BNB Chain. Clearing an allowance takes away that spender's ability to move the coin. It does not grant a new spender anything. The amount is hidden, and the spender is masked.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "approve"
+      },
+      {
+        "k": "Chain",
+        "v": "BNB Chain"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on BNB Chain"
+      },
+      {
+        "k": "Spender",
+        "v": "0x44cd…10"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      },
+      {
+        "k": "Shape",
+        "v": "allowance cleared"
+      }
+    ]
+  },
+  {
+    "id": "sos-ba",
+    "chain": "avalanche",
+    "verdict": "risky",
+    "method": "setApprovalForAll",
+    "explanation": "This request would let an operator this account has not used move every item in a collection on Avalanche. setApprovalForAll applies to the whole collection, not one item. The operator is masked, and nothing on this screen can send the request.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "Avalanche"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on Avalanche"
+      },
+      {
+        "k": "Operator",
+        "v": "0x91c4…e2"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator this account has not used"
+      },
+      {
+        "k": "Approved",
+        "v": "yes"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-bb",
+    "chain": "polygon",
+    "verdict": "safe",
+    "method": "setApprovalForAll",
+    "explanation": "This request removes an operator that is already set on this account, on Polygon. Removing an operator stops that operator from moving the collection. The operator is masked, and this page cannot send the request anywhere.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "setApprovalForAll"
+      },
+      {
+        "k": "Chain",
+        "v": "Polygon"
+      },
+      {
+        "k": "Collection",
+        "v": "a collection on Polygon"
+      },
+      {
+        "k": "Operator",
+        "v": "0xab12…44"
+      },
+      {
+        "k": "Operator note",
+        "v": "an operator already set on this account"
+      },
+      {
+        "k": "Approved",
+        "v": "no"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-bc",
+    "chain": "ethereum",
+    "verdict": "risky",
+    "method": "transfer",
+    "explanation": "This request would send a coin on Ethereum to an account this one has not paid before. A transfer to a new account is a common way a lookalike request moves the coin. The amount is hidden and both accounts are masked, so neither can be copied out.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "Ethereum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Ethereum"
+      },
+      {
+        "k": "From",
+        "v": "0x77cd…01"
+      },
+      {
+        "k": "To",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "To note",
+        "v": "an account this one has not paid before"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-bd",
+    "chain": "base",
+    "verdict": "safe",
+    "method": "transfer",
+    "explanation": "This request would send a coin on Base back to the same account that is sending it. The masked account on both sides is the same, which is a transfer to yourself. The amount is hidden. A transfer to yourself does not hand the coin to a new account.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "transfer"
+      },
+      {
+        "k": "Chain",
+        "v": "Base"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Base"
+      },
+      {
+        "k": "From",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To",
+        "v": "0x0bad…77"
+      },
+      {
+        "k": "To note",
+        "v": "the same account that is sending"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  },
+  {
+    "id": "sos-be",
+    "chain": "arbitrum",
+    "verdict": "risky",
+    "method": "permit",
+    "explanation": "This permit on Arbitrum is still open, and the spender name is one letter off a venue this account uses. A permit that is still open can be pulled by that spender without a second request. The amount is hidden and the spender is masked. A lookalike name is a reason to call it risky.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Arbitrum"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Arbitrum"
+      },
+      {
+        "k": "Spender",
+        "v": "0x51ae…c3"
+      },
+      {
+        "k": "Spender note",
+        "v": "the name shown is one letter off a venue this account uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "still open"
+      },
+      {
+        "k": "Amount",
+        "v": "▒▒▒"
+      }
+    ]
+  },
+  {
+    "id": "sos-bf",
+    "chain": "optimism",
+    "verdict": "safe",
+    "method": "permit",
+    "explanation": "This permit on Optimism has a deadline that has already closed, for a spender this account already uses. A closed permit cannot be pulled. The amount is hidden and the spender is masked. A closed window is why this one is the safe call.",
+    "fields": [
+      {
+        "k": "Action",
+        "v": "permit"
+      },
+      {
+        "k": "Chain",
+        "v": "Optimism"
+      },
+      {
+        "k": "Asset",
+        "v": "a coin on Optimism"
+      },
+      {
+        "k": "Spender",
+        "v": "0xcafe…b4"
+      },
+      {
+        "k": "Spender note",
+        "v": "a spender this account already uses"
+      },
+      {
+        "k": "Deadline",
+        "v": "already closed"
+      },
+      {
+        "k": "Amount",
+        "v": "[amount hidden]"
+      }
+    ]
+  }
+]
