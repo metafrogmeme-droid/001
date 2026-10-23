@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Is this Telegram bot custodial?</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/botcheck">
+<meta name="description" content="Public signals for one Telegram bot name. Each signal is yes, no, or unknown, with a source and a date. Unknown stays unknown.">
+<meta property="og:title" content="Is this Telegram bot custodial?">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="Public signals for one Telegram bot name. Unknown stays unknown. No badge.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/botcheck">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Is this Telegram bot custodial?">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .bc-wrap { max-width: 760px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); }
+  .topnav a:hover { color: var(--text-1); }
+  h1 { font-family: var(--font-display); letter-spacing: .04em; font-size: clamp(26px, 4vw, 40px); margin: 0 0 var(--s3); }
+  .lede, .note { color: var(--text-2); line-height: 1.6; max-width: 68ch; }
+  .note { color: var(--text-3); font-size: var(--fs-xs); }
+  form { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; margin: var(--s4) 0; }
+  label { display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: var(--fs-sm); flex: 1 1 220px; }
+  input, textarea { display: block; background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font: inherit; }
+  textarea { min-height: 72px; resize: vertical; }
+  button { background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--text-2); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin: var(--s3) 0; }
+  .sig { border-top: 1px solid var(--line); padding-top: var(--s3); margin-top: var(--s3); }
+  .sig h2 { font-size: var(--fs-sm); color: var(--text-1); margin: 0 0 6px; }
+  .ans { color: var(--text-1); font-weight: 600; margin: 0 0 6px; }
+  .ans.muted { color: var(--text-3); font-weight: 500; }
+  .detail { color: var(--text-2); margin: 0 0 8px; line-height: 1.55; }
+  .src { color: var(--text-2); }
+  .names { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .names button { font-size: var(--fs-sm); }
+  .ai { color: var(--text-3); font-size: var(--fs-xs); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 6px; }
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="bc-wrap" role="main">
+  <nav class="topnav"><a href="/">← RUNECLAW</a></nav>
+  <h1>Is this Telegram bot custodial?</h1>
+  <p class="lede">Public signals for one bot name. Wallet signals are yes, no, or unknown. The signing signal names a wallet reading or stays unknown. Every signal has a source and a date. Unknown stays unknown. There is no badge.</p>
+  <p class="note">The short summary is marked AI-written. EU AI Act Art. 50.</p>
+  <form id="lookup-form">
+    <label for="q">Bot name
+      <input id="q" name="q" maxlength="64" autocomplete="off" spellcheck="false">
+    </label>
+    <button type="submit">Check</button>
+  </form>
+  <div id="out" aria-live="polite"></div>
+  <section class="panel">
+    <h2>Queue a name</h2>
+    <p class="note">A name that is not in the list can be queued for a person to review. It is not published from this form.</p>
+    <form id="submit-form">
+      <label for="submit-name">Name to queue
+        <input id="submit-name" name="query" maxlength="64" autocomplete="off" spellcheck="false">
+      </label>
+      <label for="submit-note">Note, optional
+        <textarea id="submit-note" name="note" maxlength="200"></textarea>
+      </label>
+      <button type="submit">Queue for review</button>
+    </form>
+    <p id="submit-status" class="note" role="status"></p>
+  </section>
+</div>
+<script src="/js/botcheck.js?v=1"></script>
+</body>
+</html>
