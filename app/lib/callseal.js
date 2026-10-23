@@ -21,6 +21,7 @@
  */
 
 const crypto = require('crypto');
+const { levelOf: confidenceLevel } = require('./duel_confidence');
 
 /**
  * Canonical decision-time payload. Key insertion order IS the canonical
@@ -178,7 +179,12 @@ function canonicalDuelPayload(p) {
   // second symbol and entry of a mover, the band of a range — so a receipt
   // for "BTC or ETH, which moves more" commits to both prices it was made at.
   // A classic round carries nulls there; its receipt changed only in version.
-  return JSON.stringify({
+  //
+  // `confidence` (low | medium | high) is appended last, and only when the
+  // caller passed one. Absent, the string is the historical payload: a
+  // receipt sealed without the field still verifies, and a flag that is off
+  // never passes one. Key order of every earlier field is untouched.
+  const body = {
     v: 4,
     kind: 'duel_pick',
     round_id: Number(p.round_id),
@@ -194,7 +200,10 @@ function canonicalDuelPayload(p) {
     entry_price_b: p.entry_price_b == null ? null : Number(p.entry_price_b),
     resolves_at: new Date(p.resolves_at).toISOString(),
     picked_at: new Date(p.picked_at || Date.now()).toISOString(),
-  });
+  };
+  const confidence = confidenceLevel(p && p.confidence);
+  if (confidence) body.confidence = confidence;
+  return JSON.stringify(body);
 }
 
 /** { seal_payload, seal } for one duel call. */
@@ -542,6 +551,35 @@ function sealGuard(g) {
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
+/**
+ * v11 `rwa_precheck` — flags from a read-only tokenized-asset check.
+ *
+ * The address is not here. `input_sha256` commits to the canonical JSON
+ * `{chain, asset, account}` and only whoever holds those bytes can tie the
+ * receipt to a contract. `flags` are `id:state`. A check that could not be
+ * read is an empty flag list plus `unreadable`, never a flag that says the
+ * opposite. No amount and no feed answer is a field.
+ */
+function canonicalRwaPayload(g) {
+  return JSON.stringify({
+    v: 11,
+    kind: 'rwa_precheck',
+    scan_key: String(g.scan_key),
+    input_sha256: String(g.input_sha256),
+    input_bytes: numOrNull(g.input_bytes),
+    chain_id: Number.isInteger(g.chain_id) ? g.chain_id : null,
+    block: g.block == null ? null : String(g.block),
+    flags: Array.isArray(g.flags) ? g.flags.map((f) => `${f.id}:${f.state}`) : [],
+    unreadable: Array.isArray(g.unreadable) ? g.unreadable.map(String) : [],
+    scanned_at: new Date(g.scanned_at || Date.now()).toISOString(),
+  });
+}
+
+function sealRwa(g) {
+  const seal_payload = canonicalRwaPayload(g);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
 function inputDigest(text) {
   const buf = Buffer.from(String(text == null ? '' : text), 'utf8');
   return { sha256: crypto.createHash('sha256').update(buf).digest('hex'),
@@ -556,6 +594,7 @@ module.exports = {
   canonicalDuelSettlePayload, sealDuelSettle,
   canonicalScanPayload, sealScan, inputDigest,
   canonicalGuardPayload, sealGuard,
+  canonicalRwaPayload, sealRwa,
   canonicalMemeclawLaunchPayload, sealMemeclawLaunch,
   sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips,
   canonicalDuelReviewPayload, sealDuelReview,

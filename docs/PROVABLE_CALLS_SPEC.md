@@ -111,6 +111,12 @@ later change to the band table cannot rescore a round. Carries the horizon
 (`resolves_at`) as a sealed fact, so the window a call was made for cannot be
 widened afterwards to make it look right.
 
+A call may also carry `"confidence"` after `"picked_at"`, one of `"low"`,
+`"medium"` or `"high"`: the player's own rating of that call, sealed with
+it. A receipt with no rating omits the key. Verifiers hash the stored
+string and do not require the key, so a receipt sealed before the rating
+still checks. The rating is not money and not a price.
+
 Receipts sealed before 2026-10-19 are `v: 3`, which carried none of the
 category fields. Its order is frozen:
 
@@ -355,6 +361,39 @@ do something else, so a v10 receipt proves what was SAID and when, never
 that it was right. It shares the `sc_` keys and the `scan_seals` table with
 v5 and is a leaf of the same day's root (§4).
 
+### 2.11 · `v: 11` — an RWA pre-check
+
+The RWA pre-check (`/rwa`, `POST /v1/rwa/precheck`) reads one tokenized-asset
+contract on a configured EVM chain: whether it answers as ERC-3643, whether
+an oracle feed it names is older than that feed's heartbeat, and which admin
+powers are visible. For a signed-in caller the reading is sealed; an
+anonymous check stores nothing. The contract address is never kept:
+`input_sha256` commits to the canonical JSON `{"chain","asset","account"}`
+with the asset lowercased and `account` null when none was sent.
+
+```json
+{"v":11,"kind":"rwa_precheck","scan_key":"sc_<16>","input_sha256":"<64 hex>",
+ "input_bytes":72,"chain_id":8453,"block":"52987635",
+ "flags":["erc3643:detected","paused:yes","oracle:unknown"],
+ "unreadable":["registry_isVerified"],
+ "scanned_at":"2026-10-23T12:00:00.000Z"}
+```
+
+- `flags` are `id:state`. The state is what was read (`detected`, `yes`,
+  `observed`, `within_heartbeat`, `not_observed`, …). Prose is not sealed, so
+  a wording change does not invalidate a receipt.
+- `unreadable` lists checks that did not return a reading. A reverted
+  `isVerified` is the id `registry_isVerified` in that list, not a flag
+  that says the account is unverified. An empty flag list with
+  `unreadable` containing `read` means the chain itself could not be read.
+- `block` is the block whose state was read. No address, no amount and no
+  feed answer is a field.
+
+A pre-check is a reading of one block. It proves what was SAID, not that the
+asset is sound, and it does not issue, rate, recommend or promote any asset.
+It shares the `sc_` keys and the `scan_seals` table with v5 and v10 and is a
+leaf of the same day's root (§4).
+
 ---
 
 ## 3 · Addressing
@@ -437,7 +476,7 @@ server from two readers that must agree, carry the root in one of these forms:
 
 | chain | where the root is | bytes |
 |---|---|---|
-| Base, DogeOS testnet | the calldata of a zero-value transaction to the sender's own address | `utf8("RCROOT1:<day>:<root hex>")` |
+| Base, DogeOS testnet, Avalanche C-Chain | the calldata of a zero-value transaction to the sender's own address | `utf8("RCROOT1:<day>:<root hex>")` |
 | Base, Arbitrum One, Scroll, Linea (EAS) | `timestamp(bytes32 root)` on that chain's Ethereum Attestation Service | the root's 32 bytes |
 | Dogecoin | one OP_RETURN output | `utf8("RCD1:<day>:")` then the root's 32 bytes |
 | Solana | one Memo-program instruction, read at `finalized` commitment | `utf8("RCROOT1:<day>:<root hex>")` |
@@ -446,6 +485,14 @@ server from two readers that must agree, carry the root in one of these forms:
 A day is **multi-anchored** when chains in at least two independence groups
 verify it live (a testnet is shown and never counted). That proves when the
 root existed, never how good the calls in it were.
+
+The groups that count are `ethereum-l2` (Base and the other Ethereum L2
+stamps), `bitcoin`, `dogecoin`, `solana` and `avalanche`. Avalanche C-Chain
+is the fifth: it runs its own consensus, so it does not join `ethereum-l2`.
+It is offered only when `AVALANCHE_ANCHOR_ENABLED` is set. The target for
+turning that on is 5 November 2026. `tools/rcverify.js` checks an Avalanche
+anchor the same way it checks Base, against an endpoint it names itself, and
+does not read the flag.
 
 ### 4.3 · A receipt's proof bundle (`rcproof/1`)
 
@@ -535,6 +582,7 @@ float as a percent and how many calls carried chips, and no count of chips.
 | 8 | A Memeclaw launch: the terms hash the chain recorded, the coin, the creator's buy |
 | 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold; a settlement's review |
 | 10 | A Claw Guard verdict: the level, each reason with its severity, and the block its simulation read |
+| 11 | An RWA pre-check: flag id and state, the checks that could not be read, and the block that was read |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

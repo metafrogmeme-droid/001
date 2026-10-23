@@ -184,6 +184,43 @@
     };
   }
 
+  /** The word for a sealed self-rating, or '' when there isn't one. */
+  function ratingWord(level, t) {
+    const tr = t || IDENT;
+    if (level === 'low') return tr('duel.conf_low', 'Low');
+    if (level === 'medium') return tr('duel.conf_med', 'Medium');
+    if (level === 'high') return tr('duel.conf_high', 'High');
+    return '';
+  }
+
+  /**
+   * How often high-confidence calls were right. A null rate is a dash, never
+   * 0%: none settled is not a measured miss.
+   */
+  function calibrationLabel(cal, t) {
+    const tr = t || IDENT;
+    const c = cal || {};
+    const how = tr('duel.cal_how', 'How often your high-confidence calls were right');
+    if (c.pct == null) {
+      return {
+        text: '—',
+        tone: 'muted',
+        how: how,
+        sub: c.unscored > 0
+          ? tr('duel.cal_wait', 'No high-confidence call has settled yet')
+          : tr('duel.cal_empty', 'No high-confidence call yet'),
+      };
+    }
+    return {
+      text: c.pct + '%',
+      // The null check sits on this line: a rate that was not read must not
+      // take a colour. The early return above already paints that case as a dash.
+      tone: c.pct == null ? 'muted' : (c.pct >= 50 ? 'up' : 'down'),
+      how: how,
+      sub: tr('duel.cal_of', 'of {n} high-confidence calls').replace('{n}', c.scored),
+    };
+  }
+
   /**
    * The marks total. A partial total travels WITH the count it could not
    * include: "7 marks · 2 still running" is true, and "7 marks" alone is a sum
@@ -530,6 +567,10 @@
     // the layer is on: `opts.chips` is the card's chips block.
     const chipsBlock = opts && opts.chips && opts.chips.enabled ? opts.chips : null;
     const odds = chipsBlock && r.odds && typeof r.odds === 'object' ? r.odds : null;
+    // The words the server named. A page that was not given the list offers
+    // none, which is what the flag-off card is.
+    const levels = opts && Array.isArray(opts.confidenceLevels)
+      ? opts.confidenceLevels.filter((l) => l === 'low' || l === 'medium' || l === 'high') : [];
 
     let body;
     let status;
@@ -555,8 +596,10 @@
         receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links, check),
       ].filter(Boolean);
       const cl = chipsLabel(r.my_call.chips, tr, now);
+      const rating = ratingWord(r.my_call.confidence, tr);
+      const ratingPill = rating ? pill('d-pill--you', tr('duel.conf_k', 'Your rating'), rating) : '';
       body = '<div class="d-called">'
-        + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + '</div>'
+        + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + ratingPill + '</div>'
         + (cl ? '<span class="d-chips-st tone-' + esc(cl.tone) + '">' + esc(cl.text) + '</span>' : '')
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
         + reviewHtml(r, tr, links, check)
@@ -566,7 +609,8 @@
     } else if (r.callable && options.length) {
       is = 'open';
       status = '<span class="d-status tone-muted">' + esc(tr('duel.st_open', 'Open')) + '</span>';
-      body = '<div class="d-actions" data-round="' + esc(r.id) + '">'
+      body = '<div class="d-actions" data-round="' + esc(r.id) + '"'
+        + (levels.length ? ' data-ask-confidence="yes"' : '') + '>'
         + options.map((pick) => {
           const icon = pickIcon(pick);
           const o = odds ? oddsText(odds[pick]) : '';
@@ -574,6 +618,11 @@
             + '" data-pick="' + esc(pick) + '">' + (icon ? '<span class="d-bi">' + icon + '</span>' : '')
             + esc(pickLabel(pick, r, tr)) + (o ? ' <span class="d-odds">' + esc(o) + '</span>' : '') + '</button>';
         }).join('')
+        + (levels.length
+          ? '<span class="d-note d-conf-ask" hidden>' + esc(tr('duel.conf_ask', 'How sure are you? This is your own rating.')) + '</span>'
+            + levels.map((level) => '<button type="button" class="d-btn d-btn--pass d-conf" data-confidence="'
+              + esc(level) + '" hidden>' + esc(ratingWord(level, tr)) + '</button>').join('')
+          : '')
         + (odds ? chipsField(chipsBlock, tr)
           : chipsBlock ? '<span class="d-note d-chips-none">' + esc(tr('duel.chips_no_round', 'No chips on this round: call it for marks')) + '</span>' : '')
         + '</div>';
@@ -616,5 +665,5 @@
       + '</article>';
   }
 
-  return { reviewHtml, oddsText, chipsLabel, stackLabel, chipsField, esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
+  return { reviewHtml, oddsText, chipsLabel, stackLabel, chipsField, esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, calibrationLabel, ratingWord, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard, compactUsd, smartMoneyText, smartMoneyHtml };
 }));

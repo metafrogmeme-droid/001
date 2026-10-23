@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — RWA pre-check</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/rwa">
+<meta name="description" content="An automated pre-check of a tokenized-asset contract. It reads ERC-3643 setup, oracle-feed age and admin powers. It is not an audit and it is not investment advice.">
+<meta property="og:title" content="RUNECLAW — RWA pre-check">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="Read-only flags on a tokenized-asset contract before you interact with it. Not an audit. Not investment advice.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/rwa">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — RWA pre-check">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .rwa-wrap { max-width: 820px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .rwa-wrap h1 { font-family: var(--font-display); letter-spacing: .04em; font-size: clamp(26px, 4vw, 40px); margin: 0 0 var(--s2); }
+  .lede { color: var(--text-2); max-width: 68ch; line-height: 1.6; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin: var(--s4) 0; }
+  .rwa-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--s3); }
+  .rwa-field label { font-size: var(--fs-sm); color: var(--text-2); }
+  .rwa-field input, .rwa-field select { width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: var(--s2) var(--s3); font: inherit; font-family: var(--font-data); font-size: var(--fs-sm); }
+  .row { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+  .flag { display: grid; grid-template-columns: 12px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .flag .dot { width: 10px; height: 10px; border-radius: 999px; margin-top: 5px; background: var(--line-2); }
+  .tone-caution .dot { background: #e6c34b; }
+  .tone-muted .dot { background: var(--text-3); }
+  .tone-neutral .dot { background: var(--text-2); }
+  .flag .wy { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; }
+  .rwa-k { color: var(--text-3); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; margin: var(--s3) 0 0; }
+  .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; margin-top: var(--s4); }
+  .rwa-err { color: var(--text-1); }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="rwa-wrap" role="main">
+  <nav class="topnav" style="display:flex;gap:var(--s3);margin-bottom:var(--s4)">
+    <a href="/">← RUNECLAW</a>
+  </nav>
+  <h1>RWA pre-check</h1>
+  <p class="lede">An automated pre-check of a tokenized-asset contract: identity and compliance setup, how old an oracle feed is against its heartbeat, and admin powers. Read-only. This page does not sign and it holds no key.</p>
+
+  <section class="panel">
+    <div class="rwa-field">
+      <label for="rwa-chain">Chain</label>
+      <select id="rwa-chain">
+        <option value="ethereum">Ethereum</option>
+        <option value="base">Base</option>
+        <option value="avalanche">Avalanche C-Chain</option>
+        <option value="bnb">BNB Chain</option>
+        <option value="arbitrum">Arbitrum One</option>
+        <option value="polygon">Polygon</option>
+        <option value="zksync">ZKsync Era</option>
+      </select>
+    </div>
+    <div class="rwa-field">
+      <label for="rwa-asset">Asset contract</label>
+      <input id="rwa-asset" type="text" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="rwa-field">
+      <label for="rwa-account">Account, optional</label>
+      <input id="rwa-account" type="text" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="row">
+      <button class="btn btn--primary btn--sm" id="rwa-go" type="button">Run pre-check</button>
+    </div>
+  </section>
+
+  <div id="rwa-out" aria-live="polite"></div>
+
+  <p class="disc" id="rwa-disclaimer">This is an automated pre-check of a tokenized-asset contract. It is not an audit and it is not investment advice. It does not issue, rate, recommend or promote any asset.</p>
+</div>
+<script src="/js/api-retry.js?v=3"></script>
+<script src="/js/rwa-precheck.js?v=2"></script>
+</body>
+</html>

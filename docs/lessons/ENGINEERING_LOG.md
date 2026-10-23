@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 283 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 284 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **510 of 1366** reach for source text through `source_scan`, `code_only`
+Driven, **511 of 1367** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 510 is a FLOOR and the honest shape is
+source scan that rule does not see, so 511 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -29545,3 +29545,37 @@ font gained `+`, `%` and `,`, and `plain` spells `±` as `+/-`. A test checks
 that every character a Duel card draws is in the font.
 
 **Mutation round:** 17 mutants, 17 killed. Stacked on the Pi slice, which had bumped `pi-duel.js` to v=10 too, the share slice serves it as v=11: two different files under one version would leave one of them stale in a cache.
+
+## AVALANCHE C-CHAIN IS THE FIFTH INDEPENDENCE GROUP, AND IT STAYS OUT OF THE REGISTRY UNTIL THE FLAG IS ON
+
+23 October 2026. The day's seal root can be anchored on Avalanche C-Chain the
+same way it is anchored on Base: a zero-value self-send whose calldata is
+`RCROOT1:<day>:<root>`. The chain id is 43114. Both public readers
+(`https://api.avax.network/ext/bc/C/rpc` and
+`https://avalanche-c-chain-rpc.publicnode.com`) answered `eth_chainId`
+`0xa86a` that day, and they are the same two `app/lib/erc8004.js` already
+uses for a registration there. A test holds the two lists equal.
+`docs/ANCHORS.md` describes every anchor. The guard test is
+`app/test/a_day_is_anchored_on_avalanche.test.js`.
+
+**The server still never signs.** The plan is the Base plan pointed at chain
+43114. There is no Avalanche key, no signer and no send path. The wallet's
+owner signs. `tools/rcverify.js` checks the calldata on Avalanche's own
+endpoint and counts the group `avalanche` from its own table. It does not
+read the flag: a verifier that waited on the publisher's switch would be
+checking the publisher.
+
+**Off until `AVALANCHE_ANCHOR_ENABLED` is set.** Unset, the chain is not in
+the registry, so the public list, the plan and a submit do not offer it.
+The target for turning it on is 5 November 2026. The flag does not turn
+itself on that day. The privacy section signed on 22 October does not yet
+name Avalanche, so the public site stays on the signed text until that
+section is updated and the owner records a new digest. A recorded anchor
+after the flag is turned back off reads as a chain this build does not
+know, and it is not counted.
+
+**Its own group.** Base, the EAS stamps, Bitcoin, Dogecoin and Solana are
+the four groups that already count. Avalanche runs Snowman, so it does not
+join `ethereum-l2`. It is the fifth. The measured cost of one anchor that
+day was 25669 gas at 2.5 gwei, about 0.000064 AVAX, paid by the wallet. The
+server pays nothing.
