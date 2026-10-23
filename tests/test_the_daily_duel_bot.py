@@ -278,7 +278,7 @@ def test_build_app_registers_the_duel_and_the_digest_and_not_a_mini_app():
                 patterns.append(h.pattern.pattern)
     assert cmds == {
         "start", "help", "duel", "result", "streak", "leaderboard",
-        "watch", "digest", "stop",
+        "watch", "digest", "stop", "panic",
     }
     assert patterns == [r"^dd:"]
     assert "WebAppInfo" not in SRC
