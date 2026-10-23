@@ -14,7 +14,7 @@ contract FixedPrecompile {
         bytes memory out = abi.encode(
             words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]
         );
-        assembly {
+        assembly ("memory-safe") {
             return(add(out, 0x20), 256)
         }
     }

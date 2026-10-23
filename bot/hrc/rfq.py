@@ -1,9 +1,10 @@
 """A supplier quote as a fraction of notional.
 
-The fair value, if the trailing mean persists, is max(0, mean − strike)
-times hours / 8760. That is a rate, not a dollar premium. An unreadable
-mean or an unreadable strike is an unreadable quote, not a quote of zero.
-There is no volatility model behind it.
+The primary series is a cap spread. If the trailing mean persists, the
+fair value is max(0, min(mean, 0.40) − strike) times hours / 8760. That is
+a rate, not a dollar premium. An unreadable mean or an unreadable strike
+is an unreadable quote, not a quote of zero. There is no volatility model
+behind it.
 """
 
 from __future__ import annotations
@@ -12,18 +13,28 @@ from decimal import Decimal
 from typing import Optional
 
 from bot.caps.strictest import effective_cap
-from bot.hrc.model import HOURS_PER_YEAR, carry_strike, collateral_for, hour_payoff
+from bot.hrc.model import (
+    DEFAULT_SPREAD_CEIL,
+    KIND_CAP,
+    KIND_SPREAD,
+    accrual_per_unit,
+    carry_strike,
+    collateral_for_series,
+)
 
 
 def premium_fraction(
     mean: Optional[Decimal],
     strike: Optional[Decimal],
     hours: Optional[int],
+    ceil: Optional[Decimal] = None,
 ) -> Optional[Decimal]:
-    """max(0, mean − strike) × hours / 8760.
+    """max(0, min(mean, ceiling) − strike) × hours / 8760.
 
-    None when the mean or the strike was not read. A mean at or under the
-    strike is a measured premium of zero.
+    ``ceil`` defaults to no ceiling other than the curve's own 100%, which
+    is the cap. The primary series passes the 40% spread ceiling. None when
+    the mean or the strike was not read. A mean at or under the strike is a
+    measured premium of zero.
     """
     if mean is None or strike is None:
         return None
@@ -31,10 +42,11 @@ def premium_fraction(
         return None
     if type(hours) is not int or hours < 0:
         return None
-    gap = mean - strike
-    if gap < 0:
-        gap = Decimal(0)
-    return gap * Decimal(hours) / HOURS_PER_YEAR
+    kind = KIND_CAP if ceil is None else KIND_SPREAD
+    per = accrual_per_unit(kind, mean, strike, ceil)
+    if per is None:
+        return None
+    return per * Decimal(hours)
 
 
 def quote_for(
@@ -63,11 +75,13 @@ def quote_for(
     used = strike
     if funding is not None or delta is not None:
         used = carry_strike(funding, delta)
-    frac = premium_fraction(mean, used, hours if type(hours) is int else None)
-    units = hour_payoff(10**18, mean, used)
+    span = hours if type(hours) is int else None
+    frac = premium_fraction(mean, used, span, DEFAULT_SPREAD_CEIL)
+    per = accrual_per_unit(KIND_SPREAD, mean, used, DEFAULT_SPREAD_CEIL)
+    units = None if per is None else int(Decimal(10**18) * per)
     if units is not None and frac is None:
         return {"premium": None, "reason": "unreadable"}
-    coll = collateral_for(10**18, used, hours if type(hours) is int else None)
+    coll = collateral_for_series(KIND_SPREAD, 10**18, used, span, DEFAULT_SPREAD_CEIL)
     coll_frac = None if coll is None else Decimal(coll) / Decimal(10**18)
     out: dict = {"premium": frac, "collateral_fraction": coll_frac}
     if frac is None:

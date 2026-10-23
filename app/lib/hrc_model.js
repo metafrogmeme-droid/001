@@ -71,6 +71,7 @@ const RATE_CAP = parseDec('1');
 const TOLERANCE = parseDec('0.000575');
 const HOURS = parseDec('8760');
 const CAP_HIT = parseDec('0.98');
+const SPREAD_CEIL = parseDec('0.40');
 const SHOCK_RATE = parseDec('0.525');
 const DAY = parseDec('24');
 const HUNDRED = parseDec('100');
@@ -168,7 +169,7 @@ function percentTenth(utilization) {
 }
 
 module.exports = {
-  BASE, KINK, SLOPE, RATE_CAP, TOLERANCE, HOURS, CAP_HIT, SHOCK_RATE, DAY, HUNDRED, ZERO,
+  BASE, KINK, SLOPE, RATE_CAP, TOLERANCE, HOURS, CAP_HIT, SPREAD_CEIL, SHOCK_RATE, DAY, HUNDRED, ZERO,
   isDec, parseDec, fromInt, fmt, add, sub, mul, div, cmp,
   borrowApy, utilizationOf, borrowApyMatchingFunding, utilizationForBorrowApy,
   crossoverUtilization, quoteMatches, trailingMean, chooseSettlement, percentTenth,

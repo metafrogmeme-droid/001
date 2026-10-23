@@ -5,15 +5,26 @@ pragma solidity 0.8.37;
 /// @notice Fully collateralized hourly caps on Hyperliquid's USDC borrow
 ///         rate. Positions are records. They move only when the immutable
 ///         `transfersEnabled` flag this deployment was constructed with is
-///         true. There is no key that can move somebody else's collateral.
+///         true. Seller collateral sits in this contract. Nothing here
+///         supplies it into Hyperliquid lending.
 ///
-///         The rate source is precompile 0x812, verified against Hyperliquid's
-///         L1Read.sol: eight uint64 words, ABI-encoded, integer basis points
-///         and raw token units. It is the current reserve, so a past hour is
-///         never read from it. The fallback is this market's own 2-of-3 feed.
-///         When the two disagree by more than the truncation tolerance, the
-///         hour settles at the lower rate. When neither is available the hour
-///         pays 0 and the rate is not recorded as a measurement.
+///         Kind 0 is a cap (ceiling 100%). Kind 1 is a cap spread, the
+///         primary series, ceiling 40% when the caller passes 0. Kind 2 is
+///         a carry-flip digital: it pays D when the six-hour mean is above
+///         the strike. The rate is 0.05 + 4.75 * max(0, u - 0.8), checked
+///         against borrowYearlyRateBps from precompile 0x812 (token 0, the
+///         eight uint64 words in L1Read.sol). A quote outside the truncation
+///         tolerance freezes the series. A gap of more than two hours
+///         freezes it. A base rate that is no longer 5% below the kink
+///         freezes it as a model change. The guardian may unfreeze after two
+///         good hours, and only inside 24 hours. After that the series
+///         settles at the last good hour.
+///
+///         The current hour may be read from 0x812 by anyone. A past hour
+///         uses this market's own 2-of-3 feed. When both exist and they
+///         differ by more than the tolerance, the hour keeps the lower rate.
+///         When neither exists, that hour pays 0 and is not stored as a
+///         measured 0% rate.
 interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
@@ -22,24 +33,46 @@ interface IERC20 {
 
 contract KinkCapMarket {
     uint256 public constant CHAIN_ID = 998;
-    /// Precompile 0x812. Not a configurable reader.
     address public constant PRECOMPILE = address(uint160(0x812));
+    address public constant L1_BLOCK = address(uint160(0x809));
+    uint256 public constant TOKEN_INDEX = 0;
 
     uint256 public constant WAD = 1e18;
     uint256 public constant BASE = 0.05e18;
     uint256 public constant KINK = 0.8e18;
-    /// (4.75 + 1) / 10000, in wad. One floored basis point of utilization
-    /// moves the rate by the slope, and the rate word is floored again.
+    /// (4.75 + 1) / 10000, in wad. A few basis points: one floored basis
+    /// point of utilization, times the slope, plus one floored basis point
+    /// on the rate word.
     uint256 public constant TOLERANCE = 575e12;
     uint256 public constant HOURS_PER_YEAR = 8760;
     uint256 public constant TRAILING = 6;
-    /// Documented USDC borrow cap, raw token units (1e8 per token).
-    uint256 public constant BORROW_CAP = 500_000_000 * 10**8;
-    /// Design choice: a cap-hit hour pays at 98% of that cap.
-    uint256 public constant CAP_HIT_NUM = 98;
-    uint256 public constant CAP_HIT_DEN = 100;
+    uint256 public constant BPS = 10000;
+    uint256 public constant BASE_BPS = 500;
+    uint256 public constant KINK_BPS = 8000;
+    uint256 public constant CAP_CEIL_BPS = 10000;
+    uint256 public constant DEFAULT_CEIL_BPS = 4000;
+    uint256 public constant GAP_HOURS = 2;
+    uint256 public constant UNFREEZE_GOOD = 2;
+    uint256 public constant UNFREEZE_WINDOW = 24;
+
+    uint8 public constant STATE_OPEN = 0;
+    uint8 public constant STATE_ACTIVE = 1;
+    uint8 public constant STATE_FROZEN = 2;
+    uint8 public constant STATE_SETTLED = 3;
+    uint8 public constant KIND_CAP = 0;
+    uint8 public constant KIND_SPREAD = 1;
+    uint8 public constant KIND_DIGITAL = 2;
+    uint8 public constant FREEZE_FORMULA = 0;
+    uint8 public constant FREEZE_GAP = 1;
+    uint8 public constant FREEZE_MODEL = 2;
+    /// Internal classifier codes. Zero is the only success, so a formula
+    /// failure cannot share it with the event's formula reason.
+    uint8 private constant FAIL_FORMULA = 1;
+    uint8 private constant FAIL_GAP = 2;
+    uint8 private constant FAIL_MODEL = 3;
 
     bytes32 public constant TAG = keccak256("HRCFeed.v1");
+    bytes32 public constant MODEL = keccak256("HRCModel.v1");
     bytes32 public constant SRC_CGC = keccak256("CGC");
     bytes32 public constant SRC_RXB = keccak256("RXB");
     bytes32 public constant SRC_T2C = keccak256("T2C");
@@ -52,23 +85,36 @@ contract KinkCapMarket {
     error TransfersDisabled();
 
     IERC20 public immutable collateralToken;
-    uint64 public immutable usdcTokenIndex;
     bool public immutable transfersEnabled;
+    address public immutable guardian;
 
     address[3] public feedSigners;
-    /// Post-quantum public keys, stored beside each signer. Not verified.
     bytes32[3] public pqSlots;
 
     struct Series {
-        bool exists;
+        uint64 strikeBps;
+        uint64 ceilBps;
+        uint64 startHour;
+        uint64 endHour;
         uint8 kind;
-        uint256 strikeOrDeltaWad;
-        uint256 digitalPerHour;
-        uint256 startHour;
-        uint256 duration;
-        uint256 nextHour;
-        uint256 oi;
-        uint256 perAddressCap;
+        uint256 maxNotional;
+        uint256 notional;
+        uint8 state;
+    }
+
+    struct Sample {
+        uint64 hourId;
+        uint64 utilBps;
+        uint64 rateBps;
+        uint64 l1Block;
+    }
+
+    struct Life {
+        uint64 nextHour;
+        uint64 frozenAt;
+        uint64 lastGoodHour;
+        bool hasLastGood;
+        uint8 freezeReason;
     }
 
     struct Position {
@@ -80,16 +126,7 @@ contract KinkCapMarket {
         uint256 claim;
         uint256 pairId;
         bool open;
-    }
-
-    struct Settled {
-        bool done;
-        bool hadRate;
-        bool fundingKnown;
-        uint8 source;
-        uint256 rateWad;
-        uint256 borrowed;
-        uint256 fundingWad;
+        uint64 startHour;
     }
 
     struct Proposal {
@@ -116,33 +153,50 @@ contract KinkCapMarket {
 
     uint256 public seriesCount;
     uint256 public positionCount;
+    bool public marketFrozen;
+    uint64 public marketFrozenAt;
+    uint8 public marketFreezeReason;
+    bool public hasLastHour;
+    uint64 public lastHour;
+
     mapping(uint256 => Series) public series;
+    mapping(uint256 => Life) public life;
+    mapping(uint256 => uint32) public digitalBps;
+    mapping(uint256 => uint256) public perAddressCap;
     mapping(uint256 => Position) public positions;
-    mapping(uint256 => Settled) private _settled;
+    mapping(uint64 => Sample) public samples;
+    mapping(uint64 => bool) public sampleRecorded;
+    mapping(uint64 => bool) public sampleGood;
+    mapping(uint64 => bool) public sampleFromPrecompile;
+    mapping(uint64 => bool) public sampleL1Known;
     mapping(uint256 => mapping(bytes32 => Proposal)) public proposals;
     mapping(bytes32 => address) public sourceAuthority;
     mapping(uint256 => uint256) public seriesCollateral;
     mapping(uint256 => uint256) public seriesOwed;
     mapping(uint256 => mapping(address => uint256)) public mintedTo;
     mapping(uint256 => uint256[]) private _seriesPositions;
+    uint256[] public liveSeries;
 
-    event SeriesOpened(uint256 indexed seriesId, uint8 kind, uint256 maxNotional, uint256 startHour, uint256 duration);
-    event PositionOpened(
+    event SeriesCreated(
         uint256 indexed seriesId,
-        uint256 longId,
-        uint256 shortId,
-        address longHolder,
-        address shortHolder,
+        uint8 kind,
+        uint64 strikeBps,
+        uint64 ceilBps,
+        uint64 startHour,
+        uint64 endHour,
+        uint256 maxNotional
+    );
+    event Minted(
+        uint256 indexed seriesId,
+        uint256 indexed positionId,
+        address indexed longHolder,
         uint256 notional,
         uint256 collateral
     );
-    event HourSettled(
-        uint256 indexed seriesId,
-        uint256 indexed hour,
-        bool hadRate,
-        uint8 source,
-        uint256 rateWad
-    );
+    event Sampled(uint64 indexed hourId, uint64 utilBps, uint64 rateBps, uint64 l1Block, bool fromPrecompile);
+    event Accrued(uint256 indexed seriesId, uint64 indexed hourId, uint256 pay);
+    event Frozen(uint256 indexed seriesId, uint64 hourId, uint8 reason);
+    event Settled(uint256 indexed seriesId, uint64 lastGoodHour, bool hadGoodHour, uint256 paid);
     event CapLowered(
         bytes32 indexed source,
         uint256 indexed seriesId,
@@ -156,15 +210,16 @@ contract KinkCapMarket {
 
     constructor(
         address collateral,
-        uint64 usdcIndex,
         address[3] memory signers,
         bool transfers,
-        address[4] memory authorities
+        address[4] memory authorities,
+        address guardian_
     ) {
         if (block.chainid != CHAIN_ID) revert WrongChain();
+        require(guardian_ != address(0), "guardian");
         collateralToken = IERC20(collateral);
-        usdcTokenIndex = usdcIndex;
         transfersEnabled = transfers;
+        guardian = guardian_;
         feedSigners = signers;
         sourceAuthority[SRC_CGC] = authorities[0];
         sourceAuthority[SRC_RXB] = authorities[1];
@@ -178,32 +233,82 @@ contract KinkCapMarket {
         pqSlots[index] = material;
     }
 
-    function openSeries(
+    function createSeries(
         uint8 kind,
-        uint256 strikeOrDeltaWad,
-        uint256 digitalPerHour,
-        uint256 startHour,
-        uint256 duration,
+        uint64 strikeBps,
+        uint64 ceilBps,
+        uint64 startHour,
+        uint64 endHour,
         uint256 maxNotional,
-        uint256 perAddressCap
+        uint256 addressCap,
+        uint32 digital
     ) external returns (uint256 id) {
-        require(kind <= 2, "kind");
-        require(duration > 0, "duration");
-        require(strikeOrDeltaWad <= WAD, "strike");
+        (uint64 ceil, uint32 digitalOut) = _terms(kind, strikeBps, ceilBps, digital);
+        require(endHour > startHour, "hours");
+        require(maxNotional > 0, "max");
+        require(addressCap > 0, "address cap");
+        id = _open(kind, strikeBps, ceil, startHour, endHour, maxNotional, addressCap, digitalOut);
+    }
+
+    function _terms(uint8 kind, uint64 strikeBps, uint64 ceilBps, uint32 digital)
+        internal
+        pure
+        returns (uint64 ceil, uint32 digitalOut)
+    {
+        require(kind <= KIND_DIGITAL, "kind");
+        if (kind == KIND_CAP) {
+            require(strikeBps <= CAP_CEIL_BPS, "strike");
+            return (uint64(CAP_CEIL_BPS), 0);
+        }
+        if (kind == KIND_SPREAD) {
+            ceil = ceilBps == 0 ? uint64(DEFAULT_CEIL_BPS) : ceilBps;
+            require(ceil <= CAP_CEIL_BPS && ceil > strikeBps, "ceil");
+            return (ceil, 0);
+        }
+        require(digital > 0 && digital <= BPS, "digital");
+        require(strikeBps <= CAP_CEIL_BPS, "strike");
+        return (0, digital);
+    }
+
+    function _open(
+        uint8 kind,
+        uint64 strikeBps,
+        uint64 ceil,
+        uint64 startHour,
+        uint64 endHour,
+        uint256 maxNotional,
+        uint256 addressCap,
+        uint32 digital
+    ) internal returns (uint256 id) {
         id = seriesCount++;
+        uint8 state = marketFrozen ? STATE_FROZEN : STATE_OPEN;
         series[id] = Series({
-            exists: true,
-            kind: kind,
-            strikeOrDeltaWad: strikeOrDeltaWad,
-            digitalPerHour: digitalPerHour,
+            strikeBps: strikeBps,
+            ceilBps: ceil,
             startHour: startHour,
-            duration: duration,
-            nextHour: startHour,
-            oi: 0,
-            perAddressCap: perAddressCap
+            endHour: endHour,
+            kind: kind,
+            maxNotional: maxNotional,
+            notional: 0,
+            state: state
         });
+        _life(id, startHour);
+        digitalBps[id] = digital;
+        perAddressCap[id] = addressCap;
         proposals[id][SRC_HRC] = Proposal({exists: true, cap: maxNotional});
-        emit SeriesOpened(id, kind, maxNotional, startHour, duration);
+        liveSeries.push(id);
+        emit SeriesCreated(id, kind, strikeBps, ceil, startHour, endHour, maxNotional);
+        if (state == STATE_FROZEN) emit Frozen(id, marketFrozenAt, marketFreezeReason);
+    }
+
+    function _life(uint256 id, uint64 startHour) internal {
+        life[id] = Life({
+            nextHour: startHour,
+            frozenAt: marketFrozen ? marketFrozenAt : 0,
+            lastGoodHour: 0,
+            hasLastGood: false,
+            freezeReason: marketFrozen ? marketFreezeReason : 0
+        });
     }
 
     function effectiveCap(uint256 seriesId) public view returns (bool any, uint256 cap) {
@@ -219,7 +324,7 @@ contract KinkCapMarket {
     }
 
     function lowerCap(uint256 seriesId, bytes32 source, uint256 proposed) external {
-        require(series[seriesId].exists, "series");
+        require(seriesId < seriesCount, "series");
         require(
             source == SRC_CGC || source == SRC_RXB || source == SRC_T2C || source == SRC_HRC,
             "source"
@@ -234,6 +339,9 @@ contract KinkCapMarket {
         p.exists = true;
         p.cap = proposed;
         (bool anyAfter, uint256 afterCap) = effectiveCap(seriesId);
+        if (anyAfter && afterCap < series[seriesId].maxNotional) {
+            series[seriesId].maxNotional = afterCap;
+        }
         emit CapLowered(
             source,
             seriesId,
@@ -250,18 +358,21 @@ contract KinkCapMarket {
         returns (uint256 longId, uint256 shortId)
     {
         Series storage s = series[seriesId];
-        require(s.exists, "series");
+        require(seriesId < seriesCount, "series");
+        require(s.state == STATE_OPEN || s.state == STATE_ACTIVE, "state");
         require(notional > 0, "notional");
         require(longHolder != address(0), "holder");
-        uint256 end = s.startHour + s.duration;
-        require(s.nextHour < end, "closed");
+        Life storage lived = life[seriesId];
+        uint64 fromHour = lived.nextHour > s.startHour ? lived.nextHour : s.startHour;
+        require(fromHour < s.endHour, "closed");
         (bool any, uint256 cap) = effectiveCap(seriesId);
         require(any, "no cap");
-        require(s.oi + notional <= cap, "cap");
-        require(mintedTo[seriesId][longHolder] + notional <= s.perAddressCap, "address cap");
-        uint256 need = collateralFor(s.kind, s.strikeOrDeltaWad, s.digitalPerHour, notional, end - s.nextHour);
+        require(s.notional + notional <= cap && s.notional + notional <= s.maxNotional, "cap");
+        require(mintedTo[seriesId][longHolder] + notional <= perAddressCap[seriesId], "address cap");
+        uint256 hoursLeft = uint256(s.endHour - fromHour);
+        uint256 need = collateralFor(s.kind, s.strikeBps, s.ceilBps, digitalBps[seriesId], notional, hoursLeft);
         require(collateralToken.transferFrom(msg.sender, address(this), need), "pull");
-        s.oi += notional;
+        s.notional += notional;
         mintedTo[seriesId][longHolder] += notional;
         seriesCollateral[seriesId] += need;
         longId = positionCount++;
@@ -274,7 +385,8 @@ contract KinkCapMarket {
             collateral: 0,
             claim: 0,
             pairId: shortId,
-            open: true
+            open: true,
+            startHour: fromHour
         });
         positions[shortId] = Position({
             holder: msg.sender,
@@ -284,60 +396,133 @@ contract KinkCapMarket {
             collateral: need,
             claim: 0,
             pairId: longId,
-            open: true
+            open: true,
+            startHour: fromHour
         });
         _seriesPositions[seriesId].push(longId);
-        emit PositionOpened(seriesId, longId, shortId, longHolder, msg.sender, notional, need);
+        emit Minted(seriesId, longId, longHolder, notional, need);
     }
 
     function collateralFor(
         uint8 kind,
-        uint256 strikeOrDeltaWad,
-        uint256 digitalPerHour,
+        uint64 strikeBps,
+        uint64 ceilBps,
+        uint32 digital,
         uint256 notional,
         uint256 hours_
     ) public pure returns (uint256) {
         if (hours_ == 0 || notional == 0) return 0;
-        if (kind == 2) return notional * digitalPerHour * hours_;
-        if (strikeOrDeltaWad >= WAD) return 0;
-        uint256 num = notional * (WAD - strikeOrDeltaWad) * hours_;
-        uint256 den = HOURS_PER_YEAR * WAD;
-        return (num + den - 1) / den;
+        if (kind == KIND_DIGITAL) {
+            return _divUp(notional * uint256(digital) * hours_, BPS);
+        }
+        uint256 ceil = kind == KIND_CAP ? CAP_CEIL_BPS : (ceilBps == 0 ? DEFAULT_CEIL_BPS : uint256(ceilBps));
+        if (ceil <= strikeBps) return 0;
+        return _divUp(notional * (ceil - strikeBps) * hours_, BPS * HOURS_PER_YEAR);
     }
 
-    function settleHour(uint256 seriesId, Feed calldata feed) external {
+    /// @notice Permissionless read of precompile 0x812 for token 0, this hour only.
+    function sample() external {
+        uint64 hour = uint64(block.timestamp / 3600);
+        (bool decoded, uint64 utilBps, uint64 rateBps, uint8 fail) = _precompile();
+        (uint64 l1, bool l1Known) = _l1();
+        if (!decoded) return;
+        if (fail != 0) {
+            _reject(hour, l1, l1Known, true, fail);
+            return;
+        }
+        _accept(hour, utilBps, rateBps, l1, l1Known, true);
+    }
+
+    /// @notice A past hour, or the current hour beside the precompile.
+    ///         Two signatures of this market's own three. One is not a feed.
+    function sampleWithFeed(uint64 hour, Feed calldata feed) external {
+        uint64 nowHour = uint64(block.timestamp / 3600);
+        require(hour <= nowHour, "future");
+        (bool feedOk, uint64 feedUtil, uint64 feedRate) = _feed(hour, feed);
+        bool preOk;
+        uint64 preUtil;
+        uint64 preRate;
+        uint8 fail;
+        if (hour == nowHour) {
+            (preOk, preUtil, preRate, fail) = _precompile();
+            if (preOk && fail != 0) {
+                (uint64 l1bad, bool knownBad) = _l1();
+                _reject(hour, l1bad, knownBad, true, fail);
+                return;
+            }
+        }
+        (uint64 l1, bool l1Known) = hour == nowHour ? _l1() : (uint64(0), false);
+        if (preOk && feedOk) {
+            (uint64 utilBps, uint64 rateBps, bool fromPre) = _lower(preUtil, preRate, feedUtil, feedRate);
+            _accept(hour, utilBps, rateBps, l1, l1Known, fromPre);
+            return;
+        }
+        if (preOk) {
+            _accept(hour, preUtil, preRate, l1, l1Known, true);
+            return;
+        }
+        if (feedOk) {
+            _accept(hour, feedUtil, feedRate, l1, l1Known, false);
+            return;
+        }
+        if (!sampleRecorded[hour]) {
+            uint8 gap = _markEmpty(hour, l1, l1Known, false);
+            if (gap != 0) _freezeLive(hour, gap);
+        }
+    }
+
+    function accrue(uint256 seriesId) external {
+        require(seriesId < seriesCount, "series");
         Series storage s = series[seriesId];
-        require(s.exists, "series");
-        uint256 hour = s.nextHour;
-        require(hour < s.startHour + s.duration, "done");
-        _record(seriesId, hour, feed);
-        s.nextHour = hour + 1;
-        seriesOwed[seriesId] += _accrue(seriesId, hour);
-        Settled memory st = _settled[_key(seriesId, hour)];
-        emit HourSettled(seriesId, hour, st.hadRate, st.source, st.rateWad);
+        if (s.state == STATE_FROZEN || s.state == STATE_SETTLED) return;
+        Life storage lived = life[seriesId];
+        uint64 hour = lived.nextHour;
+        if (hour < s.startHour || hour >= s.endHour) {
+            if (hour >= s.endHour) _settle(seriesId);
+            return;
+        }
+        if (!sampleRecorded[hour]) return;
+        if (s.state == STATE_OPEN) s.state = STATE_ACTIVE;
+        uint256 pay = sampleGood[hour] ? _bookPay(seriesId, hour) : 0;
+        if (sampleGood[hour]) {
+            lived.lastGoodHour = hour;
+            lived.hasLastGood = true;
+        }
+        lived.nextHour = hour + 1;
+        emit Accrued(seriesId, hour, pay);
+        if (lived.nextHour == s.endHour) _settle(seriesId);
     }
 
-    function _record(uint256 seriesId, uint256 hour, Feed calldata feed) internal {
-        (bool preOk, uint256 preRate, uint256 preBor) = _precompile(hour);
-        (bool feedOk, uint256 feedRate, uint256 feedBor) = _feed(hour, feed);
-        (bool hadRate, uint8 source, uint256 rate, uint256 borrowed) =
-            _choose(preOk, preRate, preBor, feedOk, feedRate, feedBor);
-        _settled[_key(seriesId, hour)] = Settled({
-            done: true,
-            hadRate: hadRate,
-            fundingKnown: feedOk,
-            source: source,
-            rateWad: rate,
-            borrowed: borrowed,
-            fundingWad: feedOk ? feed.fundingWad : 0
-        });
+    function unfreeze(uint256 seriesId) external {
+        require(msg.sender == guardian, "guardian");
+        Series storage s = series[seriesId];
+        require(seriesId < seriesCount && s.state == STATE_FROZEN, "state");
+        Life storage lived = life[seriesId];
+        uint64 nowHour = uint64(block.timestamp / 3600);
+        require(nowHour <= lived.frozenAt + UNFREEZE_WINDOW, "window");
+        require(_recovered(lived.frozenAt), "hours");
+        s.state = lived.nextHour > s.startHour ? STATE_ACTIVE : STATE_OPEN;
+        if (marketFrozen && marketFrozenAt == lived.frozenAt) marketFrozen = false;
+    }
+
+    function settle(uint256 seriesId) external {
+        require(seriesId < seriesCount, "series");
+        Series storage s = series[seriesId];
+        require(s.state != STATE_SETTLED, "state");
+        Life storage lived = life[seriesId];
+        uint64 nowHour = uint64(block.timestamp / 3600);
+        if (s.state == STATE_FROZEN && nowHour > lived.frozenAt + UNFREEZE_WINDOW) {
+            _settle(seriesId);
+            return;
+        }
+        require(lived.nextHour >= s.endHour, "open");
+        _settle(seriesId);
     }
 
     function redeem(uint256 longId) external {
         Position storage lng = positions[longId];
         require(lng.open && lng.side == 1, "position");
-        Series storage s = series[lng.seriesId];
-        require(s.nextHour == s.startHour + s.duration, "open");
+        require(series[lng.seriesId].state == STATE_SETTLED, "open");
         Position storage sht = positions[lng.pairId];
         uint256 pay = lng.claim;
         require(pay <= sht.collateral, "over");
@@ -367,10 +552,6 @@ contract KinkCapMarket {
         p.holder = to;
     }
 
-    function settledHour(uint256 seriesId, uint256 hour) external view returns (Settled memory) {
-        return _settled[_key(seriesId, hour)];
-    }
-
     function feedDigest(
         uint256 hour,
         uint256 supplied,
@@ -381,29 +562,112 @@ contract KinkCapMarket {
         return keccak256(abi.encode(TAG, block.chainid, hour, supplied, borrowed, rateBps, fundingWad));
     }
 
-    function expWad(uint256 x) public pure returns (uint256) {
-        uint256 sum = WAD;
-        uint256 term = WAD;
-        for (uint256 i = 1; i <= 12; i++) {
-            term = term * x / WAD / i;
-            sum += term;
+    function previewMean(uint64 hour) external view returns (bool ok, uint256 meanBps) {
+        return _mean(hour);
+    }
+
+    function _accept(uint64 hour, uint64 utilBps, uint64 rateBps, uint64 l1, bool l1Known, bool fromPre) internal {
+        uint8 gap = _gap(hour);
+        if (sampleGood[hour]) {
+            uint256 stored = samples[hour].rateBps;
+            uint256 gapW = _gapWad(stored * WAD / BPS, uint256(rateBps) * WAD / BPS);
+            if (gapW <= TOLERANCE) {
+                if (fromPre && !sampleFromPrecompile[hour]) {
+                    _write(hour, utilBps, rateBps, l1, l1Known, true);
+                }
+            } else if (rateBps < stored) {
+                _write(hour, utilBps, rateBps, l1, l1Known, fromPre);
+            }
+        } else {
+            _write(hour, utilBps, rateBps, l1, l1Known, fromPre);
         }
-        return sum;
+        _touchHour(hour);
+        if (gap != 0) _freezeLive(hour, gap);
     }
 
-    function previewCarryStrike(uint256 fundingWad, uint256 deltaWad) public pure returns (uint256) {
-        return _carryStrike(fundingWad, deltaWad);
+    function _reject(uint64 hour, uint64 l1, bool l1Known, bool fromPre, uint8 reason) internal {
+        if (!sampleGood[hour]) _markEmpty(hour, l1, l1Known, fromPre);
+        else _touchHour(hour);
+        _freezeLive(hour, reason);
     }
 
-    function formulaRate(uint256 supplied, uint256 borrowed) public pure returns (bool ok, uint256 rate) {
-        return _formula(supplied, borrowed);
+    function _write(uint64 hour, uint64 utilBps, uint64 rateBps, uint64 l1, bool l1Known, bool fromPre) internal {
+        samples[hour] = Sample({hourId: hour, utilBps: utilBps, rateBps: rateBps, l1Block: l1Known ? l1 : 0});
+        sampleRecorded[hour] = true;
+        sampleGood[hour] = true;
+        sampleFromPrecompile[hour] = fromPre;
+        sampleL1Known[hour] = l1Known;
+        emit Sampled(hour, utilBps, rateBps, l1Known ? l1 : 0, fromPre);
     }
 
-    function _accrue(uint256 seriesId, uint256 hour) internal returns (uint256 added) {
+    function _markEmpty(uint64 hour, uint64 l1, bool l1Known, bool fromPre) internal returns (uint8 gap) {
+        sampleRecorded[hour] = true;
+        sampleGood[hour] = false;
+        sampleFromPrecompile[hour] = fromPre;
+        sampleL1Known[hour] = l1Known;
+        samples[hour].hourId = hour;
+        samples[hour].utilBps = 0;
+        samples[hour].rateBps = 0;
+        samples[hour].l1Block = l1Known ? l1 : 0;
+        gap = _gap(hour);
+        _touchHour(hour);
+    }
+
+    function _touchHour(uint64 hour) internal {
+        if (!hasLastHour || hour > lastHour) {
+            hasLastHour = true;
+            lastHour = hour;
+        }
+    }
+
+    function _gap(uint64 hour) internal view returns (uint8) {
+        if (hasLastHour && hour > lastHour + GAP_HOURS) return FAIL_GAP;
+        return 0;
+    }
+
+    function _eventReason(uint8 fail) internal pure returns (uint8) {
+        if (fail == FAIL_GAP) return FREEZE_GAP;
+        if (fail == FAIL_MODEL) return FREEZE_MODEL;
+        return FREEZE_FORMULA;
+    }
+
+    function _freezeLive(uint64 hour, uint8 fail) internal {
+        uint8 reason = _eventReason(fail);
+        marketFrozen = true;
+        marketFrozenAt = hour;
+        marketFreezeReason = reason;
+        uint256 n = liveSeries.length;
+        for (uint256 i = 0; i < n; i++) {
+            uint256 id = liveSeries[i];
+            Series storage s = series[id];
+            if (s.state == STATE_SETTLED) continue;
+            bool changed = s.state != STATE_FROZEN || life[id].frozenAt != hour || life[id].freezeReason != reason;
+            s.state = STATE_FROZEN;
+            life[id].frozenAt = hour;
+            life[id].freezeReason = reason;
+            if (changed) emit Frozen(id, hour, reason);
+        }
+    }
+
+    function _recovered(uint64 frozenAt) internal view returns (bool) {
+        uint64 first = frozenAt + 1;
+        uint64 second = frozenAt + 2;
+        return sampleGood[first] && sampleGood[second];
+    }
+
+    function _settle(uint256 seriesId) internal {
+        Series storage s = series[seriesId];
+        if (s.state == STATE_SETTLED) return;
+        s.state = STATE_SETTLED;
+        Life storage lived = life[seriesId];
+        emit Settled(seriesId, lived.lastGoodHour, lived.hasLastGood, seriesOwed[seriesId]);
+    }
+
+    function _bookPay(uint256 seriesId, uint64 hour) internal returns (uint256 added) {
         uint256[] storage ids = _seriesPositions[seriesId];
         for (uint256 i = 0; i < ids.length; i++) {
             Position storage lng = positions[ids[i]];
-            if (!lng.open || lng.side != 1) continue;
+            if (!lng.open || lng.side != 1 || hour < lng.startHour) continue;
             Position storage sht = positions[lng.pairId];
             uint256 pay = _hourPay(seriesId, hour, lng.notional);
             uint256 room = sht.collateral - lng.claim;
@@ -411,105 +675,91 @@ contract KinkCapMarket {
             lng.claim += pay;
             added += pay;
         }
+        seriesOwed[seriesId] += added;
     }
 
-    function _hourPay(uint256 seriesId, uint256 hour, uint256 notional) internal view returns (uint256) {
+    function _hourPay(uint256 seriesId, uint64 hour, uint256 notional) internal view returns (uint256) {
+        (bool ok, uint256 mean) = _mean(hour);
+        if (!ok) return 0;
         Series storage s = series[seriesId];
-        Settled memory cur = _settled[_key(seriesId, hour)];
-        if (s.kind == 2) {
-            if (!cur.hadRate) return 0;
-            if (cur.borrowed * CAP_HIT_DEN < BORROW_CAP * CAP_HIT_NUM) return 0;
-            return notional * s.digitalPerHour;
+        if (s.kind == KIND_DIGITAL) {
+            if (mean <= s.strikeBps) return 0;
+            return notional * uint256(digitalBps[seriesId]) / BPS;
         }
-        if (hour < s.startHour + (TRAILING - 1)) return 0;
+        uint256 capped = mean > s.ceilBps ? s.ceilBps : mean;
+        if (capped <= s.strikeBps) return 0;
+        return notional * (capped - s.strikeBps) / BPS / HOURS_PER_YEAR;
+    }
+
+    function _mean(uint64 hour) internal view returns (bool ok, uint256 meanBps) {
+        if (uint256(hour) + 1 < TRAILING) return (false, 0);
         uint256 sum;
         for (uint256 i = 0; i < TRAILING; i++) {
-            Settled memory st = _settled[_key(seriesId, hour - (TRAILING - 1) + i)];
-            if (!st.hadRate) return 0;
-            sum += st.rateWad;
+            uint64 at = hour - uint64(TRAILING - 1 - i);
+            if (!sampleGood[at]) return (false, 0);
+            sum += samples[at].rateBps;
         }
-        uint256 mean = sum / TRAILING;
-        uint256 strike = s.strikeOrDeltaWad;
-        if (s.kind == 1) {
-            if (!cur.fundingKnown) return 0;
-            strike = _carryStrike(cur.fundingWad, s.strikeOrDeltaWad);
-        }
-        if (mean <= strike) return 0;
-        return notional * (mean - strike) / HOURS_PER_YEAR / WAD;
+        return (true, sum / TRAILING);
     }
 
-    function _carryStrike(uint256 fundingWad, uint256 deltaWad) internal pure returns (uint256) {
-        if (fundingWad >= 0.7e18) return WAD;
-        uint256 e = expWad(fundingWad);
-        uint256 matched = e > WAD ? e - WAD : 0;
-        uint256 strike = matched + deltaWad;
-        if (strike > WAD) return WAD;
-        return strike;
+    function _lower(uint64 preUtil, uint64 preRate, uint64 feedUtil, uint64 feedRate)
+        internal
+        pure
+        returns (uint64 utilBps, uint64 rateBps, bool fromPre)
+    {
+        uint256 gap = _gapWad(uint256(preRate) * WAD / BPS, uint256(feedRate) * WAD / BPS);
+        if (gap <= TOLERANCE || preRate <= feedRate) return (preUtil, preRate, true);
+        return (feedUtil, feedRate, false);
     }
 
-    function _choose(
-        bool preOk,
-        uint256 preRate,
-        uint256 preBor,
-        bool feedOk,
-        uint256 feedRate,
-        uint256 feedBor
-    ) internal pure returns (bool hadRate, uint8 source, uint256 rate, uint256 borrowed) {
-        if (preOk && feedOk) {
-            uint256 gap = preRate > feedRate ? preRate - feedRate : feedRate - preRate;
-            if (gap <= TOLERANCE) {
-                source = 1;
-                rate = preRate;
-            } else if (preRate <= feedRate) {
-                source = 3;
-                rate = preRate;
-            } else {
-                source = 3;
-                rate = feedRate;
-            }
-            borrowed = preBor < feedBor ? preBor : feedBor;
-            hadRate = true;
-        } else if (preOk) {
-            hadRate = true;
-            source = 1;
-            rate = preRate;
-            borrowed = preBor;
-        } else if (feedOk) {
-            hadRate = true;
-            source = 2;
-            rate = feedRate;
-            borrowed = feedBor;
-        }
+    function _gapWad(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a - b : b - a;
     }
 
-    function _precompile(uint256 hour) internal view returns (bool ok, uint256 rate, uint256 borrowed) {
-        if (hour != block.timestamp / 3600) return (false, 0, 0);
-        (bool success, bytes memory ret) = PRECOMPILE.staticcall(abi.encode(uint256(usdcTokenIndex)));
-        if (!success || ret.length != 256) return (false, 0, 0);
-        uint256 supplied = _word(ret, 6);
-        borrowed = _word(ret, 7);
-        uint256 rateBps = _word(ret, 0);
+    function _precompile() internal view returns (bool decoded, uint64 utilBps, uint64 rateBps, uint8 fail) {
+        (bool success, bytes memory ret) = PRECOMPILE.staticcall(abi.encode(TOKEN_INDEX));
+        if (!success || ret.length != 256) return (false, 0, 0, 0);
+        return _classify(ret);
+    }
+
+    function _classify(bytes memory ret) internal pure returns (bool decoded, uint64 utilBps, uint64 rateBps, uint8 fail) {
+        uint256 quoted = _word(ret, 0);
         uint256 utilWord = _word(ret, 3);
-        if (supplied == 0 || supplied >= 2**64 || borrowed >= 2**64 || rateBps >= 2**64 || utilWord >= 2**64) {
-            return (false, 0, 0);
+        uint256 supplied = _word(ret, 6);
+        uint256 borrowed = _word(ret, 7);
+        if (supplied == 0 || supplied >= 2**64 || borrowed >= 2**64 || quoted >= 2**64 || utilWord >= 2**64) {
+            return (true, 0, 0, FAIL_FORMULA);
         }
-        if (borrowed * 10000 / supplied != utilWord) return (false, 0, 0);
-        if (!_quoteOk(supplied, borrowed, rateBps)) return (false, 0, 0);
-        (, rate) = _formula(supplied, borrowed);
-        ok = true;
+        if (quoted > BPS || borrowed * BPS / supplied != utilWord) return (true, 0, 0, FAIL_FORMULA);
+        (bool ok, uint256 formula) = _formula(supplied, borrowed);
+        if (!ok) return (true, 0, 0, FAIL_FORMULA);
+        if (_gapWad(formula, quoted * WAD / BPS) > TOLERANCE) {
+            return (true, 0, 0, utilWord <= KINK_BPS ? FAIL_MODEL : FAIL_FORMULA);
+        }
+        return (true, uint64(utilWord), uint64(formula * BPS / WAD), 0);
     }
 
-    function _feed(uint256 hour, Feed calldata feed) internal view returns (bool ok, uint256 rate, uint256 borrowed) {
-        if (!feed.present) return (false, 0, 0);
-        if (feed.supplied == 0 || !_quoteOk(feed.supplied, feed.borrowed, feed.rateBps)) return (false, 0, 0);
+    function _l1() internal view returns (uint64 blockNo, bool known) {
+        (bool success, bytes memory ret) = L1_BLOCK.staticcall("");
+        if (!success || ret.length < 32) return (0, false);
+        uint256 word = abi.decode(ret, (uint256));
+        if (word >= 2**64) return (0, false);
+        return (uint64(word), true);
+    }
+
+    function _feed(uint64 hour, Feed calldata feed) internal view returns (bool ok, uint64 utilBps, uint64 rateBps) {
+        if (!feed.present || feed.supplied == 0) return (false, 0, 0);
+        if (feed.supplied >= 2**64 || feed.borrowed >= 2**64 || feed.rateBps > BPS) return (false, 0, 0);
+        uint256 utilWord = feed.borrowed * BPS / feed.supplied;
+        (bool formulaOk, uint256 formula) = _formula(feed.supplied, feed.borrowed);
+        if (!formulaOk) return (false, 0, 0);
+        if (_gapWad(formula, feed.rateBps * WAD / BPS) > TOLERANCE) return (false, 0, 0);
         bytes32 digest = feedDigest(hour, feed.supplied, feed.borrowed, feed.rateBps, feed.fundingWad);
         address a = _recover(digest, feed.v0, feed.r0, feed.s0);
         address b = _recover(digest, feed.v1, feed.r1, feed.s1);
         address c = _recover(digest, feed.v2, feed.r2, feed.s2);
         if (_distinct(a, b, c) < 2) return (false, 0, 0);
-        (, rate) = _formula(feed.supplied, feed.borrowed);
-        borrowed = feed.borrowed;
-        ok = true;
+        return (true, uint64(utilWord), uint64(formula * BPS / WAD));
     }
 
     function _distinct(address a, address b, address c) internal view returns (uint256 n) {
@@ -529,14 +779,6 @@ contract KinkCapMarket {
         return ecrecover(digest, v, r, s);
     }
 
-    function _quoteOk(uint256 supplied, uint256 borrowed, uint256 rateBps) internal pure returns (bool) {
-        (bool ok, uint256 rate) = _formula(supplied, borrowed);
-        if (!ok || rateBps > 10000) return false;
-        uint256 quoted = rateBps * WAD / 10000;
-        uint256 gap = rate > quoted ? rate - quoted : quoted - rate;
-        return gap <= TOLERANCE;
-    }
-
     function _formula(uint256 supplied, uint256 borrowed) internal pure returns (bool ok, uint256 rate) {
         if (supplied == 0) return (false, 0);
         uint256 u = borrowed * WAD / supplied;
@@ -549,12 +791,13 @@ contract KinkCapMarket {
     }
 
     function _word(bytes memory ret, uint256 i) internal pure returns (uint256 w) {
-        assembly {
+        assembly ("memory-safe") {
             w := mload(add(add(ret, 0x20), mul(i, 0x20)))
         }
     }
 
-    function _key(uint256 seriesId, uint256 hour) internal pure returns (uint256) {
-        return (seriesId << 64) | hour;
+    function _divUp(uint256 num, uint256 den) internal pure returns (uint256) {
+        if (num == 0) return 0;
+        return (num + den - 1) / den;
     }
 }

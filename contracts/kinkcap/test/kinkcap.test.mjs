@@ -5,6 +5,9 @@
  *
  * Chain 998 only. Two signers of this market's own three. Collateral of one
  * series cannot pay another. A missing rate pays 0 and is not stored as 0%.
+ * Kind 0 is a cap, kind 1 is a cap spread (ceiling 40% when unset), kind 2
+ * is a digital. A formula break, a model break, or a gap over two hours
+ * freezes the series.
  */
 import test from 'node:test';
 import assert from 'node:assert';
@@ -27,6 +30,7 @@ const WAD = 10n ** 18n;
 const HOUR = 3600n;
 const CHAIN = 998;
 const PRECOMPILE = '0x0000000000000000000000000000000000000812';
+const L1 = '0x0000000000000000000000000000000000000809';
 
 const alice = '0x' + '11'.repeat(20);
 const bob = '0x' + '22'.repeat(20);
@@ -47,6 +51,7 @@ function compile() {
     'KinkCapMarket.sol': { content: readFileSync(join(ROOT, 'KinkCapMarket.sol'), 'utf8') },
     'test/MockUSDC.sol': { content: readFileSync(join(HERE, 'MockUSDC.sol'), 'utf8') },
     'test/FixedPrecompile.sol': { content: readFileSync(join(HERE, 'FixedPrecompile.sol'), 'utf8') },
+    'test/FixedL1.sol': { content: readFileSync(join(HERE, 'FixedL1.sol'), 'utf8') },
   };
   const out = JSON.parse(solc.compile(JSON.stringify({ language: 'Solidity', sources, settings: SETTINGS })));
   const fatal = (out.errors || []).filter((e) => e.severity === 'error');
@@ -59,6 +64,7 @@ function compile() {
     market: pick('KinkCapMarket.sol', 'KinkCapMarket'),
     token: pick('test/MockUSDC.sol', 'MockUSDC'),
     pre: pick('test/FixedPrecompile.sol', 'FixedPrecompile'),
+    l1: pick('test/FixedL1.sol', 'FixedL1'),
   };
 }
 
@@ -66,6 +72,7 @@ const BUILT = compile();
 const marketIface = new Interface(BUILT.market.abi);
 const tokenIface = new Interface(BUILT.token.abi);
 const preIface = new Interface(BUILT.pre.abi);
+const l1Iface = new Interface(BUILT.l1.abi);
 const coder = AbiCoder.defaultAbiCoder();
 
 function header(timestamp) {
@@ -153,8 +160,8 @@ async function setup(chainId = CHAIN, transfers = false) {
   const token = await deploy(BUILT.token.bytecode);
   const pre = await deploy(BUILT.pre.bytecode);
   const args = coder.encode(
-    ['address', 'uint64', 'address[3]', 'bool', 'address[4]'],
-    [token, 0, signers.map((w) => w.address), transfers, [carol, ZERO, bob, alice]],
+    ['address', 'address[3]', 'bool', 'address[4]', 'address'],
+    [token, signers.map((w) => w.address), transfers, [carol, ZERO, bob, alice], carol],
   );
   let market = null;
   const created = await send(alice, undefined, concat([BUILT.market.bytecode, args]));
@@ -200,13 +207,47 @@ async function setWords(h, words) {
   await mirror(h.vm, h.pre);
 }
 
-test('the market source keeps 0x812 constant and does not carry the test stand-in', () => {
+const FULL = [10000, 0, 0, 10000, 1, 0, 1000, 1000];
+const BIG = 10n ** 24n;
+
+async function at(h, from, fn, args, hour) {
+  const r = await h.call(from, h.market, marketIface, fn, args, BigInt(hour) * HOUR + 5n);
+  assert.ok(!r.execResult.exceptionError, `${fn} reverted: ${revertName(r.execResult)}`);
+  return r;
+}
+
+async function create(h, kind, strike, ceil, start, end, maxNotional, addressCap, digital = 0) {
+  await at(h, alice, 'createSeries', [kind, strike, ceil, start, end, maxNotional, addressCap, digital], 0);
+  return (await h.read(h.market, marketIface, 'seriesCount', []))[0] - 1n;
+}
+
+async function fund(h, amount) {
+  await h.call(alice, h.token, tokenIface, 'mint', [alice, amount]);
+  await h.call(alice, h.token, tokenIface, 'approve', [h.market, amount]);
+}
+
+function seriesOf(row) {
+  if (row && row.state !== undefined) return row;
+  return row[0];
+}
+
+test('the market source keeps 0x812 and does not call CoreWriter', () => {
   const src = readFileSync(join(ROOT, 'KinkCapMarket.sol'), 'utf8');
   assert.ok(src.includes('address(uint160(0x812))'));
+  assert.ok(src.includes('address(uint160(0x809))'));
   assert.ok(!src.includes('FixedPrecompile'));
+  assert.ok(!src.includes('FixedL1'));
   assert.ok(!src.includes('function setReader'));
+  assert.ok(!src.includes('sendRawAction'));
+  assert.ok(!src.includes('3333333333333333333333333333333333333333'));
   const names = BUILT.market.abi.filter((x) => x.type === 'function').map((x) => x.name);
-  assert.ok(!names.some((n) => /withdraw/i.test(n)));
+  assert.ok(names.includes('sample'));
+  assert.ok(names.includes('createSeries'));
+  assert.ok(!names.some((n) => /withdraw|supply/i.test(n)));
+  const events = BUILT.market.abi.filter((x) => x.type === 'event').map((x) => x.name);
+  for (const name of ['SeriesCreated', 'Minted', 'Sampled', 'Accrued', 'Frozen', 'Settled']) {
+    assert.ok(events.includes(name), name);
+  }
 });
 
 test('chain 999 and chain 1 are refused, and 998 deploys', async () => {
@@ -219,8 +260,10 @@ test('chain 999 and chain 1 are refused, and 998 deploys', async () => {
   assert.ok(h.market);
   assert.equal((await h.read(h.market, marketIface, 'CHAIN_ID', []))[0], 998n);
   assert.equal((await h.read(h.market, marketIface, 'PRECOMPILE', []))[0].toLowerCase(), PRECOMPILE);
-  assert.equal((await h.read(h.market, marketIface, 'usdcTokenIndex', []))[0], 0n);
+  assert.equal((await h.read(h.market, marketIface, 'TOKEN_INDEX', []))[0], 0n);
   assert.equal((await h.read(h.market, marketIface, 'transfersEnabled', []))[0], false);
+  assert.equal((await h.read(h.market, marketIface, 'guardian', []))[0].toLowerCase(), carol);
+  assert.equal((await h.read(h.market, marketIface, 'DEFAULT_CEIL_BPS', []))[0], 4000n);
 });
 
 test('a python signature recovers in ethers and matches the contract digest', async () => {
@@ -237,70 +280,61 @@ test('a python signature recovers in ethers and matches the contract digest', as
   assert.equal(got[0], fx.digest);
 });
 
-test('exp of the 0.1095 funding rate stays inside a wad of the series', async () => {
-  const h = await setup();
-  const x = 109500000000000000n;
-  const got = (await h.read(h.market, marketIface, 'expWad', [x]))[0];
-  let term = WAD;
-  let sum = WAD;
-  for (let i = 1n; i <= 32n; i++) {
-    term = term * x / WAD / i;
-    sum += term;
-  }
-  const diff = got > sum ? got - sum : sum - got;
-  assert.ok(diff < 10n ** 10n, `exp gap ${diff}`);
-  const strike = (await h.read(h.market, marketIface, 'previewCarryStrike', [x, 0]))[0];
-  const matched = got - WAD;
-  assert.ok(strike > matched - 10n ** 10n && strike < matched + 10n ** 10n);
-});
-
-test('the truncated mainnet word is accepted and a six-bp gap is not', async () => {
+test('the truncated mainnet word is accepted and a quote past the tolerance freezes', async () => {
   const h = await setup();
   await setWords(h, MAINNET);
-  const id = await open(h, 0, 0, 0, 10, 3, 10n ** 24n, 10n ** 24n);
-  await fund(h, 10n ** 24n);
-  await h.call(alice, h.market, marketIface, 'mint', [id, 8760, bob], 10n * HOUR + 10n);
-  const r = await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], 10n * HOUR + 10n);
-  assert.ok(!r.execResult.exceptionError, revertName(r.execResult));
-  const st = await settled(h, id, 10);
-  assert.equal(st.hadRate, true);
-  assert.equal(st.source, 1n);
-  assert.equal(st.rateWad, 5n * 10n ** 16n);
+  const id = await create(h, 0, 0, 0, 10, 13, BIG, BIG);
+  const sampled = await at(h, mallory, 'sample', [], 10);
+  const ev = h.logsOf(sampled, marketIface, 'Sampled');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].args.fromPrecompile, true);
+  assert.equal(ev[0].args.rateBps, 500n);
+  assert.equal(ev[0].args.utilBps, 7773n);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [10]))[0], true);
+  const row = seriesOf(await h.read(h.market, marketIface, 'series', [id]));
+  assert.equal(row.state, 0n);
+  assert.equal(row.ceilBps, 10000n);
 
   await setWords(h, ABOVE);
-  const r2 = await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], 11n * HOUR + 10n);
-  assert.ok(!r2.execResult.exceptionError, revertName(r2.execResult));
-  const st2 = await settled(h, id, 11);
-  assert.equal(st2.hadRate, true);
-  assert.equal(st2.rateWad, 145470250000000000n);
+  const above = await at(h, mallory, 'sample', [], 11);
+  assert.equal(h.logsOf(above, marketIface, 'Frozen').length, 0);
+  assert.equal((await h.read(h.market, marketIface, 'samples', [11])).rateBps, 1454n);
 
   await setWords(h, [1448, 0, 0, 8200, 1, 0, 1_000_000, 820099]);
-  const r3 = await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], 12n * HOUR + 10n);
-  assert.ok(!r3.execResult.exceptionError, revertName(r3.execResult));
-  const st3 = await settled(h, id, 12);
-  assert.equal(st3.hadRate, false);
-  assert.equal(st3.rateWad, 0n);
-  assert.equal(st3.source, 0n);
-  const ev = h.logsOf(r3, marketIface, 'HourSettled');
-  assert.equal(ev[0].args.hadRate, false);
+  const bad = await at(h, mallory, 'sample', [], 12);
+  const frozen = h.logsOf(bad, marketIface, 'Frozen');
+  assert.equal(frozen.length, 1);
+  assert.equal(frozen[0].args.reason, 0n);
+  assert.equal(h.logsOf(bad, marketIface, 'Sampled').length, 0);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [12]))[0], false);
+  assert.equal((await h.read(h.market, marketIface, 'sampleRecorded', [12]))[0], true);
+  const after = seriesOf(await h.read(h.market, marketIface, 'series', [id]));
+  assert.equal(after.state, 2n);
+});
+
+test('a base rate that is not 5% below the kink is a model change', async () => {
+  const h = await setup();
+  await setWords(h, [800, 0, 0, 5000, 1, 0, 10000, 5000]);
+  const id = await create(h, 1, 500, 0, 4, 8, BIG, BIG);
+  const row = seriesOf(await h.read(h.market, marketIface, 'series', [id]));
+  assert.equal(row.kind, 1n);
+  assert.equal(row.ceilBps, 4000n, 'an unset spread ceiling is 40%');
+  const bad = await at(h, alice, 'sample', [], 4);
+  const frozen = h.logsOf(bad, marketIface, 'Frozen');
+  assert.equal(frozen[0].args.reason, 2n);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [4]))[0], false);
 });
 
 test('two signers settle a past hour, one signer does not, and the lower rate wins', async () => {
   const h = await setup();
-  const id = await open(h, 0, 0, 0, 20, 5, 10n ** 24n, 10n ** 24n);
-  await fund(h, 10n ** 24n);
-  await h.call(alice, h.market, marketIface, 'mint', [id, 8760, bob]);
+  const id = await create(h, 0, 0, 0, 20, 25, BIG, BIG);
   const one = feedFrom(20, 10000, 9000, 5250, 0, [signers[0]]);
-  const past = await h.call(alice, h.market, marketIface, 'settleHour', [id, one], 30n * HOUR);
-  assert.ok(!past.execResult.exceptionError, revertName(past.execResult));
-  let st = await settled(h, id, 20);
-  assert.equal(st.hadRate, false, 'one signer is not a feed');
+  await at(h, alice, 'sampleWithFeed', [20, one], 30);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [20]))[0], false);
 
   const dup = feedFrom(21, 10000, 9000, 5250, 0, [signers[0], signers[0]]);
-  const dupRes = await h.call(alice, h.market, marketIface, 'settleHour', [id, dup], 30n * HOUR);
-  assert.ok(!dupRes.execResult.exceptionError, revertName(dupRes.execResult));
-  st = await settled(h, id, 21);
-  assert.equal(st.hadRate, false, 'a repeated signer counts once');
+  await at(h, alice, 'sampleWithFeed', [21, dup], 30);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [21]))[0], false);
 
   const high = feedFrom(22, 10000, 9000, 5250, 0, [signers[0], signers[1]]);
   const N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141n;
@@ -310,51 +344,46 @@ test('two signers settle a past hour, one signer does not, and the lower rate wi
     high[base] = high[base] === 27 ? 28 : 27;
     high[base + 2] = zeroPadValue('0x' + (N - s).toString(16), 32);
   }
-  const highRes = await h.call(alice, h.market, marketIface, 'settleHour', [id, high], 30n * HOUR);
-  assert.ok(!highRes.execResult.exceptionError, revertName(highRes.execResult));
-  st = await settled(h, id, 22);
-  assert.equal(st.hadRate, false, 'high s is not a signature');
+  await at(h, alice, 'sampleWithFeed', [22, high], 30);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [22]))[0], false);
 
   const ok = feedFrom(23, 10000, 9000, 5250, 0, [signers[0], signers[1]]);
-  const okRes = await h.call(alice, h.market, marketIface, 'settleHour', [id, ok], 30n * HOUR);
-  assert.ok(!okRes.execResult.exceptionError, revertName(okRes.execResult));
-  st = await settled(h, id, 23);
-  assert.equal(st.hadRate, true);
-  assert.equal(st.source, 2n);
-  assert.equal(st.rateWad, 525n * WAD / 1000n);
+  const okRes = await at(h, alice, 'sampleWithFeed', [23, ok], 30);
+  assert.equal(h.logsOf(okRes, marketIface, 'Sampled')[0].args.fromPrecompile, false);
+  assert.equal((await h.read(h.market, marketIface, 'samples', [23])).rateBps, 5250n);
 
   await setWords(h, [500, 0, 0, 5000, 1, 0, 10000, 5000]);
   const both = feedFrom(24, 10000, 9000, 5250, 0, [signers[1], signers[2]]);
-  const mixed = await h.call(alice, h.market, marketIface, 'settleHour', [id, both], 24n * HOUR + 5n);
-  assert.ok(!mixed.execResult.exceptionError, revertName(mixed.execResult));
-  st = await settled(h, id, 24);
-  assert.equal(st.source, 3n);
-  assert.equal(st.rateWad, 5n * 10n ** 16n, 'the lower rate');
+  const mixed = await at(h, alice, 'sampleWithFeed', [24, both], 24);
+  const sampled = h.logsOf(mixed, marketIface, 'Sampled');
+  assert.equal(sampled[0].args.fromPrecompile, true);
+  assert.equal(sampled[0].args.rateBps, 500n);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [id])).state, 0n);
 });
 
 test('neither source pays 0, and a precompile reading is only the current hour', async () => {
   const h = await setup();
   await setWords(h, MAINNET);
-  const id = await open(h, 0, 0, 0, 4, 2, 10n ** 24n, 10n ** 24n);
-  await fund(h, 10n ** 24n);
-  await h.call(alice, h.market, marketIface, 'mint', [id, 8760, bob]);
-  await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], 9n * HOUR);
-  const past = await settled(h, id, 4);
-  assert.equal(past.hadRate, false, 'a past hour does not read the current precompile');
-  await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], 5n * HOUR + 1n);
-  const now = await settled(h, id, 5);
-  assert.equal(now.hadRate, true);
-  assert.equal(now.source, 1n);
-  const next = (await h.read(h.market, marketIface, 'series', [id])).nextHour;
-  assert.equal(next, 6n);
+  const id = await create(h, 0, 0, 0, 4, 6, BIG, BIG);
+  await fund(h, BIG);
+  await at(h, alice, 'mint', [id, 8760n * 10000n, bob], 4);
+  await at(h, alice, 'sampleWithFeed', [4, emptyFeed()], 9);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [4]))[0], false);
+  const accrued = await at(h, alice, 'accrue', [id], 9);
+  assert.equal(h.logsOf(accrued, marketIface, 'Accrued')[0].args.pay, 0n);
+  await at(h, mallory, 'sample', [], 5);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [5]))[0], true);
+  assert.equal((await h.read(h.market, marketIface, 'sampleFromPrecompile', [5]))[0], true);
+  const life = await h.read(h.market, marketIface, 'life', [id]);
+  assert.equal(life.nextHour, 5n);
 });
 
 test('transfers stay off unless the deployment said so, and a mint is not a transfer', async () => {
   const off = await setup();
-  const id = await open(off, 0, WAD, 0, 1, 1, 10n ** 24n, 10n ** 24n);
+  const id = await create(off, 0, 10000, 0, 1, 2, BIG, BIG);
   await fund(off, 1000n);
-  const minted = await off.call(alice, off.market, marketIface, 'mint', [id, 100, bob]);
-  assert.ok(!minted.execResult.exceptionError, revertName(minted.execResult));
+  const minted = await at(off, alice, 'mint', [id, 100, bob], 1);
+  assert.equal(off.logsOf(minted, marketIface, 'Minted').length, 1);
   const moved = await off.call(bob, off.market, marketIface, 'transferPosition', [0, carol]);
   assert.equal(revertName(moved.execResult), 'TransfersDisabled');
   const safe = await off.call(bob, off.market, marketIface, 'safeTransferFrom', [bob, carol, 0]);
@@ -363,83 +392,84 @@ test('transfers stay off unless the deployment said so, and a mint is not a tran
   assert.equal(holder.toLowerCase(), bob);
 
   const on = await setup(CHAIN, true);
-  const id2 = await open(on, 0, WAD, 0, 1, 1, 10n ** 24n, 10n ** 24n);
+  const id2 = await create(on, 0, 10000, 0, 1, 2, BIG, BIG);
   await fund(on, 1000n);
-  await on.call(alice, on.market, marketIface, 'mint', [id2, 100, bob]);
-  const ok = await on.call(bob, on.market, marketIface, 'transferPosition', [0, carol]);
-  assert.ok(!ok.execResult.exceptionError, revertName(ok.execResult));
+  await at(on, alice, 'mint', [id2, 100, bob], 1);
+  const ok = await at(on, bob, 'transferPosition', [0, carol], 1);
+  assert.ok(ok);
   const now = (await on.read(on.market, marketIface, 'positions', [0])).holder;
   assert.equal(now.toLowerCase(), carol);
 });
 
 test('each series keeps its own collateral, and a donation stays put', async () => {
   const h = await setup();
-  const cap = 500_000_000n * 10n ** 8n;
-  await setWords(h, [10000, 0, 0, 10000, 1, 0, cap, cap]);
-  const a = await open(h, 2, 0, 10, 70, 2, 10n ** 24n, 10n ** 24n);
-  const b = await open(h, 0, WAD / 2n, 0, 70, 2, 10n ** 24n, 10n ** 24n);
-  await fund(h, 10n ** 24n);
-  await h.call(alice, h.market, marketIface, 'mint', [a, 1, bob], 70n * HOUR);
-  await h.call(alice, h.market, marketIface, 'mint', [b, 8760, carol], 70n * HOUR);
-  assert.equal((await h.read(h.market, marketIface, 'seriesCollateral', [a]))[0], 20n);
-  assert.equal((await h.read(h.market, marketIface, 'seriesCollateral', [b]))[0], 1n);
+  await setWords(h, FULL);
+  const a = await create(h, 2, 0, 0, 7, 9, BIG, BIG, 100);
+  const b = await create(h, 0, 5000, 0, 7, 9, BIG, BIG);
+  await fund(h, BIG);
+  await at(h, alice, 'mint', [a, 10000, bob], 1);
+  await at(h, alice, 'mint', [b, 8760n * 10000n, carol], 1);
+  assert.equal((await h.read(h.market, marketIface, 'seriesCollateral', [a]))[0], 200n);
+  assert.equal((await h.read(h.market, marketIface, 'seriesCollateral', [b]))[0], 10000n);
   await h.call(alice, h.token, tokenIface, 'mint', [h.market, 7n]);
-  for (let i = 0; i < 2; i++) {
-    const ts = (70n + BigInt(i)) * HOUR + 10n;
-    await h.call(alice, h.market, marketIface, 'settleHour', [a, emptyFeed()], ts);
-    await h.call(alice, h.market, marketIface, 'settleHour', [b, emptyFeed()], ts);
+  for (let hour = 1n; hour <= 8n; hour++) {
+    await at(h, mallory, 'sample', [], hour);
+    if (hour >= 7n) {
+      await at(h, alice, 'accrue', [a], hour);
+      await at(h, alice, 'accrue', [b], hour);
+    }
   }
-  const longA = 0n;
-  const longB = 2n;
   const beforeB = (await h.read(h.market, marketIface, 'seriesCollateral', [b]))[0];
-  const redeemA = await h.call(bob, h.market, marketIface, 'redeem', [longA]);
-  assert.ok(!redeemA.execResult.exceptionError, revertName(redeemA.execResult));
+  const redeemA = await at(h, bob, 'redeem', [0], 8);
+  assert.equal(h.logsOf(redeemA, marketIface, 'Settled').length, 0);
   assert.equal((await h.read(h.market, marketIface, 'seriesCollateral', [b]))[0], beforeB);
-  assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [bob]))[0], 20n);
-  const redeemB = await h.call(carol, h.market, marketIface, 'redeem', [longB]);
-  assert.ok(!redeemB.execResult.exceptionError, revertName(redeemB.execResult));
-  assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [carol]))[0], 0n);
-  assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [alice]))[0], 10n ** 24n - 20n);
+  const bobBal = (await h.read(h.token, tokenIface, 'balanceOf', [bob]))[0];
+  assert.equal(bobBal, 200n);
+  const redeemB = await at(h, carol, 'redeem', [2], 8);
+  assert.ok(redeemB);
   assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [h.market]))[0], 7n);
+  const aliceBal = (await h.read(h.token, tokenIface, 'balanceOf', [alice]))[0];
+  assert.ok(aliceBal < BIG);
 });
 
-test('cap-hit pays in the first hour, and the lower borrowed amount is the one that counts', async () => {
+test('a gap over two hours freezes, two good hours unfreeze, and the window is 24h', async () => {
   const h = await setup();
-  const cap = 500_000_000n * 10n ** 8n;
-  await setWords(h, [500, 0, 0, 5000, 1, 0, cap * 2n, cap]);
-  const id = await open(h, 2, 0, 4, 80, 1, 10n ** 24n, 10n ** 24n);
-  await fund(h, 10n ** 24n);
-  await h.call(alice, h.market, marketIface, 'mint', [id, 3, bob]);
-  await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], 80n * HOUR + 1n);
-  const st = await settled(h, id, 80);
-  assert.equal(st.hadRate, true);
-  await h.call(bob, h.market, marketIface, 'redeem', [0]);
-  assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [bob]))[0], 12n);
+  await setWords(h, MAINNET);
+  const id = await create(h, 1, 1000, 4000, 10, 40, BIG, BIG);
+  await at(h, mallory, 'sample', [], 10);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [id])).state, 0n);
+  await at(h, mallory, 'sample', [], 12);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [id])).state, 0n, 'a two-hour step is inside the gap');
+  const jumped = await at(h, mallory, 'sample', [], 15);
+  assert.equal(h.logsOf(jumped, marketIface, 'Frozen')[0].args.reason, 1n);
+  assert.equal((await h.read(h.market, marketIface, 'sampleGood', [15]))[0], true);
 
-  const quiet = cap * 98n / 100n - 1n;
-  await setWords(h, [500, 0, 0, 5000, 1, 0, quiet * 2n, quiet]);
-  const id2 = await open(h, 2, 0, 4, 81, 1, 10n ** 24n, 10n ** 24n);
-  await h.call(alice, h.market, marketIface, 'mint', [id2, 3, bob]);
-  await h.call(alice, h.market, marketIface, 'settleHour', [id2, emptyFeed()], 81n * HOUR + 1n);
-  await h.call(bob, h.market, marketIface, 'redeem', [2]);
-  assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [alice]))[0], 10n ** 24n - 12n);
+  const early = await h.call(carol, h.market, marketIface, 'unfreeze', [id], 16n * HOUR);
+  assert.ok(early.execResult.exceptionError, 'one good hour is not two');
+  await at(h, mallory, 'sample', [], 16);
+  await at(h, mallory, 'sample', [], 17);
+  const stranger = await h.call(mallory, h.market, marketIface, 'unfreeze', [id], 17n * HOUR);
+  assert.equal(revertName(stranger.execResult), 'guardian');
+  await at(h, carol, 'unfreeze', [id], 17);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [id])).state, 0n);
 
-  await setWords(h, [500, 0, 0, 5000, 1, 0, cap * 2n, cap]);
-  const id3 = await open(h, 2, 0, 4, 82, 1, 10n ** 24n, 10n ** 24n);
-  await h.call(alice, h.market, marketIface, 'mint', [id3, 3, bob]);
-  const low = feedFrom(82, 10n ** 17n, 10n ** 15n, 500, 0, [signers[0], signers[1]]);
-  await h.call(alice, h.market, marketIface, 'settleHour', [id3, low], 82n * HOUR + 1n);
-  const st3 = await settled(h, id3, 82);
-  assert.equal(st3.borrowed, 10n ** 15n);
-  await h.call(bob, h.market, marketIface, 'redeem', [4]);
-  assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [bob]))[0], 12n);
+  await setWords(h, [800, 0, 0, 5000, 1, 0, 10000, 5000]);
+  await at(h, mallory, 'sample', [], 18);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [id])).state, 2n);
+  const late = await h.call(carol, h.market, marketIface, 'unfreeze', [id], (18n + 25n) * HOUR);
+  assert.equal(revertName(late.execResult), 'window');
+  const settled = await at(h, mallory, 'settle', [id], 18n + 25n);
+  const ev = h.logsOf(settled, marketIface, 'Settled');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].args.hadGoodHour, false);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [id])).state, 3n);
 });
 
 test('only the registered source can lower a cap, and a lower cap does not seize collateral', async () => {
   const h = await setup();
-  const id = await open(h, 0, WAD, 0, 3, 1, 50, 50);
+  const id = await create(h, 0, 10000, 0, 3, 4, 50, 50);
   await fund(h, 1000n);
-  await h.call(alice, h.market, marketIface, 'mint', [id, 10, bob]);
+  await at(h, alice, 'mint', [id, 10, bob], 3);
   const attack = await h.call(mallory, h.market, marketIface, 'lowerCap', [id, keccak256(toUtf8Bytes('HRC')), 0]);
   assert.ok(attack.execResult.exceptionError);
   const dead = await h.call(alice, h.market, marketIface, 'lowerCap', [id, keccak256(toUtf8Bytes('RXB')), 0]);
@@ -451,16 +481,13 @@ test('only the registered source can lower a cap, and a lower cap does not seize
   const ev = h.logsOf(cut, marketIface, 'CapLowered');
   assert.equal(ev.length, 1);
   assert.equal(ev[0].args.hadPrevious, false);
-  assert.equal(ev[0].args.proposed, 0n);
   assert.equal(ev[0].args.effectiveAfter, 0n);
   const again = await h.call(alice, h.market, marketIface, 'mint', [id, 1, carol]);
   assert.ok(again.execResult.exceptionError, 'new mints stop');
-  await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], 9n * HOUR);
-  const back = await h.call(bob, h.market, marketIface, 'redeem', [0]);
-  assert.ok(!back.execResult.exceptionError, revertName(back.execResult));
-  const eff = await h.read(h.market, marketIface, 'effectiveCap', [id]);
-  assert.equal(eff[0], true);
-  assert.equal(eff[1], 0n);
+  await at(h, alice, 'sampleWithFeed', [3, emptyFeed()], 9);
+  await at(h, alice, 'accrue', [id], 9);
+  const back = await at(h, bob, 'redeem', [0], 9);
+  assert.equal(h.logsOf(back, marketIface, 'Redeemed')[0].args.paid, 0n);
 });
 
 test('a signer registers only their own post-quantum slot, and the slot is stored', async () => {
@@ -473,44 +500,57 @@ test('a signer registers only their own post-quantum slot, and the slot is store
   assert.equal((await h.read(h.market, marketIface, 'pqSlots', [0]))[0], material);
 });
 
-test('a rate-cap payoff stays inside the deposit', async () => {
+test('a rate-cap payoff stays inside the deposit, and the spread uses the ceiling', async () => {
   const h = await setup();
-  await setWords(h, [10000, 0, 0, 10000, 1, 0, 1000, 1000]);
-  const id = await open(h, 0, 0, 0, 90, 6, 10n ** 24n, 10n ** 24n);
-  await fund(h, 10n ** 24n);
-  const minted = await h.call(alice, h.market, marketIface, 'mint', [id, 8760, bob]);
-  assert.ok(!minted.execResult.exceptionError, revertName(minted.execResult));
-  const deposit = (await h.read(h.market, marketIface, 'seriesCollateral', [id]))[0];
-  assert.equal(deposit, 6n);
-  for (let i = 0; i < 6; i++) {
-    const r = await h.call(alice, h.market, marketIface, 'settleHour', [id, emptyFeed()], (90n + BigInt(i)) * HOUR + 3n);
-    assert.ok(!r.execResult.exceptionError, revertName(r.execResult));
+  await setWords(h, FULL);
+  const cap = await create(h, 0, 0, 0, 1, 7, BIG, BIG);
+  await fund(h, BIG);
+  const notional = 8760n;
+  await at(h, alice, 'mint', [cap, notional, bob], 1);
+  assert.equal((await h.read(h.market, marketIface, 'seriesCollateral', [cap]))[0], 6n);
+  for (let hour = 1n; hour <= 6n; hour++) {
+    await at(h, mallory, 'sample', [], hour);
+    await at(h, alice, 'accrue', [cap], hour);
   }
   const claim = (await h.read(h.market, marketIface, 'positions', [0])).claim;
-  assert.ok(claim <= deposit);
   assert.equal(claim, 1n);
-  await h.call(bob, h.market, marketIface, 'redeem', [0]);
+  await at(h, bob, 'redeem', [0], 6);
   assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [bob]))[0], claim);
-  assert.equal((await h.read(h.token, tokenIface, 'balanceOf', [alice]))[0], 10n ** 24n - claim);
+
+  const spread = await create(h, 1, 500, 0, 7, 13, BIG, BIG);
+  const size = 8760n * 10000n;
+  await at(h, alice, 'mint', [spread, size, carol], 7);
+  const deposit = (await h.read(h.market, marketIface, 'seriesCollateral', [spread]))[0];
+  assert.equal(deposit, 21000n);
+  let spreadClaim = 0n;
+  let hours = 0;
+  for (let hour = 7n; hour <= 12n; hour++) {
+    await at(h, mallory, 'sample', [], hour);
+    await at(h, alice, 'accrue', [spread], hour);
+    spreadClaim = (await h.read(h.market, marketIface, 'positions', [2])).claim;
+    hours += 1;
+    assert.ok(spreadClaim <= deposit);
+    assert.equal(spreadClaim, 3500n * BigInt(hours));
+  }
+  assert.equal(spreadClaim, deposit);
 });
 
-async function settled(h, id, hour) {
-  const row = await h.read(h.market, marketIface, 'settledHour', [id, hour]);
-  const s = row[0];
-  return {
-    done: s[0], hadRate: s[1], fundingKnown: s[2], source: s[3], rateWad: s[4], borrowed: s[5],
-  };
-}
+test('the L1 block is the 0x809 word when that precompile answers', async () => {
+  const h = await setup();
+  const l1 = await h.deploy(BUILT.l1.bytecode);
+  const set = await h.call(alice, l1, l1Iface, 'set', [424242n]);
+  assert.ok(!set.execResult.exceptionError, revertName(set.execResult));
+  const src = new Address(hexToBytes(l1));
+  const code = await h.vm.stateManager.getContractCode(src);
+  const dest = new Address(hexToBytes(L1));
+  await h.vm.stateManager.putContractCode(dest, code);
+  const value = await h.vm.stateManager.getContractStorage(src, word(0));
+  await h.vm.stateManager.putContractStorage(dest, word(0), value);
+  await setWords(h, MAINNET);
+  await create(h, 0, 0, 0, 3, 4, BIG, BIG);
+  const sampled = await at(h, mallory, 'sample', [], 3);
+  const ev = h.logsOf(sampled, marketIface, 'Sampled')[0];
+  assert.equal(ev.args.l1Block, 424242n);
+  assert.equal((await h.read(h.market, marketIface, 'sampleL1Known', [3]))[0], true);
+});
 
-async function open(h, kind, strike, digital, start, duration, maxNotional, perAddress) {
-  const r = await h.call(alice, h.market, marketIface, 'openSeries', [
-    kind, strike, digital, start, duration, maxNotional, perAddress,
-  ]);
-  assert.ok(!r.execResult.exceptionError, revertName(r.execResult));
-  return (await h.read(h.market, marketIface, 'seriesCount', []))[0] - 1n;
-}
-
-async function fund(h, amount) {
-  await h.call(alice, h.token, tokenIface, 'mint', [alice, amount]);
-  await h.call(alice, h.token, tokenIface, 'approve', [h.market, amount]);
-}

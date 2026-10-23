@@ -112,12 +112,14 @@ test('the curve matches the pinned checkpoints and derives the crossover', () =>
 test('the page source has no dollars and does not ask for the shock', () => {
   assert.equal(PAGE.includes('$'), false);
   assert.equal(PAGE_JS.includes('$'), false);
+  assert.equal(PAGE.includes('cap spread'), true);
+  assert.equal(PAGE.includes('40%'), true);
   assert.equal(PAGE.includes('rate_shock'), false);
   assert.equal(PAGE_JS.includes('rate_shock'), false);
   assert.equal(PAGE.includes('data-i18n'), false);
   assert.match(PAGE, /styles\.css\?v=52/);
   assert.match(PAGE, /src="\/js\/api-retry\.js\?v=3"/);
-  assert.match(PAGE, /src="\/js\/hrc\.js\?v=1"/);
+  assert.match(PAGE, /src="\/js\/hrc\.js\?v=2"/);
   assert.ok(PAGE.indexOf('/js/api-retry.js') < PAGE.indexOf('/js/hrc.js'));
   assert.equal((PAGE.match(/<script\b/g) || []).length, 2);
   assert.match(PAGE_JS, /AbortSignal\.timeout\(/);
@@ -207,6 +209,8 @@ test('the public is 404 and an operator sees rates without the shock', async () 
     assert.equal(view.synthetic, true);
     assert.equal(view.utilization, '0.85');
     assert.equal(view.borrow_apy, '0.2875');
+    assert.equal(view.kind, 'spread');
+    assert.equal(view.ceiling, '0.40');
     assert.ok(view.points_to_crossover.length < 20, view.points_to_crossover);
     assert.ok(view.trailing_mean.length < 20, view.trailing_mean);
     assert.equal(Object.hasOwn(view, 'rate_shock_loss_24h'), false);
@@ -269,6 +273,74 @@ test('the public is 404 and an operator sees rates without the shock', async () 
     if (prevFlag == null) delete process.env.HRC_ENABLED;
     else process.env.HRC_ENABLED = prevFlag;
   }
+});
+
+test('paint writes the series and the ceiling, and a missing one stays unreadable', async () => {
+  const vm = require('node:vm');
+
+  function mount(packet) {
+    const out = {
+      children: [],
+      replaceChildren() { this.children = []; },
+      appendChild(child) { this.children.push(child); },
+    };
+    function createElement() {
+      return {
+        className: '',
+        textContent: '',
+        children: [],
+        appendChild(child) { this.children.push(child); },
+      };
+    }
+    const context = vm.createContext({
+      document: {
+        getElementById() { return out; },
+        createElement,
+      },
+      fetch() {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(packet) });
+      },
+      AbortSignal,
+    });
+    vm.runInContext(PAGE_JS, context);
+    return out;
+  }
+
+  function rowsOf(out) {
+    return Object.fromEntries(out.children
+      .filter((node) => node.className === 'hrc-row')
+      .map((row) => row.children.map((child) => child.textContent)));
+  }
+
+  const painted = mount({
+    readable: true,
+    synthetic: true,
+    network: 'testnet',
+    source: 'info_api',
+    utilization: '0.85',
+    borrow_apy: '0.2875',
+    kind: 'spread',
+    ceiling: '0.40',
+    points_to_kink: '0',
+    points_to_crossover: '1',
+    borrow_cap_ratio: '0.2',
+    trailing_mean: '0.05',
+    premium: '0.001',
+    cap_hit: false,
+    replays: { scenario_a: { readable: false }, scenario_b: { readable: false } },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const rows = rowsOf(painted);
+  assert.equal(rows.Series, 'spread');
+  assert.equal(rows.Ceiling, '0.40');
+  assert.equal(rows.scenario_a, 'unreadable');
+  assert.equal(JSON.stringify(rows).includes('$'), false);
+
+  const missing = mount({ readable: true, kind: null, ceiling: '' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const blank = rowsOf(missing);
+  assert.equal(blank.Series, 'unreadable');
+  assert.equal(blank.Ceiling, 'unreadable');
 });
 
 test('the gate is mounted ahead of static', () => {

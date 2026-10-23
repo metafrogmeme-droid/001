@@ -207,6 +207,8 @@ function dashboard(reading) {
     network: reading.network === 'mainnet' || reading.network === 'testnet' ? reading.network : null,
     synthetic: typeof reading.synthetic === 'boolean' ? reading.synthetic : null,
     source: SOURCES.has(reading.source) ? reading.source : 'none',
+    kind: 'spread',
+    ceiling: '0.40',
   };
   put(out, 'utilization', util);
   put(out, 'borrow_apy', rate);
@@ -229,7 +231,9 @@ function dashboard(reading) {
   put(out, 'trailing_mean', mean);
   const strike = asDec(reading.strike);
   if (mean && strike) {
-    let gap = M.sub(mean, strike);
+    let capped = mean;
+    if (M.cmp(mean, M.SPREAD_CEIL) > 0) capped = M.SPREAD_CEIL;
+    let gap = M.sub(capped, strike);
     if (M.cmp(gap, M.ZERO) < 0) gap = M.ZERO;
     put(out, 'premium', M.div(M.mul(gap, M.DAY), M.HOURS));
   }

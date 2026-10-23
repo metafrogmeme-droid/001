@@ -15,6 +15,7 @@ from typing import Optional
 from bot.caps.strictest import empty_book
 from bot.hrc.collector import _as_raw, history_path, load_history
 from bot.hrc.model import (
+    DEFAULT_SPREAD_CEIL,
     KINK,
     RAW_PER_TOKEN,
     borrow_apy,
@@ -113,6 +114,8 @@ def dashboard(reading: dict) -> dict:
         "network": network if network in ("mainnet", "testnet") else None,
         "synthetic": synthetic if isinstance(synthetic, bool) else None,
         "source": source if source in _SOURCES else "none",
+        "kind": "spread",
+        "ceiling": format(DEFAULT_SPREAD_CEIL, "f"),
     }
     supplied_d = _dec(reading.get("supplied"))
     borrowed_d = _dec(reading.get("borrowed"))
@@ -238,6 +241,8 @@ def card_text(packet: dict) -> str:
     lines.append(_line("Points below the funding crossover", packet.get("points_to_crossover")))
     lines.append(_line("Borrow cap used", packet.get("borrow_cap_ratio")))
     lines.append(_line("Trailing mean", packet.get("trailing_mean")))
+    lines.append(_line("Series", "cap spread"))
+    lines.append(_line("Ceiling", packet.get("ceiling")))
     lines.append(_line("Premium fraction", packet.get("premium")))
     if packet.get("cap_hit") is True:
         lines.append("Cap-hit: yes")
