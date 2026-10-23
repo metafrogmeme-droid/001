@@ -473,6 +473,8 @@ app.use('/doge', require('./routes/dogeapp'));
 // (docs/memeclaw/MEMECLAW_PLAN.md).
 app.use('/memeclaw', require('./routes/memeclaw_page'));
 app.use('/api/duel', require('./routes/duel'));
+// Custodial-bot check. 404 unless BOTCHECK_ENABLED is 1, true, yes, or on.
+app.use('/api/botcheck', require('./routes/botcheck'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
@@ -588,6 +590,8 @@ app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache')
 app.get('/scanner', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'scanner.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
+// Public signals for one bot name. 404 unless BOTCHECK_ENABLED is 1, true, yes, or on.
+app.get('/botcheck', require('./routes/botcheck').page);
 // /token — the $RCLAW mint, its fixed-supply facts and the presale status.
 app.get('/token', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'token.html')); });
 // /docs and /docs/<page> — one shell; docs-page.js reads the page from the path,

@@ -51,6 +51,10 @@
     "v": 1,
     "sha": "b5e9e3bec0ac5f5c"
   },
+  "js/botcheck.js": {
+    "v": 1,
+    "sha": "2870c218e406688b"
+  },
   "js/calibration-chart.js": {
     "v": 2,
     "sha": "0d66f51488d24183"
