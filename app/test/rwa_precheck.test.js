@@ -23,7 +23,7 @@ const { pool } = require('../db');
 const { CHAINS } = require('../lib/rwa_chains');
 const { precheck, readerFor, canonicalInput, DISCLAIMER } = require('../lib/rwa_precheck');
 const { httpRpc, SELECTOR_OF, SLOT_IMPL } = require('../lib/rwa_evm');
-const { pageGate } = require('../lib/rwa_flag');
+const { pageGate, sendPage } = require('../lib/rwa_flag');
 const { codeOnly } = require('./helpers/code_only');
 
 const coder = AbiCoder.defaultAbiCoder();
@@ -543,6 +543,8 @@ test('the page says the disclaimer, names every control, and does not fetch on l
   assert.match(HTML, /<label for="rwa-asset">/);
   assert.match(HTML, /<label for="rwa-account">/);
   assert.equal(HTML.match(/property="og:site_name" content="([^"]*)"/)[1], 'Humanoid Traders');
+  assert.match(HTML, /rel="canonical" href="https:\/\/www\.humanoid-traders\.com\/rwa"/);
+  assert.match(HTML, /property="og:url" content="https:\/\/www\.humanoid-traders\.com\/rwa"/);
   assert.ok(!/console\.error/.test(PAGE_JS));
   assert.ok(!/fetch\(/.test(PAGE_JS.slice(0, PAGE_JS.indexOf('async function run'))));
   assert.match(PAGE_JS, /AbortSignal\.timeout\(/);
@@ -554,10 +556,14 @@ test('the page is gated ahead of static, and the flag hides it', async () => {
   const gateAt = serverSrc.indexOf("require('./lib/rwa_flag').pageGate");
   const staticAt = serverSrc.indexOf('express.static');
   assert.ok(gateAt > 0 && gateAt < staticAt, 'the gate is mounted before static');
+  // The canonical names /rwa, so the server must register that path the same
+  // way it registers the other pages. pageGate does not answer /rwa; sendPage does.
+  assert.match(serverSrc, /app\.get\('\/rwa', \(req, res\) => \{ require\('\.\/lib\/rwa_flag'\)\.sendPage\(res\); \}\);/);
 
   const prev = process.env.RWA_PRECHECK_ENABLED;
   const app = express();
   app.use(pageGate);
+  app.get('/rwa', (req, res) => { sendPage(res); });
   const server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
@@ -565,10 +571,16 @@ test('the page is gated ahead of static, and the flag hides it', async () => {
     delete process.env.RWA_PRECHECK_ENABLED;
     const off = await fetch(`http://127.0.0.1:${server.address().port}/rwa`);
     assert.equal(off.status, 404);
+    const offFile = await fetch(`http://127.0.0.1:${server.address().port}/rwa.html`);
+    assert.equal(offFile.status, 404);
     process.env.RWA_PRECHECK_ENABLED = 'true';
     const on = await fetch(`http://127.0.0.1:${server.address().port}/rwa`);
     assert.equal(on.status, 200);
-    assert.ok((await on.text()).includes(DISCLAIMER));
+    const body = await on.text();
+    assert.ok(body.includes(DISCLAIMER));
+    assert.match(body, /rel="canonical" href="https:\/\/www\.humanoid-traders\.com\/rwa"/);
+    const onFile = await fetch(`http://127.0.0.1:${server.address().port}/rwa.html`);
+    assert.equal(onFile.status, 200);
   } finally {
     server.close();
     if (prev == null) delete process.env.RWA_PRECHECK_ENABLED;

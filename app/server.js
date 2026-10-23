@@ -576,6 +576,11 @@ app.get('/guard', (req, res) => {
   if (!v01.enabled()) return res.sendFile(v01.guardPageFile());
   res.type('html').send(v01.guardPageHtml(v01.readGuardPage()));
 });
+// /rwa — the pre-check page. Same shape as the other pages: an app.get whose
+// path is the canonical. 404 until RWA_PRECHECK_ENABLED, the same answer the
+// API gives. pageGate, ahead of static, keeps /rwa.html and the page script
+// from being files a crawler can open while that flag is off.
+app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

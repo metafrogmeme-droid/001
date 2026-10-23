@@ -26,13 +26,26 @@ function pageFile() {
   return path.join(__dirname, '..', 'public', 'rwa.html');
 }
 
+/** The /rwa document. 404 while the flag is off, the same answer as a missing path. */
+function sendPage(res) {
+  if (!enabled()) return res.status(404).type('text/plain').send('Not found');
+  res.setHeader('Cache-Control', 'no-cache');
+  return res.sendFile(pageFile());
+}
+
+/**
+ * Blocks the on-disk names ahead of express.static. /rwa itself is
+ * app.get('/rwa') in server.js, the same shape as the other pages, so a
+ * canonical can name it. This gate only keeps /rwa.html and the page script
+ * from being served as static files while the flag is off.
+ */
 function pageGate(req, res, next) {
   const p = req.path;
-  if (p !== '/rwa' && p !== '/rwa.html' && p !== '/js/rwa-precheck.js') return next();
+  if (p !== '/rwa.html' && p !== '/js/rwa-precheck.js') return next();
   if (!enabled()) return res.status(404).type('text/plain').send('Not found');
   if (p === '/js/rwa-precheck.js') return next();
   res.setHeader('Cache-Control', 'no-cache');
   return res.sendFile(pageFile());
 }
 
-module.exports = { FLAG, enabled, pageGate, pageFile };
+module.exports = { FLAG, enabled, pageGate, pageFile, sendPage };
