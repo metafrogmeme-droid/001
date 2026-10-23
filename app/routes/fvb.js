@@ -40,26 +40,32 @@ function readBoard() {
   }
 }
 
-router.get('/board', function (req, res) {
+// Lazy, like feed.js: importing auth at load exits when JWT_SECRET is absent,
+// and the public-dollar scan loads every route without one. The name sits in
+// the handler list so the mixed-module guard sees the middleware, not a call
+// buried in the body.
+function optionalAuth(req, res, next) {
   let auth;
   try {
     auth = require('../auth');
   } catch (e) {
     return res.status(404).type('text/plain').send('Not found');
   }
-  auth.optionalAuth(req, res, function () {
-    const { isOperator } = require('../lib/operator_view');
-    const flag = require('../lib/fvb_flag');
-    Promise.resolve(isOperator(req)).then(function (op) {
-      const decision = flag.gate(flag.flagOn(), !!op);
-      if (decision === 'deny') return res.status(404).type('text/plain').send('Not found');
-      const doc = readBoard();
-      if (decision === 'preview') doc.banner = flag.BANNER;
-      res.setHeader('Cache-Control', 'no-cache');
-      res.json(doc);
-    }).catch(function () {
-      res.status(404).type('text/plain').send('Not found');
-    });
+  return auth.optionalAuth(req, res, next);
+}
+
+router.get('/board', optionalAuth, function (req, res) {
+  const { isOperator } = require('../lib/operator_view');
+  const flag = require('../lib/fvb_flag');
+  Promise.resolve(isOperator(req)).then(function (op) {
+    const decision = flag.gate(flag.flagOn(), !!op);
+    if (decision === 'deny') return res.status(404).type('text/plain').send('Not found');
+    const doc = readBoard();
+    if (decision === 'preview') doc.banner = flag.BANNER;
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json(doc);
+  }).catch(function () {
+    res.status(404).type('text/plain').send('Not found');
   });
 });
 
