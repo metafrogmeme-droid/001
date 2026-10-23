@@ -894,6 +894,23 @@ token in the bot box's `.env` as `DUEL_BOT_TOKEN=` (never in chat, never in
 the web container's env) and restart `runeclaw-duel`. Set the bot's commands
 in BotFather to `duel`, `me`, `board`, `link`, `help`.
 
+### The optional fourth: the anonymous Daily Duel bot
+
+    python3 -m bot.daily_duel_bot   one up/down call a day, sealed by the
+                                    existing /doge duel (app/lib/daily_duel_gate.js).
+                                    Own token DAILY_DUEL_BOT_TOKEN. The
+                                    Telegram id is an HMAC with
+                                    DAILY_DUEL_ID_SALT and is never sealed.
+                                    No engine, no signing. Health on :8082.
+
+It runs only where both values are set. The launcher reads them for presence
+and probes `:8082/health` before `DEPLOY_DONE`. `runeclaw-daily-duel.service`
+supervises it; `runeclaw-status.sh` lists it as OPTIONAL when it is not
+installed. A missing token, a missing salt, or a token shared with another
+bot exits 78. Sealing needs `node` on PATH. Scoring, the Season 1 board, an
+Arena handle code, and folding the receipt into the day's public root are
+not wired yet; the bot says so.
+
 ## The learning overlays, and why two of them read zero
 
 `/calibration` shows three overlays. On 2026-08-25 it read:

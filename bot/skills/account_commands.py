@@ -160,6 +160,7 @@ def vault_fix_hint(key: str) -> str:
         "BINGX": "/setexchange bingx", "WEB_GATEWAY_SECRET": "/setgateway",
         "TELEGRAM_BOT_TOKEN": ".env only",
         "DUEL_BOT_TOKEN": ".env only (the Daily Duel bot's own token)",
+        "DAILY_DUEL": ".env only (the anonymous Daily Duel bot; never the chat)",
         # It was `.env` — the fallback below — which meant the ONE secret
         # that signs transactions was the only managed one whose sole
         # route into the vault ran through a plaintext file on disk.

@@ -800,6 +800,22 @@ RULES: list[Rule] = [
              "from the website (app/routes) instead, or exempt it here with a reason."),
     ),
     Rule(
+        name="daily-duel-bot-health-only",
+        files=["bot/daily_duel_bot.py"],
+        language="python",
+        selector="aiohttp-route",
+        mode="forbid",
+        # The anonymous Daily Duel bot binds one loopback route, its liveness
+        # probe. The process holds no session and answers no player data.
+        trigger=r".",
+        guard="",
+        min_sites=0,
+        exclude_functions=["health"],
+        why=("bot/daily_duel_bot.py serves its liveness probe and nothing else. A second "
+             "aiohttp route in this process has no authentication at all: serve it "
+             "from the website (app/routes) instead, or exempt it here with a reason."),
+    ),
+    Rule(
         name="dashboard-route-placement",
         files=["bot/web/dashboard_server.py"],
         language="python",

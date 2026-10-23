@@ -8,7 +8,11 @@ There are two bot-box processes and a separate web container. A deploy is not
 complete until all three use the new source and the web runtime can reach both
 bot processes. A box with `DUEL_BOT_TOKEN` set runs a third, optional process,
 `python3 -m bot.duel_bot` (`runeclaw-duel.service`, health on :8081); restart
-it with the other two.
+it with the other two. A box with `DAILY_DUEL_BOT_TOKEN` and
+`DAILY_DUEL_ID_SALT` set runs a fourth, optional process,
+`python3 -m bot.daily_duel_bot` (`runeclaw-daily-duel.service`, health on
+:8082). It seals through `node` (`app/lib/daily_duel_gate.js`) and stores a
+salted hash, never a Telegram id. Restart it with the others where installed.
 
 The Duel's Telegram Mini App (`/tg`) is off until two settings are set
 together:

@@ -1,0 +1,66 @@
+# systemd unit for the anonymous Daily Duel bot (python3 -m bot.daily_duel_bot).
+#
+# THE OPTIONAL FOURTH PROCESS.
+#
+# This bot runs beside bot.main and bot.duel_bot on its own BotFather token
+# (DAILY_DUEL_BOT_TOKEN in the bot's .env). It builds no engine, holds no key
+# and signs nothing. The anonymous id is an HMAC salted with DAILY_DUEL_ID_SALT;
+# the Telegram user id is never stored. Health on :8082. Sealing needs `node`
+# on PATH (app/lib/daily_duel_gate.js). A box without Node stays up and says
+# the seal could not be made; it does not exit.
+#
+# A missing token, a missing salt, a salt that is too short, or a token equal
+# to TELEGRAM_BOT_TOKEN or DUEL_BOT_TOKEN exits 78 (EX_CONFIG).
+# RestartPreventExitStatus below keeps that from becoming a fifteen-second
+# restart loop: the unit stops with one loud line in its journal, and
+# `runeclaw-status.sh` shows it DOWN. Every other exit restarts.
+#
+# Install, only after both values are set:
+#   sudo cp runeclaw-daily-duel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now runeclaw-daily-duel
+#   scripts/systemd/runeclaw-status.sh
+#
+# Adjust User=, WorkingDirectory= and the ExecStart interpreter to match the
+# box. If a virtualenv is in use, point ExecStart at <venv>/bin/python.
+
+[Unit]
+Description=RUNECLAW anonymous Daily Duel bot (own token; health on :8082)
+After=network-online.target
+Wants=network-online.target
+
+# In [Unit], NOT [Service] — systemd discards it from [Service] with "Unknown
+# key name ... ignoring". See the longer note in runeclaw-bot.service.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=mulerun
+WorkingDirectory=/home/mulerun/runeclaw
+
+# Idempotent; restores .env (where the token and the salt live) before the process reads them.
+ExecStartPre=/home/mulerun/runeclaw/deploy.sh
+
+# python3, NOT python — the box has no `python`.
+ExecStart=/usr/bin/python3 -m bot.daily_duel_bot
+
+# /health answers 200 only while the poller is running: a process that exists
+# but no longer polls is not a healthy bot. Generous, like the others.
+ExecStartPost=/home/mulerun/runeclaw/scripts/systemd/wait_for_port.sh http://127.0.0.1:8082/health 120
+
+# Never give up — see StartLimitIntervalSec=0 in [Unit] above — except on the
+# one exit that means "not configured", which restarting cannot fix.
+Restart=always
+RestartSec=15
+RestartPreventExitStatus=78
+
+#   journalctl -u runeclaw-daily-duel -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=runeclaw-daily-duel
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

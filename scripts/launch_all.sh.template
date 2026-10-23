@@ -123,6 +123,36 @@ else
   log "DUEL_BOT_TOKEN is not set — the Daily Duel bot is not started (optional; scripts/systemd/README.md)"
 fi
 
+# ── 3b. the anonymous Daily Duel bot — OPTIONAL, only where token and salt are set ──
+#
+# `python3 -m bot.daily_duel_bot` polls DAILY_DUEL_BOT_TOKEN and hashes the
+# Telegram id with DAILY_DUEL_ID_SALT. Both are read here for PRESENCE only
+# and never printed; the process reads the values itself. A box missing
+# either one does not start this process (it would exit 78 and fail the
+# deploy). Sealing needs node on PATH. Health on :8082.
+daily_duel_configured() {
+  token_set=0
+  salt_set=0
+  [ -n "${DAILY_DUEL_BOT_TOKEN:-}" ] && token_set=1
+  [ -n "${DAILY_DUEL_ID_SALT:-}" ] && salt_set=1
+  if [ "$token_set" -eq 0 ]; then
+    grep -qE '^DAILY_DUEL_BOT_TOKEN=[^[:space:]]+' "$REPO/.env" 2>/dev/null && token_set=1
+  fi
+  if [ "$salt_set" -eq 0 ]; then
+    grep -qE '^DAILY_DUEL_ID_SALT=[^[:space:]]+' "$REPO/.env" 2>/dev/null && salt_set=1
+  fi
+  [ "$token_set" -eq 1 ] && [ "$salt_set" -eq 1 ]
+}
+DAILY_PID="off"
+if daily_duel_configured; then
+  log "starting anonymous Daily Duel bot"
+  nohup "$PY_BIN" -m bot.daily_duel_bot >> daily_duel_bot.log 2>&1 &
+  DAILY_PID=$!
+  scripts/verify_bot_alive.sh --pid "$DAILY_PID" || die "anonymous Daily Duel bot did not stay up (see daily_duel_bot.log)"
+else
+  log "DAILY_DUEL_BOT_TOKEN or DAILY_DUEL_ID_SALT is not set — the anonymous Daily Duel bot is not started (optional; scripts/systemd/README.md)"
+fi
+
 # ── 3. both must actually ANSWER, not merely exist ──────────────────────────
 #
 # A process can be alive and not serving: bound to the wrong interface, stuck
@@ -161,5 +191,10 @@ if [ "$DUEL_PID" != "off" ]; then
   check_port "duel    :8081" "http://127.0.0.1:8081/health" \
     || die "duel bot is alive but not polling — its health port is not answering"
 fi
+if [ "$DAILY_PID" != "off" ]; then
+  # 200 only while the poller runs (bot/daily_duel_bot.py health_body).
+  check_port "daily   :8082" "http://127.0.0.1:8082/health" \
+    || die "anonymous Daily Duel bot is alive but not polling — its health port is not answering"
+fi
 
-log "DEPLOY_DONE  bot=$BOT_PID bridge=$BRIDGE_PID duel=$DUEL_PID"
+log "DEPLOY_DONE  bot=$BOT_PID bridge=$BRIDGE_PID duel=$DUEL_PID daily=$DAILY_PID"

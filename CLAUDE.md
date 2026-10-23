@@ -217,7 +217,10 @@ correct code to satisfy an analyser.
   that starts one and reports success is not a deploy. An optional third,
   `python3 -m bot.duel_bot` (the Daily Duel's own Telegram bot, health on
   :8081), runs only where `DUEL_BOT_TOKEN` is set; it builds no engine and
-  touches none of the bot's state.
+  touches none of the bot's state. An optional fourth,
+  `python3 -m bot.daily_duel_bot` (anonymous Daily Duel, health on :8082),
+  runs only where `DAILY_DUEL_BOT_TOKEN` is set; it builds no engine, does
+  not sign, and stores a salted hash rather than a Telegram id.
 - There are **two websites** and one web container: `humanoid-traders.com`
   and Memeclaw's own domain (`MEMECLAW_HOSTS`, `app/lib/memeclaw_host.js`).
   One publish of `app/` updates both. Their settings go in
@@ -245,6 +248,7 @@ correct code to satisfy an analyser.
 | `bot/risk/` | the fail-closed pre-trade gate and its inputs |
 | `bot/skills/` | Telegram commands and skills (`telegram_handler.py` and mixins) |
 | `bot/web/` | the bot's gateway for the website |
+| `bot/daily_duel_bot.py` | anonymous Daily Duel Telegram bot (health :8082) |
 | `app/routes/`, `app/lib/`, `app/public/` | website server, shared libs, pages |
 | `tests/`, `app/test/` | Python and Node suites |
 | `scripts/` | preflight, ratchets, generators, deploy helpers |

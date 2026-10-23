@@ -179,6 +179,36 @@ services:
       resources:
         limits:   { cpus: '0.25', memory: '128M' }
 
+  # Anonymous Daily Duel bot. A profile, so `docker compose up` does not start
+  # it. The production image has curl and does not have Node; sealing shells
+  # out to app/lib/daily_duel_gate.js, so this service can poll and cannot
+  # seal. The host checkout (systemd or launch_all) is the path that seals.
+  # Set DAILY_DUEL_BOT_TOKEN and DAILY_DUEL_ID_SALT before starting the
+  # profile. A missing one exits 78, and restart: unless-stopped will loop.
+  daily_duel:
+    profiles: ["daily-duel"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
+    image: runeclaw:latest
+    container_name: runeclaw-daily-duel
+    restart: unless-stopped
+    command: python3 -m bot.daily_duel_bot
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - runeclaw_net
+
 volumes:
   redis_data:
 
