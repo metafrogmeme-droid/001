@@ -20,7 +20,7 @@
 # What it IS is the one thing `pip-audit` reads (.github/workflows/ci.yml, the
 # "SCA -- dependency vulnerability audit" step). So its real job is to be a
 # SUPERSET of what ships: every package the Dockerfile installs must appear
-# here, or that package is shipped and never audited. Driven today, all 12 of
+# here, or that package is shipped and never audited. Driven today, all 13 of
 # `bot/requirements.txt` are here, plus the five the api_bridge and chart
 # stack need (fastapi, uvicorn, pandas, matplotlib, mplfinance).
 # `tests/test_ci_executes_nothing_it_did_not_pin.py` pins that containment, so
@@ -44,6 +44,11 @@ openai==2.38.0
 anthropic==0.104.1
 numpy==2.3.5
 aiohttp==3.14.4
+# Not imported by name. ccxt, httpx, openai and anthropic pull it in, and
+# this file is the only one pip-audit reads, so an unpinned certifi was
+# shipped and never scanned. 2026.10.19 drops the withdrawn emSign roots
+# (PYSEC-2026-4320).
+certifi==2026.10.19
 websockets==16.0
 cryptography==50.0.0
 # ── Added 2026-08-17, after cards stopped rendering on a fresh venv ─────────

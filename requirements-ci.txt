@@ -24,6 +24,8 @@ python-telegram-bot==22.7
 openai==2.38.0
 numpy==2.3.5
 aiohttp==3.14.4
+# The lock pins this, so CI has to install it. Same release the SCA gate scans.
+certifi==2026.10.19
 websockets==16.0
 cryptography>=50.0.0
 Pillow>=10.3.0

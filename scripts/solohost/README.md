@@ -18,11 +18,12 @@ environment variables the bot actually reads.
 
 ## Publishing a version
 
-1. **Publish the image.** Push a tag such as `v1.0.0`, or run the `image`
-   workflow by hand with that tag. `.github/workflows/image.yml` builds the
-   Dockerfile's production stage and pushes
+1. **Publish the image.** The compose file pins `v1.0.1`. Push that tag, or
+   run the `image` workflow by hand with it. `.github/workflows/image.yml`
+   builds the Dockerfile's production stage and pushes
    `ghcr.io/metafrogmeme-droid/runeclaw:<tag>`. It refuses a tag that is
-   already published.
+   already published, so `v1.0.0` cannot be rebuilt in place. Until `v1.0.1`
+   is pushed, the pin does not exist on ghcr.io.
 2. **Make the package public, once.** On GitHub: the repository, Packages,
    `runeclaw`, Package settings, Change visibility to Public. SoloHost pulls
    without credentials.

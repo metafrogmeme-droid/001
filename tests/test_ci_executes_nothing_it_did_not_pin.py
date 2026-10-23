@@ -186,9 +186,9 @@ def test_a_planted_clean_step_is_not_accused(label):
 # THE SCA GATE'S SUBJECT IS NOT THE FILE ANYTHING INSTALLS, and that is fine
 # only while one contains the other.
 #
-# Driven: `pip-audit -r requirements.lock` (17 packages) is the audit;
-# `bot/requirements.txt` (12) is what the Dockerfile and Makefile install;
-# `requirements-ci.txt` (27) is what CI installs. Nothing installs the lock at
+# Driven: `pip-audit -r requirements.lock` (18 packages) is the audit;
+# `bot/requirements.txt` (13) is what the Dockerfile and Makefile install;
+# `requirements-ci.txt` (28) is what CI installs. Nothing installs the lock at
 # all -- its own header used to say "use it for production" and to name an
 # update command running `pip install -r requirements.txt`, a file that does
 # not exist at that path. The header is corrected; this is the invariant that
@@ -231,9 +231,13 @@ def _shipped() -> dict[str, str]:
     all -- a hand-written list of files would have missed them entirely.
     """
     docker = (ROOT / "Dockerfile").read_text()
-    m = re.search(r"pip install([^\n\\]*(?:\\\n[^\n\\]*)*)", docker)
-    assert m, "the Dockerfile installs nothing with pip"
-    install_line = m.group(1)
+    # A pip bootstrap (the hash-pinned wheel) may precede the requirements
+    # install. The shipped set is the invocation that names `-r`, not whichever
+    # `pip install` appears first — the first one upgrades pip and installs
+    # nothing the image copies across on its own.
+    matches = re.findall(r"pip install([^\n\\]*(?:\\\n[^\n\\]*)*)", docker)
+    assert matches, "the Dockerfile installs nothing with pip"
+    install_line = next((m for m in matches if re.search(r"-r\s+\S+", m)), "")
 
     ref = re.search(r"-r\s+(\S+)", install_line)
     assert ref, "the Dockerfile's pip install names no requirements file"

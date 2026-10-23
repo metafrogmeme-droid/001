@@ -39,7 +39,7 @@
     "presale:multisig-verify": "node presale/multisig_verify.mjs"
   },
   "engines": {
-    "node": ">=24.21.0"
+    "node": ">=24.22.1"
   },
   "dependencies": {
     "@metaplex-foundation/genesis": "0.40.0",

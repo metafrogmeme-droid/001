@@ -4,7 +4,7 @@
   "type": "module",
   "license": "BUSL-1.1",
   "engines": {
-    "node": ">=24.21.0"
+    "node": ">=24.22.1"
   },
   "description": "RUNECLAW public marketing site. Source lives here; `npm run build` emits static HTML into ../website, which api_bridge.py serves directly from the checkout.",
   "scripts": {
