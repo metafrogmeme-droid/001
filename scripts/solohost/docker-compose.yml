@@ -15,9 +15,15 @@
 # The image is the repository's own Dockerfile, published by
 # .github/workflows/image.yml when a v* tag is pushed. Pin the tag here to one
 # that workflow has published; the package never names :latest.
+#
+# v1.0.1 is the first tag that contains the eMudhra CA removal (patched
+# ca-certificates, pip 26.2.2, certifi 2026.10.19). image.yml refuses to
+# overwrite a tag, so v1.0.0 cannot be rebuilt in place. The maintainer pushes
+# the v1.0.1 tag after that Dockerfile change is on main; until then this
+# reference does not exist on ghcr.io.
 services:
   bot:
-    image: ghcr.io/metafrogmeme-droid/runeclaw:v1.0.0
+    image: ghcr.io/metafrogmeme-droid/runeclaw:v1.0.1
     restart: unless-stopped
     command: ["python3", "-m", "bot.main", "--mode", "telegram"]
     labels:

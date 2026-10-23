@@ -4,8 +4,10 @@
 
 # ── Stage 1: builder (compiles wheels) ──────────────────────────────────
 # Pin to digest for reproducible, tamper-evident builds.
-# python:3.11-slim @ 2026-05 (Debian bookworm)
-FROM python:3.11-slim@sha256:8f64a67710a53a55b8baa3dd37e1a5461e34676deff7a4e6b0e389a8d2a5a4c3 AS builder
+# python:3.11-slim multi-arch index, resolved 2026-10-23 from registry-1.docker.io.
+# Debian 13 (trixie), Python 3.11.17, image created 2026-10-21. Includes linux/arm64.
+# The previous bookworm digest no longer resolves (registry 404 on that date).
+FROM python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377 AS builder
 
 WORKDIR /app
 
@@ -14,19 +16,37 @@ WORKDIR /app
 # then declared `FROM`, so the "multi-stage" build discarded nothing and
 # shipped a C toolchain to production. Install into a prefix here and copy only
 # the result across.
+#
+# ca-certificates comes from Debian security. trixie main still ships
+# 20250419, which trusts the withdrawn emSign roots; trixie-security ships
+# 20250419+deb13u1 (DSA-6572-1). The comparison fails the build if apt did
+# not select that update.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libssl-dev \
+    ca-certificates gcc libssl-dev \
+    && dpkg --compare-versions "$(dpkg-query -W -f '$${Version}' ca-certificates)" ge "20250419+deb13u1" \
     && rm -rf /var/lib/apt/lists/*
 
+# The base image's pip vendors its own CA bundle, so the system store above
+# does not protect the next download. This is the official pip 26.2.2 wheel;
+# pip checks the hash itself. Hash verified against the wheel on 2026-10-23.
+RUN python -m pip install --no-cache-dir \
+    "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+
 COPY bot/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+# The same wheel again, into the prefix the production stage copies, so the
+# image that runs is not left on the base image's pip.
+RUN python -m pip install --no-cache-dir --prefix=/install \
+    "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" \
+    -r requirements.txt \
     fastapi>=0.115 "uvicorn[standard]>=0.30"
 
 # ── Stage 2: production image ───────────────────────────────────────────
-FROM python:3.11-slim@sha256:8f64a67710a53a55b8baa3dd37e1a5461e34676deff7a4e6b0e389a8d2a5a4c3 AS production
+FROM python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377 AS production
 
-# curl only — it is what HEALTHCHECK below runs. No compiler in production.
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# curl is what HEALTHCHECK below runs. ca-certificates is the same security
+# update as the builder: trixie main's 20250419 still trusts the withdrawn roots.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && dpkg --compare-versions "$(dpkg-query -W -f '$${Version}' ca-certificates)" ge "20250419+deb13u1" \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
