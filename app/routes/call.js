@@ -66,7 +66,7 @@ async function lookupCall(key, viewer = {}) {
     if (key.startsWith('sc_')) {
       const row = await require('../lib/scan_seal').byKey(key);
       if (!row) {
-        return { code: 404, body: { error: 'No sealed scan with that id. Receipts exist only for scans run with an Arena key — an anonymous scan stores nothing, by design.' } };
+        return { code: 404, body: { error: 'No sealed scan with that id. Receipts exist only for scans run with an Arena key and Claw Guard checks run signed in — an anonymous scan stores nothing, by design, and neither does an anonymous check.' } };
       }
       let p = null;
       try { p = JSON.parse(row.seal_payload); } catch (e) { p = null; }
@@ -82,9 +82,14 @@ async function lookupCall(key, viewer = {}) {
         // reach the two facts that decide how much this receipt is worth.
         deterministic: p ? !!p.deterministic : null,
         unknown: p && 'unknown' in p ? p.unknown : null,
-        proves: p && p.deterministic
-          ? 'what this calldata MEANS — a decode is reproducible, so anyone holding the original bytes can re-run it and get these same actions.'
-          : 'what this scan SAID at this time. It is a heuristic, so it does not prove the verdict was right.',
+        proves: p && p.kind === 'presign_verdict'
+          // A Guard verdict (v10) reads a simulation of ONE block's state, so
+          // it is never "reproducible": the same request later can do
+          // something else, and the payload names the block it read.
+          ? 'what Claw Guard SAID before signing: its level, each reason and the block its simulation read. It is a reading, so it does not prove the verdict was right.'
+          : p && p.deterministic
+            ? 'what this calldata MEANS — a decode is reproducible, so anyone holding the original bytes can re-run it and get these same actions.'
+            : 'what this scan SAID at this time. It is a heuristic, so it does not prove the verdict was right.',
         does_not_prove: 'that the transaction was ever signed, or that acting on this was safe. A flag is not a verdict and a clean result is not a guarantee.',
         // The input was never stored. Said here rather than left to be noticed.
         input_note: 'The scanned bytes were never stored — the payload commits to their sha256. Whoever holds the original can prove this receipt is about it; nobody else can learn what it was.',

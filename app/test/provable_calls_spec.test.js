@@ -321,7 +321,10 @@ test('the chips payloads (v9) are their earlier kinds with the chips appended, a
 });
 
 test('the review receipt (v9 duel_review) is written as the spec writes it, and names what it decides', () => {
-  const block = SPEC.slice(SPEC.indexOf('### 2.9'), SPEC.indexOf('## 3 '));
+  // Bounded by the next heading, not by "## 3": a section added after 2.9
+  // must not be read as part of it.
+  const at = SPEC.indexOf('### 2.9');
+  const block = SPEC.slice(at, SPEC.indexOf('\n#', at + 1));
   assert.ok(block.length > 100, 'the spec has a review section');
   const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
   assert.deepEqual(examples.map((e) => e.kind), ['duel_review']);
@@ -340,6 +343,28 @@ test('the review receipt (v9 duel_review) is written as the spec writes it, and 
   assert.deepEqual(table, [...require('../lib/duel_review').DECISIONS]);
   assert.match(block, new RegExp(`at most ${require('../lib/duel_review').EVIDENCE_MAX} characters`));
   assert.match(SPEC, /`review:<seal>`/, 'the spec addresses it');
+});
+
+test('the Claw Guard verdict (v10 presign_verdict) is written as the spec writes it', () => {
+  const at = SPEC.indexOf('### 2.10');
+  assert.ok(at > 0, 'the spec has a §2.10');
+  const block = SPEC.slice(at, SPEC.indexOf('\n#', at + 1));
+  const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
+  assert.deepEqual(examples.map((e) => e.kind), ['presign_verdict']);
+  const g = { scan_key: 'sc_' + 'a'.repeat(16), request: 'tx', input_sha256: 'b'.repeat(64), input_bytes: 158,
+    level: 'stop', reasons: [{ id: 'unlimited_approval', sev: 'high' }], actions: ['txr.a_approve'], unknown: false,
+    simulation: { ok: true, chain_id: 8453, block: '52949015', status: 'success', changes: 1 }, scanned_at: AT };
+  const sealed = seal.sealGuard(g);
+  const p = JSON.parse(sealed.seal_payload);
+  assert.equal(p.v, 10);
+  assert.deepEqual(Object.keys(examples[0]), keysOf(sealed.seal_payload), 'the spec names the sealed fields, in order');
+  assert.deepEqual(Object.keys(examples[0].simulation), Object.keys(p.simulation), 'and the simulation\'s, in order');
+  assert.deepEqual(p.reasons, ['unlimited_approval:high'], 'each reason carries its severity');
+  // The three simulation states the spec names.
+  assert.strictEqual(JSON.parse(seal.sealGuard({ ...g, simulation: null }).seal_payload).simulation, null);
+  assert.deepEqual(JSON.parse(seal.sealGuard({ ...g, simulation: { ok: false, chain_id: 8453, reason: 'unreachable' } }).seal_payload).simulation,
+    { ran: false, chain_id: 8453, reason: 'unreachable' });
+  assert.match(SPEC, /\| 10 \| A Claw Guard verdict/, 'the version history lists it');
 });
 
 test('the proof bundle (§4.3): every field the spec names is one the bundle carries, and the verifier\'s exits are the spec\'s', async () => {

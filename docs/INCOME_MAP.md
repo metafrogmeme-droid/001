@@ -1374,7 +1374,7 @@ reads '$RC…
 | Leaf | Today | Doors |
 |---|---|---|
 | Smart contract dev | partial | `/api/contract/studio`, `/api/contract/compile`, `/api/web3/deploy` |
-| Audits/security | partial | `/token`, `/xray`, `/approvals`, `/firewall` |
+| Audits/security | partial | `/token`, `/xray`, `/approvals`, `/firewall`, `/guard` |
 | Growth/marketing | — | — |
 | Community management | — | — |
 | Design & video editing | — | — |
@@ -1431,6 +1431,18 @@ enumerates token approvals and emits revoke plans the owner signs themselves.
 verifiers a LayerZero bridge app needs before it takes a message, each way, from
 the chain through two readers that must agree (`app/lib/lz_verifiers.js::bridgeCheck`,
 served by `app/routes/risk.js::get('/bridge')`), and says a count, never a rating.
+/guard (`app/server.js::get('/guard')`) is Claw Guard: before signing, it reads
+what a transaction or an off-chain signature SAYS (calldata through the
+transaction X-ray; EIP-712 permits, Permit2 allowances and transfers and
+EIP-7702 delegations through `app/public/js/sigray-model.js::decodeTypedData`,
+named only when the type is the standard's own) and, for a transaction that
+names its sender, what it DOES on Base (`app/lib/tx_simulate.js::simulate`,
+`eth_simulateV1` on the chain's keyless endpoints), and joins both into one
+plain-words verdict (`app/public/js/guard-model.js::verdict`) served by
+`app/routes/guard.js::post('/check')`. A signed-in caller's verdict is sealed
+(v10, `app/lib/scan_seal.js::sealGuardIfSignedIn`); an anonymous check stores
+nothing. It is not on MCP yet: a new tool changes the ERC-8257 manifest hash
+the registration commits to.
 Contract Studio runs scan_security_flags (`bot/core/contract_studio.py::scan_security_flags`) — a
 deterministic Solidity rule set (tx.origin auth, selfdestruct, delegatecall,
 unchecked low-level call, block.timestamp, …) over the model's own output. MCP

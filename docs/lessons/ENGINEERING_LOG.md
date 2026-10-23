@@ -29356,3 +29356,69 @@ The lesson: when a "flaky" assertion fails, ask whether the state it waits
 for can be reached at all on the slow path, before making the wait longer.
 Any script-written label on a page whose translator loads after it needs
 `data-i18n` too, or must be written in an `rc-lang` handler.
+
+## A CHECK BEFORE SIGNING NAMES A SIGNATURE ONLY BY ITS OWN TYPE, AND A SIMULATION IS A READING OF ONE BLOCK
+
+22 October 2026, the brief's second item: Claw Guard v0. The transaction
+X-ray already read calldata and the scan seal already sealed a keyed caller's
+verdict. Most large drains need neither a transaction nor calldata from the
+victim: they need a signature (an EIP-2612 permit, a Permit2 allowance or
+transfer, an EIP-7702 delegation) that someone else submits later.
+
+**A signature is named only when its type is the standard's.** The EIP-712
+hash commits to the type string, so a "Permit" whose fields differ in name,
+order, type or number is not a permit any token will accept. Naming it one
+would be a guess, so it answers UNKNOWN (`app/public/js/sigray-model.js`).
+The standard types are pinned to the strings the standards publish:
+EIP-2612, DAI, and Permit2's `PermitHash.sol`, read on 22 October. Permit2's
+names on another contract are flagged as a look-alike, and every 7702
+delegation is flagged, twice over when it is valid on every chain.
+
+**A simulation is a reading of one block, and the receipt says which.** Base's
+public endpoints answer `eth_simulateV1` with no key (probed 22 October), so
+no simulation vendor sees the request (`app/lib/tx_simulate.js`). The answer
+names the block it ran on top of, one before the simulated block. A
+simulation that could not run is a reason of its own (`sim_unavailable`),
+never "no changes". A status that is neither `0x1` nor `0x0` is an answer the
+reader cannot read, not a revert (a mutant found it reading as one).
+
+**Clear is not green.** The verdict has five values: stop, check, clear,
+unknown, invalid. "Clear" is muted on the page and reads "no warning in what
+could be read; this is not a guarantee". An undecoded call that moves assets
+out in the simulation is "check", because the list is the only account of
+why.
+
+**The verdict is sealed with its severities and its block (v10).** A v5
+scan seals ids. The same reason can be graver in one context than another,
+so a v10 verdict seals `id:severity`. It also seals the simulation by chain
+and block, or says it did not run, and counts the changes without listing
+them: no address and no amount. Only a signed-in caller's verdict is sealed,
+and only a hash of what they sent.
+
+**Not on MCP yet, on purpose.** The ERC-8257 registration commits to a hash of
+the tool manifest, and the manifest lists the tools. A new tool would put an
+existing registration into drift. The MCP door rides with the brief's ERC-8004
+mainnet item, where the owner signs a new registration anyway.
+
+**Its own page.** `/firewall` promises "nothing you paste leaves the page", and
+Guard sends the request to the server to simulate and seal it, so Guard has
+`/guard` and says what leaves it, and the privacy policy names Base's
+endpoints and PublicNode.
+
+Tests: `app/test/the_signature_xray_says_what_a_signature_grants.test.js`,
+`app/test/the_claw_guard_reads_what_a_request_does.test.js` (Base's own
+recorded answers, `app/test/fixtures/claw_guard/`),
+`app/test/a_guard_verdict_is_sealed_only_for_a_signed_in_caller.test.js`,
+`app/test/the_guard_page_draws_what_the_verdict_says.test.js`, the §2.10 case
+in `app/test/provable_calls_spec.test.js`, and the policy's paragraph in
+`site/test/privacy_truth.test.js`.
+
+Mutation round: 31 mutants on the type match, the time lines, the Permit2
+expiry, the look-alike and chain flags, the reader's kinds and status, the
+verdict's levels and merge, the route's simulation and seal gates and the
+v10 fields. The first pass left 6 alive. Four were fixtures nobody had:
+an extra field, an ERC-721 transfer and a bounded approval (both recorded
+from Base), and a field that kept its name and changed its type. One was the
+status read above. One mutant was a no-op by construction and was dropped.
+`until < now` against `until <= now - 1` is equivalent on integers and is
+recorded as such. 29 of 29 killed.

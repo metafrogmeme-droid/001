@@ -203,6 +203,23 @@ test('the Risk Scanner names every chain it reads and the providers it asks by d
   assert.match(route, /const CACHE_MS = 60000;/, 'the answer is kept for longer than the page says')
 })
 
+test('Claw Guard names the RPCs it simulates on, and keeps nothing for an anonymous check', async () => {
+  const { createRequire } = await import('node:module')
+  const { CHAINS } = createRequire(import.meta.url)(path.join(REPO, 'app', 'lib', 'nft.js'))
+  const t = text()
+  const para = (t.match(/Claw Guard\.[^]*?no address and no amount\./) || [''])[0]
+  assert.ok(para, 'the page does not describe Claw Guard')
+  const hosts = Object.values(CHAINS).flatMap((c) => c.rpcs.map((u) => new URL(u).hostname))
+  assert.ok(hosts.length, 'no RPC hosts read: the check lost its anchor')
+  if (hosts.some((h) => h.endsWith('.base.org'))) assert.match(para, /Base.s own endpoints/)
+  if (hosts.some((h) => h.endsWith('publicnode.com'))) assert.match(para, /PublicNode/)
+  for (const h of hosts) assert.ok(h.endsWith('.base.org') || h.endsWith('publicnode.com'), `the page does not name ${h}`)
+  // The route stores nothing for an anonymous caller and seals only a hash.
+  const seal = repo('app', 'lib', 'scan_seal.js')
+  assert.match(seal, /async function sealGuardIfSignedIn[^]*?if \(!userId\) return \{ sealed: false, reason: 'anonymous' \}/)
+  assert.match(repo('app', 'lib', 'callseal.js'), /kind: 'presign_verdict',[^]*?input_sha256/)
+})
+
 test('a Pi tip is disclosed field by field, and its record is erased with the account', () => {
   const ddl = repo('app', 'db.js').match(/CREATE TABLE IF NOT EXISTS pi_payments \(([\s\S]*?)\n\s*\)/)
   assert.ok(ddl, 'the pi_payments table is gone — the page still describes tip records')

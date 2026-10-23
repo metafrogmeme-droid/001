@@ -42,7 +42,7 @@
 
 const crypto = require('node:crypto');
 const { pool } = require('../db');
-const { sealScan, inputDigest } = require('./callseal');
+const { sealScan, sealGuard, inputDigest } = require('./callseal');
 
 /** Same shape as `newTradeKey` — short, unguessable, URL-safe. */
 function newScanKey() {
@@ -120,6 +120,57 @@ async function sealIfKeyed(opts) {
   }
 }
 
+/**
+ * Seal one Claw Guard verdict (v10, `lib/callseal.js` canonicalGuardPayload)
+ * for a signed-in caller of routes/guard.js.
+ *
+ * The same rules as `sealIfKeyed`, for the same reasons: an anonymous caller
+ * gets the verdict and nothing is stored; a caller who is identified gets a
+ * receipt, bounded by the route's rate limit; and failing to seal never
+ * fails the check. The row goes in `scan_seals` beside the v5 scans, so it is
+ * a leaf of the same daily root and opens at the same /call/<key>.
+ *
+ * @param opts.request  'tx' | 'typed_data' | 'authorization'
+ * @param opts.input    the exact text the caller sent: HASHED, never stored
+ * @param opts.verdict  guard-model.js `verdict()` result
+ * @param opts.decoded  the X-ray result the verdict read (for `unknown`)
+ * @param opts.simulation  the simulation reading, or null when none was asked for
+ * @param opts.userId   the signed-in caller, or null
+ */
+async function sealGuardIfSignedIn(opts) {
+  const { request, input, verdict, decoded, simulation, userId } = opts || {};
+  if (!userId) return { sealed: false, reason: 'anonymous' };
+  try {
+    const digest = inputDigest(input);
+    const scannedAt = new Date();
+    const scanKey = newScanKey();
+    const v = verdict || {};
+    const { seal, seal_payload } = sealGuard({
+      scan_key: scanKey,
+      request,
+      input_sha256: digest.sha256,
+      input_bytes: digest.bytes,
+      level: v.level,
+      reasons: v.reasons,
+      actions: actionIds(v.actions),
+      unknown: decoded && 'unknown' in decoded ? !!decoded.unknown : null,
+      simulation: simulation == null ? null : (simulation.ok
+        ? { ok: true, chain_id: simulation.chain_id, block: simulation.block, status: simulation.status,
+            changes: Array.isArray(simulation.changes) ? simulation.changes.length : 0 }
+        : { ok: false, chain_id: simulation.chain_id, reason: simulation.reason }),
+      scanned_at: scannedAt,
+    });
+    await pool.execute(
+      'INSERT INTO scan_seals (scan_key, user_id, agent_slug, tool, seal, seal_payload, sealed_at) '
+      + 'VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [scanKey, userId, null, 'claw_guard', seal, seal_payload, scannedAt]);
+    return { sealed: true, scan_key: scanKey, seal, sealed_at: scannedAt.toISOString() };
+  } catch (err) {
+    console.error('[scan_seal] could not seal a guard verdict:', err.constructor.name);
+    return { sealed: false, reason: 'seal_failed' };
+  }
+}
+
 /** One receipt by key, or null. Never exposes `user_id`. */
 async function byKey(scanKey) {
   const k = String(scanKey || '');
@@ -139,4 +190,4 @@ async function byKey(scanKey) {
   };
 }
 
-module.exports = { sealIfKeyed, byKey, newScanKey, actionIds, flagIds };
+module.exports = { sealIfKeyed, sealGuardIfSignedIn, byKey, newScanKey, actionIds, flagIds };

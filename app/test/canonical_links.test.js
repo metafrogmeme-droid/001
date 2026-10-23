@@ -25,7 +25,7 @@ const FILE_FOR = {
   '/strengthmap': 'strengthmap.html', '/arena': 'arena.html', '/duel': 'duel.html',
   '/learn': 'learn.html', '/command': 'command.html', '/rune': 'rune.html',
   '/gas': 'gas.html', '/approvals': 'approvals.html', '/provable': 'provable.html',
-  '/roots': 'roots.html', '/scanner': 'scanner.html',
+  '/roots': 'roots.html', '/scanner': 'scanner.html', '/guard': 'guard.html',
 };
 const read = (f) => fs.readFileSync(path.join(PUB, f), 'utf8');
 const canonOf = (h) => (h.match(/<link rel="canonical" href="([^"]+)"/) || [])[1];
