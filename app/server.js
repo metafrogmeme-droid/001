@@ -488,6 +488,10 @@ app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
 // Claw Guard: a verdict on a transaction or a signature before signing it.
 // Public; a signed-in caller's verdict is sealed (routes/guard.js).
+// v0.1 (a lookalike warning, an audit-trail export) is a separate router
+// and stays 404 until CLAW_GUARD_V01 is set. /check is the v0 router only.
+app.use('/api/guard/poison', require('./routes/guard_v01'));
+app.use('/v1/receipts', require('./routes/receipts_v01'));
 app.use('/api/guard', require('./routes/guard'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
@@ -559,7 +563,13 @@ app.get('/stress', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); r
 app.get('/sentinel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'sentinel.html')); });
 app.get('/guardian', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'guardian.html')); });
 app.get('/firewall', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'firewall.html')); });
-app.get('/guard', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'guard.html')); });
+app.get('/guard', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  const v01 = require('./lib/claw_guard_v01');
+  // Flag off: the file on disk, the same document v0 serves.
+  if (!v01.enabled()) return res.sendFile(v01.guardPageFile());
+  res.type('html').send(v01.guardPageHtml(v01.readGuardPage()));
+});
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

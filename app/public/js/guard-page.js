@@ -233,7 +233,13 @@
     fetch('/api/guard/check', { method: 'POST', headers: headers, body: JSON.stringify(body) })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
-      .then(function (b) { $('g-out').innerHTML = P.render(b, T); });
+      .then(function (b) {
+        $('g-out').innerHTML = P.render(b, T);
+        // Present only when the v0.1 script was served. Absent, this is the v0 page.
+        if (window.RCGuardV01 && typeof window.RCGuardV01.onVerdict === 'function') {
+          window.RCGuardV01.onVerdict({ mode: mode, fields: fields(), out: $('g-out') });
+        }
+      });
   }
 
   document.querySelectorAll('[data-g-mode]').forEach(function (b) {
