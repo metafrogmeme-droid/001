@@ -30,9 +30,20 @@
 # receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
 # call site resolves to. It is SOUND rather than complete: one unresolvable
 # receiver makes the whole name ambiguous, because the alternative is guessing.
-# **41** method names remain ambiguous and are not checked by anything — the
+# **48** method names remain ambiguous and are not checked by anything — the
 # number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
 # so it cannot rot into a claim.
+#
+# 41 -> 48 when the anonymous Daily Duel bot landed. Seven names that one
+# class defined are now defined by two, and one unresolvable receiver makes
+# the whole name ambiguous:
+#   build_app, cmd_duel, cmd_help, cmd_start, markup, on_any_update
+#     DuelBot (bot/duel_bot.py) and DailyDuelBot (bot/daily_duel_bot.py)
+#   latest
+#     CallStore (bot/daily_duel_store.py) and SentimentEngine
+#     (bot/core/sentiment.py)
+# `record` was already shared across many classes, so CallStore.record did
+# not move this count.
 #
 # 33 -> 31 when alert_manager, performance_tracker and feedback_loop were
 # deleted: fewer classes in the tree means fewer shared method names the sweep

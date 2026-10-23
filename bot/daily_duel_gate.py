@@ -23,6 +23,8 @@ Runner = Callable[[str, Mapping[str, Any]], dict]
 class GateDown(Exception):
     """The duel gate could not be asked. Not a price, not a closed day."""
 
+    pass  # a docstring-only body does not parse once code_only blanks it
+
 
 def node_runner(command: str, payload: Mapping[str, Any]) -> dict:
     """One JSON object on stdout. The input is stdin, never argv, and a

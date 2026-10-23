@@ -24,6 +24,8 @@ _SALT_MIN = 16
 class PayloadRefused(Exception):
     """The receipt still carries the Telegram id. Nothing was written."""
 
+    pass  # a docstring-only body does not parse once code_only blanks it
+
 
 def player_key(telegram_id: str, salt: str) -> str:
     """Hex HMAC-SHA256. The salt is the key, so a leaked table is not a list
