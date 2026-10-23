@@ -13,6 +13,7 @@
  *   the flag off seals nothing and adds no tab
  *   the direction card does not deal this game
  *   a mask cannot be copied out
+ *   a mask is the made-up placeholder, and every reveal says so
  */
 
 const { describe, test, before, after } = require('node:test');
@@ -60,7 +61,7 @@ function good(over = {}) {
     fields: [
       { k: 'Chain', v: 'Ethereum' },
       { k: 'Amount', v: '\u2592\u2592\u2592' },
-      { k: 'Spender', v: '0x12ab\u20269f' },
+      { k: 'Spender', v: '0xEXAMPLE\u202601' },
     ],
   }, over);
 }
@@ -85,7 +86,7 @@ describe('scam or safe daily', { concurrency: false }, () => {
       fields: [
         { k: 'Chain', v: 'Ethereum' },
         { k: 'Amount', v: '1000' },
-        { k: 'Spender', v: '0x12ab\u20269f' },
+        { k: 'Spender', v: '0xEXAMPLE\u202601' },
       ],
     });
     assert.ok(sos.problems(amount, CHAINS).some((s) => s.includes('amount not blanked')));
@@ -132,10 +133,18 @@ describe('scam or safe daily', { concurrency: false }, () => {
       fields: [
         { k: 'Chain', v: 'Ethereum' },
         { k: 'Amount', v: '[amount hidden]' },
-        { k: 'Spender', v: '0x12ab\u20269f' },
+        { k: 'Spender', v: '0xEXAMPLE\u202601' },
       ],
     });
     assert.deepEqual(sos.problems(hidden, CHAINS), []);
+    const realish = good({
+      fields: [
+        { k: 'Chain', v: 'Ethereum' },
+        { k: 'Amount', v: '\u2592\u2592\u2592' },
+        { k: 'Spender', v: '0x12ab\u20269f' },
+      ],
+    });
+    assert.ok(sos.problems(realish, CHAINS).some((s) => s.includes('real-looking mask')));
     assert.ok(sos.problems(good({ method: 'eth_sign' }), CHAINS).some((s) => s.includes('method')));
     assert.deepEqual(sos.problems(good({ method: 'increaseAllowance' }), CHAINS), []);
     const short = Array.from({ length: 29 }, (_, i) => good({ id: letterId(i) }));
@@ -156,6 +165,67 @@ describe('scam or safe daily', { concurrency: false }, () => {
     }
     const ids = list.map((p) => p.id);
     assert.equal(new Set(ids).size, ids.length);
+    for (const puzzle of list) {
+      for (const field of puzzle.fields) {
+        const value = String(field.v);
+        if (!/^0x/i.test(value)) continue;
+        assert.match(value, /^0xEXAMPLE\u2026[0-9]{2}$/, puzzle.id);
+        assert.doesNotMatch(value, /^0x[a-f0-9]{2,8}\u2026/i, puzzle.id);
+      }
+    }
+  });
+
+  test('a masked address is the made-up placeholder, and every reveal says the example is not a real check', () => {
+    const line = 'Made-up training example, not a check of any real contract or address.';
+    const fake = '0xEXAMPLE\u202601';
+    assert.equal(sos.MADE_UP, line);
+    assert.equal(ui.MADE_UP, line);
+    assert.deepEqual(sos.publicField({ k: 'Spender', v: fake }), { k: 'Spender', v: fake });
+    assert.deepEqual(
+      sos.publicField({ k: 'Spender', v: '0x12ab\u20269f' }),
+      { k: 'Spender', v: '[withheld]' },
+    );
+    const reveal = ui.render({
+      phase: 'reveal',
+      puzzle: {
+        chain_label: 'Ethereum',
+        method: 'approve',
+        fields: [
+          { k: 'Spender', v: fake },
+          { k: 'Amount', v: '\u2592\u2592\u2592' },
+        ],
+      },
+      pick: 'safe',
+      verdict: 'risky',
+      correct: false,
+      explanation: 'First sentence here. Second sentence here.',
+      ai_label: sos.AI_LABEL,
+      ai_note: sos.AI_NOTE,
+      right: { pct: 0, total: 1, unreadable: 0 },
+      streak: { current: 0, best: 0 },
+      rank: { place: 1, players: 1 },
+    });
+    assert.ok(reveal.includes(line));
+    assert.match(reveal, /class="sos-v sos-mask">0xEXAMPLE\u202601</);
+    const withheld = ui.render({
+      phase: 'reveal',
+      puzzle: {
+        chain_label: 'Ethereum',
+        method: 'approve',
+        fields: [{ k: 'Spender', v: '0x12ab\u20269f' }],
+      },
+      pick: 'safe',
+      verdict: null,
+      correct: null,
+      ai_label: null,
+      right: { pct: null, total: 0 },
+      streak: { current: null },
+      rank: { place: null, players: null },
+    });
+    assert.ok(withheld.includes(line));
+    assert.equal(withheld.includes('0x12ab'), false);
+    assert.match(withheld, /class="sos-v">\[withheld\]</);
+    assert.doesNotMatch(withheld, /class="sos-v sos-mask"/);
   });
 
   test('a poisoned field is blanked or withheld before it can be shown', () => {
@@ -355,6 +425,7 @@ describe('scam or safe daily', { concurrency: false }, () => {
     });
     assert.equal(html.includes(row.explanation), false);
     assert.match(html, /withheld until it carries its AI label/);
+    assert.ok(html.includes(sos.MADE_UP));
     const shown = ui.render({
       phase: 'reveal',
       puzzle: row.puzzle,
@@ -370,6 +441,7 @@ describe('scam or safe daily', { concurrency: false }, () => {
     });
     assert.ok(shown.includes(sos.AI_LABEL));
     assert.ok(shown.includes(row.explanation));
+    assert.ok(shown.includes(sos.MADE_UP));
     assert.equal(shown.includes('tone-up'), false);
     assert.equal(shown.includes('color:green'), false);
   });
@@ -381,6 +453,7 @@ describe('scam or safe daily', { concurrency: false }, () => {
     db.prepare('UPDATE picks SET seal = ? WHERE player_key = ?').run('00'.repeat(32), KEY_A);
     const row = sos.offer({ now: NOW, player_key: KEY_A });
     assert.equal(row.verified, false);
+    assert.equal(row.made_up, sos.MADE_UP);
     assert.equal(row.verdict, null);
     assert.equal(row.explanation, null);
     assert.equal(row.ai_label, null);
@@ -403,7 +476,7 @@ describe('scam or safe daily', { concurrency: false }, () => {
         chain_label: 'Ethereum',
         method: 'approve',
         fields: [
-          { k: 'Spender', v: '0x12ab\u20269f' },
+          { k: 'Spender', v: '0xEXAMPLE\u202601' },
           { k: 'Amount', v: '\u2592\u2592\u2592' },
         ],
       },
@@ -595,7 +668,9 @@ describe('scam or safe daily', { concurrency: false }, () => {
       assert.equal(page.status, 200);
       assert.equal(page.headers['cache-control'], 'no-store');
       assert.match(page.raw, /id="scam-root"/);
-      assert.match(page.raw, /\/js\/scam-or-safe\.js\?v=1/);
+      assert.match(page.raw, /\/js\/scam-or-safe\.js\?v=2/);
+      assert.doesNotMatch(page.raw, /(^|[{,\s])['"`]?margin['"`]?\s*:/);
+      assert.equal(first.body.made_up, sos.MADE_UP);
       assert.doesNotMatch(page.raw, /<script(?![^>]*\bsrc=)/);
       assert.doesNotMatch(page.raw, /0x[a-fA-F0-9]{40}/);
     });
@@ -610,7 +685,7 @@ describe('scam or safe daily', { concurrency: false }, () => {
     assert.match(off, /\/js\/pi-arena\.js\?v=8/);
     flag(true);
     const on = pi._page('en', {});
-    const atScam = on.indexOf('/js/scam-or-safe.js?v=1');
+    const atScam = on.indexOf('/js/scam-or-safe.js?v=2');
     const atArena = on.indexOf('/js/pi-arena.js?v=8');
     assert.ok(atScam > 0 && atArena > atScam);
     flag(false);

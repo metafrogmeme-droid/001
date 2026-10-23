@@ -28,6 +28,8 @@ NOT_OPEN = "Scam or Safe is not open. Nothing was sealed."
 UNREAD = "Today's request could not be read, so nothing was sealed."
 AI_LABEL = "AI-written explanation"
 AI_NOTE = "Education and practice, not advice."
+MADE_UP = "Made-up training example, not a check of any real contract or address."
+_FAKE_MASK = re.compile(r"^0xEXAMPLE…[0-9]{2}$")
 
 SCAM_WELCOME = (
     "Scam or Safe is open. Tap /scam for today's decoded request. "
@@ -53,7 +55,9 @@ def parse_callback(data: str) -> Optional[tuple[str, Optional[str], Optional[str
 
 def show_field(value: object) -> str:
     text = str(value if value is not None else "")
-    if _FULL_ADDR.search(text) or _URL.search(text):
+    if _FAKE_MASK.fullmatch(text):
+        return text
+    if _FULL_ADDR.search(text) or _URL.search(text) or "0x" in text.lower():
         return "[withheld]"
     return text
 
@@ -150,6 +154,7 @@ def reveal_text(body: Mapping[str, object]) -> str:
         lines.append("That does not match the verdict.")
     else:
         lines.append("Whether it matched could not be read.")
+    lines.append(MADE_UP)
     label = body.get("ai_label")
     if label:
         lines.append(str(label))

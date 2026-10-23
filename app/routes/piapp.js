@@ -207,7 +207,7 @@ function page(lang = 'en', offered = chunks()) {
   // list is the one this page has always shipped.
   if (require('../lib/scam_or_safe').enabled()) {
     const at = list.indexOf('/js/pi-arena.js?v=8');
-    list.splice(at < 0 ? list.length : at, 0, '/js/scam-or-safe.js?v=1');
+    list.splice(at < 0 ? list.length : at, 0, '/js/scam-or-safe.js?v=2');
   }
   // The chosen language's words load right after the module that holds them,
   // before anything draws.

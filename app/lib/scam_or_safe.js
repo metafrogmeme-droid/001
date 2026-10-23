@@ -28,8 +28,10 @@
  *   verdict     safe | risky
  *   fields      include Amount set to ▒▒▒ or [amount hidden]
  *   explanation two to four sentences
- * Addresses only as 0x + 2–6 hex + … + 2–4 hex. No digits outside that mask,
- * no URL, no full address, and none of: token, presale, price, $RCLAW, stake.
+ * Addresses only as the made-up placeholder `0xEXAMPLE…` plus two digits
+ * (`0xEXAMPLE…01`). A hex fragment such as `0x12ab…9f` is the start and end
+ * of a real account and is refused. No digits outside that placeholder, no
+ * URL, no full address, and none of: token, presale, price, $RCLAW, stake.
  * The audit in this file refuses the catalog otherwise.
  *
  * FLAG. `SCAM_OR_SAFE_V0` unset is off. On is 1, true, on, or yes.
@@ -49,8 +51,12 @@ const METHODS = Object.freeze(['approve', 'permit', 'transfer', 'setApprovalForA
 const BLANKS = Object.freeze(['\u2592\u2592\u2592', '[amount hidden]']);
 const AI_LABEL = 'AI-written explanation';
 const AI_NOTE = 'Education and practice, not advice.';
+const MADE_UP = 'Made-up training example, not a check of any real contract or address.';
 const KEY_RE = /^(?:[0-9a-f]{64}|w:[0-9a-f]{64})$/;
-const MASK_RE = /0x[a-f0-9]{2,6}\u2026[a-f0-9]{2,4}/gi;
+// The only account text a puzzle may carry. EXAMPLE is not hex, so the
+// characters cannot be the start of a real address.
+const MASK_RE = /0xEXAMPLE\u2026[0-9]{2}/g;
+const REALISH_RE = /0x[a-f0-9]{2,8}\u2026[a-f0-9]{2,4}/i;
 const BANNED_RE = /\b(tokens?|presales?|prices?|stakes?)\b|\$?rclaw|\$/i;
 const URL_RE = /https?:\/\/|www\.|javascript:|walletconnect|metamask|\bwc:|\b[a-z0-9-]+\.(com|io|org|net|app|xyz|eth)\b/i;
 const FULL_ADDR_RE = /0x[a-fA-F0-9]{40}/;
@@ -117,6 +123,8 @@ function problems(puzzle, chains = chainTable()) {
     if (URL_RE.test(text)) out.push(id + ': url');
     URL_RE.lastIndex = 0;
     if (FULL_ADDR_RE.test(text)) out.push(id + ': full address');
+    if (REALISH_RE.test(text)) out.push(id + ': real-looking mask');
+    REALISH_RE.lastIndex = 0;
     const residue = text.replace(MASK_RE, '');
     MASK_RE.lastIndex = 0;
     if (/\d/.test(residue) || /0x/i.test(residue)) out.push(id + ': amount or address');
@@ -214,7 +222,8 @@ function publicField(field) {
   const k = String(field && field.k || '');
   const v = String(field && field.v || '');
   if (/^amount$/i.test(k)) return { k, v: BLANKS.indexOf(v) >= 0 ? v : '\u2592\u2592\u2592' };
-  if (FULL_ADDR_RE.test(v) || URL_RE.test(v) || BANNED_RE.test(v)) return { k, v: '[withheld]' };
+  const fake = /^0xEXAMPLE\u2026[0-9]{2}$/.test(v);
+  if (!fake && (FULL_ADDR_RE.test(v) || /0x/i.test(v) || URL_RE.test(v) || BANNED_RE.test(v))) return { k, v: '[withheld]' };
   return { k, v };
 }
 
@@ -446,6 +455,7 @@ function revealRow(row, list, now, dir) {
       explanation: null,
       ai_label: null,
       ai_note: null,
+      made_up: MADE_UP,
       right: rightShare(dir, row.day, list),
       streak: { current: null, best: null, active_today: false, unreadable: true },
       rank: { place: null, players: null },
@@ -457,6 +467,7 @@ function revealRow(row, list, now, dir) {
     explanation: puzzle.explanation,
     ai_label: AI_LABEL,
     ai_note: AI_NOTE,
+    made_up: MADE_UP,
     right: rightShare(dir, row.day, list),
     streak: streakFor(dir, row.player_key, now, list),
     rank: rankFor(dir, row.player_key, now, list),
@@ -545,7 +556,7 @@ function sealPick(input, env = process.env) {
 }
 
 module.exports = {
-  AI_LABEL, AI_NOTE, BLANKS, METHODS, PUZZLES,
+  AI_LABEL, AI_NOTE, MADE_UP, BLANKS, METHODS, PUZZLES,
   enabled, stateDir, chainTable, supportedChains,
   problems, audit, catalog, indexForDay, puzzleForDay, cutoffFor, prevDay,
   webPlayerKey, hashOf, verifySeal, publicPuzzle, publicField, pctOf,

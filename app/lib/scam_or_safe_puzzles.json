@@ -20,7 +20,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x12ab…9f"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -57,7 +57,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x44cd…10"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -94,7 +94,7 @@
       },
       {
         "k": "Operator",
-        "v": "0x91c4…e2"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -131,7 +131,7 @@
       },
       {
         "k": "Operator",
-        "v": "0xab12…44"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -168,11 +168,11 @@
       },
       {
         "k": "From",
-        "v": "0x77cd…01"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…02"
       },
       {
         "k": "To note",
@@ -205,11 +205,11 @@
       },
       {
         "k": "From",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To note",
@@ -242,7 +242,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x51ae…c3"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -279,7 +279,7 @@
       },
       {
         "k": "Spender",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -316,7 +316,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x12ab…9f"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -353,7 +353,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x44cd…10"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -390,7 +390,7 @@
       },
       {
         "k": "Operator",
-        "v": "0x91c4…e2"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -427,7 +427,7 @@
       },
       {
         "k": "Operator",
-        "v": "0xab12…44"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -464,11 +464,11 @@
       },
       {
         "k": "From",
-        "v": "0x77cd…01"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…02"
       },
       {
         "k": "To note",
@@ -501,11 +501,11 @@
       },
       {
         "k": "From",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To note",
@@ -538,7 +538,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x51ae…c3"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -575,7 +575,7 @@
       },
       {
         "k": "Spender",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -612,7 +612,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x12ab…9f"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -649,7 +649,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x44cd…10"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -686,7 +686,7 @@
       },
       {
         "k": "Operator",
-        "v": "0x91c4…e2"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -723,7 +723,7 @@
       },
       {
         "k": "Operator",
-        "v": "0xab12…44"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -760,11 +760,11 @@
       },
       {
         "k": "From",
-        "v": "0x77cd…01"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…02"
       },
       {
         "k": "To note",
@@ -797,11 +797,11 @@
       },
       {
         "k": "From",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To note",
@@ -834,7 +834,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x51ae…c3"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -871,7 +871,7 @@
       },
       {
         "k": "Spender",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -908,7 +908,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x12ab…9f"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -945,7 +945,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x44cd…10"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -982,7 +982,7 @@
       },
       {
         "k": "Operator",
-        "v": "0x91c4…e2"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -1019,7 +1019,7 @@
       },
       {
         "k": "Operator",
-        "v": "0xab12…44"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Operator note",
@@ -1056,11 +1056,11 @@
       },
       {
         "k": "From",
-        "v": "0x77cd…01"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…02"
       },
       {
         "k": "To note",
@@ -1093,11 +1093,11 @@
       },
       {
         "k": "From",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To",
-        "v": "0x0bad…77"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "To note",
@@ -1130,7 +1130,7 @@
       },
       {
         "k": "Spender",
-        "v": "0x51ae…c3"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",
@@ -1167,7 +1167,7 @@
       },
       {
         "k": "Spender",
-        "v": "0xcafe…b4"
+        "v": "0xEXAMPLE…01"
       },
       {
         "k": "Spender note",

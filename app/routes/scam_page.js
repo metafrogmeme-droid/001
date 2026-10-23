@@ -25,18 +25,20 @@ function page() {
 <meta name="description" content="One decoded signing request a day. Call it safe or risky. Read only: nothing is signed, addresses are masked, amounts are hidden.">
 <link rel="stylesheet" href="/styles.css?v=52">
 <style>
-  .sos-wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; }
-  .sos-nav { display: flex; gap: 16px; margin-bottom: 18px; }
+  .sos-page { display: flex; justify-content: center; }
+  .sos-wrap { max-width: 720px; width: 100%; padding: 28px 16px 64px; box-sizing: border-box; }
+  .sos-nav { display: flex; gap: 16px; padding-bottom: 18px; }
   .sos-nav a { color: inherit; opacity: .75; }
 </style>
 </head>
 <body>
-<div class="sos-wrap">
+<div class="sos-page"><div class="sos-wrap">
 <nav class="sos-nav"><a href="/duel">Daily Duel</a><a href="/">Home</a></nav>
 <div id="scam-root"></div>
-</div>
+</div></div>
+<script src="/js/app.js?v=17"></script>
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/scam-or-safe.js?v=1" defer></script>
+<script src="/js/scam-or-safe.js?v=2" defer></script>
 </body>
 </html>`;
 }

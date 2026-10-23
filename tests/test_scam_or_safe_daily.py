@@ -26,7 +26,7 @@ PUZZLE = {
     "chain_label": "Ethereum",
     "method": "approve",
     "fields": [
-        {"k": "Spender", "v": "0x12ab\u20269f"},
+        {"k": "Spender", "v": "0xEXAMPLE\u202601"},
         {"k": "Amount", "v": "\u2592\u2592\u2592"},
     ],
 }
@@ -148,7 +148,7 @@ def test_choosing_does_not_seal_and_confirming_does(tmp_path, monkeypatch):
     shown = _update()
     _run(bot.cmd_scam(shown, None))
     text = _texts(shown)[0]
-    assert "0x12ab\u20269f" in text
+    assert "0xEXAMPLE\u202601" in text
     assert "\u2592\u2592\u2592" in text
     assert "0x" + "ab" * 20 not in text
     assert gate.sos_sealed == []
@@ -171,6 +171,7 @@ def test_choosing_does_not_seal_and_confirming_does(tmp_path, monkeypatch):
     assert TG not in sent["player_key"]
     revealed = _texts(seal)[0]
     assert "AI-written explanation" in revealed
+    assert sos.MADE_UP in revealed
     assert "0% of 1 players called it right." in revealed
     assert "Verdict: risky." in revealed
     assert store.for_day(player_key(TG, SALT), "2026-10-23") is None
@@ -233,7 +234,8 @@ def test_an_unreadable_percent_is_not_printed_as_zero():
     withheld = sos.show_field("0x" + "ab" * 20)
     assert withheld == "[withheld]"
     assert sos.show_field("see https://sign.example") == "[withheld]"
-    assert sos.show_field("0x12ab\u20269f") == "0x12ab\u20269f"
+    assert sos.show_field("0xEXAMPLE\u202601") == "0xEXAMPLE\u202601"
+    assert sos.show_field("0x12ab\u20269f") == "[withheld]"
     body = {
         "pick": "safe", "verdict": "risky", "correct": False,
         "ai_label": sos.AI_LABEL, "explanation": "Hidden words.",
@@ -248,6 +250,7 @@ def test_an_unreadable_percent_is_not_printed_as_zero():
     assert "Streak: 0" not in text
     assert "Hidden words." in text
     assert sos.AI_LABEL in text
+    assert sos.MADE_UP in text
     measured = dict(body)
     measured["right"] = {"pct": 0, "total": 4, "unreadable": 2}
     measured["streak"] = {"current": 0, "best": 3}
@@ -265,6 +268,7 @@ def test_an_unreadable_percent_is_not_printed_as_zero():
     assert "True%" not in unread
     assert "Should stay hidden." not in unread
     assert "withheld until it carries its AI label" in unread
+    assert sos.MADE_UP in unread
     for value, want in (("1", True), ("yes", True), ("off", False), ("", False)):
         assert sos.enabled({"SCAM_OR_SAFE_V0": value}) is want
 
@@ -306,6 +310,32 @@ def test_a_real_sos_seal_round_trip_stores_one_call_and_a_second_pick_is_the_fir
     closed = node_runner("sos-offer", {"now": NOW, "player_key": key})
     assert closed["error"] == "off"
     assert not (quiet / "picks.sqlite").exists()
+
+
+def test_a_mask_is_obviously_fake_and_every_reveal_says_the_example_is_made_up():
+    line = "Made-up training example, not a check of any real contract or address."
+    assert sos.MADE_UP == line
+    assert sos.show_field("0xEXAMPLE\u202601") == "0xEXAMPLE\u202601"
+    assert sos.show_field("0xEXAMPLE\u202602") == "0xEXAMPLE\u202602"
+    assert sos.show_field("0x12ab\u20269f") == "[withheld]"
+    assert sos.show_field("0x12ab...9f") == "[withheld]"
+    assert "0x12ab" not in sos.show_field("0x12ab\u20269f")
+    body = {
+        "pick": "safe", "verdict": "risky", "correct": False,
+        "ai_label": sos.AI_LABEL, "explanation": "First sentence. Second sentence.",
+        "ai_note": sos.AI_NOTE,
+        "right": {"pct": 0, "total": 1, "unreadable": 0},
+        "streak": {"current": 0, "best": 0},
+        "rank": {"place": 1, "players": 1},
+    }
+    labeled = sos.reveal_text(body)
+    assert line in labeled
+    unlabeled = dict(body)
+    unlabeled["ai_label"] = ""
+    unlabeled["explanation"] = "Should stay hidden."
+    quiet = sos.reveal_text(unlabeled)
+    assert line in quiet
+    assert "Should stay hidden." not in quiet
 
 
 def test_offer_text_withholds_a_full_address_and_a_url():

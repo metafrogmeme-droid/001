@@ -17,6 +17,7 @@
   'use strict';
 
   var AI_LABEL = 'AI-written explanation';
+  var MADE_UP = 'Made-up training example, not a check of any real contract or address.';
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -25,7 +26,7 @@
   }
 
   function isMasked(v) {
-    return /^0x[a-f0-9]{2,6}\u2026[a-f0-9]{2,4}$/i.test(String(v || ''));
+    return /^0xEXAMPLE\u2026[0-9]{2}$/.test(String(v || ''));
   }
 
   function isAmount(k) {
@@ -79,6 +80,7 @@
   function fieldHtml(field) {
     var k = field && field.k;
     var v = field && field.v;
+    if (/^0x/i.test(String(v || '')) && !isMasked(v)) v = '[withheld]';
     var cls = 'sos-v';
     if (isAmount(k)) cls += ' sos-amt';
     else if (isMasked(v)) cls += ' sos-mask';
@@ -149,7 +151,8 @@
         ? '<p class="sos-ai">' + esc(v.ai_label) + '</p><p>' + esc(v.explanation || '') + '</p>'
           + (v.ai_note ? '<p class="sos-note">' + esc(v.ai_note) + '</p>' : '')
         : '<p class="sos-note">The explanation is withheld until it carries its AI label.</p>';
-      return head + card + called + verdict + match + explain
+      var madeUp = '<p class="sos-note">' + esc(MADE_UP) + '</p>';
+      return head + card + called + verdict + match + madeUp + explain
         + '<p>' + esc(rightText(v.right)) + '</p>'
         + '<p>' + esc(streakText(v.streak)) + '</p>'
         + '<p>' + esc(rankText(v.rank)) + '</p>'
@@ -255,11 +258,12 @@
   }
 
   function authHeaders() {
-    var tok = null;
-    try { tok = window.localStorage && window.localStorage.getItem('token'); } catch (e) { tok = null; }
-    var headers = {};
-    if (tok) headers.Authorization = 'Bearer ' + tok;
-    return headers;
+    // The session helper every other page uses (app.js). A cookie session
+    // sends no Bearer header; the cookie travels on credentials: 'same-origin'.
+    // Reading localStorage here would decide "signed out" for that session.
+    var rc = typeof window !== 'undefined' ? window.RC : null;
+    if (rc && typeof rc.authHeaders === 'function') return rc.authHeaders();
+    return {};
   }
 
   function mount(el) {
@@ -312,6 +316,6 @@
   return {
     create: create, mount: mount, render: render, guardCopy: guardCopy, guardSelect: guardSelect,
     viewFromBody: viewFromBody, rightText: rightText, streakText: streakText, rankText: rankText,
-    AI_LABEL: AI_LABEL,
+    AI_LABEL: AI_LABEL, MADE_UP: MADE_UP,
   };
 }));
