@@ -14,6 +14,10 @@
  * checked first, then the operator, then the rate limit. A closed flag
  * does not ask who the caller is and does not spend a rate-limit slot.
  *
+ * GET /api/sar-oracle/admin/adoption is the operator's alert evaluation,
+ * HIP-3 suggestion, and archive status. It is built from the public
+ * snapshot. It does not sign and it does not return a dollar amount.
+ *
  *   200  the reading, with null where a field was not read
  *   400  the market query is not one this feed asks about
  *   404  the flag is off, or the admin caller is not the operator
@@ -25,6 +29,7 @@ const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { flag_on } = require('../lib/sar_oracle_flag');
 const indexer = require('../lib/sar/indexer');
+const adoption = require('../lib/sar/adoption');
 const { HL_COINS } = require('../lib/sar/chains');
 
 const router = express.Router();
@@ -37,6 +42,13 @@ const limit = rateLimit({
 });
 const adminLimit = rateLimit({
   name: 'sar.admin',
+  windowMs: 60000,
+  max: 30,
+  key: ipKey,
+  message: 'Too many requests, slow down.',
+});
+const adoptLimit = rateLimit({
+  name: 'sar.adopt',
   windowMs: 60000,
   max: 30,
   key: ipKey,
@@ -81,6 +93,30 @@ router.get('/packets', (req, res) => {
       return res.status(503).json({ error: 'could_not_read', exception: err && err.name ? err.name : 'Error' });
     }
   });
+});
+
+router.get('/admin/adoption', (req, res) => {
+  if (!flag_on()) return res.status(404).type('text/plain').send('Not found');
+  Promise.resolve()
+    .then(() => checkOperator(req))
+    .then((ok) => {
+      if (ok !== true) return res.status(404).type('text/plain').send('Not found');
+      return adoptLimit(req, res, () => {
+        try {
+          const pub = indexer.snapshot(Date.now());
+          return sendReading(res, adoption.view(pub, process.env));
+        } catch (err) {
+          return res.status(503).json({
+            error: 'could_not_read',
+            exception: err && err.name ? err.name : 'Error',
+          });
+        }
+      });
+    })
+    .catch((err) => {
+      console.error('operator check failed:', err && err.name ? err.name : 'Error');
+      if (!res.headersSent) res.status(404).type('text/plain').send('Not found');
+    });
 });
 
 router.get('/admin/packets', (req, res) => {

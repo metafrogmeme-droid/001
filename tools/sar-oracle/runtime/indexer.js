@@ -20,6 +20,7 @@ const metrics = require('./metrics');
 const packet = require('./packet');
 const sources = require('./sources');
 const canary = require('./canary');
+const alerts = require('./alerts');
 
 const MIN_INTERVAL_MS = 60000;
 const TWAP_MS = 5 * 60 * 1000;
@@ -772,7 +773,8 @@ function start(deps) {
   const env = (deps && deps.env) || process.env;
   const every = readPolicy(env).interval_ms;
   const run = () => {
-    cycle(deps).catch((err) => {
+    const fetchImpl = (deps && deps.fetch) || globalThis.fetch;
+    cycle(deps).then((pub) => alerts.maybeSend(pub, env, fetchImpl)).catch((err) => {
       const name = err && err.name ? err.name : 'Error';
       console.error('SaR Oracle cycle:', name);
     });
