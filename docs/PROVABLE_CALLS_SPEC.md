@@ -369,7 +369,7 @@ with the asset lowercased and `account` null when none was sent.
 {"v":11,"kind":"rwa_precheck","scan_key":"sc_<16>","input_sha256":"<64 hex>",
  "input_bytes":72,"chain_id":8453,"block":"52987635",
  "flags":["erc3643:detected","paused:yes","oracle:unknown"],
- "unreadable":["investor_verified"],
+ "unreadable":["registry_isVerified"],
  "scanned_at":"2026-10-23T12:00:00.000Z"}
 ```
 
@@ -377,9 +377,9 @@ with the asset lowercased and `account` null when none was sent.
   `observed`, `within_heartbeat`, `not_observed`, …). Prose is not sealed, so
   a wording change does not invalidate a receipt.
 - `unreadable` lists checks that did not return a reading. A reverted
-  `isVerified` is `unreadable`, not a flag that says the account is
-  unverified. An empty flag list with `unreadable` containing `read` means
-  the chain itself could not be read.
+  `isVerified` is the id `registry_isVerified` in that list, not a flag
+  that says the account is unverified. An empty flag list with
+  `unreadable` containing `read` means the chain itself could not be read.
 - `block` is the block whose state was read. No address, no amount and no
   feed answer is a field.
 

@@ -86,7 +86,7 @@ and Stellar are not rows either.
 
 1. **ERC-3643 / T-REX.** `identityRegistry()`, `compliance()`, `paused()`,
    and, when a registry is set, `isVerified` for the account that was named.
-   A revert of `isVerified` is `unreadable`, not "unverified". A revert of
+   A revert of `isVerified` is the unreadable id `registry_isVerified`, not "unverified". A revert of
    `identityRegistry` is not "this is outside ERC-3643".
 2. **Oracle freshness.** Getters on the asset (`oracle`, `porFeed`,
    `navFeed`, and the others named in `app/lib/rwa_evm.js`), or the asset

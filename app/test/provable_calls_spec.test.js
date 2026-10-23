@@ -381,7 +381,7 @@ test('the RWA pre-check (v11 rwa_precheck) is written as the spec writes it', ()
       { id: 'paused', state: 'yes' },
       { id: 'oracle', state: 'unknown' },
     ],
-    unreadable: ['investor_verified'],
+    unreadable: ['registry_isVerified'],
     scanned_at: AT,
   };
   const sealed = seal.sealRwa(g);
@@ -389,7 +389,7 @@ test('the RWA pre-check (v11 rwa_precheck) is written as the spec writes it', ()
   assert.equal(p.v, 11);
   assert.deepEqual(Object.keys(examples[0]), keysOf(sealed.seal_payload), 'the spec names the sealed fields, in order');
   assert.deepEqual(p.flags, ['erc3643:detected', 'paused:yes', 'oracle:unknown']);
-  assert.deepEqual(p.unreadable, ['investor_verified']);
+  assert.deepEqual(p.unreadable, ['registry_isVerified']);
   assert.strictEqual(JSON.parse(seal.sealRwa({ ...g, input_bytes: Number.NaN }).seal_payload).input_bytes, null);
   assert.strictEqual(JSON.parse(seal.sealRwa({ ...g, block: null }).seal_payload).block, null);
   assert.equal(sealed.seal, crypto.createHash('sha256').update(sealed.seal_payload, 'utf8').digest('hex'));

@@ -188,7 +188,7 @@ test('an ERC-3643 reading names the registry, the pause bit and a selector it sa
   assert.equal(flag(r, 'freeze').state, 'not_observed');
   assert.equal(flag(r, 'freeze').tone, 'muted');
   assert.equal(flag(r, 'investor').state, 'not_checked');
-  assert.ok(!flag(r, 'investor_verified'));
+  assert.ok(!flag(r, 'registry_isVerified'));
   assert.equal(r.setup.registry.address, REG);
   assert.equal(r.disclaimer, DISCLAIMER);
 });
@@ -221,8 +221,8 @@ test('isVerified reverting is unreadable, not unverified', async () => {
     put(c, A, 'isAgent', [ACCT], enc(['bool'], [false]));
   });
   const r = await run({ codes: { [A]: '0x00' }, calls, pre: { account: ACCT } });
-  assert.ok(r.unreadable.includes('investor_verified'));
-  assert.ok(!r.flags.some((f) => f.id === 'investor_verified'));
+  assert.ok(r.unreadable.includes('registry_isVerified'));
+  assert.ok(!r.flags.some((f) => f.id === 'registry_isVerified'));
 });
 
 test('isVerified false is the caution, and true is not a recommendation', async () => {
@@ -232,11 +232,22 @@ test('isVerified false is the caution, and true is not a recommendation', async 
     put(c, REG, 'isVerified', [ACCT], enc(['bool'], [false]));
   });
   const r = await run({ codes: { [A]: '0x00' }, calls, pre: { account: ACCT } });
-  assert.equal(flag(r, 'investor_verified').state, 'no');
-  assert.equal(flag(r, 'investor_verified').tone, 'caution');
+  assert.equal(flag(r, 'registry_isVerified').state, 'no');
+  assert.equal(flag(r, 'registry_isVerified').tone, 'caution');
   assert.equal(flag(r, 'investor_frozen').tone, 'caution');
   assert.equal(flag(r, 'investor_agent').tone, 'caution');
-  assert.ok(!/recommend|safe|good/i.test(flag(r, 'investor_verified').text));
+  assert.ok(!/recommend|safe|good/i.test(flag(r, 'registry_isVerified').text));
+  const yesCalls = baseCalls((c) => {
+    put(c, A, 'isFrozen', [ACCT], enc(['bool'], [false]));
+    put(c, A, 'isAgent', [ACCT], enc(['bool'], [false]));
+    put(c, REG, 'isVerified', [ACCT], enc(['bool'], [true]));
+  });
+  const yes = await run({ codes: { [A]: '0x00' }, calls: yesCalls, pre: { account: ACCT } });
+  const yesFlag = flag(yes, 'registry_isVerified');
+  assert.equal(yesFlag.state, 'yes');
+  assert.equal(yesFlag.tone, 'neutral');
+  assert.equal(yesFlag.text, 'The identity registry reports this account as verified.');
+  assert.ok(!/recommend|safe|good/i.test(yesFlag.text));
 });
 
 test('empty code is not a list of absent functions', async () => {

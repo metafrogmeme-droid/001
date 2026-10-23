@@ -615,16 +615,16 @@ async function readEvm({ chain, asset, account, rpc }) {
       const verified = await callView(rpc, registry.address, 'isVerified', [account], tag);
       const verifiedField = boolField(verified);
       if (verifiedField.state === 'read' && verifiedField.value === true) {
-        flags.push(flag('investor_verified', 'yes', 'The identity registry reports this account as verified.'));
+        flags.push(flag('registry_isVerified', 'yes', 'The identity registry reports this account as verified.'));
       } else if (verifiedField.state === 'read' && verifiedField.value === false) {
-        flags.push(flag('investor_verified', 'no',
+        flags.push(flag('registry_isVerified', 'no',
           'The identity registry reports this account as not verified. A transfer can be refused for that reason.'));
       } else {
         // A revert is not "unverified".
-        unreadable.push('investor_verified');
+        unreadable.push('registry_isVerified');
       }
     } else if (registry.state === 'unreadable') {
-      unreadable.push('investor_verified');
+      unreadable.push('registry_isVerified');
     }
   }
 
