@@ -1,0 +1,8 @@
+[
+  {
+    "id": "t2c",
+    "name": "Time to cash",
+    "status": "coming_soon",
+    "summary": "A cap and LTV signal for the time it takes to exit. It is not a liquidation price."
+  }
+]
