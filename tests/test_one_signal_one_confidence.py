@@ -332,9 +332,9 @@ def _blend_reads(src: str):
     docstring is a bare string constant carrying no Attribute or Call node, so
     `code_only` buys this rule nothing -- and it COSTS: it blanks docstrings,
     so a class whose body is only one no longer parses. Driven over `bot/`,
-    13 files are unparseable after `code_only` -- `bot/core/live_executor.py`
+    14 files are unparseable after `code_only` -- `bot/core/live_executor.py`
     and `bot/utils/audit_chain.py` among them -- so a whole-tree rule that
-    stripped first would have to swallow a SyntaxError for each: 13 files
+    stripped first would have to swallow a SyntaxError for each: 14 files
     silently unchecked, which is the blind spot this rule was widened to
     remove. The count is pinned against a live measurement below, because a
     number in prose is the part that rots first."""

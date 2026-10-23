@@ -699,6 +699,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/compliance` | restricted jurisdictions and the global consent ledger |
 | `/backup` | verifiable backups of critical state |
 | `/readiness` | is the learning loop validated enough to apply |
+| `/srb` | shadow restitution signals — a public signal, nothing is paid |
 
 ### 🚦 Engine ops (operator) — *operator only*
 
