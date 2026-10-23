@@ -30,14 +30,16 @@ BRIDGE = HERE / "runeclaw-bridge.service"
 # The Daily Duel's own bot (2026-10-19): optional on a box, but once installed
 # it is held to every pin the two required units are.
 DUEL = HERE / "runeclaw-duel.service"
+# The anonymous Daily Duel bot: optional, and once installed held to the same pins.
+DAILY = HERE / "runeclaw-daily-duel.service"
 GATEWAY = ROOT / "scripts" / "cloudflared" / "runeclaw-gateway.service"
 
 #: The two processes this file was written for.
-UNITS = (BOT, BRIDGE, DUEL)
+UNITS = (BOT, BRIDGE, DUEL, DAILY)
 #: Every unit in the repo. The gateway is included in the checks that are about
 #: SUPERVISION rather than about these two processes — it had the start-limit
 #: defect and would have kept it if the new units had been checked alone.
-ALL_UNITS = (BOT, BRIDGE, DUEL, GATEWAY)
+ALL_UNITS = (BOT, BRIDGE, DUEL, DAILY, GATEWAY)
 
 
 def _code_only(text: str) -> str:
@@ -116,6 +118,8 @@ def test_there_is_a_unit_for_each_process(code: dict[Path, str]) -> None:
     assert "api_bridge.py" in code[BRIDGE]
     assert "-m bot.duel_bot" in code[DUEL]
     assert "bot.main" not in code[DUEL], "the duel unit must not start the trading bot"
+    assert "-m bot.daily_duel_bot" in code[DAILY]
+    assert "bot.main" not in code[DAILY], "the anonymous duel unit must not start the trading bot"
 
 
 def test_both_restart_always_not_on_failure(code: dict[Path, str]) -> None:
@@ -276,6 +280,7 @@ def test_each_unit_checks_that_its_port_answers(code: dict[Path, str]) -> None:
     assert "8080/gateway/health" in code[BOT], "the gateway port is never probed"
     assert "8000/health" in code[BRIDGE], "the bridge port is never probed"
     assert "8081/health" in code[DUEL], "the duel bot's health port is never probed"
+    assert "8082/health" in code[DAILY], "the anonymous duel bot's health port is never probed"
     for u in UNITS:
         assert re.search(r"^ExecStartPost=.*wait_for_port\.sh", code[u], re.M)
 
@@ -400,11 +405,11 @@ def _line(out: str, unit: str) -> str:
     return next((ln for ln in out.splitlines() if f" {unit} " in f" {ln} "), "")
 
 
-STATUS_UNITS = ("runeclaw-bot", "runeclaw-bridge", "runeclaw-gateway", "runeclaw-duel")
-# Installed nowhere, the duel unit is OPTIONAL, not NOT INSTALLED: a box
-# without DUEL_BOT_TOKEN is in its expected state. Installed, it is a unit
-# like any other (the two tests above hold it to "user unit"/"system unit").
-OPTIONAL_UNITS = ("runeclaw-duel",)
+STATUS_UNITS = ("runeclaw-bot", "runeclaw-bridge", "runeclaw-gateway", "runeclaw-duel", "runeclaw-daily-duel")
+# Installed nowhere, these units are OPTIONAL, not NOT INSTALLED: a box
+# without the matching token is in its expected state. Installed, each is a
+# unit like any other (the two tests above hold it to "user unit"/"system unit").
+OPTIONAL_UNITS = ("runeclaw-duel", "runeclaw-daily-duel")
 
 
 def test_a_user_unit_is_found_and_named_as_one(tmp_path):
@@ -446,13 +451,20 @@ def test_an_optional_unit_nobody_installed_is_not_a_failure(tmp_path):
     r = _status(env)
     assert _line(r.stdout, "runeclaw-duel").startswith("OPTIONAL"), r.stdout
     assert "DUEL_BOT_TOKEN" in _line(r.stdout, "runeclaw-duel")
+    assert "DAILY_DUEL_BOT_TOKEN" not in _line(r.stdout, "runeclaw-duel")
+    daily = _line(r.stdout, "runeclaw-daily-duel")
+    assert daily.startswith("OPTIONAL"), r.stdout
+    assert "DAILY_DUEL_BOT_TOKEN" in daily
+    assert "DAILY_DUEL_ID_SALT" in daily
     for unit in required:
         assert _line(r.stdout, unit).startswith("OK"), (unit, r.stdout)
     assert r.returncode == 0, "an absent optional unit failed a healthy box"
     # Installed (held by the fake manager) it is checked like the others.
-    r2 = _status(_fake_systemd(tmp_path, system=required + ("runeclaw-duel",)))
+    r2 = _status(_fake_systemd(tmp_path, system=required + ("runeclaw-duel", "runeclaw-daily-duel")))
     assert "system unit" in _line(r2.stdout, "runeclaw-duel"), r2.stdout
     assert not _line(r2.stdout, "runeclaw-duel").startswith("OPTIONAL")
+    assert "system unit" in _line(r2.stdout, "runeclaw-daily-duel"), r2.stdout
+    assert not _line(r2.stdout, "runeclaw-daily-duel").startswith("OPTIONAL")
 
 
 def test_an_unreachable_user_manager_is_unread_not_absent(tmp_path):

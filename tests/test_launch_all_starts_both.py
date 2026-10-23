@@ -237,3 +237,23 @@ def test_the_duel_bot_is_smoke_tested_and_its_port_probed(src: str) -> None:
     assert "8081/health" in code, "the duel bot's health port is never probed"
     assert code.index("8081/health") < code.index("DEPLOY_DONE")
     assert 'duel=$DUEL_PID' in code, "DEPLOY_DONE does not say whether the duel bot runs"
+
+
+def test_the_anonymous_daily_duel_bot_starts_only_when_token_and_salt_are_set(src: str) -> None:
+    """`python3 -m bot.daily_duel_bot` needs its own token and a salt. Presence
+    is read; the values are never printed. A box missing either one still
+    deploys the processes above."""
+    code = _code_only(src)
+    m = re.search(r'nohup "\$PY_BIN" -m bot\.daily_duel_bot', code)
+    assert m, "the launcher does not start the anonymous Daily Duel bot"
+    guard = code.index("if daily_duel_configured; then")
+    assert guard < m.start() < code.index("fi", m.start())
+    assert re.search(r"grep -qE '\^DAILY_DUEL_BOT_TOKEN=", code)
+    assert re.search(r"grep -qE '\^DAILY_DUEL_ID_SALT=", code)
+    assert not re.search(r"(echo|log|printf)[^\n]*\$\{?DAILY_DUEL_BOT_TOKEN", code)
+    assert not re.search(r"(echo|log|printf)[^\n]*\$\{?DAILY_DUEL_ID_SALT", code)
+    assert "DAILY_DUEL_BOT_TOKEN or DAILY_DUEL_ID_SALT is not set" in code
+    assert re.search(r'verify_bot_alive\.sh --pid "\$DAILY_PID" \|\| die', code)
+    assert "8082/health" in code
+    assert code.index("8082/health") < code.index("DEPLOY_DONE")
+    assert 'daily=$DAILY_PID' in code

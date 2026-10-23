@@ -50,6 +50,26 @@ with the main bot's token, the process exits 78 and the unit's
 stopped unit, and `runeclaw-status.sh` says DOWN. Every other exit restarts,
 as the other units do.
 
+### The optional fourth unit: `runeclaw-daily-duel`
+
+`python3 -m bot.daily_duel_bot` is the anonymous Daily Duel bot. Its token is
+`DAILY_DUEL_BOT_TOKEN` and its id salt is `DAILY_DUEL_ID_SALT`, both in the
+bot's `.env`, neither committed. Health on `:8082`. It builds no engine and
+signs nothing. Sealing needs `node` on PATH, because the receipt is made by
+`app/lib/daily_duel_gate.js`. Install it only once both values are set:
+
+```bash
+sudo cp scripts/systemd/runeclaw-daily-duel.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now runeclaw-daily-duel
+scripts/systemd/runeclaw-status.sh
+```
+
+A box without the token or the salt leaves the unit uninstalled, and the
+status script lists it as `OPTIONAL`. Installed without either value, or with
+a token equal to `TELEGRAM_BOT_TOKEN` or `DUEL_BOT_TOKEN`, the process exits
+78 and does not restart.
+
 Check three things in the unit files before installing — all three are box
 facts this repo cannot know:
 

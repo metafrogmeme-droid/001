@@ -1071,6 +1071,133 @@ python -m bot.main --mode scan
 
 ---
 
+## Daily Duel bot
+
+A separate Telegram bot for the existing Daily Duel at
+[humanoid-traders.com/doge](https://humanoid-traders.com/doge). One up or down call per
+duel day, sealed before the move by the same seal the website uses
+(`app/lib/callseal.js`, reached through `app/lib/daily_duel_gate.js`). The
+cutoff and the entry are that module's. This bot does not sign, does not hold
+keys, and does not open a Mini App. The player anchors the day's root from
+their own wallet on the web page.
+
+The process is `python3 -m bot.daily_duel_bot`. It is not `bot.duel_bot`
+(that one is the card, chips, and Mini App, on `DUEL_BOT_TOKEN`).
+
+### BotFather
+
+Name: **Daily Duel**
+
+Profile picture: `bot/assets/daily_duel_logo_640.png`
+
+About (`/setabouttext`, 120 characters):
+
+```
+Call the daily market duel: up or down, sealed before the move. Part of RUNECLAW Arena.
+```
+
+Description (`/setdescription`):
+
+```
+Daily Duel by RUNECLAW Arena.
+
+Every day, one market call: up or down. Your call is sealed before the market moves, so it can't be changed afterwards. Each day's seals roll into one root you can anchor on the DogeOS testnet from your own wallet. We never hold your keys.
+
+Play daily, build your streak and climb the Arena Season 1 leaderboard.
+
+Tap Start to play.
+```
+
+Commands (`/setcommands`):
+
+```
+start - Start playing Daily Duel
+duel - Make today's call: up or down
+result - See the latest result
+streak - Your streak and score
+leaderboard - Arena Season 1 standings
+help - How Daily Duel works
+```
+
+`/start` replies with:
+
+```
+👋 Welcome to Daily Duel by RUNECLAW Arena.
+
+Each day you make one call: will the market go up or down?
+🔒 Your call is sealed before the move, so it can't be changed.
+🏆 Build your streak and climb the Season 1 leaderboard.
+
+Tap /duel to make today's call.
+Also on the web: humanoid-traders.com/doge
+```
+
+### Run
+
+In the bot's `.env` (never committed):
+
+```
+DAILY_DUEL_BOT_TOKEN=
+DAILY_DUEL_ID_SALT=
+```
+
+The salt is `openssl rand -hex 32`. The Telegram user id is HMAC-SHA256'd
+with it and is never stored or sealed. `node` must be on `PATH`: the receipt
+is made by `node app/lib/daily_duel_gate.js`.
+
+```bash
+python3 -m bot.daily_duel_bot
+```
+
+Health is `http://127.0.0.1:8082/health` and answers 200 only while the bot
+is polling. A missing token, a missing salt, or a token equal to
+`TELEGRAM_BOT_TOKEN` or `DUEL_BOT_TOKEN` exits 78.
+
+**systemd** (the supervisor to use on the bot box): copy
+`scripts/systemd/runeclaw-daily-duel.service`, then
+`systemctl enable --now runeclaw-daily-duel`. See
+`scripts/systemd/README.md`.
+
+**Launcher:** `scripts/launch_all.sh.template` starts this process only when
+both values are present in the environment or `.env`, and it never prints
+them. It probes `:8082/health` before `DEPLOY_DONE`.
+
+**Compose:** the repo's `docker-compose.yml` has a `daily_duel` service behind
+the profile `daily-duel`:
+
+```bash
+docker compose --profile daily-duel up -d daily_duel
+```
+
+Set the token and the salt before starting that profile. `restart:
+unless-stopped` will loop on exit 78 if either is empty. The production image
+does not include Node, so this container can poll and cannot seal. Sealing
+runs on the host checkout, where the website's Node is already installed.
+
+### What v0 does, and what it says is coming soon
+
+Working: `/start`, `/help` (cutoff, horizon, privacy line), `/duel` with a
+confirm step, one call per hashed id per duel day, a repeat that shows the
+sealed call, `/streak` as consecutive call-days, `/result` showing the sealed
+call and whether it is due. Anchoring is the link to humanoid-traders.com/doge.
+
+Coming soon, and said so in the chat: scoring a due call, a score on
+`/streak`, the Arena Season 1 leaderboard, linking an Arena handle with a
+one-time code from the website, and folding the local seal into the day's
+public root. The market is the first direction round the card builder deals
+with no agent signals, because this process does not open the website
+database.
+
+### Rotating the token
+
+On any exposure, and every 90 days:
+
+1. In BotFather, `/revoke` on this bot. The old token stops working.
+2. Put the new token in `DAILY_DUEL_BOT_TOKEN` on the bot box (the `.env` the
+   unit reads). Do not commit it and do not paste it into a chat.
+3. Restart `runeclaw-daily-duel` (or the process `launch_all` started).
+4. `curl -sf http://127.0.0.1:8082/health` should answer 200.
+
 ## License
 
 **BUSL-1.1** -- Business Source License 1.1 (source-available). See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for details.

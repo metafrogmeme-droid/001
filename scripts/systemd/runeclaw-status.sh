@@ -27,12 +27,13 @@
 
 set -uo pipefail
 
-UNITS="runeclaw-bot runeclaw-bridge runeclaw-gateway runeclaw-duel"
-# Units a box may legitimately not have. The Daily Duel bot runs only where
-# DUEL_BOT_TOKEN is set (scripts/systemd/runeclaw-duel.service); on a box
-# without it, "not installed" is the expected state and not a failure. An
+UNITS="runeclaw-bot runeclaw-bridge runeclaw-gateway runeclaw-duel runeclaw-daily-duel"
+# Units a box may legitimately not have. runeclaw-duel runs only where
+# DUEL_BOT_TOKEN is set; runeclaw-daily-duel runs only where
+# DAILY_DUEL_BOT_TOKEN and DAILY_DUEL_ID_SALT are set. On a box without
+# them, "not installed" is the expected state and not a failure. An
 # optional unit that IS installed is held to every check below.
-OPTIONAL_UNITS=" runeclaw-duel "
+OPTIONAL_UNITS=" runeclaw-duel runeclaw-daily-duel "
 
 # Port probes, paired with the unit that serves them. A unit can be active and
 # not serving; that is the case the ExecStartPost gate catches at start time and
@@ -42,7 +43,18 @@ probe_for() {
     runeclaw-bot)    echo "http://127.0.0.1:8080/gateway/health" ;;
     runeclaw-bridge) echo "http://127.0.0.1:8000/health" ;;
     runeclaw-duel)   echo "http://127.0.0.1:8081/health" ;;
+    runeclaw-daily-duel) echo "http://127.0.0.1:8082/health" ;;
     *)               echo "" ;;
+  esac
+}
+
+# Why an uninstalled optional unit is expected. Named per unit: one sentence
+# for every optional unit would tell an operator the wrong token.
+optional_reason() {
+  case "$1" in
+    runeclaw-duel) echo "It runs only where DUEL_BOT_TOKEN is set; see scripts/systemd/README.md." ;;
+    runeclaw-daily-duel) echo "It runs only where DAILY_DUEL_BOT_TOKEN and DAILY_DUEL_ID_SALT are set; see scripts/systemd/README.md." ;;
+    *) echo "see scripts/systemd/README.md." ;;
   esac
 }
 
@@ -90,7 +102,7 @@ for unit in $UNITS; do
   elif [ "$user_manager_ok" -eq 1 ]; then
     case "$OPTIONAL_UNITS" in
       *" $unit "*)
-        echo "OPTIONAL       ${unit} — not installed. It runs only where DUEL_BOT_TOKEN is set; see scripts/systemd/README.md."
+        echo "OPTIONAL       ${unit} — not installed. $(optional_reason "$unit")"
         continue ;;
     esac
     echo "NOT INSTALLED  ${unit} — no unit file, system or user. Nothing supervises this process."
