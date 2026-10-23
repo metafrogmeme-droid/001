@@ -342,6 +342,9 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// Conservation-brake status stays 404 for a non-admin, flag on or off.
+// Ahead of express.static so public/cgc.html is not a file anyone can open.
+app.use(require('./lib/cgc_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -503,6 +506,8 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
+// Conservation brake: admin-only status. 404 for everyone else, flag on or off.
+app.use('/api/cgc', require('./routes/cgc'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -585,6 +590,11 @@ app.get('/guard', (req, res) => {
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
+// /cgc — conservation-brake status. Admin only. pageGate, ahead of static,
+// keeps /cgc.html and the page script from being files a non-admin can open.
+app.get('/cgc', (req, res, next) => {
+  require('./lib/cgc_flag').sendPage(req, res).catch(next);
+});
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

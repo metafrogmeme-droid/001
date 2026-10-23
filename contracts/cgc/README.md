@@ -69,6 +69,7 @@ contracts in this repository.
 
 `npm test` compiles with solc and runs the bytecode on an in-process EVM. This
 repository does not run Foundry, Rust, Anvil or a mainnet fork for this module.
-The server flag `CGC_ENABLED` is not read by these contracts. It defaults off
-in the website, the surface is admin-only, and there is no public dashboard.
-The server does not hold a mainnet key and does not sign.
+The server flag `CGC_ENABLED` is not read by these contracts. The website
+reads it in `app/lib/cgc_flag.js`. Unset is off. A non-admin receives 404
+even when the flag is on, and there is no public dashboard. The server does
+not hold a mainnet key and does not sign.
