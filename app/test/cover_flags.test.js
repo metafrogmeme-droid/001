@@ -5,6 +5,8 @@
  * Not offered to customers. Licence review pending. Do not enable in production.
  */
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
+
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -66,6 +68,14 @@ test('the pages carry the hold, load api-retry first, and do not market an offer
   const paths = STATIC_PATHS.map((s) => s.path);
   assert.ok(!paths.includes('/cover-adl'));
   assert.ok(!paths.includes('/cover-stopgap'));
+});
+
+test('the cover router identifies the caller before either status route', () => {
+  const src = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'routes', 'cover.js'), 'utf8'));
+  const useAt = src.indexOf('router.use(optionalAuth)');
+  const adlAt = src.indexOf("router.get('/adl'");
+  const stopAt = src.indexOf("router.get('/stopgap'");
+  assert.ok(useAt > 0 && useAt < adlAt && useAt < stopAt);
 });
 
 test('the server mounts the gate ahead of static and registers both pages', () => {
