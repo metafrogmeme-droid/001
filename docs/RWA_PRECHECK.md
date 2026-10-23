@@ -11,7 +11,9 @@ The same sentence is `DISCLAIMER` in `app/lib/rwa_words.js` and on `/rwa`.
 
 `RWA_PRECHECK_ENABLED` — off unless the value is `1` or `true`. Read on
 every request. While it is off, `GET /rwa`, `GET /rwa.html`,
-`GET /js/rwa-precheck.js` and `/v1/rwa/*` answer 404.
+`GET /js/rwa-precheck.js` and `/v1/rwa/*` answer 404. The page has no
+canonical and is not in the sitemap: those would tell a crawler to index
+an address that is a 404 until the flag is on.
 
 ## Chains
 
