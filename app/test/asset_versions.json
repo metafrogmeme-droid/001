@@ -51,6 +51,10 @@
     "v": 1,
     "sha": "b5e9e3bec0ac5f5c"
   },
+  "js/botcheck.js": {
+    "v": 1,
+    "sha": "2870c218e406688b"
+  },
   "js/calibration-chart.js": {
     "v": 2,
     "sha": "0d66f51488d24183"
@@ -248,8 +252,8 @@
     "sha": "25cb3003194ae98c"
   },
   "js/pi-arena.js": {
-    "v": 7,
-    "sha": "a6593abef951ef6f"
+    "v": 8,
+    "sha": "d2499e0cd3736923"
   },
   "js/pi-coach.js": {
     "v": 3,
@@ -334,6 +338,10 @@
   "js/rune-card.js": {
     "v": 1,
     "sha": "a9fef181eb7c9215"
+  },
+  "js/scam-or-safe.js": {
+    "v": 2,
+    "sha": "5bff2adecf965e04"
   },
   "js/sandbox.js": {
     "v": 1,

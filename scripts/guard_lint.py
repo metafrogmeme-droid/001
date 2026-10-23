@@ -473,6 +473,12 @@ RULES: list[Rule] = [
                            # document, like /doge above. Its API is
                            # routes/memeclaw.js, counted under the mixed-module
                            # rule below, route by route.
+            "scam_page",   # /scam — ONE HTML document for Scam or Safe? Daily.
+                           # 404 unless SCAM_OR_SAFE_V0 is on. The call is
+                           # POST /api/scam-or-safe/pick, which carries
+                           # authMiddleware in routes/scam_or_safe.js. Requiring
+                           # a session to fetch the page would require one to
+                           # reach the sign-in sentence.
             "piapp",       # /pi — the Pi Browser app: ONE HTML document, like
                            # `miniapp` above and for the same reason. Every
                            # action it takes is an authenticated call to
@@ -575,6 +581,13 @@ RULES: list[Rule] = [
             "today", "feed", "gas", "dapps", "allowances",
             # ^ market data and read-only chain lookups: no account is in scope,
             #   the inputs are a symbol or an address the caller already has.
+            # it returns curated public signals from bot/botcheck/catalog.json, read-only, with no user data.
+            "botcheck",
+            "botcheck_submit",     # POST /api/botcheck/submit only, and anonymous because the page
+                                   # form stores no account and a queued name is not published.
+                                   # Five writes a minute per client IP, a 1kb body cap mounted
+                                   # before the global parser, and a numeric id is refused and
+                                   # not stored. The lookup above is a different module.
         ],
         why=("An Express route module under /api/ that never applies authMiddleware. "
              "This is the SECOND HTTP surface in this repo — 228 routes, larger than "
