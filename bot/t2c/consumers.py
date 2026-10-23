@@ -10,8 +10,8 @@ def public_consumers() -> dict:
     return {
         "signal_only": True,
         "writes": False,
-        "venues": ["Aave v3", "Morpho"],
-        "assets": ["weETH", "wstETH", "rsETH"],
+        "venues": ["Aave v3 Core Ethereum", "Aave v3 Lido", "Morpho"],
+        "assets": ["weETH", "wstETH", "rsETH", "osETH", "rETH", "cbETH"],
     }
 
 

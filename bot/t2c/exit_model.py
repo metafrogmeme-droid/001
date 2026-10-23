@@ -20,6 +20,13 @@ from bot.t2c.chain_guard import LOCAL_FORK, assert_may_move_funds
 from bot.t2c.numbers import as_decimal, json_num
 
 WSTETH = "wsteth"
+ACCEPTED = frozenset({"wsteth", "steth"})
+IDLE = "idle"
+QUOTING = "quoting"
+HOLDING = "holding"
+CLAIMABLE = "claimable"
+ENTER_EDGE_BPS = Decimal(50)
+EXIT_EDGE_BPS = Decimal(20)
 INTAKE_NUMERATOR = 2
 INTAKE_DENOMINATOR = 100
 FEE_BASE_BPS = Decimal(10)
@@ -58,7 +65,34 @@ def new_ledger(pool_eth: object, block_number: int = 1) -> dict:
         "block_intake_eth": Decimal(0),
         "claims": [],
         "next_claim": 1,
+        "state": IDLE,
     }
+
+
+def edge_bps(amm_bps: object, queue_bps: object) -> Decimal | None:
+    amm = as_decimal(amm_bps)
+    queue = as_decimal(queue_bps)
+    if amm is None or queue is None:
+        return None
+    return amm - queue
+
+
+def note_edge(ledger: dict, amm_bps: object, queue_bps: object) -> dict:
+    """Idle to Quoting above 50 bp. Quoting back to Idle under 20 bp.
+
+    An unread edge does not move the state. The band between 20 and 50 holds.
+    """
+    edge = edge_bps(amm_bps, queue_bps)
+    state = ledger.get("state")
+    if edge is None:
+        return {"state": state, "moved": False, "reason": "unreadable"}
+    if state == IDLE and edge > ENTER_EDGE_BPS:
+        ledger["state"] = QUOTING
+        return {"state": QUOTING, "moved": True, "reason": "edge_above_50bp", "edge_bps": edge}
+    if state == QUOTING and edge < EXIT_EDGE_BPS:
+        ledger["state"] = IDLE
+        return {"state": IDLE, "moved": True, "reason": "edge_under_20bp", "edge_bps": edge}
+    return {"state": state, "moved": False, "reason": "unchanged", "edge_bps": edge}
 
 
 def _utilization(ledger: dict) -> Decimal | None:
@@ -86,6 +120,56 @@ def _block_intake(ledger: dict, block_number: int) -> Decimal | None:
     return taken
 
 
+def _terms(
+    ledger: dict,
+    chain_id: int,
+    quantity: object,
+    price: object,
+    block_number: int,
+    asset: str,
+) -> dict:
+    """The quote arithmetic. It does not write the ledger."""
+    assert_may_move_funds(chain_id)
+    name = str(asset).strip().lower()
+    if name not in ACCEPTED:
+        return {"ok": False, "refuse": _refuse("lst_unsupported")}
+    q = as_decimal(quantity)
+    p = as_decimal(price)
+    if q is None or p is None or q <= 0 or p <= 0:
+        return {"ok": False, "refuse": _refuse("unreadable")}
+    taken = _block_intake(ledger, block_number)
+    pool = as_decimal(ledger.get("pool_eth"))
+    if taken is None or pool is None or pool <= 0:
+        return {"ok": False, "refuse": _refuse("unreadable")}
+    cap = pool * Decimal(INTAKE_NUMERATOR) / Decimal(INTAKE_DENOMINATOR)
+    room = cap - taken
+    if room < 0:
+        room = Decimal(0)
+    fee_bps = exit_fee_bps(_utilization(ledger))
+    if fee_bps is None:
+        return {"ok": False, "refuse": _refuse("unreadable")}
+    gross = q * p
+    if gross > room:
+        return {"ok": False, "refuse": _refuse("intake_cap")}
+    fee = gross * fee_bps / BPS
+    return {
+        "ok": True,
+        "asset": name,
+        "gross": gross,
+        "fee": fee,
+        "fee_bps": fee_bps,
+        "proceeds": gross - fee,
+        "taken": taken,
+    }
+
+
+def _commit(ledger: dict, block_number: int, terms: dict) -> None:
+    ledger["block_number"] = block_number
+    ledger["block_intake_eth"] = terms["taken"] + terms["gross"]
+    ledger["committed_eth"] = ledger["committed_eth"] + terms["gross"]
+    ledger["lp_fee_eth"] = ledger["lp_fee_eth"] + terms["fee"]
+
+
 def quote_trade(
     ledger: dict,
     chain_id: int,
@@ -98,40 +182,113 @@ def quote_trade(
     assert_may_move_funds(chain_id)
     if str(asset).strip().lower() != WSTETH:
         return _refuse("wsteth_only")
-    q = as_decimal(quantity)
-    p = as_decimal(price)
-    if q is None or p is None or q <= 0 or p <= 0:
+    terms = _terms(ledger, chain_id, quantity, price, block_number, asset)
+    if not terms["ok"]:
+        refused = terms["refuse"]
+        if isinstance(refused, dict):
+            return refused
         return _refuse("unreadable")
-    taken = _block_intake(ledger, block_number)
-    pool = as_decimal(ledger.get("pool_eth"))
-    if taken is None or pool is None or pool <= 0:
-        return _refuse("unreadable")
-    cap = pool * Decimal(INTAKE_NUMERATOR) / Decimal(INTAKE_DENOMINATOR)
-    room = cap - taken
-    if room < 0:
-        room = Decimal(0)
-    u = _utilization(ledger)
-    fee_bps = exit_fee_bps(u)
-    if fee_bps is None:
-        return _refuse("unreadable")
-    gross = q * p
-    if gross > room:
-        return _refuse("intake_cap")
-    fee = gross * fee_bps / BPS
-    proceeds = gross - fee
-    ledger["block_number"] = block_number
-    ledger["block_intake_eth"] = taken + gross
-    ledger["committed_eth"] = ledger["committed_eth"] + gross
-    ledger["lp_fee_eth"] = ledger["lp_fee_eth"] + fee
+    _commit(ledger, block_number, terms)
     return {
         "filled": True,
         "reason": "filled",
-        "gross_eth": gross,
-        "fee_bps": fee_bps,
-        "fee_eth": fee,
-        "looper_eth": proceeds,
+        "gross_eth": terms["gross"],
+        "fee_bps": terms["fee_bps"],
+        "fee_eth": terms["fee"],
+        "looper_eth": terms["proceeds"],
         "asset": WSTETH,
     }
+
+
+def quote(
+    ledger: dict,
+    chain_id: int,
+    lst: str,
+    amt: object,
+    price: object,
+    block_number: int,
+) -> dict:
+    """IExitSwap.quote. A view: the ledger is unchanged."""
+    terms = _terms(ledger, chain_id, amt, price, block_number, lst)
+    if not terms["ok"]:
+        refused = terms["refuse"]
+        if isinstance(refused, dict):
+            return refused
+        return _refuse("unreadable")
+    return {
+        "filled": False,
+        "reason": "quoted",
+        "eth_out": terms["proceeds"],
+        "fee_eth": terms["fee"],
+        "fee_bps": terms["fee_bps"],
+        "asset": terms["asset"],
+    }
+
+
+def sell(
+    ledger: dict,
+    chain_id: int,
+    lst: str,
+    amt: object,
+    min_eth_out: object,
+    price: object,
+    block_number: int,
+) -> dict:
+    """Fill only from Quoting. Requests one Lido withdrawal and goes to Holding."""
+    assert_may_move_funds(chain_id)
+    if ledger.get("state") != QUOTING:
+        return _refuse("wrong_state")
+    minimum = as_decimal(min_eth_out)
+    if minimum is None or minimum < 0:
+        return _refuse("unreadable")
+    terms = _terms(ledger, chain_id, amt, price, block_number, lst)
+    if not terms["ok"]:
+        refused = terms["refuse"]
+        if isinstance(refused, dict):
+            return refused
+        return _refuse("unreadable")
+    if terms["proceeds"] < minimum:
+        return _refuse("min_eth_out")
+    _commit(ledger, block_number, terms)
+    opened = open_unsteth_claim(ledger, amt, None)
+    if not opened["opened"]:
+        return _refuse("unreadable")
+    ledger["state"] = HOLDING
+    return {
+        "filled": True,
+        "reason": "filled",
+        "event": "Bought",
+        "request_id": opened["claim"]["id"],
+        "eth_out": terms["proceeds"],
+        "fee_eth": terms["fee"],
+        "fee_bps": terms["fee_bps"],
+        "state": HOLDING,
+    }
+
+
+def mark_finalized(ledger: dict, request_id: int) -> dict:
+    if ledger.get("state") != HOLDING:
+        return {"finalized": False, "reason": "wrong_state"}
+    for claim in ledger["claims"]:
+        if claim["id"] == request_id and not claim["settled"]:
+            ledger["state"] = CLAIMABLE
+            return {"finalized": True, "state": CLAIMABLE}
+    return {"finalized": False, "reason": "unknown_request"}
+
+
+def claim(ledger: dict, request_ids: list[int]) -> dict:
+    """Claim the open requests and return to Idle."""
+    if ledger.get("state") != CLAIMABLE:
+        return {"claimed": False, "reason": "wrong_state", "state": ledger.get("state")}
+    if not request_ids:
+        return {"claimed": False, "reason": "unreadable", "state": CLAIMABLE}
+    open_ids = {item["id"] for item in ledger["claims"] if not item["settled"]}
+    if set(request_ids) != open_ids:
+        return {"claimed": False, "reason": "unknown_request", "state": CLAIMABLE}
+    for request_id in request_ids:
+        settle_unsteth_claim(ledger, request_id)
+    ledger["state"] = IDLE
+    return {"claimed": True, "reason": "idle", "state": IDLE}
 
 
 def open_unsteth_claim(ledger: dict, wsteth_in: object, steth_out: object = None) -> dict:
@@ -231,6 +388,29 @@ def _restore(ledger: dict, snapshot: tuple) -> None:
     ledger["claims"] = ledger["claims"][:n_claims]
 
 
+def exit_cycle() -> dict:
+    """Idle, quote, sell, finalize, claim. A separate ledger from the flash demo."""
+    ledger = new_ledger(Decimal(1000), block_number=1)
+    noted = note_edge(ledger, Decimal(80), Decimal(10))
+    viewed = quote(ledger, LOCAL_FORK, "steth", Decimal(1), Decimal("0.99"), 1)
+    sold = sell(
+        ledger, LOCAL_FORK, "steth", Decimal(1),
+        viewed.get("eth_out"), Decimal("0.99"), 1,
+    )
+    request_id = sold.get("request_id")
+    if sold.get("filled") and isinstance(request_id, int):
+        mark_finalized(ledger, request_id)
+        claimed = claim(ledger, [request_id])
+    else:
+        claimed = {"claimed": False}
+    return {
+        "noted": noted["reason"],
+        "event": sold.get("event"),
+        "claimed": claimed.get("claimed"),
+        "state": ledger.get("state"),
+    }
+
+
 def fork_demo() -> dict:
     """One accounted unwind on chain 31337. Nothing is signed or broadcast."""
     ledger = new_ledger(Decimal(1000), block_number=1)
@@ -252,6 +432,7 @@ def fork_demo() -> dict:
         "trade": trade_json(unwound),
         "lp_fee_eth": json_num(as_decimal(ledger.get("lp_fee_eth"))),
         "steth_out": json_num(as_decimal(steth_out)),
+        "cycle": exit_cycle(),
     }
 
 
