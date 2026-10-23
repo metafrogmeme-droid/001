@@ -29495,3 +29495,48 @@ at both addresses that day, and each has two public readers from two
 operators. One of the first two Polygon endpoints did not answer its chain id,
 so it was replaced. The tests had used chain 1 as their example of an
 unsupported chain. That is Ethereum now, so the example is an id no chain uses.
+
+## A SHARED LINK IS A SECOND SURFACE, AND ITS PREVIEW MAKES THE SAME CLAIM AS THE PAGE
+
+22 October 2026, from the brief's two-week list: before the Bitget vote closes
+(28 October), sharing a Daily Duel receipt should be one tap from the Telegram
+Mini App.
+
+**The button was the small half.** The receipt sheet (`pi-receipt.js`)
+offers Share only when the host can share (the Mini App passes `share`, the
+Pi app does not) and only for a receipt that checked out or is honestly still
+sealed. A receipt that does not match, or could not be read, is not offered.
+The Mini App shares through Telegram's own share sheet (`t.me/share/url`,
+opened with `openTelegramLink`), with the receipt's page on this site. The
+player picks the chat and sends it; nothing is posted for them.
+
+**The preview was the defect.** A shared link is drawn by its preview card
+(`/api/frame/call/<key>/image`), and that card was a trading call's: a
+symbol and a side, coloured by the side. Asked which other surface makes the
+same claim, the answer was this one:
+
+- A Duel call drew its market in green, with nothing beside it.
+- A round still sealed has no payload until its day ends, so the card hashed
+  an empty string and printed "SERVER RECOMPUTED: MISMATCH" in red over a
+  seal nobody had broken. Before this change, sharing a round early would
+  have put that in a chat.
+
+The Duel now has its own card (`app/lib/duel_frame.js`):
+
+- The market, the pick and the times come from the receipt card's own model
+  (`receipt-card.js`), so the picture on /call and the preview in a chat
+  cannot name different things.
+- The verdict is read from the settlement's own sealed payload, the same
+  `settleFrom` reading the card uses. Green and red appear only for a
+  measured verdict. A flag reads "under review", and a settlement that does
+  not hash to its seal reads "the result is on the receipt".
+- A sealed receipt with nothing to hash says when it opens and claims no
+  match either way.
+- The pick is drawn in gold, never green: a pick is not a side.
+
+**The font is part of the claim.** The 5×7 font draws an unknown character
+as a space, so "HOLDS ±1.5%" would have been drawn as "HOLDS  1.5 ". The
+font gained `+`, `%` and `,`, and `plain` spells `±` as `+/-`. A test checks
+that every character a Duel card draws is in the font.
+
+**Mutation round:** 17 mutants, 17 killed. Stacked on the Pi slice, which had bumped `pi-duel.js` to v=10 too, the share slice serves it as v=11: two different files under one version would leave one of them stale in a cache.

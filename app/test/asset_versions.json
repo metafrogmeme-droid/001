@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 19,
-    "sha": "58b1ab46a8bfe9ae"
+    "v": 20,
+    "sha": "21330e5cc15bf42d"
   },
   "js/admin.js": {
     "v": 3,
@@ -256,8 +256,8 @@
     "sha": "29642de6fb53d60c"
   },
   "js/pi-duel.js": {
-    "v": 10,
-    "sha": "5a2126e8a1664c7e"
+    "v": 11,
+    "sha": "0d0fc91e884435d8"
   },
   "js/pi-i18n.js": {
     "v": 2,
@@ -272,8 +272,8 @@
     "sha": "424dac0cd3b1c1ad"
   },
   "js/pi-receipt.js": {
-    "v": 4,
-    "sha": "bded1f83c98b13ee"
+    "v": 5,
+    "sha": "51756d2be8f75d31"
   },
   "js/pi-signals.js": {
     "v": 7,
@@ -384,8 +384,8 @@
     "sha": "93a650c4329ff1f1"
   },
   "js/tg-app.js": {
-    "v": 1,
-    "sha": "c831f2a34265bdf4"
+    "v": 2,
+    "sha": "e906573af38346a8"
   },
   "js/theater.js": {
     "v": 3,

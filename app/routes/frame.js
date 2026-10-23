@@ -62,6 +62,24 @@ async function renderFor(key, rechecked) {
     return { png: c.png(), final: false };
   }
   const d = r.body;
+  // A Daily Duel receipt has its own card (lib/duel_frame.js): a pick is not a
+  // side, and a round still sealed has no payload to recompute.
+  const duelFrame = require('../lib/duel_frame');
+  if (duelFrame.KINDS[d.kind]) {
+    let sr = null;
+    if (d.kind === 'duel_pick' && d.settlement && d.settlement.key) {
+      const s = await lookupCall(d.settlement.key);
+      sr = s.code === 200 ? s.body : null;
+    }
+    const drawn = duelFrame.lines(d, sr);
+    const dc = baseCard(drawn.title);
+    let y = 150;
+    for (const l of drawn.lines) {
+      dc.center(l.text, y, l.size, COLORS[l.tone] || COLORS.text);
+      y += l.size * 7 + (l.size >= 3 ? 26 : 18);
+    }
+    return { png: dc.png(), final: false };
+  }
   // Drawn from what a visitor may read: everyone sees a feed image.
   const shown = receiptFor(false, d);
   const cur = shown.current || {};

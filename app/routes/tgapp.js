@@ -83,7 +83,7 @@ function scripts() {
     piScript('pi-receipt.js'),
     piScript('pi-duel.js'),
     piScript('pi-proof.js'),
-    '/js/tg-app.js?v=1',
+    '/js/tg-app.js?v=2',
   ];
 }
 
@@ -104,7 +104,7 @@ function page(lang = 'en', offered = piapp._chunks()) {
 <script src="/js/api-retry.js?v=3"></script>
 <script src="${TELEGRAM_JS}"></script>
 <meta name="pi-i18n" content="${escAttr(JSON.stringify(offered))}">
-<link rel="stylesheet" href="/embed.css?v=19">
+<link rel="stylesheet" href="/embed.css?v=20">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${list.map((s) => `<script src="${s}" defer></script>`).join('\n')}

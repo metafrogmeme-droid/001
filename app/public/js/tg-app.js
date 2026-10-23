@@ -48,6 +48,23 @@
     try { W.ready(); W.expand(); } catch (e) { /* an older client: the page still works */ }
   }
 
+  /**
+   * Share a page of this site through Telegram's own share sheet
+   * (https://t.me/share/url, which Telegram opens in the app with the chat
+   * picker). The link is this page's origin plus `path`: the site serving the
+   * Mini App is the site the receipt lives on. Telegram draws the link's
+   * preview from the page (routes/frame.js for a receipt). Nothing is posted
+   * for the player: they pick the chat and send it themselves.
+   */
+  function share(path, text) {
+    var link = 'https://t.me/share/url?url=' + encodeURIComponent(location.origin + path)
+      + '&text=' + encodeURIComponent(text || '');
+    try {
+      if (W && typeof W.openTelegramLink === 'function') { W.openTelegramLink(link); return; }
+    } catch (e) { /* an older client: the plain link below */ }
+    window.open(link, '_blank', 'noopener');
+  }
+
   window.RCArenaSession.start({
     root: document.getElementById('root'),
     host: 'Telegram',
@@ -56,6 +73,6 @@
     arena: false,
     autoSignIn: true,
     legal: true,
-    extras: [window.RCPiDuel.create({}), window.RCPiProof.create()],
+    extras: [window.RCPiDuel.create({ share: share }), window.RCPiProof.create()],
   });
 }());
