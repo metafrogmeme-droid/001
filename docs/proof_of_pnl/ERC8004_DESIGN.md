@@ -17,6 +17,48 @@ and **Validation**. Deployed (deterministic addresses) on Base Sepolia:
 An agent has an on-chain identity (an address / agent-id in the Identity
 registry); reputation is **attested about** that identity, not self-declared.
 
+### Mainnet (added 22 Oct 2026)
+
+The standard's contracts repository (github.com/erc-8004/erc-8004-contracts,
+README, read 22 Oct 2026) now lists one address pair for every mainnet and
+another for every testnet. The pair above is the testnet row. On mainnets,
+Base included:
+
+- IdentityRegistry: `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`
+- ReputationRegistry: `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`
+
+On Base mainnet both held code that day (ERC-1967 proxies), and the identity
+registry answered name `AgentIdentity`, symbol `AGENT`. The list names no
+Validation registry, so nothing here names one either.
+
+The same pair is deployed on every mainnet. `app/lib/erc8004.js` `MAINNETS`
+lists the ones read on 22 October, where both addresses held code and the
+identity registry answered `AgentIdentity`: Base (8453), Avalanche C-Chain
+(43114), Ethereum (1), BNB Smart Chain (56), Arbitrum One (42161), OP Mainnet
+(10), Polygon (137), Linea (59144) and Scroll (534352). The plan and the verify
+read take `chain=<id>`, and each chain is read through two public endpoints
+from two operators. Avalanche runs its own consensus, so a registration there
+is not a copy of an Ethereum L2's.
+
+The website's side of mainnet registration is `app/lib/erc8004.js`:
+
+- `GET /.well-known/agent-registration.json` serves the registration-v1 file
+  (services: the website, the MCP endpoint, the ERC-8257 tool manifest;
+  `x402Support: false`; no `supportedTrust`, because nothing reads or writes
+  the Reputation registry yet). It lists a registration only when the owner
+  has recorded one (`ERC8004_AGENT_ID` and `ERC8004_CHAIN_ID` in `web.env`).
+- `GET /api/erc8004/plan?chain=8453` returns the unsigned
+  `register(string agentURI)` call, with the URI built from the configured
+  public origin, never a request's Host header. The owner sends it from their
+  own wallet; the server never signs.
+- `GET /api/erc8004/verify?tx=…&chain=8453` reads the receipt and answers
+  `verified` (with the agent id), `mismatch` (with the reason), `pending`, or
+  `unknown` when no endpoint answered. One transaction can register many
+  agents, so it looks for the `Registered` event that carries this URI.
+
+The bot's Agent Identity Card below still binds the Base Sepolia row, by
+design: it moves only when the card's anchor does.
+
 ## The binding this module produces
 
 An **Agent Identity Card** is a deterministic, content-hashed, Ed25519-signed

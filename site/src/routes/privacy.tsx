@@ -206,6 +206,18 @@ function Privacy() {
         to you.
       </P>
       <P>
+        <strong>Claw Guard.</strong> A check (<code>/guard</code>) sends what
+        you paste to our server, which decodes it there. For a transaction
+        that names your address, our server sends the transaction and that
+        address to Base&rsquo;s public RPC (Base&rsquo;s own endpoints, and
+        PublicNode) to simulate it; they see a request from our server, not
+        from you. If you are not signed in, nothing is kept. If you are, we
+        keep a hash of what you sent, never the text itself, with the verdict
+        and the block it was simulated on, sealed into that day&rsquo;s public
+        root and linked to your account; the sealed receipt names no address
+        and no amount.
+      </P>
+      <P>
         <strong>Pi Network.</strong> Signing in with Pi sends the access token
         Pi&rsquo;s own SDK gives the app to Pi&rsquo;s App Studio, which checks
         it and answers your uid. If you tip or buy Coach Plus, our server sends Pi&rsquo;s payment

@@ -486,6 +486,9 @@ app.use('/api/risk', require('./routes/risk'));
 app.use('/api/roots', require('./routes/roots'));
 app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
+// Claw Guard: a verdict on a transaction or a signature before signing it.
+// Public; a signed-in caller's verdict is sealed (routes/guard.js).
+app.use('/api/guard', require('./routes/guard'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -556,6 +559,7 @@ app.get('/stress', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); r
 app.get('/sentinel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'sentinel.html')); });
 app.get('/guardian', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'guardian.html')); });
 app.get('/firewall', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'firewall.html')); });
+app.get('/guard', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'guard.html')); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

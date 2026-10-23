@@ -185,7 +185,7 @@ test('the page: Telegram\'s script and ours, our origin only, framable by Telegr
     assert.ok(pi.includes(s), `${s} is served at the Pi app's version`);
   }
   assert.ok(scripts.some((s) => /^\/js\/pi-i18n\/de\.js\?v=/.test(s)), 'the reader\'s language');
-  assert.strictEqual(scripts[scripts.length - 1], '/js/tg-app.js?v=1', 'the host last');
+  assert.strictEqual(scripts[scripts.length - 1], '/js/tg-app.js?v=2', 'the host last');
   assert.ok(!/RCLAW|presale|wallet|ethers|solana/i.test(r.text), 'no token, presale or wallet on the page');
   const host = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'tg-app.js'), 'utf8'));
   assert.match(host, /arena: false/);

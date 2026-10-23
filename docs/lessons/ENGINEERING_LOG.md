@@ -29356,3 +29356,192 @@ The lesson: when a "flaky" assertion fails, ask whether the state it waits
 for can be reached at all on the slow path, before making the wait longer.
 Any script-written label on a page whose translator loads after it needs
 `data-i18n` too, or must be written in an `rc-lang` handler.
+
+## A CHECK BEFORE SIGNING NAMES A SIGNATURE ONLY BY ITS OWN TYPE, AND A SIMULATION IS A READING OF ONE BLOCK
+
+22 October 2026, the brief's second item: Claw Guard v0. The transaction
+X-ray already read calldata and the scan seal already sealed a keyed caller's
+verdict. Most large drains need neither a transaction nor calldata from the
+victim: they need a signature (an EIP-2612 permit, a Permit2 allowance or
+transfer, an EIP-7702 delegation) that someone else submits later.
+
+**A signature is named only when its type is the standard's.** The EIP-712
+hash commits to the type string, so a "Permit" whose fields differ in name,
+order, type or number is not a permit any token will accept. Naming it one
+would be a guess, so it answers UNKNOWN (`app/public/js/sigray-model.js`).
+The standard types are pinned to the strings the standards publish:
+EIP-2612, DAI, and Permit2's `PermitHash.sol`, read on 22 October. Permit2's
+names on another contract are flagged as a look-alike, and every 7702
+delegation is flagged, twice over when it is valid on every chain.
+
+**A simulation is a reading of one block, and the receipt says which.** Base's
+public endpoints answer `eth_simulateV1` with no key (probed 22 October), so
+no simulation vendor sees the request (`app/lib/tx_simulate.js`). The answer
+names the block it ran on top of, one before the simulated block. A
+simulation that could not run is a reason of its own (`sim_unavailable`),
+never "no changes". A status that is neither `0x1` nor `0x0` is an answer the
+reader cannot read, not a revert (a mutant found it reading as one).
+
+**Clear is not green.** The verdict has five values: stop, check, clear,
+unknown, invalid. "Clear" is muted on the page and reads "no warning in what
+could be read; this is not a guarantee". An undecoded call that moves assets
+out in the simulation is "check", because the list is the only account of
+why.
+
+**The verdict is sealed with its severities and its block (v10).** A v5
+scan seals ids. The same reason can be graver in one context than another,
+so a v10 verdict seals `id:severity`. It also seals the simulation by chain
+and block, or says it did not run, and counts the changes without listing
+them: no address and no amount. Only a signed-in caller's verdict is sealed,
+and only a hash of what they sent.
+
+**Not on MCP yet, on purpose.** The ERC-8257 registration commits to a hash of
+the tool manifest, and the manifest lists the tools. A new tool would put an
+existing registration into drift. The MCP door rides with the brief's ERC-8004
+mainnet item, where the owner signs a new registration anyway.
+
+**Its own page.** `/firewall` promises "nothing you paste leaves the page", and
+Guard sends the request to the server to simulate and seal it, so Guard has
+`/guard` and says what leaves it, and the privacy policy names Base's
+endpoints and PublicNode.
+
+Tests: `app/test/the_signature_xray_says_what_a_signature_grants.test.js`,
+`app/test/the_claw_guard_reads_what_a_request_does.test.js` (Base's own
+recorded answers, `app/test/fixtures/claw_guard/`),
+`app/test/a_guard_verdict_is_sealed_only_for_a_signed_in_caller.test.js`,
+`app/test/the_guard_page_draws_what_the_verdict_says.test.js`, the §2.10 case
+in `app/test/provable_calls_spec.test.js`, and the policy's paragraph in
+`site/test/privacy_truth.test.js`.
+
+Mutation round: 31 mutants on the type match, the time lines, the Permit2
+expiry, the look-alike and chain flags, the reader's kinds and status, the
+verdict's levels and merge, the route's simulation and seal gates and the
+v10 fields. The first pass left 6 alive. Four were fixtures nobody had:
+an extra field, an ERC-721 transfer and a bounded approval (both recorded
+from Base), and a field that kept its name and changed its type. One was the
+status read above. One mutant was a no-op by construction and was dropped.
+`until < now` against `until <= now - 1` is equivalent on integers and is
+recorded as such. 29 of 29 killed.
+
+**Two CI jobs failed that the local preflight cannot see.** Both passed here
+and failed on the first push (#663):
+
+- The site's privacy test loaded `app/lib/nft.js` for its chain table, and
+  `nft.js` loads `ethers`. CI's site job installs only `site/`'s packages; a
+  checkout with the app's packages installed resolves it anyway. The table is
+  plain data, so it moved to `app/lib/evm_chains.js` (no dependencies), which
+  `nft.js` re-exports. With the app's packages moved aside, the old line fails
+  on `ethers` and the new one passes.
+- gitleaks read the example Permit2 signature's `token:` field (USDC's
+  contract on Base) as a key. The preflight lists gitleaks as CI-only. The
+  address is a stopword by value, the same as the other example values, and
+  gitleaks 8.24.3 run locally over the commit now reports nothing while a
+  planted key beside a different address is still caught.
+
+The note above first named the app's package folder as a path in backticks.
+`test_claude_md_accuracy.py` checks every backticked path the guide and its
+log name, and that folder is not in a fresh checkout, so the note failed CI
+for the reason it describes. A path a doc names must be one git tracks.
+
+## A REGISTRATION IS THE OWNER'S TRANSACTION, AND THE FILE LISTS ONLY WHAT WAS RECORDED
+
+22 October 2026, the brief's third item: the ERC-8004 mainnet registration
+plan. The design doc named one address pair, the Base Sepolia registries,
+written when only the testnet existed.
+
+**The addresses were read from the standard, not remembered.** The standard's
+contracts repository now lists one pair for every mainnet and another for
+every testnet (README, read 22 October). On Base mainnet both addresses held
+code that day, and the identity registry answered name `AgentIdentity`, symbol
+`AGENT`. The list names no Validation registry, so `app/lib/erc8004.js` names
+none either. The bot's identity card still binds the testnet row, by design:
+it moves when its anchor does.
+
+**The server builds the call and never sends it.** `registrationPlan` returns
+the unsigned `register(string agentURI)` call for the owner's own wallet. The
+URI goes on chain, so it is built from the configured public origin, never
+from a request's Host header (a test sends `Host: evil.example` and gets the
+configured URI back). With no configured origin the plan is a 503, not a
+guess.
+
+**An absent id is not an id.** The registration file served at
+`/.well-known/agent-registration.json` lists a registration only when both
+`ERC8004_AGENT_ID` and `ERC8004_CHAIN_ID` read and the chain is one the
+module knows. It claims no `supportedTrust`, because nothing here reads or
+writes the Reputation registry yet, and says `x402Support: false`.
+
+**One transaction registers many agents.** The registry on Base takes about
+1,500 registrations per hundred blocks, and the receipt recorded as the
+fixture (`app/test/fixtures/erc8004/registered_receipt.json`) registered six
+agents in one transaction. The first draft read the first `Registered` event
+and would have answered "a different URI" for a registration of ours that was
+not first in its batch. The verifier now looks for the event that carries
+this URI. It has four answers: verified, mismatch with its reason, pending
+(not mined), and unknown (no endpoint answered), which is not a verdict.
+
+**Mutation round:** 14 mutants, 14 killed after one fix. Dropping the `break`
+after the first endpoint answered survived, because the stub answered every
+endpoint the same way. The test now asserts that only the first endpoint was
+asked.
+
+**Avalanche too.** A second brief the same day asked for the registration on
+Avalanche C-Chain as well. The mainnet pair holds code there at the same
+addresses (read 22 October), so `REGISTRIES` gained 43114 with readers of its
+own. The NFT chain table (`lib/nft.js`) does not serve Avalanche, and borrowing
+Base's endpoints for an Avalanche receipt would read the wrong chain. A test
+checks that the Avalanche read asks Avalanche's endpoint.
+
+**Every mainnet the owner asked for, one pair.** The owner then asked for
+mainnet "where needed": proofs and the agent identity. The registry is the
+same pair on every mainnet, so the module now holds that pair once and lists
+the mainnets read on 22 October: Base, Avalanche C-Chain, Ethereum, BNB Smart
+Chain, Arbitrum One, OP Mainnet, Polygon, Linea and Scroll. Each one held code
+at both addresses that day, and each has two public readers from two
+operators. One of the first two Polygon endpoints did not answer its chain id,
+so it was replaced. The tests had used chain 1 as their example of an
+unsupported chain. That is Ethereum now, so the example is an id no chain uses.
+
+## A SHARED LINK IS A SECOND SURFACE, AND ITS PREVIEW MAKES THE SAME CLAIM AS THE PAGE
+
+22 October 2026, from the brief's two-week list: before the Bitget vote closes
+(28 October), sharing a Daily Duel receipt should be one tap from the Telegram
+Mini App.
+
+**The button was the small half.** The receipt sheet (`pi-receipt.js`)
+offers Share only when the host can share (the Mini App passes `share`, the
+Pi app does not) and only for a receipt that checked out or is honestly still
+sealed. A receipt that does not match, or could not be read, is not offered.
+The Mini App shares through Telegram's own share sheet (`t.me/share/url`,
+opened with `openTelegramLink`), with the receipt's page on this site. The
+player picks the chat and sends it; nothing is posted for them.
+
+**The preview was the defect.** A shared link is drawn by its preview card
+(`/api/frame/call/<key>/image`), and that card was a trading call's: a
+symbol and a side, coloured by the side. Asked which other surface makes the
+same claim, the answer was this one:
+
+- A Duel call drew its market in green, with nothing beside it.
+- A round still sealed has no payload until its day ends, so the card hashed
+  an empty string and printed "SERVER RECOMPUTED: MISMATCH" in red over a
+  seal nobody had broken. Before this change, sharing a round early would
+  have put that in a chat.
+
+The Duel now has its own card (`app/lib/duel_frame.js`):
+
+- The market, the pick and the times come from the receipt card's own model
+  (`receipt-card.js`), so the picture on /call and the preview in a chat
+  cannot name different things.
+- The verdict is read from the settlement's own sealed payload, the same
+  `settleFrom` reading the card uses. Green and red appear only for a
+  measured verdict. A flag reads "under review", and a settlement that does
+  not hash to its seal reads "the result is on the receipt".
+- A sealed receipt with nothing to hash says when it opens and claims no
+  match either way.
+- The pick is drawn in gold, never green: a pick is not a side.
+
+**The font is part of the claim.** The 5×7 font draws an unknown character
+as a space, so "HOLDS ±1.5%" would have been drawn as "HOLDS  1.5 ". The
+font gained `+`, `%` and `,`, and `plain` spells `±` as `+/-`. A test checks
+that every character a Duel card draws is in the font.
+
+**Mutation round:** 17 mutants, 17 killed. Stacked on the Pi slice, which had bumped `pi-duel.js` to v=10 too, the share slice serves it as v=11: two different files under one version would leave one of them stale in a cache.

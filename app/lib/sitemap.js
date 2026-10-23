@@ -33,6 +33,7 @@ const STATIC_PATHS = [
   { path: '/guardian', changefreq: 'weekly', priority: '0.9' },
   { path: '/intent', changefreq: 'monthly', priority: '0.7' },
   { path: '/firewall', changefreq: 'monthly', priority: '0.7' },
+  { path: '/guard', changefreq: 'monthly', priority: '0.7' },
   { path: '/escape', changefreq: 'monthly', priority: '0.7' },
   { path: '/sentinel', changefreq: 'weekly', priority: '0.7' },
   { path: '/stress', changefreq: 'monthly', priority: '0.7' },

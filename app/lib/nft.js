@@ -43,22 +43,7 @@ const { encodeCall } = require('./abi_call');
  * mint would fail the way described above. Unknown fails closed, with the
  * reason said out loud.
  */
-const DEFAULT_CHAIN_ID = 8453; // Base
-const CHAINS = {
-  8453: {
-    name: 'Base',
-    rpcs: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'],
-    explorer: 'https://basescan.org',
-  },
-  // Base Sepolia exists here for one reason: this contract has no owner, no
-  // pause and no upgrade path, so the mainnet deploy is permanent and worth
-  // rehearsing end-to-end first.
-  84532: {
-    name: 'Base Sepolia',
-    rpcs: ['https://sepolia.base.org'],
-    explorer: 'https://sepolia.basescan.org',
-  },
-};
+const { DEFAULT_CHAIN_ID, CHAINS } = require('./evm_chains');
 
 /** The configured chain id, or NaN when NFT_CHAIN_ID is set but unusable. */
 function chainId() {

@@ -719,3 +719,12 @@ about to change before changing it.
 
 
 ## A label written before the translator loaded stayed English, and a longer wait in the test hid it (22 Oct 2026) (line 29332)
+
+
+## A CHECK BEFORE SIGNING NAMES A SIGNATURE ONLY BY ITS OWN TYPE, AND A SIMULATION IS A READING OF ONE BLOCK (line 29360)
+
+
+## A REGISTRATION IS THE OWNER'S TRANSACTION, AND THE FILE LISTS ONLY WHAT WAS RECORDED (line 29446)
+
+
+## A SHARED LINK IS A SECOND SURFACE, AND ITS PREVIEW MAKES THE SAME CLAIM AS THE PAGE (line 29504)

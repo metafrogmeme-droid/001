@@ -320,6 +320,41 @@ into the root of the day it was written (§4), and names the evidence, so a
 reader can check what was claimed against the same public prices the
 settlement read.
 
+### 2.10 · `v: 10` — a Claw Guard verdict, sealed before signing
+
+Claw Guard (`/guard`, `POST /api/guard/check`) reads a transaction or an
+off-chain signature before it is signed: what it says (the transaction and
+signature X-rays) and, for a transaction that names its sender, what it does
+(a simulation on Base, `eth_simulateV1`). For a signed-in caller the verdict
+is sealed; an anonymous check stores nothing. The request itself is never
+kept: `input_sha256` commits to the exact bytes sent, and only whoever holds
+them can tie the receipt to a transaction.
+
+```json
+{"v":10,"kind":"presign_verdict","scan_key":"sc_<16>","request":"tx",
+ "input_sha256":"<64 hex>","input_bytes":158,"level":"stop",
+ "reasons":["unlimited_approval:high"],"actions":["txr.a_approve"],"unknown":false,
+ "simulation":{"ran":true,"chain_id":8453,"block":"52949015","status":"success","changes":1},
+ "scanned_at":"2026-10-22T17:00:00.000Z"}
+```
+
+- `request` is `tx`, `typed_data` or `authorization` (EIP-7702).
+- `level` is what the caller was told: `stop`, `check`, `clear` or `unknown`.
+  `clear` means no warning in what could be read, never "safe".
+- `reasons` carry their severity, because the same reason can be graver in
+  one context than another (assets leaving through a call nobody decoded),
+  so the level could not be rebuilt from ids alone.
+- `simulation` is `null` when none was asked for (a signature, or a
+  transaction with no sender), `{"ran":false,"chain_id":…,"reason":…}` when
+  one could not run, and otherwise names the chain, the block whose state it
+  read and how many changes it found for the sender. It counts the changes
+  and never lists them: no address and no amount is in the payload.
+
+A verdict is a reading, not a decode: the same transaction a block later can
+do something else, so a v10 receipt proves what was SAID and when, never
+that it was right. It shares the `sc_` keys and the `scan_seals` table with
+v5 and is a leaf of the same day's root (§4).
+
 ---
 
 ## 3 · Addressing
@@ -499,6 +534,7 @@ float as a percent and how many calls carried chips, and no count of chips.
 | 7 | A duel settlement: prices or score, outcome and verdict, naming the call |
 | 8 | A Memeclaw launch: the terms hash the chain recorded, the coin, the creator's buy |
 | 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold; a settlement's review |
+| 10 | A Claw Guard verdict: the level, each reason with its severity, and the block its simulation read |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

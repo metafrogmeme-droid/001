@@ -93,9 +93,13 @@
   /**
    * opts.coach: true where the app has a coach tab to send "Explain this
    * round" to (the Pi app); the DogeOS app runs this block without one.
+   * opts.share(path, text): the host can share a link to one of its own pages
+   * (the Telegram Mini App, tg-app.js); a receipt sheet then offers Share.
    */
   function create(opts) {
     var hasCoach = !!(opts && opts.coach);
+    // The host's way to share a link (the Telegram Mini App's share sheet), or none.
+    var share = opts && typeof opts.share === 'function' ? opts.share : null;
     var card = null;      // null: not read yet
     var me = null;        // the record, or null when it could not be read
     var failed = false;   // the card read failed
@@ -226,7 +230,7 @@
         }).join('') + '</div>';
       }
       var day = card && !failed ? '<span class="p-duel-day">' + esc(T('{day} UTC', { day: card.day })) + '</span>' : '';
-      var sheet = receipt && window.RCPiReceipt ? window.RCPiReceipt.sheetHtml(receipt.label, receipt.res) : '';
+      var sheet = receipt && window.RCPiReceipt ? window.RCPiReceipt.sheetHtml(receipt.label, receipt.res, { share: !!share }) : '';
       return '<section class="m-open p-duel"><div class="p-sig-head"><h2>' + esc(T('Daily Duel')) + '</h2>' + day + '</div>'
         + recordHtml() + progressHtml() + noteHtml + sheet + body
         + '<p class="m-open-note">' + esc(T('Call the market before the Claw does · free to play · counts and percent only')) + '</p>'
@@ -309,6 +313,12 @@
       var rc = target.closest('.p-duel .d-rc-v');
       if (rc) { checkReceipt(rc, c); return true; }
       if (target.closest('.p-duel .p-rc-close')) { receipt = null; c.render(); return true; }
+      if (target.closest('.p-duel .p-rc-share')) {
+        // The receipt's own page: its link preview is the receipt's card
+        // (routes/frame.js), and the page rechecks the seal in the reader's browser.
+        if (share && receipt) share('/call/' + encodeURIComponent(receipt.key), T('Sealed before the result. Check it yourself:'));
+        return true;
+      }
       var b = target.closest('.p-duel .d-btn');
       if (!b) return false;
       var wrap = b.closest('.d-actions');

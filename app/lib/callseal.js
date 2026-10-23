@@ -498,6 +498,50 @@ function sealDuelReview(r) {
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
+/**
+ * v10 `presign_verdict` — a Claw Guard verdict (routes/guard.js), sealed for
+ * a signed-in caller before they sign.
+ *
+ * A v5 scan seals what a decoder or a pattern scan said. A verdict says more,
+ * and every part of it is something the caller was told: the level, each
+ * reason WITH its severity (the same reason can be graver in one context
+ * than another, so the level cannot be rebuilt from ids alone), and the
+ * simulation it read, by chain and block. A simulation reads ONE block's
+ * state, so the block is inside the hashed bytes, and so is a simulation that
+ * did not run: "no warning" over an effect nobody checked must not be
+ * printable from this payload.
+ *
+ * As in v5, the input is never kept: `input_sha256` commits to the exact
+ * bytes the caller sent, and only whoever holds them can tie the receipt to a
+ * transaction. No amounts, no addresses: the simulated changes are counted
+ * by kind, never listed.
+ */
+function canonicalGuardPayload(g) {
+  const sim = g.simulation || null;
+  return JSON.stringify({
+    v: 10,
+    kind: 'presign_verdict',
+    scan_key: String(g.scan_key),
+    request: String(g.request),
+    input_sha256: String(g.input_sha256),
+    input_bytes: Number(g.input_bytes) || 0,
+    level: String(g.level),
+    reasons: Array.isArray(g.reasons) ? g.reasons.map((r) => `${r.id}:${r.sev}`) : [],
+    actions: Array.isArray(g.actions) ? g.actions.map(String) : [],
+    unknown: g.unknown == null ? null : !!g.unknown,
+    simulation: sim === null ? null : (sim.ok
+      ? { ran: true, chain_id: Number(sim.chain_id), block: String(sim.block), status: String(sim.status),
+          changes: Number(sim.changes) || 0 }
+      : { ran: false, chain_id: sim.chain_id == null ? null : Number(sim.chain_id), reason: String(sim.reason) }),
+    scanned_at: new Date(g.scanned_at || Date.now()).toISOString(),
+  });
+}
+
+function sealGuard(g) {
+  const seal_payload = canonicalGuardPayload(g);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
 function inputDigest(text) {
   const buf = Buffer.from(String(text == null ? '' : text), 'utf8');
   return { sha256: crypto.createHash('sha256').update(buf).digest('hex'),
@@ -511,6 +555,7 @@ module.exports = {
   newRoundNonce, canonicalDuelRoundPayload, sealDuelRound,
   canonicalDuelSettlePayload, sealDuelSettle,
   canonicalScanPayload, sealScan, inputDigest,
+  canonicalGuardPayload, sealGuard,
   canonicalMemeclawLaunchPayload, sealMemeclawLaunch,
   sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips,
   canonicalDuelReviewPayload, sealDuelReview,

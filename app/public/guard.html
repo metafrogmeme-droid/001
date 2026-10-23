@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Claw Guard</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/guard">
+<meta name="description" content="Check a transaction or a signature before you sign it. Claw Guard decodes approvals, Permit and Permit2 signatures and EIP-7702 delegations, simulates a transaction on Base for your address, and says in plain words what it grants. It never signs, sends or holds a key. A reading with reasons, not a guarantee.">
+<meta property="og:title" content="RUNECLAW — Claw Guard">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="Before you sign: what a transaction or a signature grants, in plain words, and what it would do to your account on Base right now. No keys, nothing signed, nothing stored unless you ask for a receipt.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/guard">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Claw Guard">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .fw-wrap { max-width: 900px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .fw-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .lede b { color: var(--text-1); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  textarea, .g-in { width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: var(--s2) var(--s3); font: inherit; font-family: var(--font-data); font-size: var(--fs-sm); line-height: 1.5; }
+  textarea { min-height: 110px; resize: vertical; }
+  .g-grid { display: grid; gap: var(--s2); }
+  .row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-top: var(--s3); }
+  .g-modes { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s3); }
+  .g-modes button { font: inherit; font-size: var(--fs-sm); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--text-2); cursor: pointer; }
+  .g-modes button[aria-pressed="true"] { border-color: var(--gold-bright); color: var(--text-1); }
+  select.g-in { width: auto; }
+  .ex { font-size: var(--fs-xs); color: var(--text-3); }
+  .chip-btn { font-size: var(--fs-xs); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--text-2); cursor: pointer; }
+  .chip-btn:hover { border-color: var(--line-2); color: var(--text-1); }
+  .verdict { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-radius: var(--radius); border: 1px solid var(--line); margin-bottom: var(--s3); }
+  .verdict .ico { font-size: 24px; } .verdict .t { font-weight: 600; }
+  .v-caution { border-color: #e6c34b; background: rgba(230,195,75,.06); } .v-caution .t { color: #e6c34b; }
+  .v-danger { border-color: #ff5c6c; background: rgba(255,92,108,.07); } .v-danger .t { color: #ff5c6c; }
+  .v-muted .t { color: var(--text-2); }
+  .g-h { font-size: var(--fs-sm); color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; margin: var(--s3) 0 0; }
+  .flag { display: grid; grid-template-columns: 12px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .flag .dot { width: 10px; height: 10px; border-radius: 999px; margin-top: 5px; background: var(--line-2); }
+  .sev-danger .dot { background: #ff5c6c; } .sev-caution .dot { background: #e6c34b; }
+  .flag .wy { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; }
+  .g-changes { margin: var(--s2) 0 0; padding-left: 1.2em; } .g-changes li { margin: 4px 0; } .g-changes code { word-break: break-all; font-size: var(--fs-xs); }
+  .s { font-size: var(--fs-sm); line-height: 1.5; } .n { color: var(--text-3); } .g-err { color: var(--down); }
+  .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<canvas id="rc-constellation" data-viewport data-hue="8" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
+<div class="fw-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/firewall" data-i18n="lp.g4_h">Transaction Firewall</a>
+    <a href="/approvals" data-i18n="nav.approvals">Allowance X-ray</a>
+    <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="fw-hero"><h1 data-i18n="grd.h">🛡️ Claw Guard</h1></div>
+  <p class="lede" data-i18n-html="grd.lede">Check a transaction or a signature <b>before you sign it</b>. Claw Guard says in plain words what it grants and, for a transaction, what it would do to your account on Base right now. It never signs, sends or holds a key.</p>
+
+  <section class="panel">
+    <div class="g-modes" role="group">
+      <button type="button" data-g-mode="tx" aria-pressed="true" data-i18n="grd.tab_tx">Transaction</button>
+      <button type="button" data-g-mode="sig" aria-pressed="false" data-i18n="grd.tab_sig">Signature</button>
+      <button type="button" data-g-mode="auth" aria-pressed="false" data-i18n="grd.tab_auth">Delegation (EIP-7702)</button>
+    </div>
+    <div id="g-tx" class="g-grid">
+      <input id="g-from" class="g-in" placeholder="Your address (to simulate)" aria-label="Your address (to simulate)" data-i18n-attr="aria-label:grd.f_from;placeholder:grd.f_from" autocomplete="off" spellcheck="false">
+      <input id="g-to" class="g-in" placeholder="To: the contract or address" aria-label="To: the contract or address" data-i18n-attr="aria-label:grd.f_to;placeholder:grd.f_to" autocomplete="off" spellcheck="false">
+      <textarea id="g-data" placeholder="0x… calldata" aria-label="0x… calldata" data-i18n-attr="aria-label:grd.f_data;placeholder:grd.f_data" spellcheck="false" autocomplete="off"></textarea>
+      <input id="g-value" class="g-in" placeholder="Value in wei (optional)" aria-label="Value in wei (optional)" data-i18n-attr="aria-label:grd.f_value;placeholder:grd.f_value" autocomplete="off" spellcheck="false">
+    </div>
+    <textarea id="g-text" hidden aria-label="Paste the typed data the wallet asks you to sign (eth_signTypedData_v4)" data-i18n-attr="aria-label:grd.f_typed" spellcheck="false" autocomplete="off"></textarea>
+    <div class="row">
+      <select id="g-chain" class="g-in" aria-label="Chain" data-i18n-attr="aria-label:grd.f_chain">
+        <option value="8453">Base</option>
+        <option value="84532">Base Sepolia</option>
+      </select>
+      <button class="btn btn--primary btn--sm" id="g-go" type="button" data-i18n="grd.btn">Check</button>
+      <span class="ex" data-i18n="fw.try">or try:</span>
+      <button class="chip-btn" data-g-ex="approve" type="button" data-i18n="grd.ex_approve">unlimited approve</button>
+      <button class="chip-btn" data-g-ex="permit" type="button" data-i18n="grd.ex_permit">unlimited permit</button>
+      <button class="chip-btn" data-g-ex="p2" type="button" data-i18n="grd.ex_p2">Permit2 allowance</button>
+      <button class="chip-btn" data-g-ex="d7702" type="button" data-i18n="grd.ex_7702">7702 delegation</button>
+    </div>
+  </section>
+
+  <div id="g-out" aria-live="polite"></div>
+
+  <p class="disc" data-i18n="grd.privacy">What leaves this page: your request goes to RUNECLAW’s server, which decodes it and, for a transaction with your address, asks Base’s public endpoints to simulate it. Nothing is stored unless you are signed in; then only a hash of the request and the verdict are sealed.</p>
+  <p class="disc" data-i18n="grd.disc">A verdict is a reading with reasons, not a guarantee. Unknown is not the same as safe. Check the address, the amount and the approval scope yourself. A safety aid, not investment advice.</p>
+</div>
+
+<script src="/js/api-retry.js?v=3"></script>
+<script src="/js/guard-page.js?v=1"></script>
+<script src="/js/i18n-core.js?v=207"></script>
+<script src="/js/reveal.js?v=1" defer></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/palette.js?v=2" defer></script>
+</body>
+</html>

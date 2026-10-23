@@ -213,8 +213,13 @@
     return '<p class="p-rc-sub">' + esc(T('The daily root could not be checked in this browser.')) + '</p>';
   }
 
-  /** The sheet for one receipt: loading, or the check's result. */
-  function sheetHtml(label, res) {
+  /**
+   * The sheet for one receipt: loading, or the check's result. `opts.share`
+   * (the host can share a link: the Telegram Mini App) adds a Share button
+   * once the receipt has checked out or is honestly still sealed; a receipt
+   * that does not match, or could not be read, is not offered for sharing.
+   */
+  function sheetHtml(label, res, opts) {
     var body;
     if (!res) {
       body = '<p class="p-rc-sub">' + esc(T('Checking in your browser…')) + '</p>';
@@ -230,10 +235,13 @@
         + (res.payload ? '<details class="p-rc-raw"><summary>' + esc(T('What was sealed (hash it yourself)')) + '</summary>'
           + '<p class="p-rc-hash">' + esc(res.payload) + '</p></details>' : '');
     }
+    var canShare = !!(opts && opts.share) && !!res && (res.state === 'verified' || res.state === 'sealed');
     return '<section class="m-open p-rc-sheet" role="region" aria-label="' + esc(T('Receipt check')) + '">'
       + '<div class="p-sig-head"><h2>' + esc(label || T('Receipt')) + '</h2>'
       + '<button type="button" class="p-rc-close" aria-label="' + esc(T('Close the receipt')) + '">✕</button></div>'
-      + body + '</section>';
+      + body
+      + (canShare ? '<div class="p-rc-acts"><button type="button" class="p-rc-share">' + esc(T('Share this receipt')) + '</button></div>' : '')
+      + '</section>';
   }
 
   return { check: check, sheetHtml: sheetHtml, facts: facts, KEY_RE: KEY_RE };
