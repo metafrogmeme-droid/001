@@ -8,8 +8,8 @@ published.
 from bot.botcheck.check import (
     FLAG,
     CatalogError,
-    enabled,
     enqueue,
+    flag_on,
     load,
     lookup,
     public_document,
@@ -19,8 +19,8 @@ from bot.botcheck.check import (
 __all__ = [
     "FLAG",
     "CatalogError",
-    "enabled",
     "enqueue",
+    "flag_on",
     "load",
     "lookup",
     "public_document",

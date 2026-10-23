@@ -53,8 +53,13 @@ class CatalogError(Exception):
     """The catalog could not be read. The message is a fixed token, not the file."""
 
 
-def enabled(env: Optional[Mapping[str, str]] = None) -> bool:
-    """True only for 1 / true / yes / on. Unset and everything else are off."""
+def flag_on(env: Optional[Mapping[str, str]] = None) -> bool:
+    """True only for 1 / true / yes / on. Unset and everything else are off.
+
+    The name is flag_on. A module-level enabled() is the same name as
+    NewsRadar.enabled and ProofOfPnLPublisher.enabled, and the shared-name
+    sweep then stops checking both.
+    """
     src = os.environ if env is None else env
     raw = str(src.get(FLAG, "") or "").strip().lower()
     return raw in ON_VALUES

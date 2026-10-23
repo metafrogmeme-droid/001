@@ -54,7 +54,7 @@ from bot.approval_digest import ApprovalDigest
 from bot.approval_hygiene import DIGEST_HELP, command_argument
 from bot.approval_reader import ApprovalReader, ExploitDirectory
 from bot.approval_watch_store import ApprovalWatchStore
-from bot.botcheck import enabled as botcheck_enabled
+from bot.botcheck import flag_on
 from bot.botcheck import reply_for as botcheck_reply
 from bot.daily_duel_gate import DuelGate, GateDown
 from bot.daily_duel_store import CallStore, PayloadRefused, player_key
@@ -177,7 +177,7 @@ def help_text(rules: Optional[Mapping[str, Any]], env: Optional[Mapping[str, str
         "/stop — delete every watched address and the digest schedule",
         DIGEST_HELP,
     ]
-    if botcheck_enabled(env):
+    if flag_on(env):
         parts.append(
             "/botcheck <name> — public signals for one bot name. "
             "Unknown stays unknown. "
@@ -682,7 +682,7 @@ class DailyDuelBot:
 
     async def cmd_botcheck(self, update, context) -> None:
         """Public signals for one name. Registered only when the flag is on."""
-        if not botcheck_enabled():
+        if not flag_on():
             return
         who = self._key(update) or "anon"
         if not self.commands.admit("bc:" + who):
@@ -705,7 +705,7 @@ class DailyDuelBot:
         app.add_handler(TypeHandler(Update, self.on_any_update), group=-1)
         for name, attr in self.COMMANDS:
             app.add_handler(CommandHandler(name, getattr(self, attr)))
-        if botcheck_enabled():
+        if flag_on():
             app.add_handler(CommandHandler("botcheck", self.cmd_botcheck))
         app.add_handler(CallbackQueryHandler(self.on_callback, pattern=r"^dd:"))
         return app

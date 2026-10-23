@@ -18,7 +18,7 @@ from bot import daily_duel_bot as ddb
 from bot.botcheck import enqueue, lookup, public_document, reply_for
 from bot.botcheck.check import (
     SIGNAL_IDS,
-    enabled,
+    flag_on,
     list_text,
     render_text,
 )
@@ -43,12 +43,12 @@ def _clear(monkeypatch) -> None:
 
 def test_the_flag_is_on_only_for_four_words(monkeypatch):
     _clear(monkeypatch)
-    assert enabled({}) is False
-    assert enabled({"BOTCHECK_ENABLED": ""}) is False
+    assert flag_on({}) is False
+    assert flag_on({"BOTCHECK_ENABLED": ""}) is False
     for off in ("0", "false", "no", "off", "enabled", "yes please", " true enough"):
-        assert enabled({"BOTCHECK_ENABLED": off}) is False, off
+        assert flag_on({"BOTCHECK_ENABLED": off}) is False, off
     for on in ("1", "true", "yes", "on", "ON", " Yes ", "\ttrue\n"):
-        assert enabled({"BOTCHECK_ENABLED": on}) is True, on
+        assert flag_on({"BOTCHECK_ENABLED": on}) is True, on
 
 
 def test_every_bot_has_five_sourced_signals_and_a_labelled_summary():
