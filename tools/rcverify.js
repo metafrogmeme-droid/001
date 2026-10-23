@@ -61,6 +61,12 @@ const CHAINS = Object.freeze({
   dogecoin: { method: 'dogecoin_op_return', api: 'https://api.blockcypher.com/v1/doge/main/txs/', group: 'dogecoin', depth: 6 },
   solana: { method: 'solana_memo', rpc: 'https://api.mainnet-beta.solana.com', group: 'solana',
     memo: ['MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr', 'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo'] },
+  // Avalanche C-Chain: the same calldata self-send as Base, its own consensus,
+  // so its own group. This verifier does not read the server's
+  // AVALANCHE_ANCHOR_ENABLED flag: a check that waited on the publisher's
+  // switch would be trusting the publisher. The endpoint is Avalanche's own
+  // public C-Chain RPC (chain id 0xa86a, read 23 Oct 2026).
+  avalanche: { method: 'calldata', rpc: 'https://api.avax.network/ext/bc/C/rpc', group: 'avalanche' },
 });
 
 /** The spec's construction: replay a path of { pos: 'L'|'R', hash } over hex strings. */

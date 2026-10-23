@@ -180,7 +180,7 @@
   }
 
   /** What each independence group is called on the page (lib/anchor_quorum.js names the groups). */
-  var GROUP_NAMES = { bitcoin: 'Bitcoin', dogecoin: 'Dogecoin', 'ethereum-l2': 'Base', solana: 'Solana' };
+  var GROUP_NAMES = { bitcoin: 'Bitcoin', dogecoin: 'Dogecoin', 'ethereum-l2': 'Base', solana: 'Solana', avalanche: 'Avalanche' };
 
   /**
    * A day's Anchor Quorum (GET /api/roots/quorum/:day) as one line. Green
