@@ -63,7 +63,7 @@ router.post('/pick', pickLimit, async (req, res) => {
   try {
     const body = req.body || {};
     const out = await svc.placePick(req.user.user_id, Number(body.round_id), body.pick, new Date(),
-      { chips: body.chips });
+      { chips: body.chips, confidence: body.confidence });
     if (!out.ok) {
       const { status, ...rest } = out;
       return res.status(status).json(rest);
@@ -128,7 +128,7 @@ router.get('/me', async (req, res) => {
   try {
     const rec = await svc.recordFor(req.user.user_id);
     const handle = await svc.handleFor(req.user.user_id);
-    res.json({
+    const body = {
       handle,
       window_days: rec.window_days,
       accuracy: rec.accuracy,
@@ -144,7 +144,9 @@ router.get('/me', async (req, res) => {
       chips: rec.chips,
       counts_only: true,
       private: true,
-    });
+    };
+    if (rec.calibration) body.calibration = rec.calibration;
+    res.json(body);
   } catch (err) {
     console.error('Duel record error:', err.stack || err.message);
     res.status(500).json({ error: 'Your record is unavailable', detail: safeReason(err) });

@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "O zaman bile bir zincir daha gerekir ve onu yalnızca bir cüzdan damgalayabilir."],
 ["It needs another chain, and only a wallet can stamp one.", "Bir zincir daha gerekir ve onu yalnızca bir cüzdan damgalayabilir."],
 ["Share this receipt", "Bu makbuzu paylaş"],
-["Sealed before the result. Check it yourself:", "Sonuçtan önce mühürlendi. Kendin kontrol et:"]
+["Sealed before the result. Check it yourself:", "Sonuçtan önce mühürlendi. Kendin kontrol et:"],
+["How sure are you? This is your own rating.","Ne kadar eminsin? Bu senin kendi değerlendirmen."],
+["Low","Düşük"],
+["Medium","Orta"],
+["High","Yüksek"],
+["Your rating","Senin değerlendirmen"],
+["No high-confidence call has settled yet","Yüksek güvenli bir çağrı henüz sonuçlanmadı"],
+["No high-confidence call yet","Henüz yüksek güvenli bir çağrı yok"],
+["of {n} high-confidence calls","{n} yüksek güvenli çağrıdan"],
+["How often your high-confidence calls were right","Yüksek güvenli çağrıların ne sıklıkla doğru çıktı"],
+["High confidence","Yüksek güven"],
+["Choose low, medium or high. Your call was not recorded.","Düşük, orta veya yüksek seç. Çağrın kaydedilmedi."]
 ]

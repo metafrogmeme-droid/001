@@ -21,6 +21,7 @@
  */
 
 const crypto = require('crypto');
+const { levelOf: confidenceLevel } = require('./duel_confidence');
 
 /**
  * Canonical decision-time payload. Key insertion order IS the canonical
@@ -178,7 +179,12 @@ function canonicalDuelPayload(p) {
   // second symbol and entry of a mover, the band of a range — so a receipt
   // for "BTC or ETH, which moves more" commits to both prices it was made at.
   // A classic round carries nulls there; its receipt changed only in version.
-  return JSON.stringify({
+  //
+  // `confidence` (low | medium | high) is appended last, and only when the
+  // caller passed one. Absent, the string is the historical payload: a
+  // receipt sealed without the field still verifies, and a flag that is off
+  // never passes one. Key order of every earlier field is untouched.
+  const body = {
     v: 4,
     kind: 'duel_pick',
     round_id: Number(p.round_id),
@@ -194,7 +200,10 @@ function canonicalDuelPayload(p) {
     entry_price_b: p.entry_price_b == null ? null : Number(p.entry_price_b),
     resolves_at: new Date(p.resolves_at).toISOString(),
     picked_at: new Date(p.picked_at || Date.now()).toISOString(),
-  });
+  };
+  const confidence = confidenceLevel(p && p.confidence);
+  if (confidence) body.confidence = confidence;
+  return JSON.stringify(body);
 }
 
 /** { seal_payload, seal } for one duel call. */

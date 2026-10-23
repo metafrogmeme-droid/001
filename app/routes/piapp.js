@@ -134,17 +134,17 @@ const SCRIPTS = [
   '/js/signal-status-model.js?v=4',
   '/js/pi-signals.js?v=7',
   // The Daily Duel: the website's round renderer, then the block.
-  '/js/duel.js?v=9',
+  '/js/duel.js?v=11',
   // The in-app receipt check, before the block that uses it.
   '/js/pi-receipt.js?v=5',
-  '/js/pi-duel.js?v=11',
+  '/js/pi-duel.js?v=13',
   // Ask the Claw, the coach tab.
   '/js/pi-coach.js?v=3',
   // The Leaders tab: the season's standings and your name on them.
   '/js/pi-leaders.js?v=3',
   // The daily proof, read-only, behind the header's Proof button.
   '/js/pi-proof.js?v=2',
-  '/js/pi-arena.js?v=7',
+  '/js/pi-arena.js?v=8',
 ];
 
 // ── the reader's language ────────────────────────────────────────────────
@@ -203,6 +203,12 @@ function page(lang = 'en', offered = chunks()) {
   const code = lang === 'en' || Object.prototype.hasOwnProperty.call(offered, lang) ? lang : 'en';
   const head = HEAD_SCRIPTS.map((s) => `<script src="${s}"></script>`).join('\n');
   const list = SCRIPTS.slice();
+  // Scam or Safe is a tab only while SCAM_OR_SAFE_V0 is on. Off, the script
+  // list is the one this page has always shipped.
+  if (require('../lib/scam_or_safe').enabled()) {
+    const at = list.indexOf('/js/pi-arena.js?v=8');
+    list.splice(at < 0 ? list.length : at, 0, '/js/scam-or-safe.js?v=2');
+  }
   // The chosen language's words load right after the module that holds them,
   // before anything draws.
   if (code !== 'en') list.splice(list.indexOf(PI_I18N_SCRIPT) + 1, 0, offered[code]);

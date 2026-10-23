@@ -447,5 +447,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "Kể cả khi đó, vẫn cần thêm một chuỗi nữa, và chỉ ví mới đóng dấu được."],
 ["It needs another chain, and only a wallet can stamp one.", "Vẫn cần thêm một chuỗi nữa, và chỉ ví mới đóng dấu được."],
 ["Share this receipt", "Chia sẻ biên nhận này"],
-["Sealed before the result. Check it yourself:", "Đã niêm phong trước khi có kết quả. Hãy tự kiểm tra:"]
+["Sealed before the result. Check it yourself:", "Đã niêm phong trước khi có kết quả. Hãy tự kiểm tra:"],
+["How sure are you? This is your own rating.","Bạn chắc đến mức nào? Đây là đánh giá của chính bạn."],
+["Low","Thấp"],
+["Medium","Trung bình"],
+["High","Cao"],
+["Your rating","Đánh giá của bạn"],
+["No high-confidence call has settled yet","Chưa có dự đoán tự tin cao nào được chốt"],
+["No high-confidence call yet","Chưa có dự đoán tự tin cao"],
+["of {n} high-confidence calls","trong {n} dự đoán tự tin cao"],
+["How often your high-confidence calls were right","Dự đoán tự tin cao của bạn đúng bao lâu một lần"],
+["High confidence","Tự tin cao"],
+["Choose low, medium or high. Your call was not recorded.","Chọn thấp, trung bình hoặc cao. Dự đoán của bạn chưa được ghi nhận."]
 ]

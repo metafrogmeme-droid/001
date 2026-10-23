@@ -476,6 +476,10 @@ app.use('/doge', require('./routes/dogeapp'));
 // (docs/memeclaw/MEMECLAW_PLAN.md).
 app.use('/memeclaw', require('./routes/memeclaw_page'));
 app.use('/api/duel', require('./routes/duel'));
+// Scam or Safe? Daily. The page is a document; the call is the authed router.
+// Both answer 404 unless SCAM_OR_SAFE_V0 is on.
+app.use('/api/scam-or-safe', require('./routes/scam_or_safe'));
+app.use('/scam', require('./routes/scam_page'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));

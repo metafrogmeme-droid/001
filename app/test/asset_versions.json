@@ -20,8 +20,8 @@
     "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "v": 5,
-    "sha": "9fe62161e30cf211"
+    "v": 6,
+    "sha": "a4559effd4b053e6"
   },
   "js/api-retry.js": {
     "v": 3,
@@ -120,8 +120,8 @@
     "sha": "460ac704fb4c4be3"
   },
   "js/duel.js": {
-    "v": 9,
-    "sha": "34261c5e11653fea"
+    "v": 11,
+    "sha": "9fec2173cfd82d11"
   },
   "js/embed-arena-view.js": {
     "v": 4,
@@ -248,16 +248,16 @@
     "sha": "25cb3003194ae98c"
   },
   "js/pi-arena.js": {
-    "v": 7,
-    "sha": "a6593abef951ef6f"
+    "v": 8,
+    "sha": "d2499e0cd3736923"
   },
   "js/pi-coach.js": {
     "v": 3,
     "sha": "29642de6fb53d60c"
   },
   "js/pi-duel.js": {
-    "v": 11,
-    "sha": "0d0fc91e884435d8"
+    "v": 13,
+    "sha": "46c7a007cd68ae2c"
   },
   "js/pi-i18n.js": {
     "v": 2,
@@ -292,8 +292,8 @@
     "sha": "bcb4a613a57ea9dc"
   },
   "js/receipt-card.js": {
-    "v": 1,
-    "sha": "7c1ef1a52b4f1817"
+    "v": 2,
+    "sha": "12c3bfaee19afecc"
   },
   "js/record-panel.js": {
     "v": 1,
@@ -334,6 +334,10 @@
   "js/rune-card.js": {
     "v": 1,
     "sha": "a9fef181eb7c9215"
+  },
+  "js/scam-or-safe.js": {
+    "v": 2,
+    "sha": "5bff2adecf965e04"
   },
   "js/sandbox.js": {
     "v": 1,

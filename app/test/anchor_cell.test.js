@@ -173,6 +173,8 @@ test('the quorum line is green only for multi-anchored, and always says it prove
   const bad = quorumCell({ status: 'multi_anchored', k: 2, groups: ['bitcoin', 'dogecoin'], mismatched: ['base'] }, T);
   assert.match(bad, /var\(--down\)[^>]*>⚠ a recorded anchor no longer checks out: base/);
   assert.match(quorumCell({ status: 'short', k: 2, groups: ['<x>'], mismatched: [] }, T), /&lt;x&gt;/, 'escaped');
+  assert.match(quorumCell({ status: 'short', k: 2, groups: ['avalanche'], mismatched: [] }, T), /· Avalanche</,
+    'Avalanche is its own group on the quorum line');
 });
 
 // ── the page uses the seam rather than reimplementing it ───────────────────

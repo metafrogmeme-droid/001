@@ -17,12 +17,13 @@
  * the chain through keyless RPCs and only ever records what it verified. On
  * an RPC failure it answers UNKNOWN — it never guesses either way.
  *
- * ONE PAYLOAD, EVERY CHAIN. The bytes are the same on Base and on the DogeOS
- * testnet (2026-10-19, the Vibe Code on DOGE entry): what differs is which
- * chain's block clock bounds the day, and a day may be anchored on each.
- * The chain registry below is the one reading of a chain's id, RPCs and
- * explorer; the routes, the pages and the DogeOS app read it from here
- * (`GET /api/roots/chains`) rather than carrying literals of their own.
+ * ONE PAYLOAD, EVERY CHAIN. The bytes are the same on Base, on the DogeOS
+ * testnet (2026-10-19, the Vibe Code on DOGE entry) and, when its flag is on,
+ * on Avalanche C-Chain: what differs is which chain's block clock bounds the
+ * day, and a day may be anchored on each. The chain registry below is the
+ * one reading of a chain's id, RPCs and explorer; the routes, the pages and
+ * the DogeOS app read it from here (`GET /api/roots/chains`) rather than
+ * carrying literals of their own.
  *
  * Payload format, self-describing and greppable on-chain:
  *   utf8("RCROOT1:" + day + ":" + root)   as the tx `data`, hex-encoded.
@@ -43,6 +44,24 @@ const BASE_RPCS = ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'
 // endpoint down is not "could not be read".
 const DOGEOS_TESTNET_PUBLIC_RPCS = ['https://rpc.testnet.dogeos.com/'];
 const DOGEOS_TESTNET_RPCS = [...DOGEOS_TESTNET_PUBLIC_RPCS, 'https://dogeos-testnet.drpc.org'];
+/**
+ * Avalanche C-Chain (chain id 43114). The same two keyless readers
+ * lib/erc8004.js already asks for a registration there, re-read 23 Oct 2026:
+ * both answered eth_chainId 0xa86a. Avalanche runs Snowman, not Ethereum
+ * settlement, so a calldata anchor here is its own independence group — the
+ * fifth that counts, after ethereum-l2, bitcoin, dogecoin and solana.
+ * Off unless AVALANCHE_ANCHOR_ENABLED is set. The date is the operator's
+ * target for turning it on; the flag does not read it.
+ */
+const AVALANCHE_CHAIN_ID = 43114;
+const AVALANCHE_RPCS = ['https://api.avax.network/ext/bc/C/rpc', 'https://avalanche-c-chain-rpc.publicnode.com'];
+const AVALANCHE_ANCHOR_FLAG = 'AVALANCHE_ANCHOR_ENABLED';
+const AVALANCHE_ANCHOR_TARGET = '2026-11-05';
+
+/** Whether Avalanche is in the registry. Unset is off. `env` is for tests. */
+function avalancheEnabled(env) {
+  return /^(1|true|yes|on)$/i.test(String((env || process.env)[AVALANCHE_ANCHOR_FLAG] || '').trim());
+}
 
 /**
  * The Ethereum Attestation Service on Base: an OP Stack predeploy, so the
@@ -101,7 +120,7 @@ function rpcList(envKey, defaults, env) {
  * `native` is what `wallet_addEthereumChain` needs to describe it.
  */
 function chains(env) {
-  return {
+  const all = {
     base: {
       key: 'base', chain_id: 8453, name: 'Base', testnet: false,
       rpcs: rpcList('WEB3_RPC_URL_BASE_ANCHOR', BASE_RPCS, env),
@@ -193,6 +212,21 @@ function chains(env) {
       native: { name: 'Solana', symbol: 'SOL', decimals: 9 },
     },
   };
+  // Same calldata self-send as Base. Absent until the flag is on, so the
+  // public registry (and the privacy section that lists it) does not grow
+  // before an operator turns it on. A recorded anchor on a chain this build
+  // does not know reads as unknown, never as verified.
+  if (avalancheEnabled(env)) {
+    all.avalanche = {
+      key: 'avalanche', chain_id: AVALANCHE_CHAIN_ID, name: 'Avalanche C-Chain', testnet: false,
+      rpcs: rpcList('AVALANCHE_RPC_URLS', AVALANCHE_RPCS, env),
+      public_rpcs: AVALANCHE_RPCS.slice(),
+      explorer_tx: 'https://snowtrace.io/tx/',
+      native: { name: 'Avalanche', symbol: 'AVAX', decimals: 18 },
+      independence_group: 'avalanche',
+    };
+  }
+  return all;
 }
 
 /**
@@ -248,9 +282,9 @@ function easStampCalldata(root) {
  * whose data is the tagged root. DRY RUN ONLY. Null for a malformed day or
  * root, or a chain this build does not know.
  */
-function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
+function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN, env) {
   if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) return null;
-  const chain = chainInfo(chainKey);
+  const chain = chainInfo(chainKey, env);
   if (!chain) return null;
   if (chain.method === 'dogecoin_op_return') return require('./dogecoin_anchor').buildPlan(day, root, chain);
   if (chain.method === 'solana_memo') return solana.buildPlan(day, root, chain);
@@ -419,7 +453,7 @@ async function readCalldataAnchor(call, url, chain, txHash, day, root) {
 }
 
 /** The keyless defaults, named by host in a verdict. */
-const KEYLESS_RPCS = new Set([...BASE_RPCS, ...DOGEOS_TESTNET_RPCS, ...EAS_L2.flatMap((c) => c.rpcs)]);
+const KEYLESS_RPCS = new Set([...BASE_RPCS, ...DOGEOS_TESTNET_RPCS, ...AVALANCHE_RPCS, ...EAS_L2.flatMap((c) => c.rpcs)]);
 
 /** A reader's name in a verdict: a keyless default by its host; a configured URL, which may carry a key, by its place only. */
 function readerName(url, i) {
@@ -451,8 +485,8 @@ function quickNodeReady(chain) {
  * the chain's RPCs. A chain QuickNode serves gets it, through Flovia, as one
  * more reader when an RPC does not answer.
  */
-async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHAIN) {
-  const chain = chainInfo(chainKey);
+async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHAIN, env) {
+  const chain = chainInfo(chainKey, env);
   if (!chain) return { status: 'mismatch', reason: 'unknown chain' };
   // Dogecoin's transaction ids have no 0x; the module checks its own shape.
   if (chain.method === 'dogecoin_op_return') {
@@ -541,6 +575,7 @@ async function verifyThroughQuickNode(txHash, day, root, chain) {
 
 module.exports = {
   buildAnchorPlan, verifyAnchor, verifyThroughQuickNode, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
-  DOGEOS_TESTNET_PUBLIC_RPCS, EAS_BASE, EAS_L2, EAS_TIMESTAMP, EAS_GET_TIMESTAMP, easStampCalldata, easStampOf,
+  DOGEOS_TESTNET_PUBLIC_RPCS, AVALANCHE_CHAIN_ID, AVALANCHE_RPCS, AVALANCHE_ANCHOR_FLAG, AVALANCHE_ANCHOR_TARGET,
+  avalancheEnabled, EAS_BASE, EAS_L2, EAS_TIMESTAMP, EAS_GET_TIMESTAMP, easStampCalldata, easStampOf,
   chains, chainInfo, publicChains, DEFAULT_CHAIN, caseSensitiveTx,
 };
