@@ -8,7 +8,7 @@ checked against that site:
   (``formatErc20Allowance``: ``totalSupply && allowance > totalSupply``).
   A missing supply is not "limited" and not "unlimited".
 * An ERC-721 ``ApprovalForAll`` is unlimited. A single-token approval is not.
-* "Older than 90 days" is strict: a last-update exactly 90 days of 86400
+* "Older than 180 days" is strict: a last-update exactly 180 days of 86400
   seconds ago is not older.
 * A spender is on the public exploit list only when that list was read and
   the spender's address is on it for that chain. A missing list is not "none".
@@ -32,7 +32,8 @@ CHAINS: tuple[tuple[int, str], ...] = (
     (42161, "Arbitrum"),
 )
 
-STALE_AFTER_SECONDS = 90 * 86400
+STALE_AFTER_DAYS = 180
+STALE_AFTER_SECONDS = STALE_AFTER_DAYS * 86400
 WEEK_SECONDS = 7 * 86400
 MESSAGE_MAX = 1000
 MAX_ADDRESSES = 5
@@ -59,7 +60,13 @@ ALL_UNREAD = (
 SUPPLY_GAP = (
     "Some allowances could not be compared with total supply, so they are not marked unlimited."
 )
-AGE_GAP = "The age of some approvals could not be read, so they are not marked older than 90 days."
+_STALE_ONE = f"approval older than {STALE_AFTER_DAYS} days"
+_STALE_MANY = f"approvals older than {STALE_AFTER_DAYS} days"
+_STALE_ZERO = f"You have no {_STALE_MANY}."
+AGE_GAP = (
+    "The age of some approvals could not be read, so they are not marked "
+    f"older than {STALE_AFTER_DAYS} days."
+)
 
 NOT_OPTED = (
     "You have not added an address, so there is no digest. "
@@ -83,7 +90,7 @@ NO_CHAT = "I could not tell which chat this is, so nothing was stored."
 DIGEST_HELP = (
     "Approval hygiene is optional. /watch <address> stores that address "
     f"(up to {MAX_ADDRESSES}) under an anonymous id and sends a weekly read-only note "
-    "about unlimited approvals, approvals older than 90 days, and spenders "
+    f"about unlimited approvals, {_STALE_MANY}, and spenders "
     "on the public exploit list, with a link to revoke.cash. "
     "You revoke in your own wallet. This bot never signs and never asks for "
     "a seed phrase or a private key. /stop deletes every stored address and the schedule."
@@ -326,9 +333,9 @@ def _address_block(summary: AddressSummary, *, scam_known: bool) -> str:
             zero="You have no unlimited approvals.",
         )
         stale = _count_line(
-            summary.stale, "approval older than 90 days", "approvals older than 90 days",
+            summary.stale, _STALE_ONE, _STALE_MANY,
             complete=summary.stale_complete, partial=partial,
-            zero="You have no approvals older than 90 days.",
+            zero=_STALE_ZERO,
         )
         if unlimited:
             lines.append(unlimited)

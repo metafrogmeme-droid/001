@@ -1155,7 +1155,7 @@ no new unit.
 
 `/watch 0x…` stores that address (up to 5) under the salted chat id.
 `/digest` reads it now. Once a week the process sends the same note: how many
-open approvals are unlimited, how many were last updated more than 90 days
+open approvals are unlimited, how many were last updated more than 180 days
 ago, and how many spenders are on the public exploit list, with a link to
 revoke.cash. The user revokes in their own wallet. This bot never signs and
 never asks for a seed phrase or a key. `/stop` deletes every stored address
@@ -1173,6 +1173,14 @@ counts as unlimited.
 `APPROVAL_DIGEST_POLL_SEC` defaults to 3600. The chat id used to deliver a
 digest is kept in memory only. After a restart, the next message from that
 chat binds it again and a digest that came due in the meantime is sent then.
+
+The digest itself is `bot.approval_digest.ApprovalDigest`. This process
+constructs that object and registers `/watch`, `/digest` and `/stop`. A later
+wiring into the main bot constructs the same object with a salt and its own
+sqlite file, then points free command names at `on_watch`, `on_digest` and
+`on_stop`, and calls `bind` plus `dispatch_due` on inbound updates and on a
+timer of `poll_sec`. `/watch` on the main bot is the price-alert command, so
+that wiring uses other names.
 
 ```bash
 python3 -m bot.daily_duel_bot

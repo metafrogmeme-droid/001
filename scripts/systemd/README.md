@@ -72,7 +72,9 @@ a token equal to `TELEGRAM_BOT_TOKEN` or `DUEL_BOT_TOKEN`, the process exits
 
 The same process sends the approval hygiene digest. There is no fifth unit.
 `/watch` opts a chat in (up to 5 addresses), `/digest` sends one now, and
-`/stop` deletes the addresses and the schedule. The store is
+`/stop` deletes the addresses and the schedule. The note counts unlimited
+approvals, approvals older than 180 days, and spenders on the public exploit
+list. The store is
 `approval_watches.sqlite` under `DAILY_DUEL_STATE_DIR` (default
 `data/daily-duel`). The chat id is not written there; it is an HMAC with
 `DAILY_DUEL_ID_SALT`, same as a duel id. Chain reads use `ETHERSCAN_API_KEY`

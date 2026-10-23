@@ -1,10 +1,10 @@
 """Addresses a chat asked us to watch, and when the next digest is due.
 
-The only key is the salted chat reference from ``player_key`` (HMAC-SHA256 of
-the chat id under ``DAILY_DUEL_ID_SALT``). The chat id is not a column. A value
-that is not 64 hex characters is refused, so a raw Telegram id cannot be
-written by passing it as the key. ``/stop`` deletes every address and the
-schedule row for that key.
+The only key is a 64-hex HMAC of the chat id (``player_key``). The chat id is
+not a column. A value that is not 64 hex characters is refused, so a raw
+Telegram id cannot be written by passing it as the key. ``/stop`` deletes
+every address and the schedule row for that key. The file is the digest's
+own; it is not the duel call store.
 """
 
 from __future__ import annotations

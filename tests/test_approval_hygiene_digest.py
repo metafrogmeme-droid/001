@@ -3,7 +3,7 @@
 Opt-in only. The store keeps the address and a salted chat key. /stop deletes
 both the addresses and the schedule. Counts follow revoke.cash: an ERC-20 is
 unlimited only when the allowance is greater than a known non-zero supply, an
-ApprovalForAll is unlimited, and 90 days is a strict cut.
+ApprovalForAll is unlimited, and 180 days is a strict cut.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 from bot import daily_duel_bot as ddb
+from bot.approval_digest import ApprovalDigest
 from bot.approval_hygiene import (
     DIGEST_HELP,
     EXPLOIT_UNREAD,
@@ -128,8 +129,9 @@ def _approval_logs() -> list[dict]:
 
 
 def _forall_logs() -> list[dict]:
-    mid = NOW - 100 * DAY
-    return [_log(TOKEN_C, [TOPIC_FOR_ALL, _topic(WALLET), _topic(SPEND_C)], _word(1), mid, 14, 1)]
+    # One day past the cutoff, so this operator approval stays in the stale count.
+    past = NOW - STALE_AFTER_SECONDS - DAY
+    return [_log(TOKEN_C, [TOPIC_FOR_ALL, _topic(WALLET), _topic(SPEND_C)], _word(1), past, 14, 1)]
 
 
 def _call_result(to: str, data: str) -> dict:
@@ -211,7 +213,7 @@ def _watch(bot, address: str = WALLET, user_id: str = TG):
     return update
 
 
-def test_unlimited_matches_revoke_cash_and_ninety_days_is_strict():
+def test_unlimited_matches_revoke_cash_and_one_hundred_eighty_days_is_strict():
     old = OpenApproval(1, "Ethereum", TOKEN_A, SPEND_A, "erc20", MAX_UINT, SUPPLY_A, True, NOW - 200 * DAY)
     equal = OpenApproval(1, "Ethereum", TOKEN_A, SPEND_A, "erc20", 1000, 1000, True, NOW)
     just_over = OpenApproval(1, "Ethereum", TOKEN_A, SPEND_A, "erc20", 1001, 1000, True, NOW)
@@ -226,6 +228,8 @@ def test_unlimited_matches_revoke_cash_and_ninety_days_is_strict():
     assert unlimited_of(missing) is None
     assert unlimited_of(forall) is True
     assert unlimited_of(single) is False
+    assert STALE_AFTER_SECONDS == 180 * DAY
+    assert stale_of(NOW - 100 * DAY, NOW) is False
     assert stale_of(NOW - STALE_AFTER_SECONDS, NOW) is False
     assert stale_of(NOW - STALE_AFTER_SECONDS - 1, NOW) is True
     assert stale_of(None, NOW) is None
@@ -247,15 +251,33 @@ def test_digest_for_a_test_wallet_matches_revoke_cash():
     assert len(texts) == 1 and len(texts[0]) <= MESSAGE_MAX
     text = texts[0]
     assert "You have 2 unlimited approvals." in text
-    assert "You have 3 approvals older than 90 days." in text
+    assert "You have 3 approvals older than 180 days." in text
+    assert "90 days" not in text
     assert "You have 1 approval to a spender on the public exploit list." in text
     assert revoke_url(WALLET) in text
     assert "revoke.cash/address/" in text
     assert "$" not in text and "RCLAW" not in text.upper()
-    assert "180" not in text
     for chain in chains:
         if chain.chain_id != 1:
             assert chain.status == "ok" and chain.approvals == ()
+
+
+def test_the_digest_object_runs_without_the_duel_bot(tmp_path):
+    digest = ApprovalDigest(
+        salt=SALT,
+        store=ApprovalWatchStore(tmp_path / "approval_watches.sqlite"),
+        reader=_reader(),
+        exploits=_List(_exploits()),
+        now=lambda: _iso(NOW),
+        interval_sec=7 * DAY,
+        poll_sec=3600,
+    )
+    reply = _run(digest.on_watch(TG, WALLET))
+    assert reply.startswith("Watching")
+    texts = _run(digest.on_digest(TG))
+    assert texts and "You have 3 approvals older than 180 days." in texts[0]
+    assert _run(digest.on_stop(TG)) == STOPPED
+    assert digest.watches.total_rows() == 0
 
 
 def test_an_unreadable_chain_is_not_reported_as_zero_and_a_missing_list_is_not_clean():
@@ -413,6 +435,7 @@ def test_a_message_after_restart_delivers_a_due_digest(tmp_path):
 
 def test_the_bot_never_asks_for_a_key_and_the_sources_are_named():
     files = [
+        ROOT_BOT / "bot" / "approval_digest.py",
         ROOT_BOT / "bot" / "approval_hygiene.py",
         ROOT_BOT / "bot" / "approval_reader.py",
         ROOT_BOT / "bot" / "approval_watch_store.py",
@@ -433,7 +456,12 @@ def test_the_bot_never_asks_for_a_key_and_the_sources_are_named():
     assert digest_interval_sec({}) == 7 * DAY
     assert digest_interval_sec({"APPROVAL_DIGEST_INTERVAL_SEC": "nope"}) == 7 * DAY
     assert digest_poll_sec({}) == 3600
-    assert "90 days" in DIGEST_HELP and "revoke.cash" in DIGEST_HELP
+    assert "180 days" in DIGEST_HELP and "90 days" not in DIGEST_HELP
+    assert "revoke.cash" in DIGEST_HELP
+    digest_src = code_only((ROOT_BOT / "bot" / "approval_digest.py").read_text(encoding="utf-8"))
+    assert "daily_duel_bot" not in digest_src
+    assert "telegram_handler" not in digest_src
+    assert "bot.core.engine" not in digest_src
     assert SECRET_REQUEST.search(DIGEST_HELP) is None
     assert SECRET_REQUEST.search(HEADER) is None
     assert SECRET_REQUEST.search(SECRET_REFUSAL) is None

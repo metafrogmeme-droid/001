@@ -20,11 +20,12 @@ PLAIN BOT. No Mini App, no web_app button.
 
 HEALTH ON :8082. 200 only while polling and not stopping.
 
-APPROVAL HYGIENE. The same process, opt-in. ``/watch`` stores up to five
-addresses under the salted chat id, ``/digest`` reads them now, and a weekly
-loop sends the same note. ``/stop`` deletes the addresses and the schedule.
-Reads only: Ethereum, Base, Avalanche C-Chain, Arbitrum. It signs nothing
-and holds no wallet key.
+APPROVAL HYGIENE. The same process, opt-in, through ``ApprovalDigest``.
+``/watch`` stores up to five addresses under the salted chat id, ``/digest``
+reads them now, and a weekly loop sends the same note. ``/stop`` deletes the
+addresses and the schedule. Reads only: Ethereum, Base, Avalanche C-Chain,
+Arbitrum. It signs nothing and holds no wallet key. The digest object does
+not depend on this process, so another bot can construct the same one.
 
 What this process does not do yet, and says so: score a call, rank Arena
 Season 1, accept an Arena handle code, or fold the receipt into the day's
@@ -46,24 +47,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
-from bot.approval_hygiene import (
-    DIGEST_HELP,
-    INVALID_ADDRESS,
-    NO_CHAT,
-    NOT_OPTED,
-    SECRET_REFUSAL,
-    command_argument,
-    digest_interval_sec,
-    digest_poll_sec,
-    looks_like_secret,
-    normalize_address,
-    render_digest,
-    shift_iso,
-    stop_reply,
-    summarize_address,
-    unread_chains,
-    watch_reply,
-)
+from bot.approval_digest import ApprovalDigest
+from bot.approval_hygiene import DIGEST_HELP, command_argument
 from bot.approval_reader import ApprovalReader, ExploitDirectory
 from bot.approval_watch_store import ApprovalWatchStore
 from bot.daily_duel_gate import DuelGate, GateDown
@@ -361,17 +346,19 @@ class DailyDuelBot:
         self.gate = gate if gate is not None else DuelGate()
         base = state_dir()
         self.store = store if store is not None else CallStore(Path(base) / "calls.sqlite")
-        self._watches = watches
-        self._watch_path = Path(base) / "approval_watches.sqlite"
-        self._reader = reader
-        self._exploits = exploits
-        self.interval_sec = digest_interval_sec() if interval_sec is None else interval_sec
-        self.poll_sec = digest_poll_sec() if poll_sec is None else poll_sec
-        # Chat id for a due digest. Memory only: the store keeps the salted key.
-        self.delivery: dict[str, str] = {}
-        self.commands = RateLimit(*COMMAND_LIMIT, clock=clock)
         self._now = now or (lambda: datetime.now(timezone.utc).isoformat(
             timespec="milliseconds").replace("+00:00", "Z"))
+        self.digest = ApprovalDigest(
+            salt=salt,
+            store=watches,
+            store_path=Path(base) / "approval_watches.sqlite",
+            reader=reader,
+            exploits=exploits,
+            now=self._now,
+            interval_sec=interval_sec,
+            poll_sec=poll_sec,
+        )
+        self.commands = RateLimit(*COMMAND_LIMIT, clock=clock)
         self.state: dict[str, Any] = {
             "polling": False, "stopping": False, "updates": 0,
             "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -426,38 +413,44 @@ class DailyDuelBot:
         return str(getattr(chat, "id", "") or "")
 
     @property
+    def _watches(self) -> Optional[ApprovalWatchStore]:
+        return self.digest.store
+
+    @_watches.setter
+    def _watches(self, value: Optional[ApprovalWatchStore]) -> None:
+        self.digest.store = value
+
+    @property
+    def _watch_path(self) -> Path:
+        return self.digest.store_path
+
+    @property
+    def delivery(self) -> dict[str, str]:
+        return self.digest.delivery
+
+    @property
     def watches(self) -> ApprovalWatchStore:
-        if self._watches is None:
-            self._watches = ApprovalWatchStore(self._watch_path)
-        return self._watches
+        return self.digest.watches
 
     @property
     def reader(self) -> ApprovalReader:
-        if self._reader is None:
-            self._reader = ApprovalReader()
-        return self._reader
+        return self.digest.reader
 
     @property
     def exploits(self) -> ExploitDirectory:
-        if self._exploits is None:
-            self._exploits = ExploitDirectory()
-        return self._exploits
+        return self.digest.exploits
 
-    def _chat_key(self, update) -> Optional[str]:
-        chat = self._chat(update)
-        if not chat:
-            return None
-        try:
-            return player_key(chat, self.salt)
-        except ValueError:
-            return None
+    @property
+    def interval_sec(self) -> int:
+        return self.digest.interval_sec
+
+    @property
+    def poll_sec(self) -> int:
+        return self.digest.poll_sec
 
     def bind_chat(self, update) -> None:
         """Remember where to deliver a digest. Not written to the store."""
-        key = self._chat_key(update)
-        chat = self._chat(update)
-        if key and chat:
-            self.delivery[key] = chat
+        self.digest.bind(self._chat(update))
 
     async def cmd_start(self, update, context) -> None:
         if await self._limited(update):
@@ -509,104 +502,22 @@ class DailyDuelBot:
     async def cmd_watch(self, update, context) -> None:
         if await self._limited(update):
             return
-        self.bind_chat(update)
-        key = self._chat_key(update)
-        if key is None:
-            await self._reply(update, NO_CHAT)
-            return
         raw = command_argument(getattr(getattr(update, "effective_message", None), "text", "") or "")
-        if looks_like_secret(raw):
-            await self._reply(update, SECRET_REFUSAL)
-            return
-        address = normalize_address(raw)
-        if address is None:
-            await self._reply(update, INVALID_ADDRESS)
-            return
-        try:
-            nxt = shift_iso(self._now(), self.interval_sec)
-            status, count = await asyncio.to_thread(
-                self.watches.add, key, address, self._now(), nxt,
-            )
-        except ValueError:
-            await self._reply(update, "That address was not stored.")
-            return
-        await self._reply(update, watch_reply(status, address, count))
+        await self._reply(update, await self.digest.on_watch(self._chat(update), raw))
 
     async def cmd_digest(self, update, context) -> None:
         if await self._limited(update):
             return
-        self.bind_chat(update)
-        key = self._chat_key(update)
-        if key is None:
-            await self._reply(update, NO_CHAT)
-            return
-        held = await asyncio.to_thread(self.watches.addresses, key)
-        if not held:
-            await self._reply(update, NOT_OPTED)
-            return
-        for text in await self.digest_texts(key):
+        for text in await self.digest.on_digest(self._chat(update)):
             await self._reply(update, text)
 
     async def cmd_stop(self, update, context) -> None:
         if await self._limited(update):
             return
-        key = self._chat_key(update)
-        if key is None:
-            await self._reply(update, NO_CHAT)
-            return
-        removed = await asyncio.to_thread(self.watches.forget, key)
-        self.delivery.pop(key, None)
-        await self._reply(update, stop_reply(removed))
-
-    async def digest_texts(self, chat_key: str) -> list[str]:
-        addresses = await asyncio.to_thread(self.watches.addresses, chat_key)
-        if not addresses:
-            return [NOT_OPTED]
-        try:
-            now = int(datetime.fromisoformat(self._now().replace("Z", "+00:00")).timestamp())
-        except ValueError:
-            now = int(datetime.now(timezone.utc).timestamp())
-        try:
-            listed = await asyncio.to_thread(self.exploits.get)
-        except Exception as exc:
-            log.info("exploit list failed: %s", type(exc).__name__)
-            listed = None
-        summaries = []
-        for address in addresses:
-            try:
-                chains = await asyncio.to_thread(self.reader.read, address)
-            except Exception as exc:
-                log.info("approval digest read failed: %s", type(exc).__name__)
-                chains = unread_chains()
-            summaries.append(summarize_address(address, chains, now, listed))
-        return render_digest(summaries, scam_known=listed is not None)
+        await self._reply(update, await self.digest.on_stop(self._chat(update)))
 
     async def dispatch_due(self, send) -> int:
-        """Send digests that are due to chats bound in this process. Returns how many chats got one.
-
-        A chat id that is not in memory is left due, so a restart delivers on the
-        next message that binds it. A failed send does not move the schedule.
-        """
-        due = await asyncio.to_thread(self.watches.due, self._now())
-        sent = 0
-        for key in due:
-            chat = self.delivery.get(key)
-            if not chat:
-                continue
-            try:
-                texts = await self.digest_texts(key)
-                for text in texts:
-                    await send(chat, text)
-            except Exception as exc:
-                log.warning("approval digest send failed: %s", type(exc).__name__)
-                continue
-            try:
-                nxt = shift_iso(self._now(), self.interval_sec)
-                await asyncio.to_thread(self.watches.schedule_next, key, nxt)
-            except ValueError:
-                continue
-            sent += 1
-        return sent
+        return await self.digest.dispatch_due(send)
 
     async def cmd_duel(self, update, context) -> None:
         if await self._limited(update):
@@ -744,7 +655,7 @@ class DailyDuelBot:
         sender = getattr(context, "bot", None)
         if sender is None or not hasattr(sender, "send_message"):
             return
-        if self._watches is None and not self._watch_path.exists():
+        if self.digest.store is None and not self.digest.store_path.exists():
             return
         from bot.utils.outbound import reply_safe
 
