@@ -342,6 +342,11 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// Cover drafts stay 404 until COVER_ADL_ENABLED or COVER_STOPGAP_ENABLED is
+// set. Ahead of express.static so public/cover-adl.html, cover-stopgap.html
+// and js/cover.js are not served while the flags are off.
+// Not offered to customers. Licence review pending. Do not enable in production.
+app.use(require('./lib/cover_page').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -503,6 +508,10 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
+// Cover status. 404 until the matching flag is set. Even then the body says
+// the product is not offered: licence review pending.
+// Not offered to customers. Licence review pending. Do not enable in production.
+app.use('/api/cover', require('./routes/cover'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -585,6 +594,10 @@ app.get('/guard', (req, res) => {
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
+// Cover pages. 404 until the matching flag. Same answer as a path this server
+// does not have. Not offered to customers. Licence review pending. Do not enable in production.
+app.get('/cover-adl', (req, res) => { require('./lib/cover_page').sendPage(res, 'adl'); });
+app.get('/cover-stopgap', (req, res) => { require('./lib/cover_page').sendPage(res, 'stopgap'); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

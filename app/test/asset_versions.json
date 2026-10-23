@@ -91,6 +91,10 @@
     "v": 3,
     "sha": "74ac67a7822e9904"
   },
+  "js/cover.js": {
+    "v": 1,
+    "sha": "eeb3c8d2b008fe96"
+  },
   "js/creds-gate-model.js": {
     "v": 2,
     "sha": "062325eb3c39125a"
