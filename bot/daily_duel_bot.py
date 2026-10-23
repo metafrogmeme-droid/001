@@ -31,6 +31,9 @@ What this process does not do yet, and says so: score a call, rank Arena
 Season 1, accept an Arena handle code, or fold the receipt into the day's
 public root. Anchoring stays at humanoid-traders.com/doge, from the player's
 own wallet.
+
+/botcheck is registered only when BOTCHECK_ENABLED is 1, true, yes, or on.
+It reads a public catalog and can append a review line. It stores no Telegram id.
 """
 
 from __future__ import annotations
@@ -47,12 +50,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
+from bot import scam_or_safe as scam
 from bot.approval_digest import ApprovalDigest
 from bot.approval_hygiene import DIGEST_HELP, command_argument
 from bot.approval_reader import ApprovalReader, ExploitDirectory
 from bot.approval_watch_store import ApprovalWatchStore
+from bot.botcheck import flag_on
+from bot.botcheck import reply_for as botcheck_reply
 from bot.daily_duel_gate import DuelGate, GateDown
-from bot.daily_duel_store import CallStore, PayloadRefused, player_key
+from bot.daily_duel_store import CallStore, PayloadRefused, payload_carries_id, player_key
 from bot.duel_bot import EXIT_NOT_CONFIGURED, RateLimit, _clean_secret
 
 log = logging.getLogger("runeclaw.daily_duel_bot")
@@ -148,9 +154,11 @@ def load_env() -> None:
     load_dotenv(dotenv_path=REPO_ROOT / ".env", override=False)
 
 
-def help_text(rules: Optional[Mapping[str, Any]]) -> str:
+def help_text(rules: Optional[Mapping[str, Any]], env: Optional[Mapping[str, str]] = None) -> str:
     """How the duel works. The cutoff and the horizon are the gate's, or the
-    sentence says they could not be read. The privacy line is always this one."""
+    sentence says they could not be read. The privacy line is always this one.
+    The /botcheck paragraph is included only when BOTCHECK_ENABLED is on.
+    The Scam or Safe paragraph is included only when SCAM_OR_SAFE_V0 is on."""
     if rules and rules.get("cutoff_at") and "horizon_hours" in rules:
         when = (
             f"Calls for a duel day close at {rules['cutoff_at']} — the moment the "
@@ -180,8 +188,16 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         "/digest — that digest now\n"
         "/stop — delete every watched address and the digest schedule",
         DIGEST_HELP,
-        "Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.",
     ])
+    if flag_on(env):
+        parts.append(
+            "/botcheck <name> — public signals for one bot name. "
+            "Unknown stays unknown. "
+            "/botcheck submit <name> queues a name and does not publish it."
+        )
+    parts.append("Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.")
+    if scam.flag_on():
+        parts.append(scam.SCAM_HELP)
     return "\n\n".join(parts)
 
 
@@ -522,6 +538,8 @@ class DailyDuelBot:
         if await self._limited(update):
             return
         await self._reply(update, WELCOME)
+        if scam.flag_on():
+            await self._reply(update, scam.SCAM_WELCOME)
 
     async def cmd_help(self, update, context) -> None:
         if await self._limited(update):
@@ -742,6 +760,111 @@ class DailyDuelBot:
             return "Choose low, medium or high. Nothing was sealed."
         return "That call was not sealed. Nothing was recorded."
 
+    async def cmd_scam(self, update, context) -> None:
+        if await self._limited(update):
+            return
+        if not scam.flag_on():
+            await self._reply(update, "Scam or Safe is not open. Nothing was sealed.")
+            return
+        await self._show_scam(update)
+
+    async def _show_scam(self, update) -> None:
+        key = self._key(update)
+        if key is None:
+            await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
+            return
+        try:
+            offer = await asyncio.to_thread(self.gate.sos_offer, self._now(), key)
+        except GateDown:
+            await self._reply(update, "Today's request could not be read, so nothing was sealed.")
+            return
+        if not isinstance(offer, dict) or not offer.get("ok"):
+            await self._reply(update, scam.refused_text(offer if isinstance(offer, dict) else {}))
+            return
+        if offer.get("sealed"):
+            await self._reply(update, scam.reveal_text(offer))
+            return
+        raw_puzzle = offer.get("puzzle")
+        puzzle = raw_puzzle if isinstance(raw_puzzle, dict) else {}
+        pid = str(puzzle.get("id") or "")
+        markup = self.markup([
+            [("Safe", f"sos:ask:safe:{pid}"), ("Risky", f"sos:ask:risky:{pid}")],
+        ]) if pid else None
+        await self._reply(update, scam.offer_text(offer), markup)
+
+    async def on_sos(self, update, context) -> None:
+        query = getattr(update, "callback_query", None)
+        if query is None:
+            return
+        try:
+            await query.answer()
+        except Exception as exc:
+            log.debug("callback answer failed: %s", type(exc).__name__)
+        if not scam.flag_on():
+            await self._reply(update, "Scam or Safe is not open. Nothing was sealed.")
+            return
+        parsed = scam.parse_callback(str(getattr(query, "data", "") or ""))
+        if parsed is None or await self._limited(update):
+            return
+        action, pick, puzzle_id = parsed
+        if action == "back" or action == "ask" and not pick:
+            await self._show_scam(update)
+            return
+        if action == "ask" and pick and puzzle_id:
+            await self._confirm_scam(update, pick, puzzle_id)
+            return
+        if action == "seal" and pick and puzzle_id:
+            await self._seal_scam(update, pick, puzzle_id)
+
+    async def _confirm_scam(self, update, pick: str, puzzle_id: str) -> None:
+        key = self._key(update)
+        if key is None:
+            await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
+            return
+        try:
+            offer = await asyncio.to_thread(self.gate.sos_offer, self._now(), key)
+        except GateDown:
+            await self._reply(update, "Today's request could not be read, so nothing was sealed.")
+            return
+        if not isinstance(offer, dict) or not offer.get("ok"):
+            await self._reply(update, scam.refused_text(offer if isinstance(offer, dict) else {}))
+            return
+        if offer.get("sealed"):
+            await self._reply(update, scam.reveal_text(offer))
+            return
+        raw_puzzle = offer.get("puzzle")
+        puzzle = raw_puzzle if isinstance(raw_puzzle, dict) else {}
+        if puzzle.get("id") != puzzle_id:
+            await self._show_scam(update)
+            return
+        await self._reply(update, scam.confirm_text(pick, offer), self.markup([
+            [(f"Seal {pick}", f"sos:seal:{pick}:{puzzle_id}")],
+            [("Back", "sos:back")],
+        ]))
+
+    async def _seal_scam(self, update, pick: str, puzzle_id: str) -> None:
+        tg = self._tg_id(update)
+        key = self._key(update)
+        if key is None or not tg:
+            await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
+            return
+        try:
+            receipt = await asyncio.to_thread(self.gate.sos_seal, {
+                "now": self._now(), "pick": pick, "player_key": key, "puzzle_id": puzzle_id,
+            })
+        except GateDown:
+            await self._reply(update, "The seal could not be made, so nothing was recorded.")
+            return
+        if not isinstance(receipt, dict) or not receipt.get("ok"):
+            await self._reply(update, scam.refused_text(receipt if isinstance(receipt, dict) else {}))
+            return
+        payload = str(receipt.get("seal_payload") or "")
+        if payload_carries_id(payload, tg):
+            await self._reply(update, "The call was not sealed: the receipt would have carried your id. "
+                                      "Nothing was recorded.")
+            return
+        await self._reply(update, scam.reveal_text(receipt))
+
     async def on_any_update(self, update, context) -> None:
         self.state["updates"] = int(self.state.get("updates", 0)) + 1
         self.bind_chat(update)
@@ -762,6 +885,18 @@ class DailyDuelBot:
         except Exception as exc:
             log.warning("approval digest catch-up failed: %s", type(exc).__name__)
 
+    async def cmd_botcheck(self, update, context) -> None:
+        """Public signals for one name. Registered only when the flag is on."""
+        if not flag_on():
+            return
+        who = self._key(update) or "anon"
+        if not self.commands.admit("bc:" + who):
+            await self._reply(update, "Slow down a little — try again in a minute.")
+            return
+        msg = getattr(update, "effective_message", None) or getattr(update, "message", None)
+        raw = getattr(msg, "text", "") if msg is not None else ""
+        await self._reply(update, botcheck_reply(command_argument(raw or "")))
+
     COMMANDS = (
         ("start", "cmd_start"), ("help", "cmd_help"), ("duel", "cmd_duel"),
         ("result", "cmd_result"), ("streak", "cmd_streak"), ("leaderboard", "cmd_leaderboard"),
@@ -775,7 +910,13 @@ class DailyDuelBot:
         app.add_handler(TypeHandler(Update, self.on_any_update), group=-1)
         for name, attr in self.COMMANDS:
             app.add_handler(CommandHandler(name, getattr(self, attr)))
+        if flag_on():
+            app.add_handler(CommandHandler("botcheck", self.cmd_botcheck))
         app.add_handler(CallbackQueryHandler(self.on_callback, pattern=r"^dd:"))
+        # Off by default. /duel and its dd: callbacks stay as they are.
+        if scam.flag_on():
+            app.add_handler(CommandHandler("scam", self.cmd_scam))
+            app.add_handler(CallbackQueryHandler(self.on_sos, pattern=r"^sos:"))
         return app
 
 
