@@ -344,6 +344,9 @@ app.use('/embed', require('./routes/embed'));
 // references version-tagged assets, e.g. /styles.css?v=2) — a cached HTML +
 // stale-CSS mix renders the dashboard completely unstyled. Assets get a
 // moderate cache; the ?v= query busts them on every deploy that changes them.
+// RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
+// of express.static so public/rwa.html is not served while the API is off.
+app.use(require('./lib/rwa_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -483,6 +486,10 @@ app.use('/api/duel', require('./routes/duel'));
 // above, numeric ids refused). The lookup router is the read.
 app.use('/api/botcheck/submit', require('./routes/botcheck_submit'));
 app.use('/api/botcheck', require('./routes/botcheck'));
+// Scam or Safe? Daily. The page is a document; the call is the authed router.
+// Both answer 404 unless SCAM_OR_SAFE_V0 is on.
+app.use('/api/scam-or-safe', require('./routes/scam_or_safe'));
+app.use('/scam', require('./routes/scam_page'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/today', require('./routes/today'));
@@ -503,6 +510,9 @@ app.use('/api/allowances', require('./routes/allowances'));
 app.use('/api/guard/poison', require('./routes/guard_v01'));
 app.use('/v1/receipts', require('./routes/receipts_v01'));
 app.use('/api/guard', require('./routes/guard'));
+// RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
+// RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
+app.use('/v1/rwa', require('./routes/rwa_precheck'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -580,6 +590,11 @@ app.get('/guard', (req, res) => {
   if (!v01.enabled()) return res.sendFile(v01.guardPageFile());
   res.type('html').send(v01.guardPageHtml(v01.readGuardPage()));
 });
+// /rwa — the pre-check page. Same shape as the other pages: an app.get whose
+// path is the canonical. 404 until RWA_PRECHECK_ENABLED, the same answer the
+// API gives. pageGate, ahead of static, keeps /rwa.html and the page script
+// from being files a crawler can open while that flag is off.
+app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

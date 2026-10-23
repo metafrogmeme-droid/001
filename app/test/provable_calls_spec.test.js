@@ -367,6 +367,36 @@ test('the Claw Guard verdict (v10 presign_verdict) is written as the spec writes
   assert.match(SPEC, /\| 10 \| A Claw Guard verdict/, 'the version history lists it');
 });
 
+test('the RWA pre-check (v11 rwa_precheck) is written as the spec writes it', () => {
+  const at = SPEC.indexOf('### 2.11');
+  assert.ok(at > 0, 'the spec has a §2.11');
+  const block = SPEC.slice(at, SPEC.indexOf('\n#', at + 1));
+  const examples = [...block.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
+  assert.deepEqual(examples.map((e) => e.kind), ['rwa_precheck']);
+  const g = {
+    scan_key: 'sc_' + 'a'.repeat(16), input_sha256: 'b'.repeat(64), input_bytes: 72,
+    chain_id: 8453, block: '52987635',
+    flags: [
+      { id: 'erc3643', state: 'detected' },
+      { id: 'paused', state: 'yes' },
+      { id: 'oracle', state: 'unknown' },
+    ],
+    unreadable: ['registry_isVerified'],
+    scanned_at: AT,
+  };
+  const sealed = seal.sealRwa(g);
+  const p = JSON.parse(sealed.seal_payload);
+  assert.equal(p.v, 11);
+  assert.deepEqual(Object.keys(examples[0]), keysOf(sealed.seal_payload), 'the spec names the sealed fields, in order');
+  assert.deepEqual(p.flags, ['erc3643:detected', 'paused:yes', 'oracle:unknown']);
+  assert.deepEqual(p.unreadable, ['registry_isVerified']);
+  assert.strictEqual(JSON.parse(seal.sealRwa({ ...g, input_bytes: Number.NaN }).seal_payload).input_bytes, null);
+  assert.strictEqual(JSON.parse(seal.sealRwa({ ...g, block: null }).seal_payload).block, null);
+  assert.equal(sealed.seal, crypto.createHash('sha256').update(sealed.seal_payload, 'utf8').digest('hex'));
+  assert.match(SPEC, /\| 11 \| An RWA pre-check/, 'the version history lists it');
+  assert.ok(!/0x[0-9a-fA-F]{40}/.test(sealed.seal_payload), 'a receipt carries no address');
+});
+
 test('the proof bundle (§4.3): every field the spec names is one the bundle carries, and the verifier\'s exits are the spec\'s', async () => {
   const block = SPEC.slice(SPEC.indexOf('### 4.3'), SPEC.indexOf('## 5 · Conformance'));
   assert.ok(block.length > 100, 'the spec has a bundle section');

@@ -42,7 +42,7 @@
 
 const crypto = require('node:crypto');
 const { pool } = require('../db');
-const { sealScan, sealGuard, inputDigest } = require('./callseal');
+const { sealScan, sealGuard, sealRwa, inputDigest } = require('./callseal');
 
 /** Same shape as `newTradeKey` — short, unguessable, URL-safe. */
 function newScanKey() {
@@ -171,6 +171,42 @@ async function sealGuardIfSignedIn(opts) {
   }
 }
 
+/**
+ * Seal one RWA pre-check (v11) for a signed-in caller.
+ *
+ * Same rules as a Claw Guard verdict: anonymous stores nothing, a seal
+ * failure is reported and does not fail the check, and the row is a leaf of
+ * the same daily root. The payload carries flag ids, not addresses.
+ */
+async function sealRwaIfSignedIn(opts) {
+  const { input, projection, userId } = opts || {};
+  if (!userId) return { sealed: false, reason: 'anonymous' };
+  try {
+    const digest = inputDigest(input);
+    const scannedAt = new Date();
+    const scanKey = newScanKey();
+    const p = projection || {};
+    const { seal, seal_payload } = sealRwa({
+      scan_key: scanKey,
+      input_sha256: digest.sha256,
+      input_bytes: digest.bytes,
+      chain_id: p.chain_id,
+      block: p.block,
+      flags: p.flags,
+      unreadable: p.unreadable,
+      scanned_at: scannedAt,
+    });
+    await pool.execute(
+      'INSERT INTO scan_seals (scan_key, user_id, agent_slug, tool, seal, seal_payload, sealed_at) '
+      + 'VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [scanKey, userId, null, 'rwa_precheck', seal, seal_payload, scannedAt]);
+    return { sealed: true, scan_key: scanKey, seal, sealed_at: scannedAt.toISOString() };
+  } catch (err) {
+    console.error('[scan_seal] could not seal an rwa pre-check:', err && err.constructor ? err.constructor.name : 'Error');
+    return { sealed: false, reason: 'seal_failed' };
+  }
+}
+
 /** One receipt by key, or null. Never exposes `user_id`. */
 async function byKey(scanKey) {
   const k = String(scanKey || '');
@@ -190,4 +226,6 @@ async function byKey(scanKey) {
   };
 }
 
-module.exports = { sealIfKeyed, sealGuardIfSignedIn, byKey, newScanKey, actionIds, flagIds };
+module.exports = {
+  sealIfKeyed, sealGuardIfSignedIn, sealRwaIfSignedIn, byKey, newScanKey, actionIds, flagIds,
+};
