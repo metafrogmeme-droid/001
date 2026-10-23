@@ -23,9 +23,12 @@ HEALTH ON :8082. 200 only while polling and not stopping.
 APPROVAL HYGIENE. The same process, opt-in, through ``ApprovalDigest``.
 ``/watch`` stores up to five addresses under the salted chat id, ``/digest``
 reads them now, and a weekly loop sends the same note. ``/stop`` deletes the
-addresses and the schedule. Reads only: Ethereum, Base, Avalanche C-Chain,
-Arbitrum. It signs nothing and holds no wallet key. The digest object does
-not depend on this process, so another bot can construct the same one.
+addresses and the schedule. ``/panic <address>`` lists what can still move
+one wallet and links the web page; it does not store the address, and it
+answers ``not available yet`` unless ``PANIC_BUTTON`` is ``1`` or ``true``.
+Reads only: Ethereum, Base, Avalanche C-Chain, Arbitrum. It signs nothing
+and holds no wallet key. The digest object does not depend on this process,
+so another bot can construct the same one.
 
 What this process does not do yet, and says so: score a call, rank Arena
 Season 1, accept an Arena handle code, or fold the receipt into the day's
@@ -54,6 +57,7 @@ from bot.approval_watch_store import ApprovalWatchStore
 from bot.daily_duel_gate import DuelGate, GateDown
 from bot.daily_duel_store import CallStore, PayloadRefused, player_key
 from bot.duel_bot import EXIT_NOT_CONFIGURED, RateLimit, _clean_secret
+from bot.panic_button import on_panic
 
 log = logging.getLogger("runeclaw.daily_duel_bot")
 
@@ -168,7 +172,9 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         "/leaderboard — Arena Season 1 standings\n/help — this note\n"
         "/watch <address> — opt in a wallet for the weekly approval digest\n"
         "/digest — that digest now\n"
-        "/stop — delete every watched address and the digest schedule",
+        "/stop — delete every watched address and the digest schedule\n"
+        "/panic <address> — what can still move that wallet, worst first, "
+        "with a link to prepare the revokes. Nothing is stored",
         DIGEST_HELP,
         "Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.",
     ])
@@ -516,6 +522,16 @@ class DailyDuelBot:
             return
         await self._reply(update, await self.digest.on_stop(self._chat(update)))
 
+    async def cmd_panic(self, update, context) -> None:
+        if await self._limited(update):
+            return
+        raw = command_argument(getattr(getattr(update, "effective_message", None), "text", "") or "")
+        texts = await asyncio.to_thread(
+            on_panic, raw, reader=self.reader, exploits=self.exploits, now_iso=self._now(),
+        )
+        for text in texts:
+            await self._reply(update, text)
+
     async def dispatch_due(self, send) -> int:
         return await self.digest.dispatch_due(send)
 
@@ -671,6 +687,7 @@ class DailyDuelBot:
         ("start", "cmd_start"), ("help", "cmd_help"), ("duel", "cmd_duel"),
         ("result", "cmd_result"), ("streak", "cmd_streak"), ("leaderboard", "cmd_leaderboard"),
         ("watch", "cmd_watch"), ("digest", "cmd_digest"), ("stop", "cmd_stop"),
+        ("panic", "cmd_panic"),
     )
 
     def build_app(self, token: str):

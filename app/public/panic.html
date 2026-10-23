@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Panic Button</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/panic">
+<meta name="description" content="What can still move a wallet, worst first, and the unsigned revoke each item needs. Read-only. Your wallet signs. This page never does.">
+<meta property="og:title" content="RUNECLAW — Panic Button">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="Open approvals and delegations, worst first, with an unsigned revoke your own wallet signs. Read-only.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/panic">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Panic Button">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .pn-wrap { max-width: 860px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .pn-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .warn { background: var(--surface); border: 1px solid var(--down); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); color: var(--text-1); line-height: 1.55; }
+  .warn p { margin: 0 0 var(--s2); }
+  .warn p:last-child { margin: 0; color: var(--text-2); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  .row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+  label { color: var(--text-2); font-size: var(--fs-sm); }
+  input[type=text] { flex: 1; min-width: 260px; background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: 10px 12px; font-family: var(--font-data); font-size: var(--fs-sm); }
+  .item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s3); margin-top: var(--s3); }
+  .item.rank1, .item.rank2 { border-color: var(--down); }
+  .item .hd { font-family: var(--font-data); color: var(--text-1); }
+  .item .why { color: var(--text-2); font-size: var(--fs-sm); margin-top: 6px; }
+  .item .meta { color: var(--text-3); font-size: var(--fs-xs); margin-top: 6px; }
+  .item a.btn { display: inline-block; margin-top: 8px; }
+  .note, .empty { color: var(--text-3); font-size: var(--fs-sm); line-height: 1.6; }
+  .queue { margin-top: var(--s3); }
+  .queue .next { outline: 2px solid var(--gold-bright); }
+  a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<canvas id="rc-constellation" data-viewport data-hue="350" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
+<div class="pn-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/approvals">Allowance X-ray</a>
+    <a href="/guardian">Guardian</a>
+    <a href="/dashboard">Open the app</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="pn-hero"><h1>Panic Button</h1></div>
+  <div class="warn" id="warn">
+    <p>If you entered your seed phrase anywhere, revoking is not enough. Move your funds to a new wallet.</p>
+    <p>We never ask for your seed phrase or private key.</p>
+  </div>
+  <section class="panel">
+    <h2>Check an address</h2>
+    <form id="form" class="row">
+      <label for="addr">Wallet address</label>
+      <input type="text" id="addr" name="addr" spellcheck="false" autocomplete="off" placeholder="0x…">
+      <button class="btn btn--primary btn--sm" id="go" type="submit">Read approvals</button>
+    </form>
+    <div id="out" style="margin-top:var(--s3)"></div>
+  </section>
+  <section class="panel">
+    <h2>What this is</h2>
+    <p class="note">These are the approvals we could read: ERC-20 allowances, Permit2 allowances and their expiry, ApprovalForAll, and an EIP-7702 delegation, on Ethereum, Base, Avalanche C-Chain and Arbitrum. Worst first. A chain that could not be read is named. Revokes are unsigned transactions your own wallet opens. This page never signs and never sends them. A revoke-all control queues those same transactions one after another.</p>
+  </section>
+</div>
+<script src="/js/i18n-core.js?v=207"></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/panic.js?v=1"></script>
+</body>
+</html>
