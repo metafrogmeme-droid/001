@@ -45,24 +45,33 @@ def node_view(token: str, packet: dict | None = None) -> dict:
             found = row
             break
     price = price_reading(packet)
+    v2_tokens = (back.get("v2") or {}).get("tokens") or {}
+    v2 = v2_tokens.get(token) if isinstance(v2_tokens, dict) else None
     if found is not None:
         out = dict(found)
         # Absolute residuals are dollar quantities. The reading is ratios.
         out.pop("v", None)
         out.pop("excess", None)
         out["basis"] = "published_comparison"
+        if isinstance(v2, dict):
+            out["cbf"] = v2.get("cbf")
+            out["uf"] = v2.get("uf")
+            out["lts"] = v2.get("lts")
+            out["dms"] = v2.get("dms")
+            out["state"] = v2.get("state")
         out["in_registry"] = token in known
         out["price"] = price
         out["address"] = _address(known.get(token))
         return out
     if token in known:
-        return {
+        blank = {
             "token": token,
             "readable": False,
             "reason": "no_lookthrough_inputs",
             "basis": None,
             "cbf": None,
             "uf": None,
+            "lts": None,
             "stale": None,
             "tripped": None,
             "concentration": "unreadable",
@@ -72,6 +81,16 @@ def node_view(token: str, packet: dict | None = None) -> dict:
             "price": price,
             "address": _address(known.get(token)),
         }
+        if isinstance(v2, dict) and v2.get("readable") is True:
+            blank["readable"] = True
+            blank["reason"] = None
+            blank["basis"] = "published_comparison"
+            blank["cbf"] = v2.get("cbf")
+            blank["uf"] = v2.get("uf")
+            blank["lts"] = v2.get("lts")
+            blank["dms"] = v2.get("dms")
+            blank["state"] = v2.get("state")
+        return blank
     return {
         "token": token,
         "readable": False,

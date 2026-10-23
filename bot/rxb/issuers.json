@@ -9,9 +9,14 @@
           "chain_id": 1,
           "address": "0xE2Fc85BfB48C4cF147921fBE110cf92Ef9f26F94",
           "source": "Morpho assets search 2026-10-23. Also listed as the xUSD vault at https://docs.streamprotocol.money/resources/deployments"
+        },
+        {
+          "chain_id": 42161,
+          "address": "0x6eAf19b2FC24552925dB245F9Ff613157a7dbb4C",
+          "source": "Morpho historicalState pull 2026-10-23"
         }
       ],
-      "note": "Wrapper 0x6eAf19b2FC24552925dB245F9Ff613157a7dbb4C had no current markets on that pull."
+      "note": "The Arbitrum wrapper has a USDC market in the historicalState pull. The first assets search showed no current markets."
     },
     {
       "token": "deUSD",
@@ -32,6 +37,17 @@
           "source": "Morpho assets search 2026-10-23"
         }
       ]
+    },
+    {
+      "token": "USD3",
+      "chains": [
+        {
+          "chain_id": 1,
+          "address": "0x056B269Eb1f75477a8666ae8C7fE01b64dD55eCc",
+          "source": "Morpho historicalState pull 2026-10-23"
+        }
+      ],
+      "note": "USDC market history starts 2025-11-20. No published look-through."
     }
   ]
 }

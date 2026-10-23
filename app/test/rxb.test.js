@@ -98,6 +98,9 @@ test('an admin can read while the flag is off, in ratios', async () => {
     assert.match(html, /setIsSentinel/);
     assert.match(html, /not an all-clear/);
     assert.match(html, /36\/53/);
+    assert.match(html, /2025-10-29/);
+    assert.match(html, /6 days before 2025-11-04/);
+    assert.match(html, /USD3 history starts 2025-11-20/);
     assert.ok(!html.includes('$'));
     const tools = await fetch(`http://127.0.0.1:${server.address().port}/tools`);
     const card = await tools.text();
@@ -110,10 +113,16 @@ test('an admin can read while the flag is off, in ratios', async () => {
 
 test('the node reading is the solver and it does not invent a zero', () => {
   const view = readNode('xUSD');
-  assert.equal(view.cbf, '36/53');
+  assert.equal(view.cbf, '34/265');
+  assert.equal(view.lts, '36/53');
+  assert.equal(view.state, 'Fired');
   assert.equal(view.price.price_wad, null);
   assert.equal(view.tripped, true);
-  const missing = readNode('sdeUSD');
+  const wrapped = readNode('sdeUSD');
+  assert.equal(wrapped.readable, true);
+  assert.equal(wrapped.cbf, '13600000/20923077');
+  assert.equal(wrapped.state, 'Fired');
+  const missing = readNode('USD3');
   assert.equal(missing.readable, false);
   assert.equal(missing.cbf, null);
   const text = JSON.stringify(view);

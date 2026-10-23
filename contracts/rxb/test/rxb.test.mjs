@@ -16,6 +16,7 @@ const E18 = 10n ** 18n;
 const alice = '0x' + 'a1'.repeat(20);
 const bob = '0x' + 'b0'.repeat(20);
 const carol = '0x' + 'c0'.repeat(20);
+const dave = '0x' + 'd4'.repeat(20);
 const coder = AbiCoder.defaultAbiCoder();
 const TYPES = [
   'uint256', 'uint256', 'uint256', 'uint256', 'uint256',
@@ -38,6 +39,7 @@ function compile() {
     settings: {
       optimizer: { enabled: true, runs: 200 },
       viaIR: true,
+      evmVersion: 'shanghai',
       outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
     },
   };
@@ -135,7 +137,7 @@ test('the oracle mins a liquid twap, drops a thin one, and reverts when unreadab
   const signers = await deploy(vm, creation(signersAbi, [k1.address, k2.address, k3.address]), alice, clock);
   assert.ok(!signers.execResult.exceptionError, revertReason(signers.execResult));
   const signersAt = signers.createdAddress.toString();
-  const oracle = await deploy(vm, creation(oracleAbi, [signersAt]), alice, clock);
+  const oracle = await deploy(vm, creation(oracleAbi, [signersAt, 18, 18]), alice, clock);
   assert.ok(!oracle.execResult.exceptionError, revertReason(oracle.execResult));
   const oracleAt = oracle.createdAddress.toString();
 
@@ -176,6 +178,12 @@ test('the oracle mins a liquid twap, drops a thin one, and reverts when unreadab
   assert.ok(!(await submit(deep, clock)).exceptionError);
   const deepPrice = (await read(oracleAt, oracleAbi.iface, 'price', [], clock))[0];
   assert.equal(deepPrice, E18 * E18);
+  const usdcScale = await deploy(vm, creation(oracleAbi, [signersAt, 6, 18]), alice, clock);
+  assert.ok(!usdcScale.execResult.exceptionError, revertReason(usdcScale.execResult));
+  const scaled = (await read(usdcScale.createdAddress.toString(), oracleAbi.iface, 'price', [], clock))[0];
+  assert.equal(scaled, 10n ** 24n, 'a 1.0 wad quote with 6-decimal loan is 1e24');
+  const tooWide = await deploy(vm, creation(oracleAbi, [signersAt, 37, 18]), alice, clock);
+  assert.ok(tooWide.execResult.exceptionError, 'decimals above 36 revert');
 
   const agedAt = clock;
   const aged = {
@@ -219,12 +227,13 @@ test('the sentinel only lowers, and a zero timelock is not a safety property', a
   const vaultR = await deploy(vm, creation(vaultAbi, [alice, bob]), alice, clock);
   assert.ok(!vaultR.execResult.exceptionError, revertReason(vaultR.execResult));
   const vault = vaultR.createdAddress.toString();
-  const sentR = await deploy(vm, creation(sentinelAbi, [alice]), alice, clock);
+  const sentR = await deploy(vm, creation(sentinelAbi, [alice, bob, carol, dave]), alice, clock);
   assert.ok(!sentR.execResult.exceptionError, revertReason(sentR.execResult));
   const sentinel = sentR.createdAddress.toString();
   const names = sentinelAbi.iface.fragments.filter((f) => f.type === 'function').map((f) => f.name);
   assert.ok(names.includes('decreaseAbsolute'));
   assert.ok(names.includes('decreaseRelative'));
+  assert.ok(names.includes('act'));
   assert.ok(!names.some((n) => n.toLowerCase().includes('increase')));
 
   const idData = '0x1234';
@@ -261,6 +270,109 @@ test('the sentinel only lowers, and a zero timelock is not a safety property', a
   await send(alice, vault, vaultAbi.iface.encodeFunctionData('loadRelative', [idData, E18]));
   const rel = await send(alice, sentinel, sentinelAbi.iface.encodeFunctionData('decreaseRelative', [vault, idData, E18 / 2n]));
   assert.ok(!rel.execResult.exceptionError, revertReason(rel.execResult));
+});
+
+test('act zeros both caps from a 2-of-3 signal and can deallocate', async () => {
+  const vm = await newVm(31337);
+  const clock = 1_800_000_000n;
+  const k1 = new Wallet('0x' + '11'.repeat(32));
+  const k2 = new Wallet('0x' + '22'.repeat(32));
+  const k3 = new Wallet('0x' + '33'.repeat(32));
+  const token = '0x' + 'e5'.repeat(20);
+  const graphHash = keccak256(coder.encode(['string'], ['graph']));
+  async function send(from, to, data, ts = clock) {
+    return vm.evm.runCall({
+      caller: new Address(hexToBytes(from)),
+      to: to ? new Address(hexToBytes(to)) : undefined,
+      data: getBytes(data),
+      gasLimit: GAS,
+      block: { header: header(ts) },
+    });
+  }
+  const mainnet = await newVm(1);
+  const refused = await mainnet.evm.runCall({
+    caller: new Address(hexToBytes(alice)),
+    data: getBytes(creation(sentinelAbi, [alice, k1.address, k2.address, k3.address])),
+    gasLimit: GAS,
+    block: { header: header(clock) },
+  });
+  const refusedHex = bytesToHex(refused.execResult.returnValue || new Uint8Array());
+  assert.ok(refusedHex.startsWith(keccakId('MainnetRefusal()').slice(0, 10)));
+
+  const vaultR = await deploy(vm, creation(vaultAbi, [alice, bob]), alice, clock);
+  const vault = vaultR.createdAddress.toString();
+  const sentR = await deploy(vm, creation(sentinelAbi, [alice, k1.address, k2.address, k3.address]), alice, clock);
+  assert.ok(!sentR.execResult.exceptionError, revertReason(sentR.execResult));
+  const sentinel = sentR.createdAddress.toString();
+  const granted = await send(alice, vault, vaultAbi.iface.encodeFunctionData('setIsSentinel', [sentinel, true]));
+  assert.ok(!granted.execResult.exceptionError, revertReason(granted.execResult));
+  const idData = coder.encode(['string', 'address'], ['collateralToken', token]);
+  const raised = await send(alice, vault, vaultAbi.iface.encodeFunctionData('increaseAbsoluteCap', [idData, 100n]));
+  assert.ok(!raised.execResult.exceptionError, revertReason(raised.execResult));
+  await send(alice, vault, vaultAbi.iface.encodeFunctionData('loadRelative', [idData, E18]));
+  const id = keccak256(idData);
+
+  async function signalHash(signal) {
+    return keccak256(coder.encode(
+      ['address', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'bytes32'],
+      [signal.token, signal.cbfBps, signal.ufBps, signal.ltsBps, signal.dmsBps, signal.ts, signal.graphHash],
+    ));
+  }
+  async function act(signal, a, b, adapter, idle, alloc, ts = clock) {
+    const body = await signalHash(signal);
+    const sigA = await a.signMessage(getBytes(body));
+    const sigB = await b.signMessage(getBytes(body));
+    return send(alice, sentinel, sentinelAbi.iface.encodeFunctionData('act', [
+      vault,
+      [signal.token, signal.cbfBps, signal.ufBps, signal.ltsBps, signal.dmsBps, signal.ts, signal.graphHash],
+      sigA, sigB, adapter, '0x', idle, alloc,
+    ]), ts);
+  }
+  async function abs(ts = clock) {
+    const res = await send(alice, vault, vaultAbi.iface.encodeFunctionData('absCap', [id]), ts);
+    return vaultAbi.iface.decodeFunctionResult('absCap', bytesToHex(res.execResult.returnValue))[0];
+  }
+  async function rel(ts = clock) {
+    const res = await send(alice, vault, vaultAbi.iface.encodeFunctionData('relCap', [id]), ts);
+    return vaultAbi.iface.decodeFunctionResult('relCap', bytesToHex(res.execResult.returnValue))[0];
+  }
+  async function deallocated(ts = clock) {
+    const res = await send(alice, vault, vaultAbi.iface.encodeFunctionData('lastDealloc', []), ts);
+    return vaultAbi.iface.decodeFunctionResult('lastDealloc', bytesToHex(res.execResult.returnValue))[0];
+  }
+
+  const signal = {
+    token, cbfBps: 1283n, ufBps: 0n, ltsBps: 6792n, dmsBps: 0n, ts: clock, graphHash,
+  };
+  const fired = await act(signal, k1, k2, carol, 7n, 4n);
+  assert.ok(!fired.execResult.exceptionError, revertReason(fired.execResult));
+  assert.equal(await abs(), 0n);
+  assert.equal(await rel(), 0n);
+  assert.equal(await deallocated(), 4n, 'deallocate takes the smaller of idle and allocation');
+  const logs = fired.execResult.logs || [];
+  const firedTopic = sentinelAbi.iface.getEvent('Fired').topicHash;
+  const deallocTopic = sentinelAbi.iface.getEvent('Deallocated').topicHash;
+  const topic0 = (log) => {
+    const topics = log.topics || log[1] || [];
+    const topic = topics[0];
+    return typeof topic === 'string' ? topic.toLowerCase() : bytesToHex(topic);
+  };
+  assert.ok(logs.some((log) => topic0(log) === firedTopic.toLowerCase()));
+  assert.ok(logs.some((log) => topic0(log) === deallocTopic.toLowerCase()));
+
+  const replay = await act(signal, k1, k3, carol, 7n, 4n);
+  assert.ok(replay.execResult.exceptionError, 'the same token, time and graph cannot fire twice');
+  const twice = await act({ ...signal, ts: clock, graphHash: keccak256(coder.encode(['string'], ['other'])) }, k1, k1, carol, 1n, 1n);
+  assert.ok(twice.execResult.exceptionError, 'one signer does not count twice');
+  const stale = await act({ ...signal, graphHash: keccak256(coder.encode(['string'], ['late'])) }, k2, k3, carol, 1n, 1n, clock + 3601n);
+  assert.ok(stale.execResult.exceptionError, 'a signal older than one hour reverts');
+
+  const quiet = await act(
+    { ...signal, ts: clock, graphHash: keccak256(coder.encode(['string'], ['quiet'])) },
+    k2, k3, '0x' + '00'.repeat(20), 9n, 3n,
+  );
+  assert.ok(!quiet.execResult.exceptionError, revertReason(quiet.execResult));
+  assert.equal(await deallocated(), 4n, 'a zero adapter does not deallocate');
 });
 
 test('challenge bonds double for 30 days and a late reclaim does not', async () => {

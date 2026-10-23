@@ -60,10 +60,9 @@ def _ratio_line(row: dict) -> str:
     token = row.get("token") or "?"
     if row.get("readable") is not True:
         return f"{token}: unreadable ({row.get('reason') or 'unread'})"
-    reasons = ",".join(row.get("reasons") or []) or "none"
     return (
-        f"{token}: CBF {row.get('cbf')} UF {row.get('uf')} "
-        f"stale {row.get('stale')} tripped {row.get('tripped')} ({reasons})"
+        f"{token}: {row.get('state') or 'unread'} "
+        f"CBF {row.get('cbf')} LTS {row.get('lts')} UF {row.get('uf')}"
     )
 
 

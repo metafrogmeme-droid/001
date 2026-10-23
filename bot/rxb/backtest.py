@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from bot.rxb.backtest_v2 import run_v2
 from bot.rxb.indexer import parse_history_point
 from bot.rxb.solver import Claim, Issuer, solve_issuers
 
@@ -126,4 +127,5 @@ def run_backtest(path: Path | None = None) -> dict:
         "pulled_at": data.get("pulled_at"),
         "endpoint": data.get("endpoint"),
         "reason": None,
+        "v2": run_v2(),
     }
