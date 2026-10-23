@@ -1572,7 +1572,11 @@ key yourself from the Arena page's Agent keys panel (`app/public/arena.html::#'i
 `app/routes/arena.js::post('/keys')`, max 5, revocable, shown once) and the three arena_*
 write tools let that agent paper-trade and be ranked. The manifest and invoke
 endpoint are served for on-chain discovery, and /api/llm lets a user plug
-their own model key in.
+their own model key in. The ERC-8004 registration file is served at the path
+the standard names (`app/routes/discovery.js::get('/.well-known/agent-registration.json')`), beside the unsigned
+`register(string)` call the owner sends from their own wallet and the read
+that checks it on chain (`app/lib/erc8004.js::registrationPlan`, `::verifyRegistration`); the file lists a
+registration only once the owner has recorded one (`app/lib/erc8004.js::recorded`).
 
 *Gap.* Consumption only, and unmonetizable by design: the ERC-8257 manifest
 deliberately carries no pricing block and no access predicate, with per-call

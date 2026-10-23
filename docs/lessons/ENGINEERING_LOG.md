@@ -29422,3 +29422,61 @@ from Base), and a field that kept its name and changed its type. One was the
 status read above. One mutant was a no-op by construction and was dropped.
 `until < now` against `until <= now - 1` is equivalent on integers and is
 recorded as such. 29 of 29 killed.
+
+## A REGISTRATION IS THE OWNER'S TRANSACTION, AND THE FILE LISTS ONLY WHAT WAS RECORDED
+
+22 October 2026, the brief's third item: the ERC-8004 mainnet registration
+plan. The design doc named one address pair, the Base Sepolia registries,
+written when only the testnet existed.
+
+**The addresses were read from the standard, not remembered.** The standard's
+contracts repository now lists one pair for every mainnet and another for
+every testnet (README, read 22 October). On Base mainnet both addresses held
+code that day, and the identity registry answered name `AgentIdentity`, symbol
+`AGENT`. The list names no Validation registry, so `app/lib/erc8004.js` names
+none either. The bot's identity card still binds the testnet row, by design:
+it moves when its anchor does.
+
+**The server builds the call and never sends it.** `registrationPlan` returns
+the unsigned `register(string agentURI)` call for the owner's own wallet. The
+URI goes on chain, so it is built from the configured public origin, never
+from a request's Host header (a test sends `Host: evil.example` and gets the
+configured URI back). With no configured origin the plan is a 503, not a
+guess.
+
+**An absent id is not an id.** The registration file served at
+`/.well-known/agent-registration.json` lists a registration only when both
+`ERC8004_AGENT_ID` and `ERC8004_CHAIN_ID` read and the chain is one the
+module knows. It claims no `supportedTrust`, because nothing here reads or
+writes the Reputation registry yet, and says `x402Support: false`.
+
+**One transaction registers many agents.** The registry on Base takes about
+1,500 registrations per hundred blocks, and the receipt recorded as the
+fixture (`app/test/fixtures/erc8004/registered_receipt.json`) registered six
+agents in one transaction. The first draft read the first `Registered` event
+and would have answered "a different URI" for a registration of ours that was
+not first in its batch. The verifier now looks for the event that carries
+this URI. It has four answers: verified, mismatch with its reason, pending
+(not mined), and unknown (no endpoint answered), which is not a verdict.
+
+**Mutation round:** 14 mutants, 14 killed after one fix. Dropping the `break`
+after the first endpoint answered survived, because the stub answered every
+endpoint the same way. The test now asserts that only the first endpoint was
+asked.
+
+**Avalanche too.** A second brief the same day asked for the registration on
+Avalanche C-Chain as well. The mainnet pair holds code there at the same
+addresses (read 22 October), so `REGISTRIES` gained 43114 with readers of its
+own. The NFT chain table (`lib/nft.js`) does not serve Avalanche, and borrowing
+Base's endpoints for an Avalanche receipt would read the wrong chain. A test
+checks that the Avalanche read asks Avalanche's endpoint.
+
+**Every mainnet the owner asked for, one pair.** The owner then asked for
+mainnet "where needed": proofs and the agent identity. The registry is the
+same pair on every mainnet, so the module now holds that pair once and lists
+the mainnets read on 22 October: Base, Avalanche C-Chain, Ethereum, BNB Smart
+Chain, Arbitrum One, OP Mainnet, Polygon, Linea and Scroll. Each one held code
+at both addresses that day, and each has two public readers from two
+operators. One of the first two Polygon endpoints did not answer its chain id,
+so it was replaced. The tests had used chain 1 as their example of an
+unsupported chain. That is Ethereum now, so the example is an id no chain uses.

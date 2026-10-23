@@ -144,6 +144,7 @@ router.get('/.well-known/mcp.json', limited, (req, res) => {
       erc8257_index: `${base}/.well-known/ai-tool/index.json`,
       erc8257_invoke: `${base}/api/tool/invoke`,
       erc8004_agent_card: `${base}/agent/{address}`,
+      erc8004_registration: `${base}/.well-known/agent-registration.json`,
     },
     documentation: `${base}/developers`,
     note:
@@ -171,6 +172,51 @@ router.get('/.well-known/ai-tool/index.json', limited, (req, res) => {
       },
     ],
   });
+});
+
+/**
+ * ERC-8004's registration file (lib/erc8004.js registrationFile), at the path
+ * the standard names for proving the domain: the `agentURI` the owner
+ * registers points here. Its `registrations` list holds only what the owner
+ * recorded after registering, never a guess.
+ */
+router.get('/.well-known/agent-registration.json', limited, (req, res) => {
+  const e = require('../lib/erc8004');
+  const at = require('../lib/public_origin').resolve(req);
+  if (!at.origin) return res.status(503).json({ error: 'no_public_origin' });
+  res.set('Cache-Control', 'public, max-age=300');
+  return res.json(e.registrationFile(at.origin, { mcpVersion: mcp().PROTOCOL_VERSION, toolSlug: t8257.TOOL_SLUG }));
+});
+
+/**
+ * The unsigned registration the owner sends from their own wallet. The URI
+ * it registers is the CONFIGURED public origin's, never the request's Host:
+ * it goes on chain.
+ */
+router.get('/api/erc8004/plan', limited, (req, res) => {
+  const e = require('../lib/erc8004');
+  const chain = req.query.chain == null ? 8453 : Number(req.query.chain);
+  const at = require('../lib/public_origin').resolve(null);
+  const plan = e.registrationPlan(chain, at.origin || null);
+  if (plan.error) return res.status(plan.error === 'unsupported_chain' ? 400 : 503).json(plan);
+  res.set('Cache-Control', 'no-store');
+  return res.json({ ...plan, recorded: e.recorded() });
+});
+
+/** Is this transaction the registration of this deployment's agent URI? Read from the chain. */
+router.get('/api/erc8004/verify', limited, async (req, res) => {
+  const e = require('../lib/erc8004');
+  const chain = req.query.chain == null ? 8453 : Number(req.query.chain);
+  const at = require('../lib/public_origin').resolve(null);
+  if (!at.origin) return res.status(503).json({ error: 'no_public_origin' });
+  try {
+    const v = await e.verifyRegistration(String(req.query.tx || ''), chain, at.origin + e.REGISTRATION_PATH);
+    res.set('Cache-Control', 'no-store');
+    return res.json(v);
+  } catch (err) {
+    console.error('[erc8004] verify failed:', err.constructor.name);
+    return res.json({ status: 'unknown', reason: 'the read failed' });
+  }
 });
 
 module.exports = router;
