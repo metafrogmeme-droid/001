@@ -16,7 +16,29 @@ const { enabled, NOT_AVAILABLE } = require('../lib/panic_flag');
 const { attachRevokes } = require('../lib/panic_tx');
 
 const REPO = path.join(__dirname, '..', '..');
+// One address, or up to forty tx hashes. The app's 1mb parser would accept
+// the body first and leave a later limit unread, the same way the MCP cap
+// used to be a no-op, so this refuses on the header and also bounds a body
+// that arrives without one.
+const BODY_LIMIT_BYTES = 16 * 1024;
+
+function capBody(req, res, next) {
+  const len = parseInt(req.get('content-length') || '', 10);
+  if (Number.isFinite(len) && len > BODY_LIMIT_BYTES) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(413).json({ error: 'Payload too large' });
+  }
+  return express.json({ limit: BODY_LIMIT_BYTES })(req, res, (err) => {
+    if (err && (err.status === 413 || err.type === 'entity.too.large')) {
+      res.set('Cache-Control', 'no-store');
+      return res.status(413).json({ error: 'Payload too large' });
+    }
+    return next(err);
+  });
+}
+
 const router = express.Router();
+router.use(capBody);
 router.use(rateLimit({ name: 'panic', windowMs: 60000, max: 20, key: ipKey }));
 
 function failedRead() {
@@ -119,3 +141,5 @@ router.post('/', async (req, res) => {
 
 module.exports = router;
 module.exports.setRunner = setRunner;
+module.exports.capBody = capBody;
+module.exports.bodyLimitBytes = BODY_LIMIT_BYTES;

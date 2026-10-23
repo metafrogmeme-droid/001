@@ -221,6 +221,79 @@ test('a flagged read returns the runner order with revokes and keeps no address'
   }
 });
 
+test('each IP has its own panic allowance', async () => {
+  delete process.env.PANIC_BUTTON;
+  const route = require('../routes/panic');
+  const app = express();
+  app.set('trust proxy', true);
+  app.use('/api/panic', route);
+  const server = await listen(app);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  async function post(ip) {
+    const res = await fetch(base + '/api/panic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip },
+      body: JSON.stringify({ address: WALLET }),
+    });
+    return res.status;
+  }
+  try {
+    const first = [];
+    for (let i = 0; i < 20; i++) first.push(await post('198.51.100.10'));
+    assert.deepEqual(first, Array(20).fill(200));
+    assert.equal(await post('198.51.100.10'), 429);
+    assert.equal(await post('198.51.100.11'), 200);
+  } finally {
+    server.close();
+  }
+});
+
+test('a body over the route cap is refused and one inside it is read', async () => {
+  process.env.PANIC_BUTTON = '1';
+  const route = require('../routes/panic');
+  const seen = [];
+  route.setRunner(async (body) => {
+    seen.push(body && body.address);
+    return {
+      available: true, items: [], unread_chains: [], exploit_list_read: true,
+      warning: 'If you entered your seed phrase anywhere, revoking is not enough. Move your funds to a new wallet.',
+      never_ask: 'We never ask for your seed phrase or private key.',
+      read_line: 'These are the approvals we could read.',
+    };
+  });
+  const serverSrc = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
+  const capAt = serverSrc.indexOf("app.use('/api/panic', panicApi.capBody)");
+  const wideAt = serverSrc.indexOf("express.json({ limit: '1mb' })");
+  assert.ok(capAt > 0 && wideAt > capAt, 'the panic cap must run before the 1mb parser');
+  const app = express();
+  app.set('trust proxy', true);
+  app.use('/api/panic', route);
+  const server = await listen(app);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Forwarded-For': '198.51.100.20',
+  };
+  try {
+    const over = await fetch(base + '/api/panic', {
+      method: 'POST', headers,
+      body: JSON.stringify({ address: WALLET, pad: 'x'.repeat(route.bodyLimitBytes + 64) }),
+    });
+    assert.equal(over.status, 413);
+    assert.deepEqual(seen, []);
+    const under = await fetch(base + '/api/panic', {
+      method: 'POST', headers,
+      body: JSON.stringify({ address: WALLET }),
+    });
+    assert.equal(under.status, 200);
+    assert.deepEqual(seen, [WALLET]);
+  } finally {
+    delete process.env.PANIC_BUTTON;
+    route.setRunner(null);
+    server.close();
+  }
+});
+
 test('the page copy leads with the seed warning and makes no safety promise', () => {
   const html = fs.readFileSync(path.join(APP, 'public', 'panic.html'), 'utf8');
   const js = fs.readFileSync(path.join(APP, 'public', 'js', 'panic.js'), 'utf8');

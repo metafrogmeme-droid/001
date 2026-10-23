@@ -327,6 +327,11 @@ app.use(require('./lib/api_cors').cors());
 // /api/chat a larger parser — it runs first for that path, so the global 1mb
 // parser below skips the already-parsed body; every other route stays at 1mb.
 app.use('/api/chat', express.json({ limit: '7mb' }));
+// Panic Button posts one address or a short list of hashes. Its cap has to
+// run before the 1mb parser, or that parser accepts the body and the cap
+// never sees it.
+const panicApi = require('./routes/panic');
+app.use('/api/panic', panicApi.capBody);
 app.use(express.json({ limit: '1mb' })); // Cap payload size
 // Panic Button is off unless PANIC_BUTTON is 1 or true. The static file
 // would otherwise answer /panic.html with the full page while the flag is off.
@@ -497,7 +502,7 @@ app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
 // Panic Button: ranked approvals and unsigned revokes. Off unless PANIC_BUTTON
 // is 1 or true (routes/panic.js). Does not sign or broadcast.
-app.use('/api/panic', require('./routes/panic'));
+app.use('/api/panic', panicApi);
 // Claw Guard: a verdict on a transaction or a signature before signing it.
 // Public; a signed-in caller's verdict is sealed (routes/guard.js).
 // v0.1 (a lookalike warning, an audit-trail export) is a separate router

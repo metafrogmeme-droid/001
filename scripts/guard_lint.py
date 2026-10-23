@@ -563,6 +563,7 @@ RULES: list[Rule] = [
                            # folder's own table. GET only.
             "spot", "market", "macro", "patterns", "signals", "insight",
             "today", "feed", "gas", "dapps", "allowances",
+            "panic",  # read-only public approvals list plus unsigned revokes, address not stored, no key, no signing
             # ^ market data and read-only chain lookups: no account is in scope,
             #   the inputs are a symbol or an address the caller already has.
         ],
