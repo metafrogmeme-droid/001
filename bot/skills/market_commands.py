@@ -82,19 +82,16 @@ class MarketCommands:
         "Not found." a missing command gets; an operator gets the preview
         banner. A missing board says it is not published.
         """
-        import os
-        from pathlib import Path
-
         from bot.fvb.board import load_board
         from bot.fvb.flag import flag_on, gate
         from bot.fvb.render import card_text
+        from bot.utils.paths import env_state_path
 
         decision = gate(flag_on(), self._is_operator(update))
         if decision == "deny":
             await self._send(update, "Not found.")
             return
-        raw = os.environ.get("FVB_BOARD_PATH")
-        path = Path(raw) if raw else Path("data/fvb_board.json")
+        path = env_state_path("FVB_BOARD_PATH", "data/fvb_board.json")
         await self._send(update, card_text(load_board(path), preview=decision == "preview"))
 
     @guard("rwa")
