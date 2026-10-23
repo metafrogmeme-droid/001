@@ -403,6 +403,10 @@
     "v": 9,
     "sha": "01a149c27daf1a32"
   },
+  "js/tools-page.js": {
+    "v": 1,
+    "sha": "8ceaa5d7a4a6069b"
+  },
   "js/trade-confirm-model.js": {
     "v": 2,
     "sha": "6213dbcd1c04683e"

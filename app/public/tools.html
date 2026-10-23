@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Tools by Humanoid Traders</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/tools">
+<meta name="description" content="Tools by Humanoid Traders, one card per chain. Public signals, not advice. Written with AI help.">
+<meta property="og:title" content="Tools by Humanoid Traders">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="Tools by Humanoid Traders, one card per chain. Public signals, not advice. Written with AI help.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/tools">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Tools by Humanoid Traders">
+<meta name="twitter:description" content="Tools by Humanoid Traders, one card per chain. Public signals, not advice.">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="256x256" href="/app_icon_256.png">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=52">
+<script src="/js/api-retry.js?v=3"></script>
+<style>
+  .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s4); }
+  .tool-card { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s4);
+    border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+    color: inherit; text-decoration: none; }
+  .tool-card h2 { margin: 0; font-size: var(--fs-lg); }
+  .tool-card p { margin: 0; color: var(--text-2); }
+  .chain-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .chain-chips li { font-size: var(--fs-xs); padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-3); }
+  .tool-status { font-size: var(--fs-sm); color: var(--text-3); }
+  .chain-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: var(--s3) 0 var(--s4); }
+  .chain-bar button { font: inherit; font-size: var(--fs-sm); padding: 8px 12px; min-height: 40px;
+    border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text-2); cursor: pointer; }
+  .chain-bar button[aria-pressed="true"] { color: var(--text); border-color: var(--gold); }
+  .tools-note { color: var(--text-2); max-width: 68ch; }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content" data-i18n="dash.skip">Skip to content</a>
+<canvas id="rc-constellation" data-viewport data-hue="205" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.28"></canvas>
+
+<nav class="topbar" aria-label="Main" data-i18n-attr="aria-label:a11y.main">
+  <a class="brand" href="/"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg><span class="rc-ai-shimmer">RUNECLAW</span><span class="brand-sub" data-i18n="lp.brand_sub">Command Core</span></a>
+  <div class="spacer"></div>
+  <div class="nav-links">
+    <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+    <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+    <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+    <a href="/track" data-i18n="nav.track">Track record</a>
+    <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+    <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+    <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+    <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+    <a href="/docs" data-i18n="nav.docs">Docs</a>
+    <details class="nav-menu">
+      <summary aria-label="Open menu" data-i18n-attr="aria-label:a11y.open_menu">☰ <span data-i18n="nav.menu">Menu</span></summary>
+      <div class="nav-menu-panel">
+        <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+        <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+        <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+        <a href="/track" data-i18n="nav.track">Track record</a>
+        <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+        <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+        <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+        <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+        <a href="/docs" data-i18n="nav.docs">Docs</a>
+      </div>
+    </details>
+    <a class="btn btn--primary btn--sm" href="/#auth-panel" data-i18n="nav.get_started">Get started</a>
+  </div>
+</nav>
+
+<main id="main-content">
+<section class="section">
+  <div class="section-head">
+    <h1>Tools by Humanoid Traders</h1>
+    <p class="tools-note">Public signals, not advice. Written with AI help.</p>
+    <p class="tools-note">One card per tool, filtered by the chain it actually reads. A flag that is off stays coming soon, with no link. The public Hyperliquid reader stays inside its own weight cap of 80 against the venue limit of 1200 per minute. This page does not show a live reading. The October 2025 replay was not run.</p>
+  </div>
+  <h2 id="tools-chains-h">Chains</h2>
+  <div class="chain-bar" role="tablist" aria-labelledby="tools-chains-h" data-chain-bar><!--CHAIN_BAR--></div>
+  <div class="tool-grid" data-tool-grid><!--TOOL_CARDS--></div>
+  <p data-empty hidden>No tool on this chain is in the catalog.</p>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <div class="brand-block">
+      <a class="brand" href="/" style="font-size:15px"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"></use></svg>RUNECLAW</a>
+      <p class="org-line muted small" data-i18n="lp.org_line">RUNECLAW is the command core of Humanoid Traders.</p>
+    </div>
+    <div class="links">
+      <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
+      <a href="/agents" data-i18n="nav.marketplace">Marketplace</a>
+      <a href="/strengthmap" data-i18n="nav.strengthmap">Strength Map</a>
+      <a href="/track" data-i18n="nav.track">Track record</a>
+      <a href="/proof" data-i18n="nav.proof">Proof of PnL</a>
+      <a href="/roots" data-i18n="nav.roots">Seal Roots</a>
+      <a href="/guardian" data-i18n="nav.guardian">Guardian</a>
+      <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
+      <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+      <a href="/docs" data-i18n="nav.docs">Docs</a>
+      <a href="/gas" data-i18n="nav.gas">Live Gas</a>
+      <a href="https://github.com/metafrogmeme-droid/001" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+  <div class="risk" data-i18n="foot.risk">Trading futures involves substantial risk of loss and is not suitable for every investor. RUNECLAW is a trading tool, not financial advice. Use withdrawal-disabled API keys and never risk more than you can afford to lose.</div>
+</footer>
+
+<script src="/js/i18n-core.js?v=207"></script>
+<script src="/js/icons.js?v=6"></script>
+<script src="/js/panel-error-model.js?v=6"></script>
+<script src="/js/app.js?v=17"></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/palette.js?v=2" defer></script>
+<script src="/js/tools-page.js?v=1" defer></script>
+</body>
+</html>
