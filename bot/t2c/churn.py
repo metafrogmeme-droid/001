@@ -63,19 +63,20 @@ def churn_eth_per_epoch(total_active_gwei: object) -> Decimal | None:
     return churn / increment
 
 
-def queue_wait_days(queue_eth: object, churn_eth: object) -> Decimal | None:
-    queue = as_decimal(queue_eth)
-    churn = as_decimal(churn_eth)
+def queue_wait_days(queue_eth: object, churn_eth: object) -> Fraction | None:
+    """Days at the given churn. A fraction, so a repeating wait is exact."""
+    queue = _as_fraction(queue_eth)
+    churn = _as_fraction(churn_eth)
     if queue is None or churn is None:
         return None
     if queue < 0 or churn <= 0:
         return None
-    return queue / (churn * EPOCHS_PER_DAY)
+    return queue / (churn * Fraction(225))
 
 
-def withdrawability_days() -> Decimal:
-    seconds = (Decimal(MIN_VALIDATOR_WITHDRAWABILITY_DELAY) * EPOCH_SECONDS)
-    return seconds / SECONDS_PER_DAY
+def withdrawability_days() -> Fraction:
+    """256 epochs of 384 seconds, as a fraction of a day."""
+    return Fraction(MIN_VALIDATOR_WITHDRAWABILITY_DELAY) * 384 / 86400
 
 
 def _as_fraction(value: object) -> Fraction | None:
@@ -134,11 +135,9 @@ def cap_queue_scenario(queue_eth: object = Decimal(12950)) -> dict:
     forced equal. The 7.1 day sweep is not added here. Hours are exact
     fractions, so a repeating quotient is not printed as a residue.
     """
-    queue = _as_fraction(queue_eth)
-    delay_hours = Fraction(MIN_VALIDATOR_WITHDRAWABILITY_DELAY) * 384 / 3600
-    queue_hours = None
-    if queue is not None and queue >= 0:
-        queue_hours = queue * 24 / (Fraction(256) * 225)
+    queue_days = queue_wait_days(queue_eth, Decimal(256))
+    delay_hours = withdrawability_days() * 24
+    queue_hours = None if queue_days is None else queue_days * 24
     sum_hours = None if queue_hours is None else queue_hours + delay_hours
     matches = sum_hours is not None and sum_hours == Fraction(31)
     return {
