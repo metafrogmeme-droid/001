@@ -367,6 +367,10 @@
     "v": 4,
     "sha": "4321eaebf37b67a2"
   },
+  "js/srb.js": {
+    "v": 1,
+    "sha": "e3264387387d8362"
+  },
   "js/strategy-scan.js": {
     "v": 3,
     "sha": "35ce25b4c87a3176"
