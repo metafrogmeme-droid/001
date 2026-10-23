@@ -262,7 +262,7 @@ def test_exit_78_is_the_one_the_unit_does_not_restart_and_health_is_polling():
     assert "player" not in body and TG not in json.dumps(body)
 
 
-def test_build_app_is_the_six_commands_and_not_a_mini_app():
+def test_build_app_registers_the_duel_and_the_digest_and_not_a_mini_app():
     from telegram.ext import CallbackQueryHandler, CommandHandler
     bot, _, _ = _bot(pathlib.Path("/tmp"))
     # /tmp is unused: build_app does not touch the store. A real store was
@@ -276,7 +276,10 @@ def test_build_app_is_the_six_commands_and_not_a_mini_app():
                 cmds |= set(h.commands)
             elif isinstance(h, CallbackQueryHandler):
                 patterns.append(h.pattern.pattern)
-    assert cmds == {"start", "help", "duel", "result", "streak", "leaderboard"}
+    assert cmds == {
+        "start", "help", "duel", "result", "streak", "leaderboard",
+        "watch", "digest", "stop",
+    }
     assert patterns == [r"^dd:"]
     assert "WebAppInfo" not in SRC
     assert "web_app" not in SRC

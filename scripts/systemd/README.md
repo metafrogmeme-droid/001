@@ -70,6 +70,20 @@ status script lists it as `OPTIONAL`. Installed without either value, or with
 a token equal to `TELEGRAM_BOT_TOKEN` or `DUEL_BOT_TOKEN`, the process exits
 78 and does not restart.
 
+The same process sends the approval hygiene digest. There is no fifth unit.
+`/watch` opts a chat in (up to 5 addresses), `/digest` sends one now, and
+`/stop` deletes the addresses and the schedule. The note counts unlimited
+approvals, approvals older than 180 days, and spenders on the public exploit
+list. The store is
+`approval_watches.sqlite` under `DAILY_DUEL_STATE_DIR` (default
+`data/daily-duel`). The chat id is not written there; it is an HMAC with
+`DAILY_DUEL_ID_SALT`, same as a duel id. Chain reads use `ETHERSCAN_API_KEY`
+when that is set, and the public Routescan explorer when it is not. The
+weekly check is inside the process: `APPROVAL_DIGEST_INTERVAL_SEC` (default
+604800) and `APPROVAL_DIGEST_POLL_SEC` (default 3600). After a restart the
+next message from that chat binds delivery again, and a digest that came due
+while the process was down is sent then.
+
 Check three things in the unit files before installing — all three are box
 facts this repo cannot know:
 

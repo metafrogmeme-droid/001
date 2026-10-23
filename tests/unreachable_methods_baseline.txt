@@ -30,9 +30,21 @@
 # receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
 # call site resolves to. It is SOUND rather than complete: one unresolvable
 # receiver makes the whole name ambiguous, because the alternative is guessing.
-# **48** method names remain ambiguous and are not checked by anything — the
+# **53** method names remain ambiguous and are not checked by anything — the
 # number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
 # so it cannot rot into a claim.
+#
+# 48 -> 53 when the approval digest became its own object and the Daily Duel
+# bot kept a facade over it. Five names that one class defined are now
+# defined by two, and one unresolvable receiver makes the whole name
+# ambiguous. Each of these is called:
+#   bind
+#     ApprovalDigest (bot/approval_digest.py) and UserAuthorityStore
+#     (bot/guardian/user_authority_store.py)
+#   dispatch_due, exploits, reader, watches
+#     ApprovalDigest and DailyDuelBot (bot/daily_duel_bot.py)
+# ApprovalWatchStore.due did not move the count: SelfAudit.due and
+# ProofOfPnLPublisher.due already shared that name.
 #
 # 41 -> 48 when the anonymous Daily Duel bot landed. Seven names that one
 # class defined are now defined by two, and one unresolvable receiver makes
