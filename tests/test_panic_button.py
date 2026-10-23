@@ -276,19 +276,13 @@ def test_a_bad_address_is_not_stored_and_panic_does_not_watch(tmp_path, monkeypa
 
 
 def test_help_names_panic_and_a_bad_address_is_the_digest_sentence(monkeypatch):
-    monkeypatch.setenv("PANIC_BUTTON", "1")
-    texts = on_panic("nope", reader=_Reader((), {}), exploits=_List(set()), now_iso=_iso(NOW), env=os.environ)
-    assert texts == [INVALID_ADDRESS]
+    monkeypatch.delenv("PANIC_BUTTON", raising=False)
+    texts = on_panic("nope", reader=_Reader((), {}), exploits=_List(set()), now_iso=_iso(NOW), env={})
+    assert texts == [NOT_AVAILABLE]
     bot = ddb.DailyDuelBot(salt=SALT, now=lambda: _iso(NOW))
     import asyncio
     from types import SimpleNamespace as NS
     from unittest.mock import AsyncMock
-    msg = NS(reply_text=AsyncMock(), text="/help")
-    update = NS(
-        effective_user=NS(id=TG, username="p"),
-        effective_chat=NS(id=TG, type="private"),
-        effective_message=msg, message=msg,
-    )
 
     class _Gate:
         def rules(self, day=None):
@@ -296,9 +290,22 @@ def test_help_names_panic_and_a_bad_address_is_the_digest_sentence(monkeypatch):
                     "price_reader": "getTickers", "price_module": "app/lib/tickers.js"}
 
     bot.gate = _Gate()
-    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(bot.cmd_help(update, None))
-    help_text = update.effective_message.reply_text.await_args.args[0]
-    assert "/panic <address>" in help_text
+
+    def _help():
+        msg = NS(reply_text=AsyncMock(), text="/help")
+        update = NS(
+            effective_user=NS(id=TG, username="p"),
+            effective_chat=NS(id=TG, type="private"),
+            effective_message=msg, message=msg,
+        )
+        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(bot.cmd_help(update, None))
+        return update.effective_message.reply_text.await_args.args[0]
+
+    assert "/panic" not in _help()
+    monkeypatch.setenv("PANIC_BUTTON", "1")
+    texts = on_panic("nope", reader=_Reader((), {}), exploits=_List(set()), now_iso=_iso(NOW), env=os.environ)
+    assert texts == [INVALID_ADDRESS]
+    assert "/panic <address>" in _help()
 
 
 def test_the_receipt_holds_hashes_and_a_time_only():

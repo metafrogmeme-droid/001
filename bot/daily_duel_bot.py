@@ -23,9 +23,11 @@ HEALTH ON :8082. 200 only while polling and not stopping.
 APPROVAL HYGIENE. The same process, opt-in, through ``ApprovalDigest``.
 ``/watch`` stores up to five addresses under the salted chat id, ``/digest``
 reads them now, and a weekly loop sends the same note. ``/stop`` deletes the
-addresses and the schedule. ``/panic <address>`` lists what can still move
-one wallet and links the web page; it does not store the address, and it
-answers ``not available yet`` unless ``PANIC_BUTTON`` is ``1`` or ``true``.
+addresses and the schedule. ``/panic <address>`` is registered, and named in
+``/help``, only while ``PANIC_BUTTON`` is ``1`` or ``true``. It lists what
+can still move one wallet and links the web page; it does not store the
+address. A call that reaches the handler while the flag is off answers
+``not available yet``.
 Reads only: Ethereum, Base, Avalanche C-Chain, Arbitrum. It signs nothing
 and holds no wallet key. The digest object does not depend on this process,
 so another bot can construct the same one.
@@ -58,7 +60,7 @@ from bot.approval_watch_store import ApprovalWatchStore
 from bot.daily_duel_gate import DuelGate, GateDown
 from bot.daily_duel_store import CallStore, PayloadRefused, payload_carries_id, player_key
 from bot.duel_bot import EXIT_NOT_CONFIGURED, RateLimit, _clean_secret
-from bot.panic_button import on_panic
+from bot.panic_button import flag_on, on_panic
 
 log = logging.getLogger("runeclaw.daily_duel_bot")
 
@@ -153,6 +155,24 @@ def load_env() -> None:
     load_dotenv(dotenv_path=REPO_ROOT / ".env", override=False)
 
 
+def _command_lines() -> str:
+    """The command list in /help. /panic is named only while its flag is on,
+    the same door that registers the handler."""
+    lines = (
+        "/duel — today's call\n/result — the latest result\n/streak — your streak and score\n"
+        "/leaderboard — Arena Season 1 standings\n/help — this note\n"
+        "/watch <address> — opt in a wallet for the weekly approval digest\n"
+        "/digest — that digest now\n"
+        "/stop — delete every watched address and the digest schedule"
+    )
+    if flag_on():
+        lines += (
+            "\n/panic <address> — what can still move that wallet, worst first, "
+            "with a link to prepare the revokes. Nothing is stored"
+        )
+    return lines
+
+
 def help_text(rules: Optional[Mapping[str, Any]]) -> str:
     """How the duel works. The cutoff and the horizon are the gate's, or the
     sentence says they could not be read. The privacy line is always this one."""
@@ -179,13 +199,7 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         COMING_ROOT,
         PRIVACY,
         COMING_HANDLE,
-        "/duel — today's call\n/result — the latest result\n/streak — your streak and score\n"
-        "/leaderboard — Arena Season 1 standings\n/help — this note\n"
-        "/watch <address> — opt in a wallet for the weekly approval digest\n"
-        "/digest — that digest now\n"
-        "/stop — delete every watched address and the digest schedule\n"
-        "/panic <address> — what can still move that wallet, worst first, "
-        "with a link to prepare the revokes. Nothing is stored",
+        _command_lines(),
         DIGEST_HELP,
         "Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.",
     ] + ([scam.SCAM_HELP] if scam.flag_on() else []))
@@ -890,7 +904,6 @@ class DailyDuelBot:
         ("start", "cmd_start"), ("help", "cmd_help"), ("duel", "cmd_duel"),
         ("result", "cmd_result"), ("streak", "cmd_streak"), ("leaderboard", "cmd_leaderboard"),
         ("watch", "cmd_watch"), ("digest", "cmd_digest"), ("stop", "cmd_stop"),
-        ("panic", "cmd_panic"),
     )
 
     def build_app(self, token: str):
@@ -901,6 +914,10 @@ class DailyDuelBot:
         for name, attr in self.COMMANDS:
             app.add_handler(CommandHandler(name, getattr(self, attr)))
         app.add_handler(CallbackQueryHandler(self.on_callback, pattern=r"^dd:"))
+        # Off unless PANIC_BUTTON is 1 or true. The handler still answers
+        # "not available yet" if something calls it while the flag is off.
+        if flag_on():
+            app.add_handler(CommandHandler("panic", self.cmd_panic))
         # Off by default. /duel and its dd: callbacks stay as they are.
         if scam.flag_on():
             app.add_handler(CommandHandler("scam", self.cmd_scam))
