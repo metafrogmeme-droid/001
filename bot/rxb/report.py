@@ -9,6 +9,7 @@ from bot.rxb.backtest import run_backtest
 from bot.rxb.chains import signing_allowed
 from bot.rxb.flag import flag_on
 from bot.rxb.reading import listed_tokens, node_view
+from bot.vaults.cap_id import onboard_vault
 from bot.vaults.sentinel import plan_cap_down
 
 _DOC = Path(__file__).resolve().parents[2] / "docs" / "rxb" / "SENTINEL.md"
@@ -33,10 +34,16 @@ def sentinel_status(env: dict | None = None) -> dict:
         broadcaster=None,
         audit_path=None,
         env=env,
+        increase_delay=None,
     )
+    # No vault has been read here, so the timelock is unreadable and the
+    # owner grant is not accepted. A missing delay is not 72 hours.
+    boarding = onboard_vault(caller_role="owner", increase_delay=None, token=None)
     return {
         "sent": False,
         "reason": planned["reason"],
+        "onboarding_reason": boarding["reason"],
+        "onboarding_caller": boarding["caller"],
         "mainnet_signing": signing_allowed(1),
         "fork_signing": signing_allowed(31337),
     }

@@ -16,7 +16,13 @@ import pytest
 from bot.rxb.backtest import run_backtest
 from bot.rxb.chains import MAINNET_CHAIN_IDS, signing_allowed
 from bot.rxb.flag import flag_on
-from bot.rxb.indexer import fetch_all, fetch_markets, parse_history_point
+from bot.rxb.indexer import (
+    euler_vaults_url,
+    fetch_all,
+    fetch_euler_ethereum,
+    fetch_markets,
+    parse_history_point,
+)
 from bot.rxb.machine import fresh_state, step
 from bot.rxb.metrics import GEdge, GToken, cross_venue_dms, solve_graph
 from bot.rxb.oracle_math import (
@@ -33,6 +39,7 @@ from bot.rxb.report import admin_text
 from bot.rxb.solver import Claim, Issuer, solve_issuers
 from bot.utils.outbound import reply_safe
 from bot.vaults.cap_coordinator import coordinate_caps
+from bot.vaults.cap_id import MIN_INCREASE_DELAY_S, cap_id_hex, collateral_id_data, onboard_vault
 from bot.vaults.sentinel import plan_cap_down
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -267,17 +274,17 @@ def test_an_absent_opinion_does_not_loosen_and_mainnet_never_sends(tmp_path):
     assert off["reason"] == "flag_off"
     assert calls == []
     unknown = plan_cap_down(chain_id=31337, current_absolute=None, current_relative=None,
-                            env={"RXB_ENABLED": "true"}, **base)
+                            env={"RXB_ENABLED": "true"}, increase_delay=MIN_INCREASE_DELAY_S, **base)
     assert unknown["reason"] == "current_unreadable"
     assert calls == []
     flat = plan_cap_down(chain_id=31337, current_absolute=0, current_relative=None,
-                         env={"RXB_ENABLED": "1"}, **base)
+                         env={"RXB_ENABLED": "1"}, increase_delay=MIN_INCREASE_DELAY_S, **base)
     assert flat["reason"] == "no_decrease"
     assert calls == []
     sent = plan_cap_down(chain_id=31337, current_absolute=100, current_relative=None,
-                         env={"RXB_ENABLED": "1"}, **base)
+                         env={"RXB_ENABLED": "1"}, increase_delay=MIN_INCREASE_DELAY_S, **base)
     assert sent["sent"] is True
-    assert calls == [[{"kind": "absolute", "cap": 0}]]
+    assert calls == [[{"kind": "absolute", "cap": 0, "id_data": "id", "cap_id": None}]]
 
 
 def test_the_flag_accepts_only_one_and_true():
@@ -444,3 +451,100 @@ def test_coverage_fires_six_days_before_the_disclosure_and_does_not_score_a_list
     text = json.dumps(result)
     assert "$" not in text
     assert '"usd"' not in text.lower()
+
+
+def test_onboarding_uses_the_owner_and_refuses_a_short_timelock(tmp_path):
+    token = "0x" + "e5" * 20
+    data = collateral_id_data(token)
+    assert data is not None
+    assert cap_id_hex(data) == "0xd9f9e6671459365711313800dce57d4eebe1922bbb096ae6de8605c5f17c0338"
+    curator = onboard_vault(caller_role="curator", increase_delay=MIN_INCREASE_DELAY_S, token=token)
+    assert curator["accepted"] is False
+    assert curator["reason"] == "not_owner"
+    assert curator["caller"] == "owner"
+    assert curator["grant"] == "setIsSentinel"
+    missing = onboard_vault(caller_role="owner", increase_delay=None, token=token)
+    assert missing["reason"] == "timelock_unreadable"
+    default = onboard_vault(caller_role="owner", increase_delay=0, token=token)
+    assert default["accepted"] is False
+    assert default["reason"] == "timelock_below_72h"
+    almost = onboard_vault(caller_role="owner", increase_delay=MIN_INCREASE_DELAY_S - 1, token=token)
+    assert almost["reason"] == "timelock_below_72h"
+    accepted = onboard_vault(caller_role="owner", increase_delay=MIN_INCREASE_DELAY_S, token=token)
+    assert accepted["accepted"] is True
+    assert accepted["caller"] == "owner"
+    assert accepted["id_data"] == "0x" + data.hex()
+    assert accepted["cap_id"] == cap_id_hex(data)
+    calls: list = []
+    path = str(tmp_path / "audit.jsonl")
+    base = dict(
+        vault="v", id_data=accepted["id_data"], broadcaster=calls.append, audit_path=path,
+        proposals=[{"source": "rxb", "vault": "v", "id_data": accepted["id_data"],
+                    "absolute": 0, "relative": None, "readable": True}],
+    )
+    refused = plan_cap_down(
+        chain_id=31337, current_absolute=100, current_relative=None,
+        env={"RXB_ENABLED": "1"}, increase_delay=0, **base,
+    )
+    assert refused["sent"] is False
+    assert refused["reason"] == "timelock_below_72h"
+    assert calls == []
+    sent = plan_cap_down(
+        chain_id=31337, current_absolute=100, current_relative=None,
+        env={"RXB_ENABLED": "1"}, increase_delay=MIN_INCREASE_DELAY_S, **base,
+    )
+    assert sent["sent"] is True
+    assert calls == [[{
+        "kind": "absolute", "cap": 0, "id_data": accepted["id_data"], "cap_id": accepted["cap_id"],
+    }]]
+
+
+def test_euler_ethereum_keeps_a_failed_oracle_out_of_the_sum():
+    fixture = json.loads(
+        (ROOT / "bot/rxb/fixtures/euler_ethereum_xusd_2026-10-23.json").read_text(encoding="utf-8")
+    )
+    asset = fixture["asset"]
+    seen: list[str] = []
+
+    def transport(url: str) -> dict | None:
+        seen.append(url)
+        if url == euler_vaults_url(asset):
+            return fixture["list"]
+        address = url.rsplit("/", 1)[-1]
+        return fixture["details"].get(address)
+
+    book = fetch_euler_ethereum(transport, asset=asset)
+    assert book["readable"] is True
+    assert book["chain"] == "ethereum"
+    assert book["oracle_complete"] is False
+    assert book["oracle_omitted"] == ["exUSD-1"]
+    by_symbol = {row["symbol"]: row for row in book["vaults"]}
+    assert by_symbol["exUSD-1"]["oracle_value"] is None
+    assert by_symbol["exUSD-1"]["assets"] == "4154656"
+    assert by_symbol["exUSD-2"]["oracle_value"].startswith("16100173.")
+    assert book["oracle_value"] == by_symbol["exUSD-2"]["oracle_value"]
+    assert book["quoted_supply_value"] != book["oracle_value"]
+    assert book["quoted_supply_complete"] is True
+    dead = fetch_euler_ethereum(lambda _url: None, asset=asset)
+    assert dead["readable"] is False
+    assert dead["vaults"] is None
+    assert dead["oracle_value"] is None
+    empty = fetch_euler_ethereum(
+        lambda _url: {"data": [], "meta": {"total": 0, "timestamp": "2026-10-23T00:00:00Z"}},
+        asset=asset,
+    )
+    assert empty["readable"] is True
+    assert empty["vaults"] == []
+    assert empty["oracle_value"] == "0"
+    missed: list[str] = []
+
+    def record(url: str) -> dict | None:
+        missed.append(url)
+        return None
+
+    unread = fetch_euler_ethereum(record)
+    assert unread["readable"] is False
+    assert unread["vaults"] is None
+    assert missed and asset.lower() in missed[0].lower()
+    assert "hidden" in missed[0] and "pending_review" in missed[0]
+    assert "chainId=1" in missed[0]

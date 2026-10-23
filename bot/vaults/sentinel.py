@@ -13,6 +13,7 @@ from typing import Callable
 from bot.rxb.chains import signing_allowed
 from bot.rxb.flag import flag_on
 from bot.vaults.cap_coordinator import coordinate_caps
+from bot.vaults.cap_id import delay_refusal
 
 Broadcaster = Callable[[list[dict]], None]
 
@@ -28,12 +29,20 @@ def plan_cap_down(
     broadcaster: Broadcaster | None,
     audit_path: str | None,
     env: dict | None = None,
+    increase_delay: object = None,
 ) -> dict:
-    """Coordinate, then send only a strict decrease. Never an increase."""
+    """Coordinate, then send only a strict decrease. Never an increase.
+
+    ``increase_delay`` is the vault's cap-increase timelock in seconds.
+    Vault V2 defaults it to 0. Under 72 hours, or unread, this refuses.
+    """
     if not flag_on(env):
         return {"sent": False, "reason": "flag_off", "plan": []}
     if not signing_allowed(chain_id):
         return {"sent": False, "reason": "mainnet_refusal", "plan": []}
+    refusal = delay_refusal(increase_delay)
+    if refusal is not None:
+        return {"sent": False, "reason": refusal, "plan": []}
     if isinstance(current_absolute, bool) or (
         current_absolute is not None and (not isinstance(current_absolute, int) or current_absolute < 0)
     ):
@@ -56,12 +65,22 @@ def plan_cap_down(
         if current_absolute is None:
             return {"sent": False, "reason": "current_unreadable", "plan": []}
         if chosen["absolute"] < current_absolute:
-            plan.append({"kind": "absolute", "cap": chosen["absolute"]})
+            plan.append({
+                "kind": "absolute",
+                "cap": chosen["absolute"],
+                "id_data": id_data,
+                "cap_id": chosen.get("cap_id"),
+            })
     if chosen["relative"] is not None:
         if current_relative is None:
             return {"sent": False, "reason": "current_unreadable", "plan": []}
         if chosen["relative"] < current_relative:
-            plan.append({"kind": "relative", "cap": chosen["relative"]})
+            plan.append({
+                "kind": "relative",
+                "cap": chosen["relative"],
+                "id_data": id_data,
+                "cap_id": chosen.get("cap_id"),
+            })
     if not plan:
         return {"sent": False, "reason": "no_decrease", "plan": []}
     if broadcaster is None:
