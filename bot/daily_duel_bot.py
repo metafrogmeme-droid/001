@@ -20,6 +20,12 @@ PLAIN BOT. No Mini App, no web_app button.
 
 HEALTH ON :8082. 200 only while polling and not stopping.
 
+APPROVAL HYGIENE. The same process, opt-in. ``/watch`` stores up to five
+addresses under the salted chat id, ``/digest`` reads them now, and a weekly
+loop sends the same note. ``/stop`` deletes the addresses and the schedule.
+Reads only: Ethereum, Base, Avalanche C-Chain, Arbitrum. It signs nothing
+and holds no wallet key.
+
 What this process does not do yet, and says so: score a call, rank Arena
 Season 1, accept an Arena handle code, or fold the receipt into the day's
 public root. Anchoring stays at humanoid-traders.com/doge, from the player's
@@ -40,6 +46,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
+from bot.approval_hygiene import (
+    DIGEST_HELP,
+    INVALID_ADDRESS,
+    NO_CHAT,
+    NOT_OPTED,
+    SECRET_REFUSAL,
+    command_argument,
+    digest_interval_sec,
+    digest_poll_sec,
+    looks_like_secret,
+    normalize_address,
+    render_digest,
+    shift_iso,
+    stop_reply,
+    summarize_address,
+    unread_chains,
+    watch_reply,
+)
+from bot.approval_reader import ApprovalReader, ExploitDirectory
+from bot.approval_watch_store import ApprovalWatchStore
 from bot.daily_duel_gate import DuelGate, GateDown
 from bot.daily_duel_store import CallStore, PayloadRefused, player_key
 from bot.duel_bot import EXIT_NOT_CONFIGURED, RateLimit, _clean_secret
@@ -154,7 +180,11 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         PRIVACY,
         COMING_HANDLE,
         "/duel — today's call\n/result — the latest result\n/streak — your streak and score\n"
-        "/leaderboard — Arena Season 1 standings\n/help — this note",
+        "/leaderboard — Arena Season 1 standings\n/help — this note\n"
+        "/watch <address> — opt in a wallet for the weekly approval digest\n"
+        "/digest — that digest now\n"
+        "/stop — delete every watched address and the digest schedule",
+        DIGEST_HELP,
         "Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.",
     ])
 
@@ -321,11 +351,24 @@ def stop_stale(pid: int) -> None:
 class DailyDuelBot:
     def __init__(self, *, salt: str, gate: Optional[DuelGate] = None,
                  store: Optional[CallStore] = None, clock: Callable[[], float] = time.monotonic,
-                 now: Optional[Callable[[], str]] = None):
+                 now: Optional[Callable[[], str]] = None,
+                 watches: Optional[ApprovalWatchStore] = None,
+                 reader: Optional[ApprovalReader] = None,
+                 exploits: Optional[ExploitDirectory] = None,
+                 interval_sec: Optional[int] = None,
+                 poll_sec: Optional[int] = None):
         self.salt = salt
         self.gate = gate if gate is not None else DuelGate()
         base = state_dir()
         self.store = store if store is not None else CallStore(Path(base) / "calls.sqlite")
+        self._watches = watches
+        self._watch_path = Path(base) / "approval_watches.sqlite"
+        self._reader = reader
+        self._exploits = exploits
+        self.interval_sec = digest_interval_sec() if interval_sec is None else interval_sec
+        self.poll_sec = digest_poll_sec() if poll_sec is None else poll_sec
+        # Chat id for a due digest. Memory only: the store keeps the salted key.
+        self.delivery: dict[str, str] = {}
         self.commands = RateLimit(*COMMAND_LIMIT, clock=clock)
         self._now = now or (lambda: datetime.now(timezone.utc).isoformat(
             timespec="milliseconds").replace("+00:00", "Z"))
@@ -382,6 +425,40 @@ class DailyDuelBot:
         chat = getattr(update, "effective_chat", None)
         return str(getattr(chat, "id", "") or "")
 
+    @property
+    def watches(self) -> ApprovalWatchStore:
+        if self._watches is None:
+            self._watches = ApprovalWatchStore(self._watch_path)
+        return self._watches
+
+    @property
+    def reader(self) -> ApprovalReader:
+        if self._reader is None:
+            self._reader = ApprovalReader()
+        return self._reader
+
+    @property
+    def exploits(self) -> ExploitDirectory:
+        if self._exploits is None:
+            self._exploits = ExploitDirectory()
+        return self._exploits
+
+    def _chat_key(self, update) -> Optional[str]:
+        chat = self._chat(update)
+        if not chat:
+            return None
+        try:
+            return player_key(chat, self.salt)
+        except ValueError:
+            return None
+
+    def bind_chat(self, update) -> None:
+        """Remember where to deliver a digest. Not written to the store."""
+        key = self._chat_key(update)
+        chat = self._chat(update)
+        if key and chat:
+            self.delivery[key] = chat
+
     async def cmd_start(self, update, context) -> None:
         if await self._limited(update):
             return
@@ -428,6 +505,108 @@ class DailyDuelBot:
 
     async def _offer(self):
         return await asyncio.to_thread(self.gate.offer, self._now())
+
+    async def cmd_watch(self, update, context) -> None:
+        if await self._limited(update):
+            return
+        self.bind_chat(update)
+        key = self._chat_key(update)
+        if key is None:
+            await self._reply(update, NO_CHAT)
+            return
+        raw = command_argument(getattr(getattr(update, "effective_message", None), "text", "") or "")
+        if looks_like_secret(raw):
+            await self._reply(update, SECRET_REFUSAL)
+            return
+        address = normalize_address(raw)
+        if address is None:
+            await self._reply(update, INVALID_ADDRESS)
+            return
+        try:
+            nxt = shift_iso(self._now(), self.interval_sec)
+            status, count = await asyncio.to_thread(
+                self.watches.add, key, address, self._now(), nxt,
+            )
+        except ValueError:
+            await self._reply(update, "That address was not stored.")
+            return
+        await self._reply(update, watch_reply(status, address, count))
+
+    async def cmd_digest(self, update, context) -> None:
+        if await self._limited(update):
+            return
+        self.bind_chat(update)
+        key = self._chat_key(update)
+        if key is None:
+            await self._reply(update, NO_CHAT)
+            return
+        held = await asyncio.to_thread(self.watches.addresses, key)
+        if not held:
+            await self._reply(update, NOT_OPTED)
+            return
+        for text in await self.digest_texts(key):
+            await self._reply(update, text)
+
+    async def cmd_stop(self, update, context) -> None:
+        if await self._limited(update):
+            return
+        key = self._chat_key(update)
+        if key is None:
+            await self._reply(update, NO_CHAT)
+            return
+        removed = await asyncio.to_thread(self.watches.forget, key)
+        self.delivery.pop(key, None)
+        await self._reply(update, stop_reply(removed))
+
+    async def digest_texts(self, chat_key: str) -> list[str]:
+        addresses = await asyncio.to_thread(self.watches.addresses, chat_key)
+        if not addresses:
+            return [NOT_OPTED]
+        try:
+            now = int(datetime.fromisoformat(self._now().replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            now = int(datetime.now(timezone.utc).timestamp())
+        try:
+            listed = await asyncio.to_thread(self.exploits.get)
+        except Exception as exc:
+            log.info("exploit list failed: %s", type(exc).__name__)
+            listed = None
+        summaries = []
+        for address in addresses:
+            try:
+                chains = await asyncio.to_thread(self.reader.read, address)
+            except Exception as exc:
+                log.info("approval digest read failed: %s", type(exc).__name__)
+                chains = unread_chains()
+            summaries.append(summarize_address(address, chains, now, listed))
+        return render_digest(summaries, scam_known=listed is not None)
+
+    async def dispatch_due(self, send) -> int:
+        """Send digests that are due to chats bound in this process. Returns how many chats got one.
+
+        A chat id that is not in memory is left due, so a restart delivers on the
+        next message that binds it. A failed send does not move the schedule.
+        """
+        due = await asyncio.to_thread(self.watches.due, self._now())
+        sent = 0
+        for key in due:
+            chat = self.delivery.get(key)
+            if not chat:
+                continue
+            try:
+                texts = await self.digest_texts(key)
+                for text in texts:
+                    await send(chat, text)
+            except Exception as exc:
+                log.warning("approval digest send failed: %s", type(exc).__name__)
+                continue
+            try:
+                nxt = shift_iso(self._now(), self.interval_sec)
+                await asyncio.to_thread(self.watches.schedule_next, key, nxt)
+            except ValueError:
+                continue
+            sent += 1
+        return sent
 
     async def cmd_duel(self, update, context) -> None:
         if await self._limited(update):
@@ -559,10 +738,28 @@ class DailyDuelBot:
 
     async def on_any_update(self, update, context) -> None:
         self.state["updates"] = int(self.state.get("updates", 0)) + 1
+        self.bind_chat(update)
+        # A restart drops the in-memory chat id. The next message binds it again
+        # and, if a digest is already due, sends it without waiting for the poll.
+        sender = getattr(context, "bot", None)
+        if sender is None or not hasattr(sender, "send_message"):
+            return
+        if self._watches is None and not self._watch_path.exists():
+            return
+        from bot.utils.outbound import reply_safe
+
+        async def _send(chat_id: str, text: str) -> None:
+            await sender.send_message(chat_id=int(chat_id), text=reply_safe(text))
+
+        try:
+            await self.dispatch_due(_send)
+        except Exception as exc:
+            log.warning("approval digest catch-up failed: %s", type(exc).__name__)
 
     COMMANDS = (
         ("start", "cmd_start"), ("help", "cmd_help"), ("duel", "cmd_duel"),
         ("result", "cmd_result"), ("streak", "cmd_streak"), ("leaderboard", "cmd_leaderboard"),
+        ("watch", "cmd_watch"), ("digest", "cmd_digest"), ("stop", "cmd_stop"),
     )
 
     def build_app(self, token: str):
@@ -591,11 +788,32 @@ async def _start_health(bot: DailyDuelBot, host: str, port: int):
     return runner
 
 
+async def _approval_digest_loop(bot: DailyDuelBot, app, stop: asyncio.Event) -> None:
+    """Weekly send. The chat id is whatever this process has seen since it started."""
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=bot.poll_sec)
+        except asyncio.TimeoutError:
+            pass
+        if stop.is_set():
+            return
+        try:
+            from bot.utils.outbound import reply_safe
+
+            async def _send(chat_id: str, text: str) -> None:
+                await app.bot.send_message(chat_id=int(chat_id), text=reply_safe(text))
+
+            await bot.dispatch_due(_send)
+        except Exception as exc:
+            log.warning("approval digest tick failed: %s", type(exc).__name__)
+
+
 async def serve(app, bot: DailyDuelBot, *, host: str = HEALTH_HOST_DEFAULT,
                 port: int = HEALTH_PORT_DEFAULT) -> None:
     from bot.core.boot_health import format_stop_handlers, install_stop_handlers, poller_should_restart
     loop = asyncio.get_running_loop()
     stop = asyncio.Event()
+    digest_task: Optional[asyncio.Task[None]] = None
 
     def _request_stop(name: str) -> None:
         if bot.state["stopping"]:
@@ -614,6 +832,7 @@ async def serve(app, bot: DailyDuelBot, *, host: str = HEALTH_HOST_DEFAULT,
         bot.state["polling"] = True
         runner = await _start_health(bot, host, port)
         log.info("Daily Duel bot polling; health on http://%s:%s/health", host, port)
+        digest_task = asyncio.create_task(_approval_digest_loop(bot, app, stop))
         while not stop.is_set():
             try:
                 await asyncio.wait_for(stop.wait(), timeout=WATCHDOG_SEC)
@@ -630,6 +849,12 @@ async def serve(app, bot: DailyDuelBot, *, host: str = HEALTH_HOST_DEFAULT,
                 log.debug("watchdog tick failed: %s", type(exc).__name__)
     finally:
         bot.state["polling"] = False
+        if digest_task is not None:
+            digest_task.cancel()
+            try:
+                await digest_task
+            except asyncio.CancelledError:
+                pass
         for step in (
             lambda: app.updater.stop() if getattr(app.updater, "running", False) else None,
             app.stop, app.shutdown,

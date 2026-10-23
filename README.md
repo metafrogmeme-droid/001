@@ -1117,6 +1117,9 @@ result - See the latest result
 streak - Your streak and score
 leaderboard - Arena Season 1 standings
 help - How Daily Duel works
+watch - Opt in a wallet for the weekly approval digest
+digest - Send the approval digest now
+stop - Delete watched addresses and the digest schedule
 ```
 
 `/start` replies with:
@@ -1144,6 +1147,32 @@ DAILY_DUEL_ID_SALT=
 The salt is `openssl rand -hex 32`. The Telegram user id is HMAC-SHA256'd
 with it and is never stored or sealed. `node` must be on `PATH`: the receipt
 is made by `node app/lib/daily_duel_gate.js`.
+
+### Approval hygiene digest
+
+Free, opt-in, and read-only. It runs in this same process. No new token and
+no new unit.
+
+`/watch 0x…` stores that address (up to 5) under the salted chat id.
+`/digest` reads it now. Once a week the process sends the same note: how many
+open approvals are unlimited, how many were last updated more than 90 days
+ago, and how many spenders are on the public exploit list, with a link to
+revoke.cash. The user revokes in their own wallet. This bot never signs and
+never asks for a seed phrase or a key. `/stop` deletes every stored address
+and the schedule.
+
+Chains: Ethereum, Base, Avalanche C-Chain, Arbitrum. Reads use
+`ETHERSCAN_API_KEY` when it is set (Etherscan V2, one key). When it is empty,
+the same calls go to the public Routescan explorer. Spender addresses are
+checked against Revoke.cash's public approval-exploit-list. "Unlimited"
+follows revoke.cash: an ERC-20 or Permit2 allowance counts only when it is
+greater than that token's total supply, and an ERC-721 operator approval
+counts as unlimited.
+
+`APPROVAL_DIGEST_INTERVAL_SEC` defaults to 604800 (7 days).
+`APPROVAL_DIGEST_POLL_SEC` defaults to 3600. The chat id used to deliver a
+digest is kept in memory only. After a restart, the next message from that
+chat binds it again and a digest that came due in the meantime is sent then.
 
 ```bash
 python3 -m bot.daily_duel_bot
@@ -1179,7 +1208,8 @@ runs on the host checkout, where the website's Node is already installed.
 Working: `/start`, `/help` (cutoff, horizon, privacy line), `/duel` with a
 confirm step, one call per hashed id per duel day, a repeat that shows the
 sealed call, `/streak` as consecutive call-days, `/result` showing the sealed
-call and whether it is due. Anchoring is the link to humanoid-traders.com/doge.
+call and whether it is due, and the opt-in approval digest (`/watch`,
+`/digest`, `/stop`). Anchoring is the link to humanoid-traders.com/doge.
 
 Coming soon, and said so in the chat: scoring a due call, a score on
 `/streak`, the Arena Season 1 leaderboard, linking an Arena handle with a
