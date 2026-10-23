@@ -71,7 +71,7 @@ async function lookupCall(key, viewer = {}) {
       let p = null;
       try { p = JSON.parse(row.seal_payload); } catch (e) { p = null; }
       return { code: 200, body: {
-        kind: 'presign_scan',
+        kind: p && p.kind === 'rwa_precheck' ? 'rwa_precheck' : 'presign_scan',
         scan_key: row.scan_key,
         tool: row.tool,
         agent_slug: row.agent_slug,
@@ -82,7 +82,9 @@ async function lookupCall(key, viewer = {}) {
         // reach the two facts that decide how much this receipt is worth.
         deterministic: p ? !!p.deterministic : null,
         unknown: p && 'unknown' in p ? p.unknown : null,
-        proves: p && p.kind === 'presign_verdict'
+        proves: p && p.kind === 'rwa_precheck'
+          ? 'what the RWA pre-check SAID about a tokenized-asset contract: the flags it raised and the block it read. It is an automated pre-check, not an audit, and it does not prove the asset is sound.'
+          : p && p.kind === 'presign_verdict'
           // A Guard verdict (v10) reads a simulation of ONE block's state, so
           // it is never "reproducible": the same request later can do
           // something else, and the payload names the block it read.
@@ -90,7 +92,9 @@ async function lookupCall(key, viewer = {}) {
           : p && p.deterministic
             ? 'what this calldata MEANS — a decode is reproducible, so anyone holding the original bytes can re-run it and get these same actions.'
             : 'what this scan SAID at this time. It is a heuristic, so it does not prove the verdict was right.',
-        does_not_prove: 'that the transaction was ever signed, or that acting on this was safe. A flag is not a verdict and a clean result is not a guarantee.',
+        does_not_prove: p && p.kind === 'rwa_precheck'
+          ? 'that the asset is sound or suitable. This is an automated pre-check. It does not issue, rate, recommend or promote any asset.'
+          : 'that the transaction was ever signed, or that acting on this was safe. A flag is not a verdict and a clean result is not a guarantee.',
         // The input was never stored. Said here rather than left to be noticed.
         input_note: 'The scanned bytes were never stored — the payload commits to their sha256. Whoever holds the original can prove this receipt is about it; nobody else can learn what it was.',
         verify: 'sha256 over the UTF-8 bytes of seal_payload, verbatim, is `seal`. The seal is a leaf in that day\'s Merkle root — see /api/roots.',

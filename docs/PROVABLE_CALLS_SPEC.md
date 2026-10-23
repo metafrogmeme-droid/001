@@ -361,6 +361,39 @@ do something else, so a v10 receipt proves what was SAID and when, never
 that it was right. It shares the `sc_` keys and the `scan_seals` table with
 v5 and is a leaf of the same day's root (§4).
 
+### 2.11 · `v: 11` — an RWA pre-check
+
+The RWA pre-check (`/rwa`, `POST /v1/rwa/precheck`) reads one tokenized-asset
+contract on a configured EVM chain: whether it answers as ERC-3643, whether
+an oracle feed it names is older than that feed's heartbeat, and which admin
+powers are visible. For a signed-in caller the reading is sealed; an
+anonymous check stores nothing. The contract address is never kept:
+`input_sha256` commits to the canonical JSON `{"chain","asset","account"}`
+with the asset lowercased and `account` null when none was sent.
+
+```json
+{"v":11,"kind":"rwa_precheck","scan_key":"sc_<16>","input_sha256":"<64 hex>",
+ "input_bytes":72,"chain_id":8453,"block":"52987635",
+ "flags":["erc3643:detected","paused:yes","oracle:unknown"],
+ "unreadable":["registry_isVerified"],
+ "scanned_at":"2026-10-23T12:00:00.000Z"}
+```
+
+- `flags` are `id:state`. The state is what was read (`detected`, `yes`,
+  `observed`, `within_heartbeat`, `not_observed`, …). Prose is not sealed, so
+  a wording change does not invalidate a receipt.
+- `unreadable` lists checks that did not return a reading. A reverted
+  `isVerified` is the id `registry_isVerified` in that list, not a flag
+  that says the account is unverified. An empty flag list with
+  `unreadable` containing `read` means the chain itself could not be read.
+- `block` is the block whose state was read. No address, no amount and no
+  feed answer is a field.
+
+A pre-check is a reading of one block. It proves what was SAID, not that the
+asset is sound, and it does not issue, rate, recommend or promote any asset.
+It shares the `sc_` keys and the `scan_seals` table with v5 and v10 and is a
+leaf of the same day's root (§4).
+
 ---
 
 ## 3 · Addressing
@@ -549,6 +582,7 @@ float as a percent and how many calls carried chips, and no count of chips.
 | 8 | A Memeclaw launch: the terms hash the chain recorded, the coin, the creator's buy |
 | 9 | Duel chips: a round's dealt odds, a call's chips, a settlement's payout and hold; a settlement's review |
 | 10 | A Claw Guard verdict: the level, each reason with its severity, and the block its simulation read |
+| 11 | An RWA pre-check: flag id and state, the checks that could not be read, and the block that was read |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

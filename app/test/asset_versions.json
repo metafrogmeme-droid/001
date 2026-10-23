@@ -327,6 +327,10 @@
     "v": 1,
     "sha": "dd0556a762d1785d"
   },
+  "js/rwa-precheck.js": {
+    "v": 2,
+    "sha": "3966cddf0c929c2a"
+  },
   "js/rune-card.js": {
     "v": 1,
     "sha": "a9fef181eb7c9215"

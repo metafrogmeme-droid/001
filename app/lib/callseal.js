@@ -551,6 +551,35 @@ function sealGuard(g) {
   return { seal_payload, seal: sealOf(seal_payload) };
 }
 
+/**
+ * v11 `rwa_precheck` — flags from a read-only tokenized-asset check.
+ *
+ * The address is not here. `input_sha256` commits to the canonical JSON
+ * `{chain, asset, account}` and only whoever holds those bytes can tie the
+ * receipt to a contract. `flags` are `id:state`. A check that could not be
+ * read is an empty flag list plus `unreadable`, never a flag that says the
+ * opposite. No amount and no feed answer is a field.
+ */
+function canonicalRwaPayload(g) {
+  return JSON.stringify({
+    v: 11,
+    kind: 'rwa_precheck',
+    scan_key: String(g.scan_key),
+    input_sha256: String(g.input_sha256),
+    input_bytes: numOrNull(g.input_bytes),
+    chain_id: Number.isInteger(g.chain_id) ? g.chain_id : null,
+    block: g.block == null ? null : String(g.block),
+    flags: Array.isArray(g.flags) ? g.flags.map((f) => `${f.id}:${f.state}`) : [],
+    unreadable: Array.isArray(g.unreadable) ? g.unreadable.map(String) : [],
+    scanned_at: new Date(g.scanned_at || Date.now()).toISOString(),
+  });
+}
+
+function sealRwa(g) {
+  const seal_payload = canonicalRwaPayload(g);
+  return { seal_payload, seal: sealOf(seal_payload) };
+}
+
 function inputDigest(text) {
   const buf = Buffer.from(String(text == null ? '' : text), 'utf8');
   return { sha256: crypto.createHash('sha256').update(buf).digest('hex'),
@@ -565,6 +594,7 @@ module.exports = {
   canonicalDuelSettlePayload, sealDuelSettle,
   canonicalScanPayload, sealScan, inputDigest,
   canonicalGuardPayload, sealGuard,
+  canonicalRwaPayload, sealRwa,
   canonicalMemeclawLaunchPayload, sealMemeclawLaunch,
   sealDuelRoundChips, sealDuelPickChips, sealDuelSettleChips,
   canonicalDuelReviewPayload, sealDuelReview,
