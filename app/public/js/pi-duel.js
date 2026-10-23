@@ -229,8 +229,8 @@
         body = '<div class="d-rounds">' + card.rounds.map(function (r) {
           // The card's chips block: the renderer offers odds and a chips
           // field only while the layer is on (lib/duel_chips.js).
-          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), TR, undefined, {
-            verify: !!window.RCPiReceipt, chips: card.chips || null,
+          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), TR, undefined, { verify: !!window.RCPiReceipt,
+            chips: card.chips || null,
             confidenceLevels: card.confidence ? card.confidence_levels : null,
           })
             + (canAsk ? '<div class="p-why-row"><button type="button" class="p-why" data-ask="round" data-id="' + esc(r.id) + '">' + esc(T('Explain this round')) + '</button></div>' : '');

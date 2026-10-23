@@ -213,7 +213,9 @@
     }
     return {
       text: c.pct + '%',
-      tone: c.pct >= 50 ? 'up' : 'down',
+      // The null check sits on this line: a rate that was not read must not
+      // take a colour. The early return above already paints that case as a dash.
+      tone: c.pct == null ? 'muted' : (c.pct >= 50 ? 'up' : 'down'),
       how: how,
       sub: tr('duel.cal_of', 'of {n} high-confidence calls').replace('{n}', c.scored),
     };

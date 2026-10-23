@@ -44,10 +44,10 @@ const SCRIPTS = [
   '/js/embed-arena-view.js?v=4',
   '/js/miniapp-view.js?v=11',
   '/js/arena-session.js?v=11',
-  '/js/duel.js?v=10',
+  '/js/duel.js?v=11',
   // The in-app receipt check the Duel block's receipts open (pi-receipt.js).
   '/js/pi-receipt.js?v=5',
-  '/js/pi-duel.js?v=12',
+  '/js/pi-duel.js?v=13',
   '/js/anchor_cell.js?v=5',
   '/js/doge-proof.js?v=2',
   // The wallet door doge-app.js signs in through, shared with /memeclaw.
