@@ -5,6 +5,7 @@ import {SaRVerifier} from "../src/SaRVerifier.sol";
 import {ISaRVerifier} from "../src/ISaRVerifier.sol";
 import {QuantumCanary} from "../src/QuantumCanary.sol";
 import {SaRGovernorAdapter} from "../src/SaRGovernorAdapter.sol";
+import {MorphoPreLiqSwitcher} from "../src/MorphoPreLiqSwitcher.sol";
 
 interface Vm {
     function addr(uint256) external pure returns (address);
@@ -369,6 +370,100 @@ contract SaRVerifierTest {
         require(sel == SaRGovernorAdapter.NoAction.selector, "stale");
         require(vault.calls() == 1, "unstale");
     }
+
+    function test_morpho_switcher_authorizes_only_the_tighter_contract() public {
+        vm.chainId(84532);
+        MorphoAuthMock morpho = new MorphoAuthMock();
+        PreLiqMock tight = new PreLiqMock(5e17);
+        PreLiqMock loose = new PreLiqMock(8e17);
+        StressMock probe = new StressMock();
+        address borrower = vm.addr(OTHER);
+        MorphoPreLiqSwitcher s = new MorphoPreLiqSwitcher(
+            address(morpho), address(tight), address(loose), address(probe), borrower, 0, 0, 300
+        );
+        probe.set(false, 301, 10);
+        vm.prank(borrower);
+        s.activate();
+        require(morpho.calls() == 1, "armed");
+        require(morpho.isAuthorized(address(s), address(tight)), "tight");
+        require(!morpho.isAuthorized(address(s), address(loose)), "loose");
+        require(morpho.lastAuthorized() == address(tight) && morpho.lastFlag(), "only tight");
+        vm.prank(borrower);
+        s.activate();
+        require(morpho.calls() == 1, "once");
+
+        MorphoAuthMock heldMorpho = new MorphoAuthMock();
+        StressMock quiet = new StressMock();
+        MorphoPreLiqSwitcher held = new MorphoPreLiqSwitcher(
+            address(heldMorpho), address(tight), address(loose), address(quiet), borrower, 0, 0, 300
+        );
+        quiet.set(true, 900, 10);
+        vm.prank(borrower);
+        bytes4 sel = _selector(address(held), abi.encodeCall(held.activate, ()));
+        require(sel == MorphoPreLiqSwitcher.NoAction.selector, "stale");
+        require(heldMorpho.calls() == 0, "no stale write");
+        quiet.set(false, 300, 10);
+        vm.prank(borrower);
+        sel = _selector(address(held), abi.encodeCall(held.activate, ()));
+        require(sel == MorphoPreLiqSwitcher.NoAction.selector, "boundary");
+        require(heldMorpho.calls() == 0, "no boundary write");
+        quiet.set(false, 900, type(uint64).max);
+        vm.prank(borrower);
+        sel = _selector(address(held), abi.encodeCall(held.activate, ()));
+        require(sel == MorphoPreLiqSwitcher.NoAction.selector, "unset");
+        require(heldMorpho.calls() == 0, "no unset write");
+        quiet.set(false, 900, 10);
+        vm.prank(vm.addr(PK));
+        sel = _selector(address(held), abi.encodeCall(held.activate, ()));
+        require(sel == MorphoPreLiqSwitcher.NotBorrower.selector, "stranger");
+        require(heldMorpho.calls() == 0, "no stranger write");
+    }
+
+    function test_morpho_switcher_reverts_off_base_sepolia_and_on_a_zero() public {
+        vm.chainId(1);
+        bool failed = false;
+        try new MorphoPreLiqSwitcher(address(1), address(2), address(3), address(4), address(5), 0, 0, 300) {
+            failed = false;
+        } catch {
+            failed = true;
+        }
+        require(failed, "mainnet");
+        vm.chainId(84532);
+        PreLiqMock tight = new PreLiqMock(5e17);
+        PreLiqMock loose = new PreLiqMock(8e17);
+        PreLiqMock same = new PreLiqMock(5e17);
+        PreLiqMock zeroL = new PreLiqMock(0);
+        StressMock probe = new StressMock();
+        address borrower = vm.addr(OTHER);
+        failed = false;
+        try new MorphoPreLiqSwitcher(address(0), address(tight), address(loose), address(probe), borrower, 0, 0, 300) {
+            failed = false;
+        } catch {
+            failed = true;
+        }
+        require(failed, "zero");
+        failed = false;
+        try new MorphoPreLiqSwitcher(address(1), address(tight), address(same), address(probe), borrower, 0, 0, 300) {
+            failed = false;
+        } catch {
+            failed = true;
+        }
+        require(failed, "not tighter");
+        failed = false;
+        try new MorphoPreLiqSwitcher(address(1), address(zeroL), address(loose), address(probe), borrower, 0, 0, 300) {
+            failed = false;
+        } catch {
+            failed = true;
+        }
+        require(failed, "zero lltv");
+        failed = false;
+        try new MorphoPreLiqSwitcher(address(1), address(tight), address(loose), address(probe), borrower, 0, 0, 0) {
+            failed = false;
+        } catch {
+            failed = true;
+        }
+        require(failed, "threshold");
+    }
 }
 
 contract EulerVaultMock {
@@ -395,4 +490,43 @@ contract StaleProbe {
     bool public stale;
     function set(bool v) external { stale = v; }
     function isStale(uint32, uint16, uint64) external view returns (bool) { return stale; }
+}
+
+contract MorphoAuthMock {
+    mapping(address => mapping(address => bool)) public isAuthorized;
+    uint256 public calls;
+    address public lastAuthorized;
+    bool public lastFlag;
+
+    function setAuthorization(address authorized, bool newIsAuthorized) external {
+        calls += 1;
+        lastAuthorized = authorized;
+        lastFlag = newIsAuthorized;
+        isAuthorized[msg.sender][authorized] = newIsAuthorized;
+    }
+}
+
+contract PreLiqMock {
+    uint256 public preLltv;
+    constructor(uint256 v) { preLltv = v; }
+    function preLiquidationParams()
+        external
+        view
+        returns (uint256, uint256, uint256, uint256, uint256, address)
+    {
+        return (preLltv, 0, 0, 0, 0, address(0));
+    }
+}
+
+contract StressMock {
+    bool public stale;
+    uint32 public sAdj;
+    uint64 public age;
+    function set(bool s, uint32 bps, uint64 a) external {
+        stale = s;
+        sAdj = bps;
+        age = a;
+    }
+    function isStale(uint32, uint16, uint64) external view returns (bool) { return stale; }
+    function latest(uint32, uint16) external view returns (uint32, uint64) { return (sAdj, age); }
 }

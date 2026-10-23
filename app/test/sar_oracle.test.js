@@ -289,6 +289,55 @@ test('SaR public feed', { concurrency: false }, async (t) => {
     }
   });
 
+  await t.test('the adoption route is operator-only and has no dollar key', async () => {
+    const savedFlag = process.env.SAR_ORACLE_ENABLED;
+    const savedHook = process.env.SAR_ORACLE_ALERT_WEBHOOK;
+    const savedCoin = process.env.SAR_ORACLE_HIP3_COIN;
+    const savedOi = process.env.SAR_ORACLE_HIP3_OI_UNITS;
+    const savedDir = process.env.SAR_ORACLE_OCT10_DIR;
+    delete process.env.SAR_ORACLE_ALERT_WEBHOOK;
+    delete process.env.SAR_ORACLE_HIP3_COIN;
+    delete process.env.SAR_ORACLE_HIP3_OI_UNITS;
+    delete process.env.SAR_ORACLE_OCT10_DIR;
+    delete process.env.SAR_ORACLE_ENABLED;
+    let checks = 0;
+    router.setOperatorCheckForTests(() => { checks += 1; return false; });
+    const srv = await listen();
+    try {
+      const closed = await hit(srv.base, '/api/sar-oracle/admin/adoption', '198.51.100.80');
+      assert.equal(closed.status, 404);
+      assert.equal(checks, 0);
+      process.env.SAR_ORACLE_ENABLED = '1';
+      const denied = await hit(srv.base, '/api/sar-oracle/admin/adoption', '198.51.100.81');
+      assert.equal(denied.status, 404);
+      assert.equal(denied.text.includes('_usd_'), false);
+      router.setOperatorCheckForTests(() => true);
+      const allowed = await hit(srv.base, '/api/sar-oracle/admin/adoption', '198.51.100.82');
+      assert.equal(allowed.status, 200);
+      assert.equal(allowed.text.includes('_usd_'), false);
+      const body = JSON.parse(allowed.text);
+      assert.equal(body.replay.status, 'not_read');
+      assert.equal(body.replay.reason, 'dataset_absent');
+      assert.equal(body.replay.label, 'archive');
+      assert.equal(body.hip3.signs, false);
+      assert.equal(body.hip3.submits, false);
+      assert.equal(body.hip3.action, null);
+    } finally {
+      await srv.close();
+      router.setOperatorCheckForTests(null);
+      if (savedHook == null) delete process.env.SAR_ORACLE_ALERT_WEBHOOK;
+      else process.env.SAR_ORACLE_ALERT_WEBHOOK = savedHook;
+      if (savedCoin == null) delete process.env.SAR_ORACLE_HIP3_COIN;
+      else process.env.SAR_ORACLE_HIP3_COIN = savedCoin;
+      if (savedOi == null) delete process.env.SAR_ORACLE_HIP3_OI_UNITS;
+      else process.env.SAR_ORACLE_HIP3_OI_UNITS = savedOi;
+      if (savedDir == null) delete process.env.SAR_ORACLE_OCT10_DIR;
+      else process.env.SAR_ORACLE_OCT10_DIR = savedDir;
+      if (savedFlag == null) delete process.env.SAR_ORACLE_ENABLED;
+      else process.env.SAR_ORACLE_ENABLED = savedFlag;
+    }
+  });
+
   await t.test('the route file has no write method and no dollar key', () => {
     const src = fs.readFileSync(path.join(APP, 'routes', 'sar_oracle.js'), 'utf8');
     assert.equal(/router\.(post|put|delete|patch)\s*\(/i.test(src), false);
@@ -410,8 +459,11 @@ test('SaR public feed', { concurrency: false }, async (t) => {
     assert.equal(page.headersSent, true);
     assert.equal(page.statusCode, 0);
     assert.match(String(page.body), /Coming soon/);
+    assert.match(String(page.body), /href="\/api\/sar-oracle\/admin\/packets"/);
+    assert.match(String(page.body), /Admin view/);
     assert.equal(String(page.body).includes('_usd_'), false);
     assert.equal(String(page.body).includes('$'), false);
+    assert.equal(String(denied.body).includes('/api/sar-oracle/admin/packets'), false);
     const server = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
     const at = server.indexOf("require('./lib/sar/indexer').start()");
     assert.ok(at > 0);

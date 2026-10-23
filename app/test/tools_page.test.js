@@ -69,6 +69,40 @@ test('the SaR card stays coming soon with the flag on or off', () => {
   assert.deepStrictEqual(catalog.presentation(panic, {}), { label: 'No web page', href: null });
 });
 
+test('only an operator, with the flag on, gets the admin link', () => {
+  const sar = catalog.loadCatalog().find((t) => t.id === 'sar-oracle');
+  const open = { label: 'Admin view', href: '/api/sar-oracle/admin/packets' };
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: '1' }, { operator: true }),
+    open,
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: 'true' }, { operator: true }),
+    open,
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: '1' }, { operator: false }),
+    { label: 'Coming soon', href: null },
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: '1' }, { operator: 'admin' }),
+    { label: 'Coming soon', href: null },
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, {}, { operator: true }),
+    { label: 'Coming soon', href: null },
+  );
+  const rendered = catalog.renderFile({ SAR_ORACLE_ENABLED: '1' }, { operator: true });
+  const at = rendered.indexOf('data-tool="sar-oracle"');
+  const cardHtml = rendered.slice(at - 40, rendered.indexOf('data-tool="panic-button"'));
+  assert.match(cardHtml, /<a /);
+  assert.match(cardHtml, /href="\/api\/sar-oracle\/admin\/packets"/);
+  assert.match(cardHtml, /Admin view/);
+  assert.equal(cardHtml.includes('_usd_'), false);
+  assert.equal(cardHtml.includes('$'), false);
+  assert.equal(HTML.includes('/api/sar-oracle/admin/packets'), false);
+});
+
 test('chips follow the bar, then extras from the modules that name them', () => {
   const tools = catalog.loadCatalog();
   const { bar, labels } = catalog.labelMap(tools);
