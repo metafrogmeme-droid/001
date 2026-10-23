@@ -65,9 +65,6 @@ class ApprovalWatchStore:
             ).fetchall()
         return [str(r["address"]) for r in rows]
 
-    def count_for(self, chat_key: str) -> int:
-        return len(self.addresses(chat_key))
-
     def add(self, chat_key: str, address: str, added_at: str,
             next_digest_at: Optional[str] = None) -> tuple[str, int]:
         """``(status, count)``. status is ``added``, ``duplicate`` or ``full``.
@@ -105,18 +102,6 @@ class ApprovalWatchStore:
             conn.commit()
             n = len(held) + 1
         return "added", n
-
-    def ensure_schedule(self, chat_key: str, next_digest_at: str) -> None:
-        """Insert the schedule if this chat does not have one. Never moves an existing one."""
-        key = self._key(chat_key)
-        when = self._when(next_digest_at)
-        with self._lock, self._connect() as conn:
-            conn.execute(
-                "INSERT INTO approval_schedule (chat_key, next_digest_at) VALUES (?, ?)"
-                " ON CONFLICT(chat_key) DO NOTHING",
-                (key, when),
-            )
-            conn.commit()
 
     def schedule_next(self, chat_key: str, next_digest_at: str) -> None:
         key = self._key(chat_key)
@@ -164,9 +149,3 @@ class ApprovalWatchStore:
             conn.commit()
             removed = addresses.rowcount + schedule.rowcount
         return removed > 0
-
-    def total_rows(self) -> int:
-        with self._lock, self._connect() as conn:
-            watches = conn.execute("SELECT COUNT(*) AS n FROM approval_watches").fetchone()
-            schedule = conn.execute("SELECT COUNT(*) AS n FROM approval_schedule").fetchone()
-        return int(watches["n"]) + int(schedule["n"])

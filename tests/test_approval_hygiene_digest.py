@@ -81,6 +81,17 @@ def _iso(ts: int) -> str:
     return format_iso(datetime.fromtimestamp(ts, timezone.utc))
 
 
+def _stored_rows(watches) -> int:
+    import sqlite3
+    conn = sqlite3.connect(watches.path)
+    try:
+        addresses = conn.execute("SELECT COUNT(*) FROM approval_watches").fetchone()[0]
+        schedule = conn.execute("SELECT COUNT(*) FROM approval_schedule").fetchone()[0]
+    finally:
+        conn.close()
+    return int(addresses) + int(schedule)
+
+
 def _run(coro):
     return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
 
@@ -277,7 +288,7 @@ def test_the_digest_object_runs_without_the_duel_bot(tmp_path):
     texts = _run(digest.on_digest(TG))
     assert texts and "You have 3 approvals older than 180 days." in texts[0]
     assert _run(digest.on_stop(TG)) == STOPPED
-    assert digest.watches.total_rows() == 0
+    assert _stored_rows(digest.watches) == 0
 
 
 def test_an_unreadable_chain_is_not_reported_as_zero_and_a_missing_list_is_not_clean():
@@ -330,8 +341,7 @@ def test_stop_deletes_addresses_and_the_schedule_and_leaves_the_duel_call(tmp_pa
     assert watches.addresses(key) == [WALLET]
     assert watches.next_digest_at(key) == shift_iso(_iso(NOW), 7 * DAY)
     assert bot.delivery[key] == TG
-    watches.add(other, OTHER_WALLET, _iso(NOW))
-    watches.ensure_schedule(other, shift_iso(_iso(NOW), 7 * DAY))
+    watches.add(other, OTHER_WALLET, _iso(NOW), shift_iso(_iso(NOW), 7 * DAY))
     stopped = _update("/stop")
     _run(bot.cmd_stop(stopped, None))
     assert _texts(stopped) == [STOPPED]
@@ -356,7 +366,7 @@ def test_watch_is_opt_in_capped_and_refuses_a_secret_without_echoing_it(tmp_path
     early = _update("/digest")
     _run(bot.cmd_digest(early, None))
     assert _texts(early) == [NOT_OPTED]
-    assert watches.total_rows() == 0
+    assert _stored_rows(watches) == 0
     bad = _watch(bot, "not-an-address")
     assert _texts(bad) == [INVALID_ADDRESS]
     secret = _update(f"/watch {SEED}")
@@ -364,7 +374,7 @@ def test_watch_is_opt_in_capped_and_refuses_a_secret_without_echoing_it(tmp_path
     assert _texts(secret) == [SECRET_REFUSAL]
     assert SEED not in _texts(secret)[0]
     assert "alpha" not in _texts(secret)[0]
-    assert watches.total_rows() == 0
+    assert _stored_rows(watches) == 0
     key_like = _update("/watch " + "ab" * 32)
     _run(bot.cmd_watch(key_like, None))
     assert _texts(key_like) == [SECRET_REFUSAL]
@@ -377,7 +387,7 @@ def test_watch_is_opt_in_capped_and_refuses_a_secret_without_echoing_it(tmp_path
     assert len(watches.addresses(key)) == 5
     again = _watch(bot, "0x" + f"{1:040x}")
     assert "already watched" in _texts(again)[0]
-    assert watches.total_rows() == 6  # 5 addresses and one schedule
+    assert _stored_rows(watches) == 6  # 5 addresses and one schedule
     try:
         watches.add(TG, WALLET, _iso(NOW))
     except ValueError:
