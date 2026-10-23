@@ -7,6 +7,8 @@ missing prior does not become a zero-width band.
 """
 from __future__ import annotations
 
+import math
+
 # Absolute reopen-gap fractions by (session, symbol class). Design prior.
 GAP_PRIOR: dict[tuple[str, str], tuple[float, ...]] = {
     ("regular", "equity"): (0.0005, 0.001, 0.002, 0.003, 0.005, 0.008),
@@ -24,7 +26,8 @@ def sigma_of(session: str, symbol_class: str = "equity") -> float | None:
         return None
     mean = sum(samples) / len(samples)
     var = sum((x - mean) ** 2 for x in samples) / len(samples)
-    std = var ** 0.5
+    # math.sqrt returns float. `** 0.5` is typed Any: a float power may be complex.
+    std = math.sqrt(var)
     if std <= 1e-12:
         return None
     return std
