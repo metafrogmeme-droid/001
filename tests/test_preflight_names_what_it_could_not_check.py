@@ -410,7 +410,7 @@ class TestTheNodePin:
     def test_the_node_jobs_are_the_local_jobs_that_set_up_node(self):
         jobs = preflight.node_job_names()
         assert set(jobs) == {"Web app (express)", "Marketing site (vite)",
-                             "Anchor workspace (node)"}, jobs
+                             "Anchor workspace (node)", "RXB contracts (solidity)"}, jobs
         assert "Lint + tests (baseline gate)" not in jobs
 
     @staticmethod
