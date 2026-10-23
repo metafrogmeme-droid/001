@@ -29428,15 +29428,20 @@ and failed on the first push (#663):
 
 - The site's privacy test loaded `app/lib/nft.js` for its chain table, and
   `nft.js` loads `ethers`. CI's site job installs only `site/`'s packages; a
-  checkout with `app/node_modules` present resolves it anyway. The table is
+  checkout with the app's packages installed resolves it anyway. The table is
   plain data, so it moved to `app/lib/evm_chains.js` (no dependencies), which
-  `nft.js` re-exports. With `app/node_modules` moved aside, the old line fails
+  `nft.js` re-exports. With the app's packages moved aside, the old line fails
   on `ethers` and the new one passes.
 - gitleaks read the example Permit2 signature's `token:` field (USDC's
   contract on Base) as a key. The preflight lists gitleaks as CI-only. The
   address is a stopword by value, the same as the other example values, and
   gitleaks 8.24.3 run locally over the commit now reports nothing while a
   planted key beside a different address is still caught.
+
+The note above first named the app's package folder as a path in backticks.
+`test_claude_md_accuracy.py` checks every backticked path the guide and its
+log name, and that folder is not in a fresh checkout, so the note failed CI
+for the reason it describes. A path a doc names must be one git tracks.
 
 ## A REGISTRATION IS THE OWNER'S TRANSACTION, AND THE FILE LISTS ONLY WHAT WAS RECORDED
 
