@@ -1,11 +1,11 @@
 'use strict';
 
 /**
- * /botcheck and /api/botcheck.
+ * /botcheck and GET /api/botcheck.
  *
- * Both answer 404 unless BOTCHECK_ENABLED is 1, true, yes, or on. A queued
- * name is written to the review file and is not published. The body fields
- * read are query and note. Anything else on the body is ignored.
+ * Both answer 404 unless BOTCHECK_ENABLED is 1, true, yes, or on. This module
+ * is the read: the curated catalog, nothing written. The review-queue write
+ * is routes/botcheck_submit.js.
  *
  * The page shell lives in content/, not public/, so the static handler cannot
  * serve it while the flag is off. The asset strings below are the ones the
@@ -67,19 +67,6 @@ router.get('/', rateLimit({ name: 'botcheck.read', windowMs: 60000, max: 30, key
     if (raw != null && typeof raw !== 'string') return fail(res, 400);
     const body = raw ? check.lookup(raw) : check.publicDocument();
     return res.set('Cache-Control', 'no-store').json(body);
-  } catch (err) {
-    console.error('[botcheck]', err && err.name ? err.name : 'Error');
-    return fail(res, 500);
-  }
-});
-
-router.post('/submit', rateLimit({ name: 'botcheck.write', windowMs: 60000, max: 30, key: ipKey }), (req, res) => {
-  try {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const query = typeof body.query === 'string' ? body.query : '';
-    const note = typeof body.note === 'string' ? body.note : '';
-    const result = check.enqueue(query, { note: note, via: 'web' });
-    return res.set('Cache-Control', 'no-store').status(result.ok ? 200 : 400).json(result);
   } catch (err) {
     console.error('[botcheck]', err && err.name ? err.name : 'Error');
     return fail(res, 500);

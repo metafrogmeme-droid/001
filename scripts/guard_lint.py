@@ -565,6 +565,13 @@ RULES: list[Rule] = [
             "today", "feed", "gas", "dapps", "allowances",
             # ^ market data and read-only chain lookups: no account is in scope,
             #   the inputs are a symbol or an address the caller already has.
+            # it returns curated public signals from bot/botcheck/catalog.json, read-only, with no user data.
+            "botcheck",
+            "botcheck_submit",     # POST /api/botcheck/submit only, and anonymous because the page
+                                   # form stores no account and a queued name is not published.
+                                   # Five writes a minute per client IP, a 1kb body cap mounted
+                                   # before the global parser, and a numeric id is refused and
+                                   # not stored. The lookup above is a different module.
         ],
         why=("An Express route module under /api/ that never applies authMiddleware. "
              "This is the SECOND HTTP surface in this repo — 228 routes, larger than "

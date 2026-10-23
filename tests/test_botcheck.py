@@ -29,6 +29,7 @@ CATALOG = ROOT / "bot" / "botcheck" / "catalog.json"
 HTML = ROOT / "app" / "content" / "botcheck.html"
 CLIENT = ROOT / "app" / "public" / "js" / "botcheck.js"
 ROUTE = ROOT / "app" / "routes" / "botcheck.js"
+SUBMIT = ROOT / "app" / "routes" / "botcheck_submit.js"
 BANNED = re.compile(r"\b(?:safe|scam|verified|trusted)\b", re.I)
 MONEY = re.compile(r"\$|RCLAW|%|\bstake\b", re.I)
 SALT = "s" * 32
@@ -96,6 +97,7 @@ def test_output_and_catalog_do_not_say_the_forbidden_words():
         HTML.read_text(encoding="utf-8"),
         CLIENT.read_text(encoding="utf-8"),
         ROUTE.read_text(encoding="utf-8"),
+        SUBMIT.read_text(encoding="utf-8"),
         json.dumps(public_document()),
         list_text(),
         render_text(lookup("not a curated bot")),
