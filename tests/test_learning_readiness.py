@@ -92,6 +92,37 @@ class TestMonitorReadinessAlert:
             mon._readiness_next_check = 0.0
             assert mon._check_learning_readiness() == []   # stays ready: quiet
 
+    def _tick(self, mon, state, applied=False):
+        with patch("bot.learning.readiness.assess_readiness",
+                   return_value=self._assessment(state, applied=applied)):
+            mon._readiness_next_check = 0.0
+            return mon._check_learning_readiness()
+
+    def test_a_ready_that_lapses_says_so_once(self):
+        mon = self._monitor()
+        assert self._tick(mon, "VALIDATING") == []
+        assert [a.alert_type for a in self._tick(mon, "READY")] == ["LEARNING_READY"]
+        lapsed = self._tick(mon, "VALIDATING")
+        assert [a.alert_type for a in lapsed] == ["LEARNING_NOT_READY"]
+        assert lapsed[0].audience == "admin" and lapsed[0].severity == "INFO"
+        assert "Leave VOTER_WEIGHT_LEARNING_ENABLED off" in lapsed[0].body
+        assert "turning it off" not in lapsed[0].body, "a flag that is off is not switched off"
+        assert self._tick(mon, "VALIDATING") == [], "staying not-ready is quiet"
+
+    def test_a_lapse_while_applied_says_to_switch_it_off(self):
+        mon = self._monitor()
+        self._tick(mon, "READY", applied=True)
+        lapsed = self._tick(mon, "VALIDATING", applied=True)
+        assert [a.alert_type for a in lapsed] == ["LEARNING_NOT_READY"]
+        assert lapsed[0].severity == "WARNING"
+        assert "still APPLIED (VOTER_WEIGHT_LEARNING_ENABLED on): consider turning it off" in lapsed[0].body
+
+    def test_a_lapse_seen_first_at_boot_is_a_baseline_not_a_lapse(self):
+        # The state is the process's own memory: a restart that first sees
+        # VALIDATING has no READY to compare it with.
+        mon = self._monitor()
+        assert self._tick(mon, "VALIDATING") == []
+
     def test_already_applied_component_does_not_alert(self):
         mon = self._monitor()
         with patch("bot.learning.readiness.assess_readiness",

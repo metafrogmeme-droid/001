@@ -54,6 +54,18 @@ _VW_MIN_VOTERS = 3
 #: WHOLE interval has to be, not the point estimate.
 _VW_CHANCE = 0.5
 _VW_Z = 1.96          # ~95%
+#: …AND THE WEIGHTS HAVE TO PICK BETTER TRADES, NOT ONLY KEEP THEIR SIGNS. A
+#: live card read "69% of 35 voter(s) … (95% lower bound 52%)" and was READY.
+#: Two things under it overstated the evidence: every voter was judged on
+#: the SAME 65 unseen trades, so the interval treated 35 correlated readings
+#: as 35 independent ones; and a voter that agreed with one unseen trade was
+#: a whole yes or no. The second is fixed in `validate_oos` (a voter is
+#: judged on as many unseen trades as it was trained on). The first cannot
+#: be fixed over voters, so READY also needs the trade-level test
+#: (`voter_weights.trade_ranking`): the learned weights must rank the unseen
+#: trades' winners above their losers better than the hand-tuned ones, with
+#: the 95% lower bound of the improvement, resampled over TRADES, above zero.
+_VW_MIN_EACH_OUTCOME = 10
 
 #: SETUP EXPECTANCY'S TEST, and the floor under it. The favoured and the
 #: disfavoured unseen trades are compared; under fifteen in either group the
@@ -127,6 +139,14 @@ def wilson_interval(successes: int, n: int,
 # Calibration readiness rides on the fitter's own min_samples (30), but for
 # a RECOMMENDATION we want a fuller curve than the bare minimum.
 _CAL_RECOMMEND_SAMPLES = 50
+
+
+def _count(record, key):
+    """A count read off a report: the int if one is there, else None. An
+    older report without the key, or a damaged one, has no count to show, and
+    zero would be a count it never made."""
+    v = (record or {}).get(key)
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
 def assess_readiness(store=None) -> dict:
@@ -249,8 +269,26 @@ def assess_readiness(store=None) -> dict:
             # of learned VOTERS whose direction held, so the card says which
             # unit it is and how many there were — 2 of 3 and 27 of 40 are the
             # same percentage and not the same evidence.
-            evidence = (f"{rate:.0%} of {n_voters} voter(s) held direction on "
-                        f"{n_test} unseen trade(s)")
+            floor = _count(oos, "min_oos_agree")
+            judged_on = (f" judged on >= {floor} unseen trades each"
+                         if floor is not None and floor > 1 else "")
+            evidence = (f"{rate:.0%} of {n_voters} voter(s){judged_on} held "
+                        f"direction on {n_test} unseen trade(s)")
+            n_thin = _count(oos, "n_thin")
+            if n_thin:
+                evidence += f"; {n_thin} more agreed with too few to judge"
+            trades = oos.get("trades") or {}
+            comp["oos_trades"] = trades
+            t_lower = trades.get("lower")
+            n_win, n_loss = _count(trades, "n_win"), _count(trades, "n_loss")
+            t_few = (n_win is not None and n_loss is not None
+                     and (n_win < _VW_MIN_EACH_OUTCOME or n_loss < _VW_MIN_EACH_OUTCOME))
+            ranking = ""
+            if trades.get("auc_weighted") is not None and trades.get("auc_unweighted") is not None:
+                ranking = (f"AUC {trades['auc_weighted']:.2f} with the learned weights vs "
+                           f"{trades['auc_unweighted']:.2f} without "
+                           f"({trades['diff']:+.2f}"
+                           + (f", 95% lower bound {t_lower:+.2f})" if t_lower is not None else ")"))
             if n_test < _VW_MIN_TEST_TRADES or n_voters < _VW_MIN_VOTERS:
                 comp["state"] = "VALIDATING"
                 comp["note"] = (
@@ -267,10 +305,50 @@ def assess_readiness(store=None) -> dict:
                     f"{evidence} clears the {_VW_HOLD_RATE_BAR:.0%} bar, but "
                     f"its 95% lower bound is {lower:.0%} — a coin flip reaches "
                     "this margin often enough that it is not yet evidence")
+            elif rate >= _VW_HOLD_RATE_BAR and not trades:
+                # No trade-level test on the record is not a test with no
+                # trades in it: "0 winners and 0 losers" would be a count of
+                # a comparison that never ran.
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, 95% lower bound "
+                    f"{lower:.0%}), but the trade-level comparison was not run, "
+                    "so whether the learned weights pick better trades is unknown")
+            elif rate >= _VW_HOLD_RATE_BAR and (n_win is None or n_loss is None):
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, 95% lower bound "
+                    f"{lower:.0%}), but the trade-level comparison's winner and "
+                    "loser counts could not be read")
+            elif rate >= _VW_HOLD_RATE_BAR and t_few:
+                # The voters clear their bar; the trades cannot be compared.
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, 95% lower bound "
+                    f"{lower:.0%}), but the unseen trades hold {n_win} winner(s) "
+                    f"and {n_loss} loser(s): need >= {_VW_MIN_EACH_OUTCOME} of "
+                    "each before the learned weights' ranking can be compared "
+                    "with the hand-tuned one")
+            elif rate >= _VW_HOLD_RATE_BAR and t_lower is None:
+                # Enough of each outcome and no interval is a resampling that
+                # failed, not too few trades: the count sentence would be false.
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, 95% lower bound "
+                    f"{lower:.0%}), but the trade-level improvement's 95% bound "
+                    f"could not be computed{': ' + ranking if ranking else ''}")
+            elif rate >= _VW_HOLD_RATE_BAR and not (t_lower is not None and t_lower > 0):
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, 95% lower bound "
+                    f"{lower:.0%}), but on those trades the learned weights do "
+                    f"not yet rank winners above losers better: {ranking}")
             elif rate >= _VW_HOLD_RATE_BAR:
                 comp["state"] = "READY"
                 comp["note"] = (f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, "
-                                f"95% lower bound {lower:.0%})")
+                                f"95% lower bound {lower:.0%}); on those trades "
+                                f"the learned weights rank winners above losers "
+                                f"better: {ranking}")
             else:
                 comp["state"] = "VALIDATING"
                 comp["note"] = (f"{evidence} < bar {_VW_HOLD_RATE_BAR:.0%} — "

@@ -163,7 +163,8 @@
           return c.refresh();
         }
         // The server names why (taken, or not a valid name).
-        note = ['warn', (r.body && r.body.error) || T('The name could not be saved.')];
+        // The server's sentence, in the language on screen when the Pi table has it.
+        note = ['warn', (r.body && r.body.error) ? T(String(r.body.error)) : T('The name could not be saved.')];
         c.render();
       }, function () {
         busy = false;
@@ -183,7 +184,7 @@
           c.toast('ok', T('You are off the board. Your account and positions are unchanged.'));
           return c.refresh();
         }
-        note = ['warn', (r.body && r.body.error) || T('That could not be done just now.')];
+        note = ['warn', (r.body && r.body.error) ? T(String(r.body.error)) : T('That could not be done just now.')];
         c.render();
       }, function () {
         busy = false;

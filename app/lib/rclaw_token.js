@@ -3,11 +3,15 @@
  * The $RCLAW token that exists: one record, read, never retyped.
  *
  * `token/config/rclaw.mainnet.json` holds what was read back from Solana
- * mainnet for the mint and what has been announced about the presale (since
- * 2026-10-10, the Smithii sale's terms; a field still null is rendered "not
- * announced yet", never a blank cell). The bot reads the same file
- * (`bot/token/record.py`), so the /token page and the bot's /rclaw card
+ * mainnet for the mint, its locks and its multisig. The bot reads the same
+ * file (`bot/token/record.py`), so the /token page and the bot's /rclaw card
  * cannot name two mints.
+ *
+ * NO PRESALE. The owner took the presale off the website and the bot on
+ * 22 October 2026. The website's copy is written without the record's
+ * `presale` block (`app/scripts/sync_content.js`, websiteRecord), and
+ * `publicRecord` drops one anyway, so a copy that carried it still could not
+ * serve it.
  *
  * A record that cannot be read THROWS. The mint address is the one thing a
  * visitor comes for, and a guessed or defaulted address is worse than none:
@@ -29,7 +33,7 @@ const RECORD_PATH = path.join(__dirname, '..', 'content', 'rclaw.mainnet.json');
 const REQUIRED_KEYS = [
   'name', 'symbol', 'chain', 'cluster', 'mint', 'token_program', 'standard',
   'decimals', 'supply_tokens', 'mint_authority', 'freeze_authority',
-  'explorer', 'presale',
+  'explorer',
 ];
 
 const BASE58_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -52,29 +56,23 @@ function readRecord(file) {
   if (typeof data.mint !== 'string' || !BASE58_ADDRESS.test(data.mint)) {
     throw new TokenRecordInvalid('the mint is not a base58 address');
   }
-  if (!data.presale || typeof data.presale !== 'object' || Array.isArray(data.presale)
-      || !Object.prototype.hasOwnProperty.call(data.presale, 'status')) {
-    throw new TokenRecordInvalid('the presale block has no status');
-  }
   return data;
 }
 
 /**
  * What the public route serves: the record minus its editor notes (in it,
- * its presale block, its locks block, its multisig block and the Smithii
- * audits block) and the basis
- * column. Nothing here is a dollar figure or a user's account; a presale
- * price, once announced, is a term of the sale and arrives as whatever string
- * the announcement uses, and a lock's or the multisig's addresses are public
- * chain accounts.
+ * its locks block, its multisig block and the Smithii audits block), the
+ * basis column and any presale block. Nothing here is a dollar figure or a
+ * user's account; a lock's or the multisig's addresses are public chain
+ * accounts.
  */
 function publicRecord(record) {
   const out = {};
   for (const [k, v] of Object.entries(record)) {
-    if (k.startsWith('_') || k === 'basis') continue;
+    if (k.startsWith('_') || k === 'basis' || k === 'presale') continue;
     out[k] = v;
   }
-  for (const block of ['presale', 'locks', 'multisig', 'smithii_audits']) {
+  for (const block of ['locks', 'multisig', 'smithii_audits']) {
     if (!out[block] || typeof out[block] !== 'object' || Array.isArray(out[block])) continue;
     const kept = {};
     for (const [k, v] of Object.entries(out[block])) {

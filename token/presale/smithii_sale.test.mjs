@@ -527,7 +527,9 @@ test('the plan command: a zone that does not exist exits 2 and prints nothing; a
 // these documents state is held to the config, and the runbook's dated plan is derived from it.
 
 const REPO = path.join(HERE, '..', '..');
-const WINDOW_DOCS = ['docs/TOKEN_ROADMAP.md', 'docs/gitbook/token-roadmap.md', 'docs/assets/presale/README.md', 'token/presale/RUNBOOK.md'];
+// The GitBook's token page is not here: the website serves it, and it carries no sale since 22 October
+// 2026 (venue_parity.test.mjs, "the GitBook, which the website serves, describes no sale").
+const WINDOW_DOCS = ['docs/TOKEN_ROADMAP.md', 'docs/assets/presale/README.md', 'token/presale/RUNBOOK.md'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // The three ways these documents write a range: "15 Oct → 29 Oct 2026", "15–29 Oct 2026" and "15 → 29 Oct 2026".

@@ -164,13 +164,13 @@ def test_the_whole_card_fits_one_telegram_message():
     assert len(render_token_card(record, operator=True, env_mint=None)) <= _split_at()
 
 
-def test_the_card_carries_the_locks_section_between_the_presale_and_the_warning():
+def test_the_card_carries_the_locks_section_between_the_mint_facts_and_the_warning():
     record = _record()
     card = render_token_card(record).splitlines()
     section = locks_lines(record)
     start = card.index(section[0])
     assert card[start:start + len(section)] == section
-    assert start > next(i for i, line in enumerate(card) if "Presale:" in line)
+    assert start > next(i for i, line in enumerate(card) if "View on Solscan" in line)
     assert start < next(i for i, line in enumerate(card) if line.startswith("⚠️ Only this mint"))
 
 

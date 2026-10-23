@@ -60,17 +60,31 @@ class _Learner:
         return self._report
 
 
-def _assess(monkeypatch, *, holds, judged, n_test, n_learned=None):
+def _ranked(n_test, auc_w=0.64, auc_u=0.55, lower=0.02):
+    """A trade-level block a `trade_ranking` run on `n_test` trades could
+    write: winners and losers add up to the trades scored, and the difference
+    is the two AUCs'. READY needs this test to pass as well as the voters'."""
+    n_win = n_test // 2 + 1
+    return {"n_scored": n_test, "n_unscored": 0, "n_win": n_win,
+            "n_loss": n_test - n_win, "auc_weighted": auc_w,
+            "auc_unweighted": auc_u, "diff": round(auc_w - auc_u, 4),
+            "lower": lower, "resamples": 1000}
+
+
+def _assess(monkeypatch, *, holds, judged, n_test, n_learned=None, trades=None):
     """Plant `holds of judged` and return the whole assessment.
 
     Counts, not a rate: the rate is derived from them here exactly as
     `validate_oos` derives it, so the fixture cannot express a report the
-    producer could not have written.
+    producer could not have written. The trade-level test passes unless
+    `trades` says otherwise: this file is about the voters' margin.
     """
     import bot.learning.voter_weights as vw
     report = {"n_train": 40, "n_test": n_test,
               "n_judged": judged, "n_holds": holds,
               "hold_rate": round(holds / judged, 4) if judged else 0.0,
+              "min_oos_agree": 8, "n_thin": 0,
+              "trades": _ranked(n_test) if trades is None else trades,
               "voters": {f"v{i}": {} for i in
                          range(judged if n_learned is None else n_learned)}}
     monkeypatch.setattr(vw, "VoterWeightLearner", lambda *a, **k: _Learner(report))

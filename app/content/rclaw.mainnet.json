@@ -29,23 +29,6 @@
     "created_at": "blockTime of the only signature getSignaturesForAddress(mint) returns (slot 452023656)",
     "name, symbol, icon": "lite-api.jup.ag/tokens/v2/search?query=<mint>"
   },
-  "presale": {
-    "_comment": "ANNOUNCED: the terms of the Smithii sale, written the way the website and the bot print them. Each is derived from token/presale/smithii.config.json (smithii_lib.mjs, recordTerms) and token/presale/the_record_states_the_sale.test.mjs fails when they differ, so change the config first and copy what the test prints. null is NOT ANNOUNCED (for sale_url: the sale is not created yet), and every reader says so in words; never fill a field with a placeholder. sale_url is set after Create: an https link on smithii.io, the only kind the website and the bot will show (tests/fixtures/sale_url_cases.json). opens_at and closes_at are the sale window Create fixed on chain (smithii_lib.mjs, recordWindow): they are not printed as terms; the website and the bot read them with the clock to say announced, live or ended (tests/fixtures/presale_phase_cases.json drives both). After editing, run node app/scripts/sync_content.js.",
-    "status": "announced",
-    "date": "15 Oct → 29 Oct 2026, or until the hard cap",
-    "opens_at": "2026-10-15T14:00:00Z",
-    "closes_at": "2026-10-29T14:00:00Z",
-    "price": "30,000.3 RCLAW per SOL",
-    "venue": "Smithii launchpad (Solana)",
-    "allocation_tokens": "150000000",
-    "hard_cap": "5,000 SOL (soft cap 1,000 SOL: a target, not enforced)",
-    "per_wallet": "0.25–25 SOL",
-    "whitelist": "None",
-    "claim": "100% when the sale ends. No vesting for buyers",
-    "refunds": "None",
-    "after_sale": "The team creates the pool at the sale price with 80% of the SOL raised and burns the LP. The sale contract does not do this.",
-    "sale_url": "https://tools.smithii.io/launch/solana/RUNECLAW"
-  },
   "locks": {
     "_comment": "CREATED: the time locks of docs/TOKEN_ROADMAP.md section 4, made in Smithii Token Vesting, written the way the website (/token) and the bot (/rclaw) print them. bucket, tokens, schedule, unlocks and certificate_url are derived from token/presale/locks.plan.json (locks_lib.mjs, recordLocks); vesting_account and claim_wallet are what creating the lock decided. token/presale/the_record_states_the_locks.test.mjs holds every field to the plan and to a snapshot of the chain that npm run presale:locks-verify took; a lock not created yet has null in its three created fields, which every reader prints as not created yet. After editing, run node app/scripts/sync_content.js.",
     "verified_at": "2026-10-13",
@@ -170,22 +153,6 @@
         "program": "vesFcnNXtfS9JMtspbe9SkMJiRiSPwsywuWMjYwxQ2K",
         "final_report": "2025-04-24",
         "url": "https://www.halborn.com/audits/smithii/vesting-1ae001"
-      },
-      {
-        "auditor": "CoinFabrik",
-        "subject": "Smithii Mantis Protocol (the sale program)",
-        "date": "2024-06",
-        "program": "mntsCeVAzanrbTT3gZZzkeJMNJjeXAnPqy5AQhBUkVU",
-        "final_report": "2024-07-02",
-        "url": "https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/06-2024-coinfabrik-smithii_mantis_protocol_audit.pdf"
-      },
-      {
-        "auditor": "CoinFabrik",
-        "subject": "Smithii project",
-        "date": "2024-05",
-        "program": null,
-        "final_report": null,
-        "url": "https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/05-2024-coinfabrik-smithii_project_audit.pdf"
       }
     ]
   }

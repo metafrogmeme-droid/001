@@ -256,8 +256,10 @@
           else note = ['ok', recordedText(r.body)];
         } else {
           // The server names why: a closed round, a price it could not read,
-          // a call already made, a word this round does not take.
-          note = ['warn', (r.body && r.body.error) || T('Your call could not be recorded.')];
+          // a call already made, a word this round does not take. Its literal
+          // sentences are in the Pi table (build_pi_i18n.js SERVER_SOURCES);
+          // one built from a template prints as sent.
+          note = ['warn', (r.body && r.body.error) ? T(String(r.body.error)) : T('Your call could not be recorded.')];
         }
         lastRead = null;
         return load();

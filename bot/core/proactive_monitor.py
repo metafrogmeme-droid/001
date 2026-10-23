@@ -1584,6 +1584,30 @@ class ProactiveMonitor:
             state = comp.get("state", "?")
             prev = self._readiness_states.get(name)
             self._readiness_states[name] = state
+            # A READY THAT LAPSES IS SAID, TOO. The card that announced READY
+            # recommended a live-money flag; when the same component stops
+            # clearing its bar, silence would leave that recommendation
+            # standing in the operator's chat as the last word on it. Applied
+            # or not changes the advice, so the card says which.
+            if prev == "READY" and state != "READY":
+                applied = comp.get("applied") is True
+                flag = comp.get("flag") or "its flag"
+                advice = (f"It is still APPLIED ({flag} on): consider turning it "
+                          "off until it clears again." if applied else
+                          f"Leave {flag} off: the earlier READY card's advice no "
+                          "longer holds.")
+                alerts.append(Alert(
+                    alert_type="LEARNING_NOT_READY",
+                    severity="WARNING" if applied else "INFO",
+                    title=f"Learning component no longer ready: {name}",
+                    body=("\u26a0\ufe0f <b>LEARNING COMPONENT NO LONGER READY</b>\n"
+                          "────────────────\n"
+                          f"<b>{name}</b> no longer clears its evidence bar "
+                          f"({state}). {advice}\n\n" + render_report(assessment) +
+                          "\n\n\U0001f449 /readiness — full report"),
+                    dedup_key=f"learning_not_ready_{name}", audience="admin",
+                ))
+                continue
             # First observation seeds the baseline silently; only a genuine
             # transition INTO READY (while not yet applied) alerts.
             if prev is None or state != "READY" or prev == "READY":

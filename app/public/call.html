@@ -129,6 +129,9 @@ function sameAfterStorage(key, sealed, live) {
     var btn = box.querySelector('#rcMake');
     var note = box.querySelector('.rc-note');
     var res = box.querySelector('.rc-out');
+    // The label also carries data-i18n: this can run before i18n-core.js has
+    // loaded (the receipt fetch resolves while the parser waits on it), and
+    // the translator's own pass then says it in the reader's language.
     btn.textContent = t('rc.make', 'Make a card');
     var getJson = function (url) {
       return fetch(url, { headers: { Accept: 'application/json' } })
@@ -439,7 +442,7 @@ function sameAfterStorage(key, sealed, live) {
           html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
           html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';
           if (intact && p.kind === 'duel_pick' && d.kind === 'duel_pick') {
-            html += '<div class="rc-card" id="rcCard"><button type="button" class="btn" id="rcMake">Make a card</button>'
+            html += '<div class="rc-card" id="rcCard"><button type="button" class="btn" id="rcMake" data-i18n="rc.make">Make a card</button>'
               + '<p class="rc-note muted" aria-live="polite"></p><div class="rc-out"></div></div>';
           }
           out.innerHTML = html;
@@ -619,8 +622,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=204"></script>
-<script src="/js/presale.js?v=2"></script>
+<script src="/js/i18n-core.js?v=205"></script>
   <script>
   (function () {
     // The share payload is the receipt URL + an honest line. No numbers ride

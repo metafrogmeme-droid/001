@@ -1,8 +1,9 @@
 // The record names Smithii's audits, and the sentence beside them is held to the deploy dates on record.
 //
-// token/config/rclaw.mainnet.json lists the audits Smithii commissioned of its own programs, and the
-// website prints them with one sentence of context: both programs were last deployed before their
-// latest audit's final report, so the code running is not shown to be the audited code. That
+// token/config/rclaw.mainnet.json lists the audits Smithii commissioned of its own programs. The
+// website prints the vesting program's (the one that holds the locks; it carries no sale since
+// 22 October 2026) with one sentence of context: the program was last deployed before its latest
+// audit's final report, so the code running is not shown to be the audited code. That
 // sentence is a claim about two dates this repo already holds (smithii.config.json
 // program.lastDeployedAt, locks.plan.json tool.programLastDeployed, both read from the chain and
 // pinned by the verifiers), so it is held to them here, in every language the page speaks: a
@@ -56,13 +57,22 @@ test('both programs were last deployed before their latest audit\'s final report
   }
 });
 
-test('the sentence beside the links carries both deploy dates, in every language', () => {
-  for (const d of [SALE_DEPLOYED, VESTING_DEPLOYED]) assert.ok(page.AUDITS_BODY.includes(d), d);
+test('the website shows the vesting program\'s audit, with its deploy date, in every language', () => {
+  // The website carries no sale since 22 October 2026: its copy of the record keeps only the audits
+  // of the program that holds the locks (app/scripts/sync_content.js, websiteRecord), and the
+  // sentence beside them speaks of that program alone.
+  const sync = require('../../app/scripts/sync_content.js');
+  const shown = JSON.parse(sync.websiteRecord().toString('utf8')).smithii_audits.items;
+  assert.deepEqual(shown, items.filter((i) => i.program === plan.tool.program));
+  assert.ok(shown.length >= 1 && shown.length < items.length, 'the filter kept nothing, or dropped nothing');
+  assert.ok(page.AUDITS_BODY.includes(VESTING_DEPLOYED), VESTING_DEPLOYED);
+  assert.ok(!page.AUDITS_BODY.includes(SALE_DEPLOYED), 'the website still dates the sale program');
   assert.equal(STRINGS['tok.audits_body'].en, page.AUDITS_BODY);
   for (const l of LANGS) {
     const t = STRINGS['tok.audits_body'][l.code];
     assert.ok(t, `tok.audits_body has no ${l.code}`);
-    for (const d of [SALE_DEPLOYED, VESTING_DEPLOYED]) assert.ok(t.includes(d), `${l.code} lacks ${d}`);
+    assert.ok(t.includes(VESTING_DEPLOYED), `${l.code} lacks ${VESTING_DEPLOYED}`);
+    assert.ok(!t.includes(SALE_DEPLOYED), `${l.code} still dates the sale program`);
     assert.ok(STRINGS['tok.audits_h'][l.code], `tok.audits_h has no ${l.code}`);
   }
 });

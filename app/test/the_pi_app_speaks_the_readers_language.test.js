@@ -137,8 +137,12 @@ test('the collector reads the page\'s own scripts, and finds every kind of sente
  * cannot see, so no language has it. Each one is named with what supplies its
  * English, and a named site that is gone fails too.
  */
+const SERVER = 'a sentence the server sent: its literal refusals and the coach\'s fixed answers are collected from the server code (build_pi_i18n.js SERVER_SOURCES); any other prints as sent';
 const DYNAMIC_T = {
-  'arena-session.js': ['T(x.label)', 'a tab block\'s `label:` literal, collected from the pi-*.js blocks'],
+  'arena-session.js': [['T(x.label)', 'a tab block\'s `label:` literal, collected from the pi-*.js blocks']],
+  'pi-coach.js': [['T(b.reply_html)', SERVER + ' (only for an intent in FIXED_INTENTS)']],
+  'pi-duel.js': [['T(String(r.body.error)', SERVER]],
+  'pi-leaders.js': [['T(String(r.body.error)', SERVER], ['T(String(r.body.error)', SERVER]],
 };
 
 test('every T in the Pi app is called on a literal, except the named ones', () => {
@@ -154,7 +158,7 @@ test('every T in the Pi app is called on a literal, except the named ones', () =
       (found[path.basename(file)] = found[path.basename(file)] || []).push('T(' + m[1].trim() + ')');
     }
   }
-  const want = Object.fromEntries(Object.entries(DYNAMIC_T).map(([f, [call]]) => [f, [call]]));
+  const want = Object.fromEntries(Object.entries(DYNAMIC_T).map(([f, calls]) => [f, calls.map(([call]) => call)]));
   assert.deepStrictEqual(found, want);
 });
 

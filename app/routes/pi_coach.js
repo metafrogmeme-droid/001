@@ -109,7 +109,7 @@ router.post('/', authMiddleware, limit, async (req, res) => {
       return res.status(429).json({ error: 'daily_limit', limit: before.limit, left: 0,
         resets_at: before.resets_at, plus: before.plus });
     }
-    const context = await coach.facts(userId, ab.about, { arena: deps().arena, duel: deps().duel });
+    const context = await coach.facts(userId, ab.about, { arena: deps().arena, duel: deps().duel, tickers: deps().tickers }, text);
     const lang = typeof body.lang === 'string' && /^[a-zA-Z-]{2,12}$/.test(body.lang) ? body.lang : '';
     const r = await gw().postGateway('/chat/pi-coach', { text, context, ...(lang ? { lang } : {}) }, TIMEOUT_MS);
     const data = r && r.data;

@@ -18,8 +18,17 @@
  * `token/config/` (`bot/token/record.py`), and the operator writes lessons in
  * `docs/learn/`. These are copies, written by this script and nothing else,
  * and `app/test/the_website_carries_what_it_serves.test.js` fails when one
- * differs from its original, so a record edited for the presale and not
- * synced fails CI instead of showing two mints.
+ * differs from its original, so a record edited and not synced fails CI
+ * instead of showing two mints.
+ *
+ * ONE COPY IS NOT BYTE-EXACT: the token record's. The website carries no
+ * presale (the owner took it off the website and the bot on 22 October 2026),
+ * so the copy is the record minus its `presale` block, and its Smithii audits
+ * are only those of the program that holds the token's locks
+ * (`token/presale/locks.plan.json`, tool.program): the others are audits of
+ * the sale program. The original keeps both, as the token tooling's own
+ * account of the sale. `websiteRecord` is that transform, and `drift`
+ * compares the copy with it, so the copy still cannot fall behind.
  *
  * The documentation at /docs is the same shape: the README and the agent card
  * link `docs/gitbook/` on GitHub, and the website serves its copy under
@@ -46,6 +55,30 @@ const path = require('node:path');
 
 const REPO = path.join(__dirname, '..', '..');
 const CONTENT = path.join(__dirname, '..', 'content');
+const TOKEN_RECORD = 'token/config/rclaw.mainnet.json';
+const LOCKS_PLAN = 'token/presale/locks.plan.json';
+
+/**
+ * The website's copy of the token record, as bytes: no `presale` block, and only the audits of
+ * the program that holds the locks. Formatted as the original is (two spaces, a final newline),
+ * so the copy reads like the file it came from.
+ */
+function websiteRecord(repo = REPO) {
+  const record = JSON.parse(fs.readFileSync(path.join(repo, TOKEN_RECORD), 'utf8'));
+  const vesting = JSON.parse(fs.readFileSync(path.join(repo, LOCKS_PLAN), 'utf8')).tool.program;
+  if (typeof vesting !== 'string' || !vesting) throw new Error(`${LOCKS_PLAN} names no vesting program`);
+  delete record.presale;
+  const audits = record.smithii_audits;
+  if (audits && Array.isArray(audits.items)) {
+    audits.items = audits.items.filter((it) => it && it.program === vesting);
+  }
+  return Buffer.from(JSON.stringify(record, null, 2) + '\n', 'utf8');
+}
+
+/** The bytes a copy must hold: the original's, except the token record's (`websiteRecord`). */
+function wanted(src, repo = REPO) {
+  return src === TOKEN_RECORD ? websiteRecord(repo) : fs.readFileSync(path.join(repo, src));
+}
 
 /**
  * The folders the website mirrors: [folder in the repo, folder under
@@ -68,7 +101,7 @@ const MIRRORS = [
 /** [source relative to the repo, copy relative to app/content]. One reading. */
 function plan({ repo = REPO } = {}) {
   const pairs = [
-    ['token/config/rclaw.mainnet.json', 'rclaw.mainnet.json'],
+    [TOKEN_RECORD, 'rclaw.mainnet.json'],
     // The pre-registered studies registry, which /api/public/studies serves
     // (app/lib/studies.js). The README's table and scripts/verify_evidence.py
     // read the original.
@@ -91,7 +124,7 @@ function drift({ repo = REPO, content = CONTENT } = {}) {
   const pairs = plan({ repo });
   const out = [];
   for (const [src, dst] of pairs) {
-    const want = fs.readFileSync(path.join(repo, src));
+    const want = wanted(src, repo);
     let have = null;
     try { have = fs.readFileSync(path.join(content, dst)); } catch (e) { have = null; }
     if (have === null) out.push(`missing app/content/${dst} (copy of ${src})`);
@@ -119,7 +152,7 @@ function write({ repo = REPO, content = CONTENT } = {}) {
   }
   for (const [src, dst] of pairs) {
     fs.mkdirSync(path.dirname(path.join(content, dst)), { recursive: true });
-    fs.copyFileSync(path.join(repo, src), path.join(content, dst));
+    fs.writeFileSync(path.join(content, dst), wanted(src, repo));
   }
   return pairs.length;
 }
@@ -138,4 +171,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { plan, drift, write, MIRRORS, CONTENT, REPO };
+module.exports = { plan, drift, write, wanted, websiteRecord, MIRRORS, CONTENT, REPO, TOKEN_RECORD, LOCKS_PLAN };

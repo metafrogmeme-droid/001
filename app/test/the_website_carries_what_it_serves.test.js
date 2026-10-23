@@ -65,6 +65,8 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   fs.mkdirSync(path.join(repo, 'docs', 'learn'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'docs', 'gitbook'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'token', 'config', 'rclaw.mainnet.json'), '{"a":1}\n');
+  fs.mkdirSync(path.join(repo, 'token', 'presale'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'token', 'presale', 'locks.plan.json'), '{"tool":{"program":"V"}}\n');
   fs.mkdirSync(path.join(repo, 'benchmark'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'benchmark', 'studies.json'), '{"studies":[]}\n');
   // The weekly record's folder, with its README and no week yet: nothing to copy.
@@ -101,6 +103,29 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
 
   sync.write({ repo, content });
   assert.deepStrictEqual(sync.drift({ repo, content }), [], 'write removes the stray too');
+});
+
+test('the token record\'s copy is the record without its sale, and its audits only of the locks\' program', () => {
+  const repo = tmp('repo-');
+  fs.mkdirSync(path.join(repo, 'token', 'config'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'token', 'presale'), { recursive: true });
+  const original = {
+    mint: 'M', presale: { status: 'announced', sale_url: 'https://tools.smithii.io/launch/solana/X' },
+    smithii_audits: { _comment: 'n', items: [{ program: 'V', subject: 'vesting' }, { program: 'S', subject: 'sale' }, { program: null, subject: 'project' }] },
+    locks: { items: [] },
+  };
+  fs.writeFileSync(path.join(repo, 'token', 'config', 'rclaw.mainnet.json'), JSON.stringify(original, null, 2) + '\n');
+  fs.writeFileSync(path.join(repo, 'token', 'presale', 'locks.plan.json'), '{"tool":{"program":"V"}}\n');
+  const copy = JSON.parse(sync.websiteRecord(repo).toString('utf8'));
+  assert.ok(!('presale' in copy), 'the copy carries the sale');
+  assert.deepStrictEqual(copy.smithii_audits.items, [{ program: 'V', subject: 'vesting' }]);
+  assert.strictEqual(copy.smithii_audits._comment, 'n');
+  // Both arms: everything that is not the sale arrives as it was.
+  assert.deepStrictEqual({ ...copy, smithii_audits: original.smithii_audits }, (({ presale, ...rest }) => rest)(original));
+  assert.ok(sync.websiteRecord(repo).toString('utf8').endsWith('}\n'), 'formatted as the original is');
+  // A plan that names no program is refused, not read as "keep nothing".
+  fs.writeFileSync(path.join(repo, 'token', 'presale', 'locks.plan.json'), '{"tool":{}}\n');
+  assert.throws(() => sync.websiteRecord(repo), /names no vesting program/);
 });
 
 // ── the deploy shape that failed: app/ with nothing beside it ─────────────

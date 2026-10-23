@@ -19775,7 +19775,7 @@ says so.
 https link on smithii.io or a subdomain, written plainly (no port, no userinfo,
 no whitespace, at most 300 characters). Anything else reads "unreadable", and
 the refused text is not printed at all. The two readers are two languages, so
-the rule lives twice; `tests/fixtures/sale_url_cases.json` is the one list both
+the rule lives twice; tests/fixtures/sale_url_cases.json (removed with the presale, 2026-10-22) is the one list both
 are driven against (a `.` in a lookalike host, `@` userinfo, a backslash, a
 trailing newline Python's `$` would have accepted, which is why the bot uses
 `fullmatch`). Both readers list the terms they print, and each list is held to
@@ -19802,7 +19802,7 @@ Create fixed on chain (`opens_at`, `closes_at`, derived from `smithii.config.jso
 by `recordWindow` and held to it), and both readers answer announced, live or
 ended from it (`presalePhase` in `token-page.js`, `presale_phase` in
 `token_card.py`). The two languages share one table of cases
-(`tests/fixtures/presale_phase_cases.json`): the instants either side of the open
+(tests/fixtures/presale_phase_cases.json (removed with the presale, 2026-10-22)): the instants either side of the open
 and the close, and windows that cannot be read. An unreadable window says only
 the record's own word, "announced", which stays true of a sale that has opened,
 and states no time. The hard cap can end the sale before `closes_at`, which
@@ -19849,8 +19849,8 @@ killed after one fixture fix: dropping the "only a 200 is a read" check survived
 503 the test served carried no token, so it could not produce the state the check exists for.
 It now also serves a 503 whose body is a live record (a stale copy a proxy kept), and the bar
 stays down.
-(`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`,
-`tests/test_the_bot_says_the_presale_is_live.py`.)
+(the_presale_bar_says_live_and_steps_aside.smoke.test.js (removed with the presale, 2026-10-22),
+test_the_bot_says_the_presale_is_live.py (removed with the presale, 2026-10-22).)
 
 **THE COMMUNITY LOCK RAN AHEAD OF ITS LINE AT EVERY STEP, AND ITS NOTE SAID ONLY AT TGE.** The
 plan of 2026-10-10 made the community lock five equal 20% steps, and its note called it "the one
@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 279 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 280 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **506 of 1362** reach for source text through `source_scan`, `code_only`
+Driven, **507 of 1363** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 506 is a FLOOR and the honest shape is
+source scan that rule does not see, so 507 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -25676,12 +25676,12 @@ The general shape: a dismissal is a claim about the visitor's intent, and
 reports a missing element, a fresh visit that shows it is not an answer; the
 question is what state the reporter's browser is in that a fresh visit is not.
 
-(`app/test/the_presale_is_on_a_phones_first_screen.smoke.test.js` draws the
+(the_presale_is_on_a_phones_first_screen.smoke.test.js (removed with the presale, 2026-10-22) draws the
 home page in Chromium at 412x780 and 360x640 with the real record and the clock
 inside the window: with the bar up and with it closed, the presale line ends
 inside the first screen, is drawn, says the sale is live and sits above the
 headline, and an invite link does not push it down.
-`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js` now holds
+the_presale_bar_says_live_and_steps_aside.smoke.test.js (removed with the presale, 2026-10-22) now holds
 both arms of the day, the old-shape value and the future stamp. Four mutants,
 all killed.)
 
@@ -26126,7 +26126,7 @@ depends on now: on a page that carries `presale.js` it holds for the
 `/api/token` response (a 500 is an answer too, so the no-bar arms wait the
 same way), and keeps the beat after it; a page without the script waits for
 nothing. A fixed delay in a browser test is a measurement of the box it was
-written on. (`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`.)
+written on. (the_presale_bar_says_live_and_steps_aside.smoke.test.js (removed with the presale, 2026-10-22).)
 
 **THE ONE PRIVACY POLICY ANSWERED 404 AT ITS OWN CANONICAL URL, AND A SECOND COPY WOULD HAVE BEEN THE FIX THAT REPEATS THE INCIDENT.**
 On 2026-10-17 Pi's Developer Portal refused to list the Pi app without a
@@ -29010,3 +29010,349 @@ Both tests were fixed and all 46 are killed.
 Each rendered card's QR was decoded with an independent decoder (jsQR, run
 outside the repo; it is not a dependency), in English and German, pending
 and settled.
+
+## VOTERS THAT KEEP THEIR SIGNS ARE NOT WEIGHTS THAT PICK BETTER TRADES, AND A READY THAT LAPSES IS SAID
+
+22 October 2026. The bot's readiness alert reached the owner:
+
+    ✅ voter_weights: READY
+       69% of 35 voter(s) held direction on 65 unseen trade(s)
+       (bar 60%, 95% lower bound 52%)
+    • voter_weights is validated but not applied —
+      consider VOTER_WEIGHT_LEARNING_ENABLED=true
+
+That flag reweights the confluence on the live account. Two things under the
+card made 52% read stronger than the evidence was.
+
+- **Every voter was judged on the same 65 trades.** The Wilson bound treats
+  35 voters as 35 independent trials. They are 35 readings of one sample of
+  trades, so one lucky stretch moves many of them together. No interval over
+  voters can fix that.
+- **A voter was judged on one trade.** Training moves a voter only after 8
+  agreeing trades (`min_voter_samples`). Judging counted a voter that agreed
+  with a single unseen trade as a whole yes or no, which on one trade is a
+  coin flip.
+
+**What READY needs now** (`bot/learning/readiness.py`):
+- The voter test, as before, but a voter is judged only on at least as many
+  unseen trades as it was trained on (`validate_oos(min_oos_agree=...)`,
+  default `min_voter_samples`). Voters with fewer are counted apart
+  (`n_thin`), and the card names them: "; 6 more agreed with too few to
+  judge".
+- A trade-level test (`voter_weights.trade_ranking`). Turning the flag on
+  changes how trades are scored, so that is what is measured. Each unseen
+  trade is scored twice, with the analyzer's own normalisation (weighted vote
+  sum over total weight, neutral voters included), once with the learned
+  multipliers and once without. Each scoring gets its AUC: the chance a
+  winner outscores a loser, ties counted half. `lower` is the 2.5th
+  percentile of the AUC difference over 1,000 resamples of the TRADES, with
+  the two scorings resampled together so the comparison stays paired. The
+  seed is fixed, so one record gives one report.
+- READY needs both tests to pass, at least 10 winners and 10 losers among the
+  unseen trades, and `lower > 0`. The card prints both AUCs, the difference
+  and the bound.
+
+**Measured on synthetic histories with the test file's own generators**
+(300 trades, time-ordered 70/30 split, 22 October 2026):
+- **Predictive** (8 voters right 68% of the time, 4 right 32%, 6 at random):
+  `lower` was above zero on all 8 seeds tried, from +0.029 to +0.064.
+- **Pure noise** (8 voters at random): `lower` stayed at or below zero on all
+  8 seeds, from -0.027 to -0.004. On two of those seeds the hold rate alone
+  reached the 60% bar (5 of 8 and 6 of 8). The Wilson bound stopped those
+  two; the trade test would have too.
+
+The plain score's AUC on noise ranged from 0.37 to 0.59 on 90 trades. That
+is why the test is the DIFFERENCE between the two scorings on the same
+trades, never either AUC against 0.5.
+
+**Three values, not two, four times over.** "0 winner(s) and 0 loser(s)"
+would be a count of a comparison that never ran. So:
+- no trade-level record says "was not run";
+- a record without its counts says "could not be read";
+- too few of either outcome says so with both counts;
+- enough of each but no interval says "could not be computed".
+
+The mutation round found the last case. Before it, a missing bound fell into
+the too-few branch, and the card would have said "30 winner(s) and 35
+loser(s): need >= 10 of each".
+
+**A READY that lapses is said** (`ProactiveMonitor._check_learning_readiness`).
+The monitor alerted only on a move INTO READY. A component that stopped
+clearing its bar left the old card, with its live-money recommendation, as
+the last word in the operator's chat. `LEARNING_NOT_READY` (admin only) now
+says so once. It says "leave the flag off" when the flag is off, and
+"consider turning it off" (as a WARNING) when it is on. The monitor's state
+is the process's own memory: the first observation after a restart is a
+baseline, not a lapse, so this deploy will not itself announce the change.
+`/readiness` reads the gate fresh.
+
+**What is not known yet:** whether the live voter weights clear the trade
+test. This sandbox has no live decision store. After the deploy,
+`/readiness` answers it, and `VOTER_WEIGHT_LEARNING_ENABLED` stays off until
+it says READY under the new gate.
+
+- **Guard tests:** `tests/test_the_weights_have_to_pick_better_trades.py`
+  (34), plus the planted reports in `tests/test_voter_bar_needs_a_margin.py`
+  and `tests/test_readiness_bar_needs_evidence.py`, which now carry a trade
+  record.
+- **Mutation round:** 40 mutants. The first pass left 7 alive:
+  - 2 test gaps on the judging floor: a voter that training left unmoved, and
+    a moved voter with no unseen trade;
+  - 2 on the outcome floor: the loser test was written relative to the
+    constant, so changing the constant changed the test with it. It is now
+    pinned at 10 on both sides;
+  - the missing-bound sentence above;
+  - 2 equivalent mutants. One was removed by making the no-direction check
+    explicit. The other, `a_w is None or a_u is None` to `and`, is equivalent
+    because both AUCs depend only on the same outcomes.
+
+  After the fixes, 39 of 40 were killed and 1 is equivalent. The 7 mutants
+  on the rewritten branches were then run alone: 6 killed, 1 equivalent
+  (`t_lower is not None` after the branch that handles None).
+
+## TAKING A SALE OFF A SITE IS A SWEEP OF EVERY SURFACE THAT ADVERTISED IT, AND THE RECORD THE TOOLING KEEPS IS NOT THE RECORD THE WEBSITE SHOWS
+
+22 October 2026, with the sale's window still open on chain: the owner asked
+for the presale to come off the bot and the website. Three choices were
+theirs, asked first: the home page's token strip goes, the tokenomics image
+goes (its allocation names a "Public presale 15%"), and nothing replaces the
+sale with a sentence about it. The token's own facts stay: the mint, the
+supply, the revoked authorities, the locks, the multisig, and the audit of
+the program that holds the locks.
+
+**Where the sale was.** The sweep found it on 40 pages (a bar loaded by
+`presale.js`), the home page's first line, `/token`'s sale block and its link
+preview, 32 strings in 14 languages, the bot's /rclaw card, the line /start
+and both welcome messages appended, /rclaw's description in 14 languages, the
+docs `/docs` serves, and both READMEs. Each is gone. The search ran over the
+sale's word in every language the site speaks, not the English one: a sweep
+for "presale" misses "preventa", "預售" and "пресейл", which are the same
+claim to their readers.
+
+**The record is two records now, on purpose.** `token/config/rclaw.mainnet.json`
+is the token tooling's account of what Smithii created on chain, and its
+`presale` block is held to the sale's config by the tooling's tests; it
+stays. The website's copy is no longer byte-exact: `sync_content.js`
+(`websiteRecord`) writes it without the `presale` block and with only the
+audits of the program that holds the locks (`locks.plan.json`, tool.program),
+and its drift check compares the copy with that transform, so the copy still
+cannot fall behind. `publicRecord` drops a `presale` block too, so a copy
+that carried one could not serve it. The bot reads the original and no
+longer requires or reads the block. Both readers stopped requiring it: a
+record without a sale is whole.
+
+**The tooling's tests read the website's page.** The token workspace held
+the GitBook roadmap (which `/docs` serves) to the sale's terms, its window,
+its venue table and its allocation, and held the website's audits sentence
+to both programs' deploy dates. Those were checks that the website described
+the sale honestly; with no sale on the website, the invariant is that it
+describes none. The sale's terms are still held where the sale is still
+described, the tooling's own `docs/TOKEN_ROADMAP.md`.
+
+**What the guard tests hold now.**
+- `app/test/the_token_page_names_one_mint.test.js`: the copy is the
+  transform of the original; the route serves no sale even from a record
+  that holds one; no page loads `presale.js`; the landing page has no strip;
+  `/token`'s text, preview and images name no sale; no string in any
+  language does; the docs `/docs` serves do not.
+- `tests/test_the_token_card_reads_the_one_record.py`: the card renders the
+  same with or without a sale block in the record; /start and both welcomes
+  carry no sale line; /rclaw's description names no sale in any language.
+- `tests/test_the_readme_states_the_token_record.py`: both READMEs are held
+  to the record as the website publishes it, and name no sale.
+
+The guards that kept the sale off the Pi, Telegram, DogeOS and Memeclaw pages
+stay as they are: they hold "no token here" as much as "no sale here".
+
+Mutation round: 8 mutants on the transform, the route's drop, both readers'
+required keys and the audits sentence; all 8 killed.
+
+**What this does not do.** The sale on Smithii is a contract on Solana; no
+change here opens, closes or alters it, and the sale page Smithii hosts is
+Smithii's. The token tooling (`token/`, `docs/TOKEN_ROADMAP.md`,
+`docs/assets/presale/`) still documents the sale for the operator.
+
+## A TRANSLATED APP THAT PRINTS THE SERVER'S ENGLISH IS NOT TRANSLATED, AND THE ENGLISH IS READ FROM WHERE THE SERVER SAYS IT
+
+22 October 2026. The Pi plan listed what was still English in every one of
+the Pi app's seventeen languages: the sentences the server sends back and the
+app prints. A reader who chose Türkçe and tried to take a name already taken
+read "That handle is taken — try another." in English, at the moment they
+most needed to understand the answer. The coach's four fixed answers (a token
+question, no data feed, a withheld reply, coach unavailable) were the same.
+
+**The English is read, not copied.** `app/scripts/build_pi_i18n.js` builds
+the dictionary from the `T('…')` calls in the Pi scripts. It now also reads
+`SERVER_SOURCES`: every literal `error: '…'` in `app/lib/duel_service.js`
+and `app/routes/leaderboard.js`, and the four `*_ANSWER` constants in
+`bot/web/pi_coach.py` (`PY_ANSWERS`). A sentence the server stops sending
+leaves the table; one it starts sending is missing in every language until
+it is translated, and the builder's `--check` says so. A hand-kept list of
+"the server's sentences" would have been a second copy of them.
+
+**A template is not a sentence.** A refusal built from numbers or words
+(`Call ${…} or ${…}.`, a price it could not read) changes with each answer,
+so it is not collected and still prints as sent. The plan says so, so nobody
+is surprised by it.
+
+**The client translates only what it can name.** The Pi blocks pass a
+refusal through `T(String(r.body.error))`: a sentence the table knows is
+translated, any other prints as sent. The coach translates a reply only when
+its intent is one of `FIXED_INTENTS` (`pi_coach_token`, `pi_coach_no_feed`,
+`pi_coach_withheld`, `pi_coach_unavailable`), checked both ways against the
+gateway's intents. The model's own answer (`pi_coach`) is never looked up:
+it is drawn as sent, emphasis kept, because a lookup that misses prints the
+English it was handed, and one that hits a different sentence would replace
+the reply. A fixed answer is drawn as escaped text in the reader's language;
+the model's answer keeps going through `safeReply`.
+
+**What the tests hold.** `app/test/the_pi_app_says_the_servers_words_in_its_language.test.js`:
+- the four answers are read from `pi_coach.py` by Python's own parser, word
+  for word, and `PY_ANSWERS` names exactly the constants that exist;
+- every literal refusal in the two files is collected, and no template is;
+- all 18 sentences are translated in all 16 other languages, and four
+  languages' built chunks answer each one with something other than the
+  English;
+- `FIXED_INTENTS` equals the gateway's fixed-answer intents both ways;
+- the coach, in German, draws the token answer in German, the model's answer
+  as sent, and an unknown fixed answer as sent;
+- a Duel refusal, in Turkish, arrives in Turkish, and one the table lacks
+  arrives as sent.
+
+`the_pi_app_speaks_the_readers_language.test.js` lists each `T()` call on a
+value that is not a literal with its reason; the three new ones are named
+there.
+
+Mutation round: 10 mutants on the builder's collection, the answer list, the
+fragment join, the intent list and its comparison, the coach's draw, and
+both refusal translations; all 10 killed.
+
+## THE COACH SPOKE THE PUBLIC PAGE'S CONTRACT, AND A REPLY CUT AT THE CAP WAS SHOWN WHOLE
+
+22 October 2026, from a phone. In the Pi app, in Dutch, a signed-in reader
+tapped Why? on an LTC SHORT signal card and asked why the agent called it and
+what would prove it wrong. The coach answered that "this page has no live
+market data", that "a signed-in account gets the live version", and stopped
+mid-sentence: "... en NEW betekent".
+
+**The public page's contract spoke for the coach.** The coach turn is a
+public turn (account-free, tool-free), and `reply_contract(public=True)`
+picked the anonymous website page's contract. The shape detector reads
+English, a Dutch question falls through it, and the fallthrough on the public
+page is `_PUBLIC_UNREAD_CONTRACT`: open with "this page has no live data",
+print no level, send them to a signed-in account for "the live one". Every
+clause was wrong here. The facts block held the card the reader asked about,
+the reader was signed in, and the Pi app has no such door; the coach's own
+rules forbid sending anyone elsewhere. The coach now gets its own contract
+(`bot/web/pi_coach.py` REPLY_CONTRACT): answer from the facts and never say
+the app has none, repeat a level only from the card and say so, never add
+one, never send them to sign in.
+
+**A reply cut at the output cap was shown as a whole reply.** The provider
+says why a reply stopped (Anthropic `stop_reason == "max_tokens"`, an
+OpenAI-compatible `finish_reason == "length"`) and nothing read it; the
+truncated text came back looking like any other. The chat model's thinking
+counts toward the cap, so a longer language meets it sooner. `stopped_at_cap`
+reads it into `usage_out["cut"]`, and `_chat_ret`, the one seam every chat
+surface returns through, trims a cut reply back to its last whole sentence
+and ends it with "…" (`trim_cut_reply`), audits it, and puts `cut` in the
+meta. The website chat and Telegram had the same defect and get the same
+line. With no whole sentence to go back to, the half-written tag and the
+emphasis it opened go, and the "…" still says it was cut.
+
+**The Proof tab named only what was pending.** "Waiting for: Bitcoin" on a
+day nobody had stamped anywhere else read as though Bitcoin were all it
+lacked; with Bitcoin the day is one chain of two. When what is pending cannot
+finish the quorum, the badge now says another chain is needed and only a
+wallet can stamp one, in all seventeen languages.
+
+Tests: `tests/test_a_coach_reply_is_the_coachs_and_a_cut_reply_says_so.py`
+(the coach's contract in every shape and language, the public page's
+unchanged, the cap read on both SDKs and judged by a tool loop's last round,
+the trim in five scripts, a cut reply trimmed and flagged and a whole one
+left alone, the same trim on the public chat), and the Proof badge's live
+case in `app/test/the_pi_app_shows_the_daily_proof.test.js`.
+
+Mutation round: 13 mutants on the contract switch, both stop readings, the
+tool loop's reset, the trim and its flag, the CJK and full-width ends, and the
+badge's two conditions. The first pass left 3 alive: two fixtures that could
+not tell the first sentence end from the last, or `。` from `？`, now can; the
+third widens "one chain short" to "any chain short with something pending",
+which differs only at a quorum of three or more, and the quorum is the
+constant 2 (`QUORUM_K`), so it is recorded as equivalent. 12 of 12 killed.
+
+**Then the owner asked for live data there too.** The coach's facts now carry
+a live-prices line for the coins the question is about: the card's first (a
+stored `BTC/USDT:USDT` read as the ticker's `BTCUSDT`), then the coins it
+names, open positions and today's rounds, at most six. The prices come from
+the same reader the Arena prices trades with (`app/lib/tickers.js`), each
+with its 24h change when that was read and the time of the read. A failed
+read writes "could not be read just now" and never the prices head. A coin
+the venue does not list is said, and an unread change is said rather than
+printed as 0%. The bot's price gate now opens only when the facts carry that
+head (`bot/web/pi_coach.py` LIVE_PRICES_HEAD, held equal to the website's by
+a test). The fixed answer says "I could not read a live price for that just
+now", reworded and translated again in all sixteen languages, because "I
+cannot read live prices from here" stopped being true. Mutation round: 12
+mutants on the line, its order, its cap, its failures and both arms of the
+gate. The first pass left one alive: the card's coin was also named in the
+question. The test now asks the way the Why? button does, naming no coin. 12
+of 12 killed.
+
+## The Bitcoin leg stalled behind one read with no timeout (22 Oct 2026)
+
+The Pi Proof days read "Bitcoin pending" hours after the calendars had an
+answer. Driven against the live site at 19:28 UTC: the stored proof for
+2026-10-19 still had four pending attestations, and the site's own
+`opentimestamps.upgrade`, run locally on that proof, merged three complete
+Bitcoin paths at once (heights 972632-972638, tip 972648). The calendars were
+fine; the job had stopped asking them.
+
+- **The one unbounded read.** Every OpenTimestamps read goes through
+  `fetchBytes` with a 15-second abort, except `root_ots.bitcoinTip`, which
+  called `fetch` bare. The tip is read only once a proof first completes, so
+  the job ran cleanly for three hours and then met a header source that held
+  the connection open.
+- **The schedule cannot recover from a pass that never ends.**
+  `shared_schedule.every` starts no tick while one is `busy`, which is right
+  for overlap and means one hung pass is the job's last.
+- **The answer was lost too.** `upgradeDay` stored the grown proof only after
+  checking it, so a check that never returned took the calendars' answer with
+  it. The proof is now stored first.
+- **The test could not see either at first.** The memory database answers
+  the one `UPDATE seal_root_ots` shape the job used, by position; a second
+  shape matched no row and wrote nothing, and a mutant removing the new write
+  survived. The write now uses the same statement with the NULL height it
+  read, and the test checks its own reset took before measuring anything.
+
+Not proven from here: that the live process is hung on this read. The log
+that would say so is the host's. What is proven is that the code could hang
+there and that the job had stopped storing what the calendars returned.
+
+## A label written before the translator loaded stayed English, and a longer wait in the test hid it (22 Oct 2026)
+
+The receipt card's button on `/call` was written by `wireCard` with
+`t('rc.make', 'Make a card')`. `i18n-core.js` is loaded at the end of the
+body, and the parser yields while it downloads. When the receipt fetch
+answered in that gap, `wireCard` ran with no translator, wrote English, and
+nothing ever corrected it. The button had no `data-i18n`, so the
+translator's own pass at `init` skipped it. A German reader on a slow
+connection saw "Make a card" for good.
+
+The smoke test caught it under load, and the first fix (5579e017) was a
+`waitForFunction` for the German label: it read the failure as a race in the
+test. The next full run under the same load failed again after 15 seconds
+with the same English label. A wait cannot fix a page that never changes its
+mind.
+
+- The fix: the button carries `data-i18n="rc.make"` as well as the `t()`
+  call, so whichever runs first, the label ends in the reader's language.
+- The test now forces the order instead of waiting for it: it holds
+  `i18n-core.js` back 1.5 seconds, checks that the receipt was answered, and
+  asserts the German label. With `data-i18n` removed it fails every run on
+  "Make a card".
+
+The lesson: when a "flaky" assertion fails, ask whether the state it waits
+for can be reached at all on the slow path, before making the wait longer.
+Any script-written label on a page whose translator loads after it needs
+`data-i18n` too, or must be written in an `rc-lang` handler.

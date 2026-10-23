@@ -2,48 +2,24 @@
 
 Three values, not two, for every field a chain can leave empty: a ``null``
 authority is *none (revoked)*, which is the fact a holder wants; a ``null``
-presale field is *not announced yet* (a ``null`` sale link: *not created
-yet*, and a ``null`` lock field: *not created yet*); a value of a shape the
-record did not promise, or a link off the one host it may name, is
-*unreadable*. None of them is ever a blank cell or ``None``.
+lock field is *not created yet*; a value of a shape the record did not
+promise, or a link off the one host it may name, is *unreadable*. None of
+them is ever a blank cell or ``None``.
+
+THE CARD CARRIES NO PRESALE. The owner took the presale off the bot and the
+website on 22 October 2026: the card is the token's facts (mint, supply,
+authorities, locks, multisig) and nothing about a sale. The record the bot
+reads may still hold a ``presale`` block (the token tooling's own account of
+the Smithii sale); nothing here reads it, and a test holds the card to that.
 """
 from __future__ import annotations
 
 import html
-import logging
 import re
-from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
-NOT_ANNOUNCED = "not announced yet"
 AUTHORITY_NONE = "none (revoked)"
 UNREADABLE = "unreadable"
-SALE_LINK_NONE = ("not created yet. It is posted here and on the website's /token page "
-                  "before the sale opens; a sale link anywhere else is not ours.")
-
-# The only sale link the card will print: https on smithii.io or a subdomain,
-# written plainly. A sale link is what a phishing clone forges first, so
-# anything else is unreadable, never a link. The website holds the same rule
-# (app/public/js/token-page.js, SALE_URL); tests/fixtures/sale_url_cases.json
-# holds both to it.
-SALE_URL = re.compile(r"https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*smithii\.io(?:/[A-Za-z0-9._~%/?#=&+-]*)?")
-SALE_URL_MAX = 300
-
-# The presale terms, in the order a buyer reads them: (record key, label).
-# Every key is a key of the record's presale block, and the test holds this
-# list to the record both ways, so a term the record announces is printed.
-TERMS = (
-    ("date", "Date"),
-    ("price", "Price"),
-    ("venue", "Venue"),
-    ("allocation_tokens", "For sale"),
-    ("hard_cap", "Hard cap"),
-    ("per_wallet", "Per wallet"),
-    ("whitelist", "Whitelist"),
-    ("claim", "Claim"),
-    ("refunds", "Refunds"),
-    ("after_sale", "After the sale"),
-)
 
 # The only certificate link the card will print for a lock: Smithii's vesting
 # certificate for a Solana lock, a lowercase slug and nothing after it. The
@@ -82,162 +58,6 @@ def supply_text(raw: Any) -> str:
     if not text.isdigit():
         raise ValueError("supply_tokens is not a whole number")
     return f"{int(text):,}"
-
-
-def is_sale_url(value: Any) -> bool:
-    """True only for a link the card may print: see ``SALE_URL``."""
-    return (isinstance(value, str) and len(value) <= SALE_URL_MAX
-            and SALE_URL.fullmatch(value) is not None)
-
-
-def _term_text(presale: Mapping[str, Any], key: str, symbol: str) -> str:
-    """A presale term in three values: absent is unreadable, ``null`` is not announced."""
-    if key not in presale:
-        return UNREADABLE
-    value = presale[key]
-    if value is None:
-        return NOT_ANNOUNCED
-    if key == "allocation_tokens":
-        text = str(value)
-        # isascii: str.isdigit() also accepts "²", which int() then refuses.
-        return f"{int(text):,} {html.escape(symbol)}" if text.isascii() and text.isdigit() else UNREADABLE
-    return html.escape(str(value))
-
-
-def _sale_link_text(presale: Mapping[str, Any]) -> str:
-    if "sale_url" not in presale:
-        return UNREADABLE
-    value = presale["sale_url"]
-    if value is None:
-        return SALE_LINK_NONE
-    if not is_sale_url(value):
-        return UNREADABLE
-    url = html.escape(value)
-    return f'<a href="{url}">{url}</a>'
-
-
-# A sale-window instant as the record writes it: a whole minute in UTC. The
-# website reads the same window (token-page.js, presalePhase), and
-# tests/fixtures/presale_phase_cases.json holds both to one answer.
-WINDOW_AT = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):00Z")
-
-
-def _window_at(value: Any) -> Optional[datetime]:
-    if not isinstance(value, str) or WINDOW_AT.fullmatch(value) is None:
-        return None
-    try:
-        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except ValueError:          # 2026-02-30: the shape of a date that does not exist
-        return None
-
-
-def _window(presale: Mapping[str, Any]) -> Optional[tuple[datetime, datetime]]:
-    """(opens, closes), or None when the window cannot be read: either
-    instant absent or malformed, or a close not after the open."""
-    opens = _window_at(presale.get("opens_at"))
-    closes = _window_at(presale.get("closes_at"))
-    if opens is None or closes is None or closes <= opens:
-        return None
-    return opens, closes
-
-
-def _window_text(value: str) -> str:
-    m = WINDOW_AT.fullmatch(value)
-    assert m is not None
-    return f"{m.group(1)} {m.group(2)} UTC"
-
-
-def presale_phase(presale: Mapping[str, Any], now: Optional[datetime] = None) -> Optional[str]:
-    """Where an ANNOUNCED presale stands: ``"announced"`` (before it opens),
-    ``"live"`` or ``"ended"``, from the record's ``opens_at`` / ``closes_at``
-    and the clock. A window that cannot be read is the record's own status,
-    ``"announced"``, which is true of a sale that has opened too; any other
-    status has no phase (None) and the card prints that status. The card said
-    "announced" for the whole sale while the sale was open."""
-    if presale.get("status") != "announced":
-        return None
-    window = _window(presale)
-    if window is None:
-        return "announced"
-    opens, closes = window
-    at = now if now is not None else datetime.now(timezone.utc)
-    if at < opens:
-        return "announced"
-    return "live" if at < closes else "ended"
-
-
-def presale_live_line(record: Mapping[str, Any], now: Optional[datetime] = None) -> Optional[str]:
-    """The one line /start and the welcome carry while the sale is live, or
-    None: before it opens, after it closes, with a window that cannot be read,
-    or without a sale link the card would print (`is_sale_url`). The website's
-    bar makes the same claim from the same reading (app/public/js/presale.js);
-    an advert that cannot name the official link or the closing time is one
-    the bot does not need to make."""
-    presale = record.get("presale")
-    if not isinstance(presale, Mapping) or presale_phase(presale, now) != "live":
-        return None
-    url = presale.get("sale_url")
-    if not is_sale_url(url):
-        return None
-    shown = html.escape(str(url))
-    symbol = html.escape(str(record.get("symbol") or "RCLAW"))
-    return (f"🟢 <b>The ${symbol} presale is live</b> until {_window_text(presale['closes_at'])}, "
-            f'or until the hard cap. Official sale page: <a href="{shown}">{shown}</a> · '
-            "terms and the mint: /rclaw")
-
-
-def presale_live_note(now: Optional[datetime] = None) -> str:
-    """``presale_live_line`` from the one record, as a paragraph to append, or
-    ``""``. A record that cannot be read adds nothing to the message it rides
-    on (logged by class), which is the omit half of the rule: /start and the
-    welcome make no presale claim then, true or false."""
-    try:
-        from bot.token.record import load_record
-        line = presale_live_line(load_record(), now)
-    except Exception as exc:
-        logging.getLogger(__name__).warning(
-            "Presale line omitted: the token record could not be read (%s)", type(exc).__name__)
-        return ""
-    return f"\n\n{line}" if line else ""
-
-
-def presale_lines(presale: Mapping[str, Any], symbol: str = "RCLAW",
-                  now: Optional[datetime] = None) -> list[str]:
-    status = presale.get("status")
-    phase = presale_phase(presale, now)
-    if status == "coming_soon":
-        head = "🗓 <b>Presale: coming soon</b>"
-    elif phase == "live":
-        head = "🟢 <b>Presale: live now</b>"
-    elif phase == "ended":
-        head = "🗓 <b>Presale: ended</b>"
-    elif status == "announced":
-        head = "🗓 <b>Presale: announced</b>"
-    elif isinstance(status, str) and status.strip():
-        head = f"🗓 <b>Presale: {html.escape(status.replace('_', ' '))}</b>"
-    else:
-        head = f"🗓 <b>Presale: status {UNREADABLE}</b>"
-    lines = [head]
-    if phase == "live":
-        lines.append(f"Open until {_window_text(presale['closes_at'])}, or until the hard cap is "
-                     "reached. Buy only through the sale link below.")
-    elif phase == "ended":
-        lines.append(f"Closed at {_window_text(presale['closes_at'])}, or earlier if the hard cap "
-                     "was reached. Buyers claim 100% of what they bought on the sale page.")
-    elif phase == "announced" and _window(presale) is not None:
-        # An unreadable window says nothing about when it opens.
-        lines.append(f"Opens {_window_text(presale['opens_at'])}.")
-    lines.extend(f"{label}: {_term_text(presale, key, symbol)}" for key, label in TERMS)
-    lines.append(f"Sale link: {_sale_link_text(presale)}")
-    if status == "coming_soon":
-        lines.append("It will be announced here, on the website's /token page and on the "
-                     "project's X account before anything opens.")
-    elif status == "announced":
-        lines.append("Smithii's sale contract enforces the price, the hard cap, the per-wallet "
-                     "limits and the claim; the soft cap and everything after the sale are the "
-                     "team's commitments, not the contract's. We never DM first and never ask "
-                     "for a seed phrase.")
-    return lines
 
 
 def is_certificate_url(value: Any) -> bool:
@@ -406,8 +226,7 @@ def env_mint_line(record_mint: str, env_mint: Optional[str]) -> str:
 
 
 def render_token_card(record: Mapping[str, Any], *, operator: bool = False,
-                      env_mint: Optional[str] = None,
-                      now: Optional[datetime] = None) -> str:
+                      env_mint: Optional[str] = None) -> str:
     mint = html.escape(str(record["mint"]))
     decimals = record["decimals"]
     if not isinstance(decimals, int) or isinstance(decimals, bool):
@@ -427,8 +246,6 @@ def render_token_card(record: Mapping[str, Any], *, operator: bool = False,
     elif created is not None:
         lines.append(f"Created: {UNREADABLE}")
     lines.append(f'🔗 <a href="{html.escape(str(record["explorer"]))}">View on Solscan</a>')
-    lines.append("")
-    lines.extend(presale_lines(record["presale"], str(record["symbol"]), now))
     lines.append("")
     lines.extend(locks_lines(record, str(record["symbol"])))
     lines.append("")

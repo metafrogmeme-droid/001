@@ -1661,6 +1661,19 @@ async def llm_complete(
     return await asyncio.wait_for(_call(), timeout=config.timeout_seconds)
 
 
+def stopped_at_cap(response) -> bool:
+    """True when the provider says the reply stopped at its output cap:
+    Anthropic's ``stop_reason == "max_tokens"``, an OpenAI-compatible
+    ``finish_reason == "length"``. False for a reply that ended on its own
+    and for one that says neither."""
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        return True
+    try:
+        return getattr(response.choices[0], "finish_reason", None) == "length"
+    except (AttributeError, IndexError, TypeError):
+        return False
+
+
 def _hand_back_usage(usage_out: dict | None, response) -> None:
     """Add a response's MEASURED usage into ``usage_out`` (accumulating, so a
     multi-round tool loop sums its rounds). Never writes zeros for a response
@@ -1668,6 +1681,16 @@ def _hand_back_usage(usage_out: dict | None, response) -> None:
     falls back to its estimate."""
     if usage_out is None:
         return
+    # A REPLY CUT AT THE OUTPUT CAP IS NOT A WHOLE REPLY. The text comes back
+    # the same either way, so without this the cut sentence was shown as the
+    # answer (a Pi coach reply ended "... en NEW betekent", 22 Oct 2026; the
+    # chat model's thinking counts toward the cap). Set per response, so in a
+    # tool loop the last round, the one that answered, decides; a reply that
+    # finished leaves no key, so the dict reads as it always did.
+    if stopped_at_cap(response):
+        usage_out["cut"] = True
+    else:
+        usage_out.pop("cut", None)
     try:
         from bot.llm.usage import usage_pair
         pair = usage_pair(response)

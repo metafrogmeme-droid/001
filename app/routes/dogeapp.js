@@ -47,7 +47,7 @@ const SCRIPTS = [
   '/js/duel.js?v=9',
   // The in-app receipt check the Duel block's receipts open (pi-receipt.js).
   '/js/pi-receipt.js?v=4',
-  '/js/pi-duel.js?v=9',
+  '/js/pi-duel.js?v=10',
   '/js/anchor_cell.js?v=5',
   '/js/doge-proof.js?v=2',
   // The wallet door doge-app.js signs in through, shared with /memeclaw.

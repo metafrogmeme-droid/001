@@ -2,39 +2,33 @@
  * The $RCLAW page: the one record, painted, with nothing invented.
  *
  * Three values for every field a chain can leave empty. A null authority is
- * "none (revoked)", which is the fact a holder wants. A null presale field
- * is "not announced yet" (a null sale link: "not created yet"). A value of a
- * shape the record did not promise, or a sale link off smithii.io, is
- * "unreadable". A record that did not arrive paints no address at all.
+ * "none (revoked)", which is the fact a holder wants. A null lock field is
+ * "not created yet". A value of a shape the record did not promise, or a
+ * link off the one host it may name, is "unreadable". A record that did not
+ * arrive paints no address at all.
+ *
+ * NO PRESALE. The owner took the presale off the website and the bot on
+ * 22 October 2026: this page is the token's facts (mint, supply, authorities,
+ * locks, multisig, audits) and nothing about a sale. /api/token serves no
+ * presale block, and a test holds the page to that.
  *
  * Dual export: browser (window.TokenPage) + Node (require), so the test
  * drives the same render the visitor sees.
  */
 (function (root, factory) {
-  // The presale's phase is ONE reading, presale.js, which every page loads before this script.
   const node = typeof module !== 'undefined' && module.exports;
-  const api = factory(node ? require('./presale.js') : root.Presale);
+  const api = factory();
   if (node) module.exports = api;
   else root.TokenPage = api;
-}(typeof self !== 'undefined' ? self : this, function (Phase) {
+}(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
   const BASE58_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   const SOLSCAN_TOKEN = 'https://solscan.io/token/';
   const UNREAD = 'The token record could not be read right now. No mint address is shown '
     + 'in its place — a guessed address is worse than none. Try again in a minute.';
-  const NOT_ANNOUNCED = 'not announced yet';
   const AUTH_NONE = 'none (revoked)';
   const UNREADABLE = 'unreadable';
-  const SALE_LINK_NONE = 'not created yet. It is posted here and in the Telegram bot before the sale opens; '
-    + 'a sale link anywhere else is not ours.';
-  /**
-   * The only sale link this page will print: https on smithii.io or a subdomain, written plainly.
-   * A sale link is what a phishing clone forges first, so anything else is unreadable, never a
-   * link. The bot holds the same rule; tests/fixtures/sale_url_cases.json holds both to it.
-   */
-  const SALE_URL = /^https:\/\/(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*smithii\.io(?:\/[A-Za-z0-9._~%\/?#=&+-]*)?$/;
-  const SALE_URL_MAX = 300;
   /**
    * The only certificate link this page will print for a lock: Smithii's vesting certificate for a
    * Solana lock, a lowercase slug and nothing after it. The bot holds the same rule; the test holds
@@ -53,46 +47,15 @@
    * published reports. A link to "the audit" is a claim people act on, so any other host is unreadable.
    */
   const AUDIT_URL = /^https:\/\/(?:www\.halborn\.com\/audits\/smithii\/[a-z0-9-]{1,60}|github\.com\/CoinFabrik\/coinfabrik-audit-reports\/blob\/main\/[A-Za-z0-9_.\/-]{1,160}\.pdf)$/;
-  const AUDITS_BODY = 'These are audits of Smithii’s programs, not of RUNECLAW. Smithii can upgrade both programs, and both were '
-    + 'last deployed before their latest audit’s final report: the sale program on 2024-06-29, the vesting program on '
-    + '2025-02-03. So the code running is not shown to be the audited code. The findings Halborn’s fixes closed (how a '
-    + 'multi-recipient Merkle vesting is split, a lock of zero tokens) do not touch RUNECLAW’s locks: each is one wallet, '
-    + 'time-based and never zero. RUNECLAW’s own code has had no independent audit.';
+  const AUDITS_BODY = 'This is an audit of Smithii’s Token Vesting program, which holds RUNECLAW’s locks; it is not an '
+    + 'audit of RUNECLAW. Smithii can upgrade the program, and it was last deployed on 2025-02-03, before the audit’s '
+    + 'final report, so the code running is not shown to be the audited code. The findings Halborn’s fixes closed '
+    + '(how a multi-recipient Merkle vesting is split, a lock of zero tokens) do not touch RUNECLAW’s locks: each is one '
+    + 'wallet, time-based and never zero. RUNECLAW’s own code has had no independent audit.';
   const MULTISIG_BODY = 'The vault is held by a Squads v4 multisig. Moving tokens out of it, or changing its members, '
     + 'its approvals or its time lock, needs the approvals shown and then the time lock’s wait. The Squads v4 '
     + 'program cannot be upgraded. This is custody with a delay, not a lock: once approved and past the wait, '
     + 'tokens can move.';
-  /**
-   * The presale terms, in the order a buyer reads them: [record key, i18n key, English label].
-   * Every key is a key of the record's presale block, and the test holds this list to the
-   * record both ways, so a term the record announces cannot go unprinted.
-   */
-  const TERMS = [
-    ['date', 'tok.date', 'Date'],
-    ['price', 'tok.price', 'Price'],
-    ['venue', 'tok.venue', 'Venue'],
-    ['allocation_tokens', 'tok.for_sale', 'For sale'],
-    ['hard_cap', 'tok.hard_cap', 'Hard cap'],
-    ['per_wallet', 'tok.per_wallet', 'Per wallet'],
-    ['whitelist', 'tok.whitelist', 'Whitelist'],
-    ['claim', 'tok.claim', 'Claim'],
-    ['refunds', 'tok.refunds', 'Refunds'],
-    ['after_sale', 'tok.after_sale', 'After the sale'],
-  ];
-  const BODY_SOON = 'A presale is being prepared. The date, price and venue will be announced on this page, '
-    + 'in the Telegram bot and on the project’s X account before anything opens. '
-    + 'Until then there is nothing to buy from us.';
-  const PHASE_LIVE = 'Live now';
-  const PHASE_ENDED = 'Ended';
-  const PHASE_OPENS = 'Opens {t}.';
-  const PHASE_OPEN_UNTIL = 'Open until {t}, or until the hard cap is reached. Buy only through the sale link on this page.';
-  const PHASE_CLOSED = 'Closed at {t}, or earlier if the hard cap was reached. Buyers claim 100% of what they bought on the sale page.';
-  const STRIP_LIVE = '$RCLAW presale is live now';
-  const STRIP_ENDED = '$RCLAW presale has ended — claims are open';
-  const BODY_ANNOUNCED = 'These are the sale’s terms as announced. Smithii’s sale contract enforces the price, '
-    + 'the hard cap, the per-wallet limits and the claim; the soft cap and everything after the sale are the '
-    + 'team’s commitments, not the contract’s. We never DM first and never ask for a seed phrase.';
-
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
@@ -139,104 +102,6 @@
 
   function has(o, key) {
     return Object.prototype.hasOwnProperty.call(o, key);
-  }
-
-  /**
-   * A presale field in three values: absent from the record is unreadable,
-   * null is not announced, anything else is the announced term as written.
-   */
-  function presaleCell(presale, key) {
-    if (!has(presale, key)) return unreadable();
-    const v = presale[key];
-    if (v === null) return '<span class="tok-na">' + esc(say('tok.not_announced', NOT_ANNOUNCED)) + '</span>';
-    return '<b>' + esc(String(v)) + '</b>';
-  }
-
-  /** The number of tokens for sale: digits are grouped and named, anything else is unreadable. */
-  function allocationCell(presale, symbol) {
-    if (!has(presale, 'allocation_tokens') || presale.allocation_tokens === null) {
-      return presaleCell(presale, 'allocation_tokens');
-    }
-    const n = supplyText(presale.allocation_tokens);
-    return n === null ? unreadable() : '<b>' + n + ' ' + esc(symbol) + '</b>';
-  }
-
-  /** True only for a link this page may print: see SALE_URL. */
-  function isSaleUrl(v) {
-    return typeof v === 'string' && v.length <= SALE_URL_MAX && SALE_URL.test(v);
-  }
-
-  /** The sale link in three values: null is "not created yet", a refused link is unreadable. */
-  function saleLinkCell(presale) {
-    if (!has(presale, 'sale_url')) return unreadable();
-    const v = presale.sale_url;
-    if (v === null) return '<span class="tok-na">' + esc(say('tok.sale_link_none', SALE_LINK_NONE)) + '</span>';
-    if (!isSaleUrl(v)) return unreadable();
-    return '<a href="' + esc(v) + '" target="_blank" rel="noopener noreferrer"><code>' + esc(v) + '</code></a>';
-  }
-
-  const presalePhase = Phase.presalePhase;
-  const saleWindow = Phase.saleWindow;
-  const windowText = Phase.windowText;
-
-  /** The line under the status: when it opens, until when it is open, when it closed. */
-  function phaseLine(p, phase) {
-    if (phase === 'live') return say('tok.presale_open_until', PHASE_OPEN_UNTIL).replace('{t}', windowText(p.closes_at));
-    if (phase === 'ended') return say('tok.presale_closed_at', PHASE_CLOSED).replace('{t}', windowText(p.closes_at));
-    if (phase === 'announced' && saleWindow(p) !== null) {
-      return say('tok.presale_opens_at', PHASE_OPENS).replace('{t}', windowText(p.opens_at));
-    }
-    return null;
-  }
-
-  function presaleHtml(presale, symbol, nowMs) {
-    const p = (presale && typeof presale === 'object') ? presale : {};
-    const sym = typeof symbol === 'string' && symbol ? symbol : 'RCLAW';
-    let status;
-    let body = null;
-    let when = null;
-    if (p.status === 'coming_soon') {
-      status = esc(say('tok.presale_soon', 'Coming soon'));
-      body = say('tok.presale_body', BODY_SOON);
-    } else if (p.status === 'announced') {
-      const phase = presalePhase(p, nowMs);
-      status = phase === 'live' ? '<span class="tok-live">' + esc(say('tok.presale_live', PHASE_LIVE)) + '</span>'
-        : phase === 'ended' ? esc(say('tok.presale_ended', PHASE_ENDED))
-          : esc(say('tok.presale_announced', 'Announced'));
-      when = phaseLine(p, phase);
-      body = say('tok.presale_body_announced', BODY_ANNOUNCED);
-    } else if (typeof p.status === 'string' && p.status.trim()) {
-      status = esc(p.status.replace(/_/g, ' '));
-    } else {
-      status = unreadable();
-    }
-    let rows = '';
-    for (const [key, i18nKey, en] of TERMS) {
-      rows += row(i18nKey, en, key === 'allocation_tokens' ? allocationCell(p, sym) : presaleCell(p, key));
-    }
-    rows += row('tok.sale_link', 'Sale link', saleLinkCell(p));
-    return '<section class="tok-card tok-presale">'
-      + '<h2>' + esc(say('tok.presale_h', 'Presale')) + ' · <span class="tok-status">' + status + '</span></h2>'
-      + (when === null ? '' : '<p class="tok-phase">' + esc(when) + '</p>')
-      + '<dl class="tok-facts">' + rows + '</dl>'
-      + (body === null ? '' : '<p class="tok-prose">' + esc(body) + '</p>')
-      + '</section>';
-  }
-
-  /**
-   * The home page's token strip. Its markup says "presale announced", which stays true and is what
-   * a visitor sees if the record cannot be read; once the record says the sale is live or has
-   * ended, the strip says that instead. The i18n key moves with the text, so a language switch
-   * translates the sentence now on screen rather than restoring the old one.
-   */
-  function stripPhase(el, token, nowMs) {
-    const phase = presalePhase(token && token.presale, nowMs);
-    const next = phase === 'live' ? ['home.token_presale_live', STRIP_LIVE]
-      : phase === 'ended' ? ['home.token_presale_ended', STRIP_ENDED] : null;
-    if (!next) return null;
-    el.setAttribute('data-i18n', next[0]);
-    el.textContent = say(next[0], next[1]);
-    return phase;
   }
 
   function notCreated() {
@@ -448,7 +313,6 @@
     }
     facts += '</dl></section>';
     out += facts;
-    out += presaleHtml(token.presale, symbol);
     out += locksHtml(token, symbol);
     out += multisigHtml(token, symbol);
     out += auditsHtml(token);
@@ -564,28 +428,14 @@
       .catch(function () { el.innerHTML = fault(); });
   }
 
-  function bootStrip(el) {
-    fetchRecord()
-      .then(function (res) {
-        if (res.status === 200 && res.body && typeof res.body === 'object') stripPhase(el, res.body.token);
-      })
-      .catch(function () { /* the markup's sentence stands */ });
-  }
-
   if (typeof document !== 'undefined' && document.getElementById) {
     const el = document.getElementById('tok-root');
     if (el) boot(el);
-    const strip = document.getElementById('hero-token-text');
-    if (strip) bootStrip(strip);
   }
 
   return {
-    render, fault, supplyText, authorityHtml, presaleHtml, presaleCell, allocationCell, saleLinkCell,
-    presalePhase, phaseLine, windowText, stripPhase, bootStrip,
-    PHASE_LIVE, PHASE_ENDED, PHASE_OPENS, PHASE_OPEN_UNTIL, PHASE_CLOSED, STRIP_LIVE, STRIP_ENDED,
-    isSaleUrl, boot, wireCopy, poolHtml, bootPool, compactUsd, locksHtml, lockHtml, unlocksCell, certificateCell, isCertificateUrl,
+    render, fault, supplyText, authorityHtml, boot, wireCopy, poolHtml, bootPool, compactUsd, locksHtml, lockHtml, unlocksCell, certificateCell, isCertificateUrl,
     multisigHtml, quorumCell, timeLockCell, holdsCell, auditsHtml, auditItem, isAuditUrl,
-    UNREAD, NOT_ANNOUNCED, AUTH_NONE, UNREADABLE, BASE58_ADDRESS, SALE_URL, SALE_LINK_NONE, TERMS,
-    BODY_SOON, BODY_ANNOUNCED, CERTIFICATE_URL, LOCK_NONE, LOCKS_BODY, MULTISIG_BODY, AUDITS_BODY, AUDIT_URL,
+    UNREAD, AUTH_NONE, UNREADABLE, BASE58_ADDRESS, CERTIFICATE_URL, LOCK_NONE, LOCKS_BODY, MULTISIG_BODY, AUDITS_BODY, AUDIT_URL,
   };
 }));

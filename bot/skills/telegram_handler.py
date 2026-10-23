@@ -3015,8 +3015,20 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # the model is duly told to answer in it. Passing `_ui` would have
         # handed a Polish reader the English fallthrough as though it were a
         # reading.
-        system_prompt += reply_contract(reply_mode, public=public,
-                                        reply_lang=reply_lang)
+        # THE COACH HAS ITS OWN. The public contracts are the anonymous
+        # website page's: no facts, no account, "a signed-in account gets the
+        # live one". Handed to the Pi coach, a Dutch "why did the agent call
+        # LTC SHORT?" fell through to `_PUBLIC_UNREAD_CONTRACT`, and the coach
+        # told a signed-in reader, beside the signal card it had been handed,
+        # that it had no data and that signing in would get them the live
+        # version (22 Oct 2026). `pi_coach.REPLY_CONTRACT` says what that
+        # surface can source.
+        if _coach:
+            from bot.web.pi_coach import REPLY_CONTRACT as _coach_contract
+            system_prompt += _coach_contract
+        else:
+            system_prompt += reply_contract(reply_mode, public=public,
+                                            reply_lang=reply_lang)
 
         # Build fallback chain: own key → chat tier → fallback providers → primary
         import os
@@ -3431,6 +3443,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 from bot.nlp.grounding import given_support
                 return _chat_ret(answer.strip(), cfg, return_meta,
                                  tool_events=_tool_events, is_admin=is_admin,
+                                 cut=_usage.get("cut") is True,
                                  given=given_support(
                                      _sp, question,
                                      *(m.get("content") for m in history
@@ -4093,10 +4106,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if access == "needs_approval":
                 notified = await self._request_operator_admission(
                     tg_id, _name, ctx)
-            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 html.escape(_name or "Trader"), tg_id, access=access,
-                operator_notified=notified, lang=self._lang(update)) + presale_live_note())
+                operator_notified=notified, lang=self._lang(update)))
             return
 
         # Registered but not authorized — /revoke is the only way to be here.
@@ -5720,11 +5732,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # the old copy told an allowlisted operator to "wait for approval".
             self.users.register(tg_id, name=(
                 update.effective_user.first_name if update.effective_user else ""))
-            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 html.escape(update.effective_user.first_name
                             if update.effective_user else "Trader"),
-                tg_id, access="granted", lang=lang) + presale_live_note())
+                tg_id, access="granted", lang=lang))
             return False
 
         # Role-based permission check. The REASON matters: "role" is permanent
