@@ -1,0 +1,21 @@
+{
+  "name": "fvb-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fair-value bridge oracle for Ethereum Sepolia and Robinhood Chain testnet. Compile and in-process EVM tests. No deploy script and no mainnet address.",
+  "license": "BUSL-1.1",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@ethereumjs/common": "^4.4.0",
+    "@ethereumjs/util": "^9.1.0",
+    "@ethereumjs/vm": "^8.1.1",
+    "ethers": "^6.13.4",
+    "solc": "0.8.37"
+  },
+  "overrides": {
+    "tmp": "0.2.7"
+  }
+}

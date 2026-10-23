@@ -69,7 +69,33 @@ class MarketCommands:
 
         def _is_admin(self, update: Update) -> bool: ...
 
+        def _is_operator(self, update: Update) -> bool: ...
+
         def _get_tg_id(self, update: Update) -> str: ...
+
+    @guard("fvb")
+    async def _cmd_fvb(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/fvb — session-aware risk price for one tokenized equity.
+
+        The card is the board the publisher wrote. This command does not
+        recompute it. While the flag is off a non-operator gets the same
+        "Not found." a missing command gets; an operator gets the preview
+        banner. A missing board says it is not published.
+        """
+        import os
+        from pathlib import Path
+
+        from bot.fvb.board import load_board
+        from bot.fvb.flag import flag_on, gate
+        from bot.fvb.render import card_text
+
+        decision = gate(flag_on(), self._is_operator(update))
+        if decision == "deny":
+            await self._send(update, "Not found.")
+            return
+        raw = os.environ.get("FVB_BOARD_PATH")
+        path = Path(raw) if raw else Path("data/fvb_board.json")
+        await self._send(update, card_text(load_board(path), preview=decision == "preview"))
 
     @guard("rwa")
     async def _cmd_rwa(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
