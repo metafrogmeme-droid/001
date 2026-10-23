@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "حتى بعد ذلك، يحتاج إلى سلسلة أخرى، ولا يستطيع ختمها إلا محفظة."],
 ["It needs another chain, and only a wallet can stamp one.", "يحتاج إلى سلسلة أخرى، ولا يستطيع ختمها إلا محفظة."],
 ["Share this receipt", "شارك هذا الإيصال"],
-["Sealed before the result. Check it yourself:", "خُتم قبل النتيجة. تحقّق منه بنفسك:"]
+["Sealed before the result. Check it yourself:", "خُتم قبل النتيجة. تحقّق منه بنفسك:"],
+["How sure are you? This is your own rating.","ما مدى تأكدك؟ هذا تقييمك أنت."],
+["Low","منخفض"],
+["Medium","متوسط"],
+["High","مرتفع"],
+["Your rating","تقييمك"],
+["No high-confidence call has settled yet","لم يُحسم بعد أي نداء بثقة عالية"],
+["No high-confidence call yet","لا يوجد نداء بثقة عالية بعد"],
+["of {n} high-confidence calls","من {n} نداءات بثقة عالية"],
+["How often your high-confidence calls were right","كم مرة كانت نداءاتك عالية الثقة صحيحة"],
+["High confidence","ثقة عالية"],
+["Choose low, medium or high. Your call was not recorded.","اختر منخفضًا أو متوسطًا أو مرتفعًا. لم يُسجَّل نداؤك."]
 ]

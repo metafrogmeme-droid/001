@@ -111,6 +111,12 @@ later change to the band table cannot rescore a round. Carries the horizon
 (`resolves_at`) as a sealed fact, so the window a call was made for cannot be
 widened afterwards to make it look right.
 
+A call may also carry `"confidence"` after `"picked_at"`, one of `"low"`,
+`"medium"` or `"high"`: the player's own rating of that call, sealed with
+it. A receipt with no rating omits the key. Verifiers hash the stored
+string and do not require the key, so a receipt sealed before the rating
+still checks. The rating is not money and not a price.
+
 Receipts sealed before 2026-10-19 are `v: 3`, which carried none of the
 category fields. Its order is frozen:
 
@@ -437,7 +443,7 @@ server from two readers that must agree, carry the root in one of these forms:
 
 | chain | where the root is | bytes |
 |---|---|---|
-| Base, DogeOS testnet | the calldata of a zero-value transaction to the sender's own address | `utf8("RCROOT1:<day>:<root hex>")` |
+| Base, DogeOS testnet, Avalanche C-Chain | the calldata of a zero-value transaction to the sender's own address | `utf8("RCROOT1:<day>:<root hex>")` |
 | Base, Arbitrum One, Scroll, Linea (EAS) | `timestamp(bytes32 root)` on that chain's Ethereum Attestation Service | the root's 32 bytes |
 | Dogecoin | one OP_RETURN output | `utf8("RCD1:<day>:")` then the root's 32 bytes |
 | Solana | one Memo-program instruction, read at `finalized` commitment | `utf8("RCROOT1:<day>:<root hex>")` |
@@ -446,6 +452,14 @@ server from two readers that must agree, carry the root in one of these forms:
 A day is **multi-anchored** when chains in at least two independence groups
 verify it live (a testnet is shown and never counted). That proves when the
 root existed, never how good the calls in it were.
+
+The groups that count are `ethereum-l2` (Base and the other Ethereum L2
+stamps), `bitcoin`, `dogecoin`, `solana` and `avalanche`. Avalanche C-Chain
+is the fifth: it runs its own consensus, so it does not join `ethereum-l2`.
+It is offered only when `AVALANCHE_ANCHOR_ENABLED` is set. The target for
+turning that on is 5 November 2026. `tools/rcverify.js` checks an Avalanche
+anchor the same way it checks Base, against an endpoint it names itself, and
+does not read the flag.
 
 ### 4.3 · A receipt's proof bundle (`rcproof/1`)
 

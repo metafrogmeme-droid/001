@@ -447,5 +447,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "Bahkan setelah itu, masih perlu satu chain lagi, dan hanya dompet yang bisa mencapnya."],
 ["It needs another chain, and only a wallet can stamp one.", "Masih perlu satu chain lagi, dan hanya dompet yang bisa mencapnya."],
 ["Share this receipt", "Bagikan tanda terima ini"],
-["Sealed before the result. Check it yourself:", "Disegel sebelum hasilnya. Periksa sendiri:"]
+["Sealed before the result. Check it yourself:", "Disegel sebelum hasilnya. Periksa sendiri:"],
+["How sure are you? This is your own rating.","Seberapa yakin kamu? Ini penilaian kamu sendiri."],
+["Low","Rendah"],
+["Medium","Sedang"],
+["High","Tinggi"],
+["Your rating","Penilaianmu"],
+["No high-confidence call has settled yet","Belum ada prediksi berkeyakinan tinggi yang diselesaikan"],
+["No high-confidence call yet","Belum ada prediksi berkeyakinan tinggi"],
+["of {n} high-confidence calls","dari {n} prediksi berkeyakinan tinggi"],
+["How often your high-confidence calls were right","Seberapa sering prediksi berkeyakinan tinggi kamu benar"],
+["High confidence","Keyakinan tinggi"],
+["Choose low, medium or high. Your call was not recorded.","Pilih rendah, sedang, atau tinggi. Prediksi kamu tidak dicatat."]
 ]

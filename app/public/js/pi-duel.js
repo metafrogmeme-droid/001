@@ -81,6 +81,8 @@
     }
     // Chips put with the call, at the odds they were put at.
     if (r.chips != null) text += ' ' + T('{c} chips on the table at {o}', { c: r.chips, o: D.oddsText(r.odds) || '—' });
+    var rated = D.ratingWord(r.confidence, TR);
+    if (rated) text += ' ' + T('Your rating') + ': ' + rated + '.';
     return text;
   }
 
@@ -169,10 +171,12 @@
       // chips are still out this season); left out otherwise, never a 1,000
       // for a game the player was not offered.
       var stack = me.chips ? D.stackLabel(me.chips, TR) : null;
+      var cal = me.calibration ? D.calibrationLabel(me.calibration, TR) : null;
       return '<div class="p-duel-rec">'
         + stat(T('Accuracy'), D.accuracyLabel(me.accuracy, TR))
         + stat(T('Marks'), marks)
         + stat(T('Streak'), { text: '🔥 ' + streak, tone: 'muted', sub: '' })
+        + (cal ? stat(T('High confidence'), cal) : '')
         + (stack ? stat(T('Chips'), stack) : '')
         + '</div>'
         // What a mark is, under the row: "Accuracy 60% of 5" beside "Marks 4"
@@ -225,7 +229,10 @@
         body = '<div class="d-rounds">' + card.rounds.map(function (r) {
           // The card's chips block: the renderer offers odds and a chips
           // field only while the layer is on (lib/duel_chips.js).
-          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), TR, undefined, { verify: !!window.RCPiReceipt, chips: card.chips || null })
+          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), TR, undefined, { verify: !!window.RCPiReceipt,
+            chips: card.chips || null,
+            confidenceLevels: card.confidence ? card.confidence_levels : null,
+          })
             + (canAsk ? '<div class="p-why-row"><button type="button" class="p-why" data-ask="round" data-id="' + esc(r.id) + '">' + esc(T('Explain this round')) + '</button></div>' : '');
         }).join('') + '</div>';
       }
@@ -244,7 +251,7 @@
       return load();
     }
 
-    function place(roundId, pick, c, chips) {
+    function place(roundId, pick, c, chips, confidence) {
       if (busy) return;
       busy = true;
       note = ['note', T('Recording your call…')];
@@ -253,6 +260,7 @@
       // never 0. The server checks every limit and says why it refuses.
       var body = { round_id: roundId, pick: pick };
       if (chips) body.chips = chips;
+      if (confidence === 'low' || confidence === 'medium' || confidence === 'high') body.confidence = confidence;
       c.api('/api/duel/pick', { method: 'POST', body: body }).then(function (r) {
         busy = false;
         if (r.ok && r.body && r.body.ok) {
@@ -323,8 +331,27 @@
       if (!b) return false;
       var wrap = b.closest('.d-actions');
       if (!wrap) return true;
+      var level = b.getAttribute('data-confidence');
       var inp = wrap.querySelector('.d-chips-in');
-      place(Number(wrap.getAttribute('data-round')), b.getAttribute('data-pick'), c, inp ? String(inp.value || '').trim() : '');
+      var chips = inp ? String(inp.value || '').trim() : '';
+      // A rating button commits the pick already chosen. Anything else that
+      // is not low, medium or high is a direction button, including a test
+      // double whose getAttribute returns the pick for every name.
+      if (level === 'low' || level === 'medium' || level === 'high') {
+        var chosen = wrap.getAttribute('data-chosen');
+        if (chosen) place(Number(wrap.getAttribute('data-round')), chosen, c, chips, level);
+        return true;
+      }
+      var pick = b.getAttribute('data-pick');
+      if (wrap.getAttribute('data-ask-confidence') === 'yes' && pick) {
+        wrap.setAttribute('data-chosen', pick);
+        var note = wrap.querySelector('.d-conf-ask');
+        if (note) note.hidden = false;
+        var ratings = wrap.querySelectorAll('.d-conf');
+        for (var i = 0; i < ratings.length; i++) ratings[i].hidden = false;
+        return true;
+      }
+      place(Number(wrap.getAttribute('data-round')), pick, c, chips);
       return true;
     }
 

@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "Даже тогда нужна ещё одна сеть, и поставить в ней отметку может только кошелёк."],
 ["It needs another chain, and only a wallet can stamp one.", "Нужна ещё одна сеть, и поставить в ней отметку может только кошелёк."],
 ["Share this receipt", "Поделиться этой квитанцией"],
-["Sealed before the result. Check it yourself:", "Запечатано до результата. Проверьте сами:"]
+["Sealed before the result. Check it yourself:", "Запечатано до результата. Проверьте сами:"],
+["How sure are you? This is your own rating.","Насколько вы уверены? Это ваша собственная оценка."],
+["Low","Низкая"],
+["Medium","Средняя"],
+["High","Высокая"],
+["Your rating","Ваша оценка"],
+["No high-confidence call has settled yet","Ни один вызов с высокой уверенностью ещё не рассчитан"],
+["No high-confidence call yet","Пока нет вызова с высокой уверенностью"],
+["of {n} high-confidence calls","из {n} вызовов с высокой уверенностью"],
+["How often your high-confidence calls were right","Как часто ваши вызовы с высокой уверенностью были верны"],
+["High confidence","Высокая уверенность"],
+["Choose low, medium or high. Your call was not recorded.","Выберите низкую, среднюю или высокую. Ваш вызов не записан."]
 ]

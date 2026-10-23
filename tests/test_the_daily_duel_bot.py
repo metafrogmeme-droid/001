@@ -49,7 +49,13 @@ class FakeGate:
     def __init__(self):
         self.sealed: list[dict] = []
         self.streaks: list[list[str]] = []
+        self.calibrated: list[list[str]] = []
         self.fail: str | None = None
+        self.confidence = False
+        self.calibration_body = {
+            "ok": True, "enabled": True,
+            "high": {"correct": 2, "scored": 3, "unscored": 1, "pct": 66.7},
+        }
         self.offer_body = {
             "ok": True, "day": "2026-10-23", "callable": True,
             "cutoff_at": "2026-10-24T00:00:00.000Z", "horizon_hours": 17,
@@ -61,10 +67,13 @@ class FakeGate:
         if self.fail == "rules":
             from bot.daily_duel_gate import GateDown
             raise GateDown("rules")
-        return {
+        body = {
             "ok": True, "day": "2031-05-05", "cutoff_at": "2031-05-06T00:00:00.000Z",
             "horizon_hours": 17, "price_reader": "getTickers", "price_module": "app/lib/tickers.js",
         }
+        if self.confidence:
+            body["confidence"] = True
+        return body
 
     def offer(self, now=None):
         if self.fail == "offer":
@@ -76,13 +85,17 @@ class FakeGate:
         self.sealed.append(dict(facts))
         assert TG not in json.dumps(facts)
         pick = "long" if facts.get("pick") == "long" else "short"
-        payload = json.dumps({
+        body = {
             "v": 4, "kind": "duel_pick", "round_id": None, "day": "2026-10-23",
             "category": "direction", "symbol": "ETHUSDT", "symbol_b": None,
             "threshold_pct": None, "handle": None, "pick": pick, "entry_price": 50,
             "entry_price_b": None, "resolves_at": "2026-10-24T12:00:00.000Z",
             "picked_at": NOW,
-        }, separators=(",", ":"))
+        }
+        level = facts.get("confidence")
+        if level in ("low", "medium", "high"):
+            body["confidence"] = level
+        payload = json.dumps(body, separators=(",", ":"))
         return {
             "ok": True, "seal": "ab" * 32, "seal_payload": payload, "pick": pick,
             "symbol": "ETHUSDT", "day": "2026-10-23", "entry_price": 50,
@@ -96,6 +109,13 @@ class FakeGate:
             raise GateDown("streak")
         n = len(picked_at)
         return {"ok": True, "current": n, "best": n, "active_today": bool(n)}
+
+    def calibration(self, payloads, now=None):
+        self.calibrated.append(list(payloads))
+        if self.fail == "calibration":
+            from bot.daily_duel_gate import GateDown
+            raise GateDown("calibration")
+        return dict(self.calibration_body)
 
 
 def _bot(tmp_path, gate=None, now=NOW):
@@ -347,6 +367,7 @@ def test_the_python_gate_does_not_forward_an_id_and_the_node_gate_omits_it_from_
     assert horizon and rules["horizon_hours"] == int(horizon.group(1))
     assert rules["cutoff_at"] == "2026-10-24T00:00:00.000Z"
     assert rules["price_module"] == "app/lib/tickers.js"
+    assert rules["confidence"] is False
     second = node_runner("seal", {
         "now": NOW, "pick": "down", "symbol": "ETHUSDT",
         "marks": {"ETHUSDT": {"price": 50, "volume": 10}},
@@ -355,3 +376,111 @@ def test_the_python_gate_does_not_forward_an_id_and_the_node_gate_omits_it_from_
     # The gate will seal twice; the store is what rejects the second write.
     store_path_payloads = [out["seal_payload"], second["seal_payload"]]
     assert store_path_payloads[0] != store_path_payloads[1]
+    assert "confidence" not in json.loads(out["seal_payload"])
+
+
+def _callbacks(update) -> list[str]:
+    markup = update.effective_message.reply_text.await_args.kwargs.get("reply_markup")
+    if markup is None:
+        return []
+    return [btn.callback_data for row in markup.inline_keyboard for btn in row]
+
+
+def test_help_and_the_offer_name_a_rating_only_while_the_gate_says_so():
+    rules = {
+        "cutoff_at": "2031-05-06T00:00:00.000Z", "horizon_hours": 17,
+        "price_reader": "getTickers", "price_module": "app/lib/tickers.js",
+    }
+    offer = {
+        "ok": True, "day": "2026-10-23", "callable": True, "symbol": "ETHUSDT",
+        "entry_price": 50, "cutoff_at": "2026-10-24T00:00:00.000Z", "horizon_hours": 17,
+    }
+    assert "how sure" not in ddb.help_text(rules).lower()
+    assert "how sure" not in ddb.offer_text(offer)
+    on_rules = {**rules, "confidence": True}
+    on_offer = {**offer, "confidence": True}
+    assert "low, medium or high" in ddb.help_text(on_rules)
+    assert "your own rating" in ddb.help_text(on_rules).lower()
+    assert "how sure you are" in ddb.offer_text(on_offer)
+    assert ddb.WELCOME.startswith("👋 Welcome to Daily Duel by RUNECLAW Arena.")
+    assert "not 0%" in ddb.calibration_text(None)
+    none = ddb.calibration_text({"enabled": True, "high": {"correct": 0, "scored": 0, "pct": None}})
+    assert "not 0%" in none and "0%" not in none.split("not ")[0]
+    rate = ddb.calibration_text({"enabled": True, "high": {"correct": 2, "scored": 3, "pct": 66.7}})
+    assert "2 of 3 were right (66.7%)" in rate
+    assert ddb.parse_callback("dd:seal:long:ETHUSDT") == ("seal", "long", "ETHUSDT", None)
+    assert ddb.parse_callback("dd:seal:long:ETHUSDT:high") == ("seal", "long", "ETHUSDT", "high")
+    assert ddb.parse_callback("dd:conf:short:BTCUSDT:medium") == ("conf", "short", "BTCUSDT", "medium")
+
+
+def test_a_rating_is_a_step_and_is_shown_on_the_result_and_the_streak(tmp_path):
+    gate = FakeGate()
+    gate.confidence = True
+    gate.offer_body = {**gate.offer_body, "confidence": True}
+    bot, gate, _ = _bot(tmp_path, gate=gate)
+    ask = _update(data="dd:ask:long:ETHUSDT")
+    _run(bot.on_callback(ask, None))
+    assert gate.sealed == []
+    assert "How sure are you" in _texts(ask)[0]
+    assert "your own rating" in _texts(ask)[0]
+    assert _callbacks(ask) == [
+        "dd:conf:long:ETHUSDT:low", "dd:conf:long:ETHUSDT:medium",
+        "dd:conf:long:ETHUSDT:high", "dd:back",
+    ]
+    chosen = _update(data="dd:conf:long:ETHUSDT:high")
+    _run(bot.on_callback(chosen, None))
+    assert gate.sealed == []
+    assert _texts(chosen)[0].startswith("Seal up")
+    assert "Your rating: high." in _texts(chosen)[0]
+    assert _callbacks(chosen)[0] == "dd:seal:long:ETHUSDT:high"
+    seal = _update(data="dd:seal:long:ETHUSDT:high")
+    _run(bot.on_callback(seal, None))
+    assert len(gate.sealed) == 1
+    assert gate.sealed[0]["confidence"] == "high"
+    assert "telegram_id" not in gate.sealed[0]
+    assert "Your rating: high." in _texts(seal)[0]
+    assert TG not in _texts(seal)[0]
+    result = _update()
+    _run(bot.cmd_result(result, None))
+    assert "Your rating: high." in _texts(result)[0]
+    assert "Not due yet" in _texts(result)[0]
+    streak = _update()
+    _run(bot.cmd_streak(streak, None))
+    text = _texts(streak)[0]
+    assert text.startswith("Streak: 1 day")
+    assert "High confidence: 2 of 3 were right (66.7%)." in text
+    assert "not in this rate" in text
+    assert gate.calibrated and '"confidence":"high"' in gate.calibrated[0][0]
+
+
+def test_a_rating_on_the_old_seal_button_is_dropped_while_the_flag_is_off(tmp_path):
+    bot, gate, _ = _bot(tmp_path)
+    seal = _update(data="dd:seal:long:ETHUSDT:high")
+    _run(bot.on_callback(seal, None))
+    assert len(gate.sealed) == 1
+    assert "confidence" not in gate.sealed[0]
+    assert "Your rating" not in _texts(seal)[0]
+    streak = _update()
+    _run(bot.cmd_streak(streak, None))
+    assert _texts(streak)[0].startswith("Streak: 1 day")
+    assert "High confidence" not in _texts(streak)[0]
+    assert gate.calibrated == []
+
+
+def test_the_python_gate_forwards_a_rating_and_still_drops_an_id():
+    seen = []
+
+    def runner(command, payload):
+        seen.append((command, dict(payload)))
+        return {"ok": True, "cutoff_at": "x", "horizon_hours": 1}
+
+    gate = DuelGate(runner=runner)
+    gate.seal({
+        "now": NOW, "pick": "long", "symbol": "ETHUSDT",
+        "confidence": "high", "telegram_id": TG, "username": "ada",
+    })
+    assert seen[0][0] == "seal"
+    assert seen[0][1]["confidence"] == "high"
+    assert "telegram_id" not in seen[0][1] and "username" not in seen[0][1]
+    gate.seal({"now": NOW, "pick": "long", "symbol": "ETHUSDT", "confidence": None})
+    assert "confidence" not in seen[1][1]

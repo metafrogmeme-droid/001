@@ -29545,3 +29545,37 @@ font gained `+`, `%` and `,`, and `plain` spells `±` as `+/-`. A test checks
 that every character a Duel card draws is in the font.
 
 **Mutation round:** 17 mutants, 17 killed. Stacked on the Pi slice, which had bumped `pi-duel.js` to v=10 too, the share slice serves it as v=11: two different files under one version would leave one of them stale in a cache.
+
+## AVALANCHE C-CHAIN IS THE FIFTH INDEPENDENCE GROUP, AND IT STAYS OUT OF THE REGISTRY UNTIL THE FLAG IS ON
+
+23 October 2026. The day's seal root can be anchored on Avalanche C-Chain the
+same way it is anchored on Base: a zero-value self-send whose calldata is
+`RCROOT1:<day>:<root>`. The chain id is 43114. Both public readers
+(`https://api.avax.network/ext/bc/C/rpc` and
+`https://avalanche-c-chain-rpc.publicnode.com`) answered `eth_chainId`
+`0xa86a` that day, and they are the same two `app/lib/erc8004.js` already
+uses for a registration there. A test holds the two lists equal.
+`docs/ANCHORS.md` describes every anchor. The guard test is
+`app/test/a_day_is_anchored_on_avalanche.test.js`.
+
+**The server still never signs.** The plan is the Base plan pointed at chain
+43114. There is no Avalanche key, no signer and no send path. The wallet's
+owner signs. `tools/rcverify.js` checks the calldata on Avalanche's own
+endpoint and counts the group `avalanche` from its own table. It does not
+read the flag: a verifier that waited on the publisher's switch would be
+checking the publisher.
+
+**Off until `AVALANCHE_ANCHOR_ENABLED` is set.** Unset, the chain is not in
+the registry, so the public list, the plan and a submit do not offer it.
+The target for turning it on is 5 November 2026. The flag does not turn
+itself on that day. The privacy section signed on 22 October does not yet
+name Avalanche, so the public site stays on the signed text until that
+section is updated and the owner records a new digest. A recorded anchor
+after the flag is turned back off reads as a chain this build does not
+know, and it is not counted.
+
+**Its own group.** Base, the EAS stamps, Bitcoin, Dogecoin and Solana are
+the four groups that already count. Avalanche runs Snowman, so it does not
+join `ethereum-l2`. It is the fifth. The measured cost of one anchor that
+day was 25669 gas at 2.5 gwei, about 0.000064 AVAX, paid by the wallet. The
+server pays nothing.
