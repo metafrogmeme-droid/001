@@ -50,8 +50,10 @@ ZKsync Era uses the same reader. Its bytecode may not contain EVM `PUSH4`
 opcodes; view calls are still made, and a selector that is not seen is
 reported as not observed, not as absent. On 23 October 2026 the official
 T-REX factory `0x7F1fD450a5c4d91286f00F3297dCD5C12767f17f` had no code on BNB
-Chain or ZKsync Era. Those chains stay in the list because the reader is the
-same. A fixture is recorded only where a real contract was read.
+Chain or ZKsync Era, and neither chain is in the ERC-3643 association's
+production list. The fixtures for those two chains are the closest real
+tokenized-asset contracts that were read, and the reading does not say they
+are ERC-3643.
 
 ## Recorded contracts
 
@@ -75,9 +77,10 @@ the feed describes does not name it through the getters this reader checks.
 | arbitrum | FBTC PoR feed `0xfb010c715ff2b85db9c896f0c030bf9329638905` | proof-of-reserve, source self |
 | polygon | ENEGRA `0xa8c557c7ac1626eacaa0e80fac7b6997346306e8` | ERC-3643, version 4.1.3, not paused |
 | polygon | bNVDA reserves feed `0x0fb2bed999da86cb1fdd97e746600a96141eea09` | proof-of-reserve, source self |
+| bnb | OpenEden T-Bills `0x5b4681f0d7a01b817675f25892d3ad73572fd1d9` | tokenized T-bill vault. Not ERC-3643: the official factory had no code. The vault does not name a feed through the getters this reader checks. |
+| zksync | Blockchain Capital Token `0x57fd71a86522dc06d6255537521886057c1772a3` | tokenized fund. Not ERC-3643: the official factory had no code. Bytecode is EraVM, so a missed selector is not proof of absence. |
 
-BNB Chain and ZKsync Era have no fixture. Monad is not a chain row. Solana
-and Stellar are not rows either.
+Monad is not a chain row. Solana and Stellar are not rows either.
 
 ## What a check reads
 
