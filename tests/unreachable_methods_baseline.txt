@@ -30,15 +30,9 @@
 # receiver through `self.x = Foo()` and `x = Foo()`, and reports a class no
 # call site resolves to. It is SOUND rather than complete: one unresolvable
 # receiver makes the whole name ambiguous, because the alternative is guessing.
-# **52** method names remain ambiguous and are not checked by anything — the
+# **53** method names remain ambiguous and are not checked by anything — the
 # number is pinned by test_the_ambiguity_the_sweep_cannot_resolve_is_stated,
 # so it cannot rot into a claim.
-#
-# 53 -> 52 when bot/panic_button.py defined `enabled` at module level.
-# NewsRadar and ProofOfPnLPublisher both define that method, and both are
-# called, so the name was ambiguous rather than unreachable. A module-level
-# function of the same name is outside this sweep, the same exit `observe`
-# took.
 #
 # 48 -> 53 when the approval digest became its own object and the Daily Duel
 # bot kept a facade over it. Five names that one class defined are now

@@ -72,7 +72,7 @@ WHY_STALE = "approval older than 180 days"
 WHY_OPEN = "open approval"
 
 
-def enabled(env: Optional[Mapping[str, str]] = None) -> bool:
+def flag_on(env: Optional[Mapping[str, str]] = None) -> bool:
     """True only for ``1`` or ``true``. Anything else, including unset, is off."""
     src = env if env is not None else os.environ
     raw = str(src.get(FLAG) or "").strip().lower()
@@ -308,7 +308,7 @@ def on_panic(
     known_good: frozenset[str] = KNOWN_GOOD_DELEGATES,
 ) -> list[str]:
     """The reply. Nothing is written. The watch list is not touched."""
-    if not enabled(env):
+    if not flag_on(env):
         return [NOT_AVAILABLE]
     if refuses_secret(argument):
         return [SECRET_REPLY]
@@ -360,7 +360,7 @@ def main() -> int:
     if body.get("op") == "receipt":
         json.dump(seal_receipt(body.get("hashes")), sys.stdout)
         return 0
-    if not enabled():
+    if not flag_on():
         json.dump({"available": False, "message": NOT_AVAILABLE}, sys.stdout)
         return 0
     got = body.get("address")

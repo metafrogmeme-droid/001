@@ -37,7 +37,7 @@ from bot.panic_button import (
     WHY_RECENT_UNLIM,
     WHY_STALE,
     WHY_UNLIM,
-    enabled,
+    flag_on,
     on_panic,
     page_url,
     read_panic,
@@ -124,14 +124,14 @@ def _run_read():
 
 def test_the_flag_is_off_unless_it_is_one_or_true(monkeypatch):
     monkeypatch.delenv("PANIC_BUTTON", raising=False)
-    assert enabled({}) is False
-    assert enabled({"PANIC_BUTTON": ""}) is False
-    assert enabled({"PANIC_BUTTON": "0"}) is False
-    assert enabled({"PANIC_BUTTON": "false"}) is False
-    assert enabled({"PANIC_BUTTON": "yes"}) is False
-    assert enabled({"PANIC_BUTTON": "1"}) is True
-    assert enabled({"PANIC_BUTTON": "true"}) is True
-    assert enabled({"PANIC_BUTTON": "TRUE"}) is True
+    assert flag_on({}) is False
+    assert flag_on({"PANIC_BUTTON": ""}) is False
+    assert flag_on({"PANIC_BUTTON": "0"}) is False
+    assert flag_on({"PANIC_BUTTON": "false"}) is False
+    assert flag_on({"PANIC_BUTTON": "yes"}) is False
+    assert flag_on({"PANIC_BUTTON": "1"}) is True
+    assert flag_on({"PANIC_BUTTON": "true"}) is True
+    assert flag_on({"PANIC_BUTTON": "TRUE"}) is True
     assert on_panic(WALLET, reader=_Reader((), {}), exploits=_List(set()), now_iso=_iso(NOW), env={}) == [
         NOT_AVAILABLE,
     ]
