@@ -134,10 +134,10 @@ const SCRIPTS = [
   '/js/signal-status-model.js?v=4',
   '/js/pi-signals.js?v=7',
   // The Daily Duel: the website's round renderer, then the block.
-  '/js/duel.js?v=9',
+  '/js/duel.js?v=11',
   // The in-app receipt check, before the block that uses it.
   '/js/pi-receipt.js?v=5',
-  '/js/pi-duel.js?v=11',
+  '/js/pi-duel.js?v=13',
   // Ask the Claw, the coach tab.
   '/js/pi-coach.js?v=3',
   // The Leaders tab: the season's standings and your name on them.

@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "Même alors, il lui faut une autre chaîne, et seul un portefeuille peut l’y horodater."],
 ["It needs another chain, and only a wallet can stamp one.", "Il lui faut une autre chaîne, et seul un portefeuille peut l’y horodater."],
 ["Share this receipt", "Partager ce reçu"],
-["Sealed before the result. Check it yourself:", "Scellé avant le résultat. Vérifiez par vous-même :"]
+["Sealed before the result. Check it yourself:", "Scellé avant le résultat. Vérifiez par vous-même :"],
+["How sure are you? This is your own rating.","À quel point êtes-vous sûr ? C’est votre propre évaluation."],
+["Low","Faible"],
+["Medium","Moyenne"],
+["High","Élevée"],
+["Your rating","Votre évaluation"],
+["No high-confidence call has settled yet","Aucune annonce à confiance élevée n’est encore réglée"],
+["No high-confidence call yet","Aucune annonce à confiance élevée pour l’instant"],
+["of {n} high-confidence calls","sur {n} annonces à confiance élevée"],
+["How often your high-confidence calls were right","À quelle fréquence vos annonces à confiance élevée étaient justes"],
+["High confidence","Confiance élevée"],
+["Choose low, medium or high. Your call was not recorded.","Choisissez faible, moyenne ou élevée. Votre annonce n’a pas été enregistrée."]
 ]

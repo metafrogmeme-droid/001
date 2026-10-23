@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "即使如此，仍需要另一條鏈，而只有錢包能在上面蓋章。"],
 ["It needs another chain, and only a wallet can stamp one.", "還需要另一條鏈，而只有錢包能在上面蓋章。"],
 ["Share this receipt", "分享這張收據"],
-["Sealed before the result. Check it yourself:", "在結果出爐前已封存。自己驗證："]
+["Sealed before the result. Check it yourself:", "在結果出爐前已封存。自己驗證："],
+["How sure are you? This is your own rating.","你有多確定？這是你自己的評價。"],
+["Low","低"],
+["Medium","中"],
+["High","高"],
+["Your rating","你的評價"],
+["No high-confidence call has settled yet","還沒有高信心的判斷已經結算"],
+["No high-confidence call yet","還沒有高信心的判斷"],
+["of {n} high-confidence calls","共 {n} 次高信心判斷"],
+["How often your high-confidence calls were right","你的高信心判斷有多少次是對的"],
+["High confidence","高信心"],
+["Choose low, medium or high. Your call was not recorded.","請選擇低、中或高。這次判斷沒有記錄。"]
 ]

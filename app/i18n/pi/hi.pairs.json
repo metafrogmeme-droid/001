@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "तब भी इसे एक और चेन चाहिए, और उस पर मुहर सिर्फ़ वॉलेट लगा सकता है।"],
 ["It needs another chain, and only a wallet can stamp one.", "इसे एक और चेन चाहिए, और उस पर मुहर सिर्फ़ वॉलेट लगा सकता है।"],
 ["Share this receipt", "यह रसीद शेयर करें"],
-["Sealed before the result. Check it yourself:", "नतीजे से पहले सील की गई। ख़ुद जाँचें:"]
+["Sealed before the result. Check it yourself:", "नतीजे से पहले सील की गई। ख़ुद जाँचें:"],
+["How sure are you? This is your own rating.","आप कितने आश्वस्त हैं? यह आपकी अपनी रेटिंग है।"],
+["Low","कम"],
+["Medium","मध्यम"],
+["High","उच्च"],
+["Your rating","आपकी रेटिंग"],
+["No high-confidence call has settled yet","अभी तक कोई उच्च-आत्मविश्वास वाली कॉल निपट नहीं हुई"],
+["No high-confidence call yet","अभी तक कोई उच्च-आत्मविश्वास वाली कॉल नहीं"],
+["of {n} high-confidence calls","{n} उच्च-आत्मविश्वास वाली कॉल में से"],
+["How often your high-confidence calls were right","आपकी उच्च-आत्मविश्वास वाली कॉल कितनी बार सही रहीं"],
+["High confidence","उच्च आत्मविश्वास"],
+["Choose low, medium or high. Your call was not recorded.","कम, मध्यम या उच्च चुनें। आपकी कॉल दर्ज नहीं हुई।"]
 ]

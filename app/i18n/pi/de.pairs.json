@@ -364,5 +364,16 @@
 ["Even then, it needs another chain, and only a wallet can stamp one.", "Selbst dann braucht er eine weitere Chain, und nur eine Wallet kann ihn dort stempeln."],
 ["It needs another chain, and only a wallet can stamp one.", "Er braucht eine weitere Chain, und nur eine Wallet kann ihn dort stempeln."],
 ["Share this receipt", "Diesen Beleg teilen"],
-["Sealed before the result. Check it yourself:", "Vor dem Ergebnis versiegelt. Prüf es selbst:"]
+["Sealed before the result. Check it yourself:", "Vor dem Ergebnis versiegelt. Prüf es selbst:"],
+["How sure are you? This is your own rating.","Wie sicher bist du? Das ist deine eigene Einschätzung."],
+["Low","Niedrig"],
+["Medium","Mittel"],
+["High","Hoch"],
+["Your rating","Deine Einschätzung"],
+["No high-confidence call has settled yet","Noch kein Ruf mit hoher Sicherheit ist ausgewertet"],
+["No high-confidence call yet","Noch kein Ruf mit hoher Sicherheit"],
+["of {n} high-confidence calls","von {n} Rufen mit hoher Sicherheit"],
+["How often your high-confidence calls were right","Wie oft deine Rufe mit hoher Sicherheit richtig waren"],
+["High confidence","Hohe Sicherheit"],
+["Choose low, medium or high. Your call was not recorded.","Wähle niedrig, mittel oder hoch. Dein Ruf wurde nicht erfasst."]
 ]

@@ -82,7 +82,8 @@ test('every server sentence is translated in every language the Pi app speaks', 
   const out = build.build();
   assert.deepStrictEqual(out.problems, []);
   const server = [...new Set(build.serverSentences().map(([en]) => en))];
-  assert.strictEqual(server.length, 18);
+  // Eighteen, plus the confidence refusal ("Choose low, medium or high…").
+  assert.strictEqual(server.length, 19);
   for (const [code, missing] of Object.entries(out.missing)) {
     for (const en of server) assert.ok(!missing.includes(en), `${code} lacks: ${en}`);
   }
