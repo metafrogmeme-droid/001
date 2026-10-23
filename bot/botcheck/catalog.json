@@ -1,0 +1,984 @@
+{
+  "as_of": "2026-10-23",
+  "disclaimer": "Public signals as of 2026-10-23. Unknown stays unknown.",
+  "ai_written_label": "AI-written",
+  "ai_written_notice": "AI-written. EU AI Act Art. 50.",
+  "signals": [
+    {
+      "id": "creates_wallets",
+      "question": "Does the bot create or import wallets for users?"
+    },
+    {
+      "id": "asks_seed",
+      "question": "Does it ask for a seed phrase or private key?"
+    },
+    {
+      "id": "code_public",
+      "question": "Is its code public?"
+    },
+    {
+      "id": "signs_from",
+      "question": "Does it sign trades from a wallet the bot controls, or from the user's own wallet?"
+    },
+    {
+      "id": "public_incident",
+      "question": "Has it been named in a public incident?"
+    }
+  ],
+  "bots": [
+    {
+      "id": "runeclaw-daily-duel",
+      "name": "RUNECLAW Daily Duel",
+      "aliases": [
+        "daily duel",
+        "runeclaw daily duel"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "no",
+          "detail": "The public module says this bot holds no key and signs nothing, and it does not create or import a wallet.",
+          "source_url": "https://github.com/metafrogmeme-droid/001/blob/main/bot/daily_duel_bot.py",
+          "source_label": "Daily Duel bot module",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "no",
+          "detail": "The same public module does not ask a player for a seed phrase or a private key.",
+          "source_url": "https://github.com/metafrogmeme-droid/001/blob/main/bot/daily_duel_bot.py",
+          "source_label": "Daily Duel bot module",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "yes",
+          "detail": "The bot is a module in a public repository. Maintained means a public commit on the default branch dated within 180 days of 2026-10-23.",
+          "source_url": "https://github.com/metafrogmeme-droid/001",
+          "source_label": "RUNECLAW repository",
+          "as_of": "2026-10-23",
+          "maintained": "yes",
+          "maintained_source_url": "https://github.com/metafrogmeme-droid/001/commit/eed3111e0a0b2d5ccfe4eae9397204ed03021ae7",
+          "maintained_source_label": "Commit on main, 2026-10-23"
+        },
+        "signs_from": {
+          "answer": "user_wallet",
+          "detail": "The public module says players anchor from their own wallet and that this bot never signs.",
+          "source_url": "https://github.com/metafrogmeme-droid/001/blob/main/bot/daily_duel_bot.py",
+          "source_label": "Daily Duel bot module",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The public module does not link a public incident report. Absence is not a no.",
+          "source_url": "https://github.com/metafrogmeme-droid/001/blob/main/bot/daily_duel_bot.py",
+          "source_label": "Daily Duel bot module",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "bonkbot",
+      "name": "Bonkbot",
+      "aliases": [
+        "bonk bot"
+      ],
+      "usernames": [
+        "bonkbot_bot"
+      ],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public setup guide says /start initialized an empty wallet.",
+          "source_url": "https://docs.bonkbot.io/bonkbot/quick-setup-guide/initializing-bonkbot",
+          "source_label": "Bonkbot initializing guide",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "unknown",
+          "detail": "That setup page does not say a person is asked to enter a seed phrase or a private key.",
+          "source_url": "https://docs.bonkbot.io/bonkbot/quick-setup-guide/initializing-bonkbot",
+          "source_label": "Bonkbot initializing guide",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://docs.bonkbot.io/bonkbot/quick-setup-guide/initializing-bonkbot",
+          "source_label": "Bonkbot initializing guide",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The signer page says a key is generated in their environment and that only the user can initiate a transaction. It does not say whether signing is from Telegram Wallet, TON Connect, WalletConnect, or a wallet the bot can sign.",
+          "source_url": "https://docs.bonkbot.io/security/signer",
+          "source_label": "Bonkbot signer page",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://docs.bonkbot.io/bonkbot/quick-setup-guide/initializing-bonkbot",
+          "source_label": "Bonkbot initializing guide",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "maestro",
+      "name": "Maestro",
+      "aliases": [
+        "maestro bot",
+        "maestrobots"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public wallet setup says a person can generate a wallet or import one.",
+          "source_url": "https://docs.maestrobots.com/sniper/wallet-setup",
+          "source_label": "Maestro wallet setup",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "The public wallet settings say a person can use the private key or mnemonic phrase to connect the same wallet.",
+          "source_url": "https://docs.maestrobots.com/sniper/faq/wallet-settings",
+          "source_label": "Maestro wallet settings",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://docs.maestrobots.com/sniper/faq/security",
+          "source_label": "Maestro security page",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "bot_controlled",
+          "detail": "The public security page says private keys are encrypted, and that a wallet still connected can send assets even when the person no longer has the private key or mnemonic.",
+          "source_url": "https://docs.maestrobots.com/sniper/faq/security",
+          "source_label": "Maestro security page",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "yes",
+          "detail": "A public incident note names this bot.",
+          "source_url": "https://www.certik.com/blog/maestro-and-unibot",
+          "source_label": "CertiK note on Maestro and Unibot",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "trojan-on-solana",
+      "name": "Trojan on Solana",
+      "aliases": [
+        "trojan"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public guide shows a wallet address at the top of the /start menu to fund.",
+          "source_url": "https://docs.trojanonsolana.com/about-trojan-on-solana/using-trojan-on-solana",
+          "source_label": "Using Trojan on Solana",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "The public wallet settings describe Import Solana Wallet by pasting a private key.",
+          "source_url": "https://docs.trojanonsolana.com/telegram-bot-user-guide/trojan-bot-settings/wallets",
+          "source_label": "Trojan wallet settings",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://docs.trojanonsolana.com/telegram-bot-user-guide/trojan-bot-settings/wallets",
+          "source_label": "Trojan wallet settings",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "Those pages say keys can be exported, and another page says keys are not on the server. The two readings are not collapsed here.",
+          "source_url": "https://docs.trojanonsolana.com/telegram-bot-user-guide/trojan-bot-settings/wallets",
+          "source_label": "Trojan wallet settings",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://docs.trojanonsolana.com/telegram-bot-user-guide/trojan-bot-settings/wallets",
+          "source_label": "Trojan wallet settings",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "bullx-neo",
+      "name": "BullX Neo",
+      "aliases": [
+        "bullx",
+        "bull x"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public wallet manager says a person can create a wallet and download the private key once.",
+          "source_url": "https://bullx.gitbook.io/bullx-neo-docs/wallet-manager",
+          "source_label": "BullX Neo wallet manager",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "The same page says a person can import the private key directly into BullX.",
+          "source_url": "https://bullx.gitbook.io/bullx-neo-docs/wallet-manager",
+          "source_label": "BullX Neo wallet manager",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://bullx.gitbook.io/bullx-neo-docs/wallet-manager",
+          "source_label": "BullX Neo wallet manager",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The page does not say whether a trade is signed by a wallet the bot can sign or by the person's own wallet.",
+          "source_url": "https://bullx.gitbook.io/bullx-neo-docs/wallet-manager",
+          "source_label": "BullX Neo wallet manager",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://bullx.gitbook.io/bullx-neo-docs/wallet-manager",
+          "source_label": "BullX Neo wallet manager",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "banana-gun",
+      "name": "Banana Gun",
+      "aliases": [
+        "banana gun",
+        "bananagun"
+      ],
+      "usernames": [
+        "BananaGun_bot"
+      ],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public note says a person can create a wallet or import one.",
+          "source_url": "https://blog.bananagun.io/blog/trade-solana-on-telegram",
+          "source_label": "Banana Gun Solana trade note",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "The same note says Import Wallet asks for a pasted private key.",
+          "source_url": "https://blog.bananagun.io/blog/trade-solana-on-telegram",
+          "source_label": "Banana Gun Solana trade note",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://blog.bananagun.io/blog/trade-solana-on-telegram",
+          "source_label": "Banana Gun Solana trade note",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The note describes a buy tap. It does not say whether the signature comes from a wallet the bot can sign or from the person's own wallet.",
+          "source_url": "https://blog.bananagun.io/blog/trade-solana-on-telegram",
+          "source_label": "Banana Gun Solana trade note",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "yes",
+          "detail": "A public incident note names this bot.",
+          "source_url": "https://www.theblock.co/news/ecosystems/2024-09-25-banana-gun-exploit-refund-318074",
+          "source_label": "The Block note on Banana Gun",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "unibot",
+      "name": "Unibot",
+      "aliases": [
+        "uni bot"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "unknown",
+          "detail": "This public incident note does not state whether the bot creates or imports wallets.",
+          "source_url": "https://www.certik.com/blog/maestro-and-unibot",
+          "source_label": "CertiK note on Maestro and Unibot",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "unknown",
+          "detail": "This public incident note does not state whether the bot asks for a seed phrase or a private key.",
+          "source_url": "https://www.certik.com/blog/maestro-and-unibot",
+          "source_label": "CertiK note on Maestro and Unibot",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "This public incident note does not link a public source repository.",
+          "source_url": "https://www.certik.com/blog/maestro-and-unibot",
+          "source_label": "CertiK note on Maestro and Unibot",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "This public incident note describes a router approval. It does not say whether later trades are signed by a wallet the bot can sign or by the person's own wallet.",
+          "source_url": "https://www.certik.com/blog/maestro-and-unibot",
+          "source_label": "CertiK note on Maestro and Unibot",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "yes",
+          "detail": "A public incident note names this bot.",
+          "source_url": "https://www.certik.com/blog/maestro-and-unibot",
+          "source_label": "CertiK note on Maestro and Unibot",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "cornix",
+      "name": "Cornix",
+      "aliases": [
+        "cornix bot"
+      ],
+      "usernames": [
+        "cornix_trading_bot"
+      ],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "One public guide says a person pastes a private key of an API wallet they generated on Hyperliquid. Other guides describe an exchange API key and secret rather than a wallet.",
+          "source_url": "https://help.cornix.io/en/articles/11010094-how-to-create-api-keys-hyperliquid",
+          "source_label": "Cornix Hyperliquid guide",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "That Hyperliquid guide says the person pastes a private key. Other Cornix guides describe an exchange API key and secret, which is a different prompt.",
+          "source_url": "https://help.cornix.io/en/articles/11010094-how-to-create-api-keys-hyperliquid",
+          "source_label": "Cornix Hyperliquid guide",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://help.cornix.io/en/articles/11010094-how-to-create-api-keys-hyperliquid",
+          "source_label": "Cornix Hyperliquid guide",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The guide describes connecting a venue. It does not say whether a trade is signed by a wallet the bot can sign or by the person's own wallet.",
+          "source_url": "https://help.cornix.io/en/articles/11010094-how-to-create-api-keys-hyperliquid",
+          "source_label": "Cornix Hyperliquid guide",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://help.cornix.io/en/articles/11010094-how-to-create-api-keys-hyperliquid",
+          "source_label": "Cornix Hyperliquid guide",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "freqtrade",
+      "name": "Freqtrade",
+      "aliases": [
+        "freqtrade bot"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public exchange guide says a Hyperliquid config holds a private key. That is an import of a key. The same guide's centralized-exchange entries are an API key and secret, which is not a wallet.",
+          "source_url": "https://github.com/freqtrade/freqtrade/blob/develop/docs/exchanges.md",
+          "source_label": "Freqtrade exchanges guide",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "The same guide includes a private key in the Hyperliquid config.",
+          "source_url": "https://github.com/freqtrade/freqtrade/blob/develop/docs/exchanges.md",
+          "source_label": "Freqtrade exchanges guide",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "yes",
+          "detail": "The repository is public. Maintained means a public commit on the default branch dated within 180 days of 2026-10-23.",
+          "source_url": "https://github.com/freqtrade/freqtrade",
+          "source_label": "Freqtrade repository",
+          "as_of": "2026-10-23",
+          "maintained": "yes",
+          "maintained_source_url": "https://github.com/freqtrade/freqtrade/commit/c051e9065c5b677f03817dd1f83cb980af1ed684",
+          "maintained_source_label": "Commit on develop, 2026-10-22"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The guide says private API calls need to be signed with the private key in the config. It does not map that to Telegram Wallet, TON Connect, WalletConnect, or a wallet the bot can sign, so this stays unknown.",
+          "source_url": "https://github.com/freqtrade/freqtrade/blob/develop/docs/exchanges.md",
+          "source_label": "Freqtrade exchanges guide",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://github.com/freqtrade/freqtrade/blob/develop/docs/exchanges.md",
+          "source_label": "Freqtrade exchanges guide",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "bloom",
+      "name": "Bloom",
+      "aliases": [
+        "bloom bot",
+        "bloombot"
+      ],
+      "usernames": [
+        "BloomSolana_bot",
+        "BloomEVMbot"
+      ],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public wallets page says create a new wallet and get the private key and address.",
+          "source_url": "https://docs.bloombot.app/evm/evm-bot/wallets",
+          "source_label": "Bloom EVM wallets",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "unknown",
+          "detail": "The same page says import an existing wallet. It does not say whether the prompt is a seed phrase or a private key.",
+          "source_url": "https://docs.bloombot.app/evm/evm-bot/wallets",
+          "source_label": "Bloom EVM wallets",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://docs.bloombot.app/evm/evm-bot/wallets",
+          "source_label": "Bloom EVM wallets",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The page does not say whether a trade is signed by a wallet the bot can sign or by the person's own wallet.",
+          "source_url": "https://docs.bloombot.app/evm/evm-bot/wallets",
+          "source_label": "Bloom EVM wallets",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://docs.bloombot.app/evm/evm-bot/wallets",
+          "source_label": "Bloom EVM wallets",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "gmgn",
+      "name": "GMGN",
+      "aliases": [
+        "gmgn bot"
+      ],
+      "usernames": [
+        "GMGN_sol_bot",
+        "GMGN_sol02_bot",
+        "GMGN_sol03_bot",
+        "GMGN_sol04_bot",
+        "US_GMGNBOT"
+      ],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public guide says a Solana wallet address is automatically generated.",
+          "source_url": "https://docs.gmgn.ai/index/gmgn-tg-sniper-bot-sol",
+          "source_label": "GMGN Telegram sniper guide",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "The same guide says private keys can be imported and exported.",
+          "source_url": "https://docs.gmgn.ai/index/gmgn-tg-sniper-bot-sol",
+          "source_label": "GMGN Telegram sniper guide",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://docs.gmgn.ai/index/gmgn-tg-sniper-bot-sol",
+          "source_label": "GMGN Telegram sniper guide",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The guide says a wallet address is generated and that private keys can be imported and exported. It does not say whether a trade is signed by a wallet the bot can sign or by the person's own wallet.",
+          "source_url": "https://docs.gmgn.ai/index/gmgn-tg-sniper-bot-sol",
+          "source_label": "GMGN Telegram sniper guide",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://docs.gmgn.ai/index/gmgn-tg-sniper-bot-sol",
+          "source_label": "GMGN Telegram sniper guide",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "mevx",
+      "name": "MEVX",
+      "aliases": [
+        "mevx bot",
+        "mev x"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "unknown",
+          "detail": "This public page does not state this signal.",
+          "source_url": "https://docs.mevx.io/docs/mevx-telegram-bot",
+          "source_label": "MEVX Telegram bot page",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "unknown",
+          "detail": "This public page does not state this signal.",
+          "source_url": "https://docs.mevx.io/docs/mevx-telegram-bot",
+          "source_label": "MEVX Telegram bot page",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://docs.mevx.io/docs/mevx-telegram-bot",
+          "source_label": "MEVX Telegram bot page",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "This public page does not state this signal.",
+          "source_url": "https://docs.mevx.io/docs/mevx-telegram-bot",
+          "source_label": "MEVX Telegram bot page",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://docs.mevx.io/docs/mevx-telegram-bot",
+          "source_label": "MEVX Telegram bot page",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "storm-trade",
+      "name": "Storm Trade",
+      "aliases": [
+        "storm trade"
+      ],
+      "usernames": [
+        "StormTradeBot"
+      ],
+      "signals": {
+        "creates_wallets": {
+          "answer": "no",
+          "detail": "The public setup says the person connects a TON wallet they already have. It does not describe the bot creating or importing one.",
+          "source_url": "https://docs.storm.tg/getting-started/setting_up_account",
+          "source_label": "Storm Trade account setup",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "no",
+          "detail": "The page says the wallet confirms transactions. It does not ask for a seed phrase or a private key.",
+          "source_url": "https://docs.storm.tg/getting-started/setting_up_account",
+          "source_label": "Storm Trade account setup",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://docs.storm.tg/getting-started/setting_up_account",
+          "source_label": "Storm Trade account setup",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "user_wallet",
+          "detail": "The page says the wallet is ready to sign and lists TON Space.",
+          "source_url": "https://docs.storm.tg/getting-started/setting_up_account",
+          "source_label": "Storm Trade account setup",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://docs.storm.tg/getting-started/setting_up_account",
+          "source_label": "Storm Trade account setup",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "threecommas",
+      "name": "3Commas",
+      "aliases": [
+        "3commas",
+        "3 commas"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "no",
+          "detail": "The public homepage describes linking an exchange account with Fast Connect or API keys. It does not describe creating or importing a wallet.",
+          "source_url": "https://3commas.io/",
+          "source_label": "3Commas homepage",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "no",
+          "detail": "The page names API keys. It does not ask for a seed phrase or a wallet private key.",
+          "source_url": "https://3commas.io/",
+          "source_label": "3Commas homepage",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://3commas.io/",
+          "source_label": "3Commas homepage",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "Orders go through a linked exchange. That is not one of the two wallet readings this check records.",
+          "source_url": "https://3commas.io/",
+          "source_label": "3Commas homepage",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The homepage does not link a public incident report. Absence is not a no.",
+          "source_url": "https://3commas.io/",
+          "source_label": "3Commas homepage",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "hummingbot",
+      "name": "Hummingbot",
+      "aliases": [
+        "humming bot"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "unknown",
+          "detail": "The public homepage describes an open-source trading bot. It does not state whether the bot creates or imports wallets.",
+          "source_url": "https://hummingbot.org/",
+          "source_label": "Hummingbot homepage",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "unknown",
+          "detail": "The public homepage does not state whether the bot asks for a seed phrase or a private key.",
+          "source_url": "https://hummingbot.org/",
+          "source_label": "Hummingbot homepage",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "yes",
+          "detail": "The homepage says the project is open source under the Apache 2.0 license, and the repository is public. Maintained means a public commit on the default branch dated within 180 days of 2026-10-23.",
+          "source_url": "https://github.com/hummingbot/hummingbot",
+          "source_label": "Hummingbot repository",
+          "as_of": "2026-10-23",
+          "maintained": "yes",
+          "maintained_source_url": "https://github.com/hummingbot/hummingbot/commit/9af100d6822da7d2d0291a906c730ef172284ee2",
+          "maintained_source_label": "Commit on master, 2026-09-22"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The public homepage does not say whether a trade is signed by a wallet the bot can sign or by the person's own wallet.",
+          "source_url": "https://hummingbot.org/",
+          "source_label": "Hummingbot homepage",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://hummingbot.org/",
+          "source_label": "Hummingbot homepage",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "octobot",
+      "name": "OctoBot",
+      "aliases": [
+        "octo bot"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "no",
+          "detail": "The public README describes exchange integrations and API keys. It does not describe the bot creating or importing a wallet.",
+          "source_url": "https://github.com/Drakkar-Software/OctoBot/blob/master/README.md",
+          "source_label": "OctoBot README",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "no",
+          "detail": "The README names API keys, including for Hyperliquid. It does not ask for a seed phrase or a wallet private key.",
+          "source_url": "https://github.com/Drakkar-Software/OctoBot/blob/master/README.md",
+          "source_label": "OctoBot README",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "yes",
+          "detail": "The repository is public. Maintained means a public commit on the default branch dated within 180 days of 2026-10-23.",
+          "source_url": "https://github.com/Drakkar-Software/OctoBot",
+          "source_label": "OctoBot repository",
+          "as_of": "2026-10-23",
+          "maintained": "yes",
+          "maintained_source_url": "https://github.com/Drakkar-Software/OctoBot/commit/c45fdc2c95c5bd3d649251fa90c327e2e8f86b00",
+          "maintained_source_label": "Commit on master, 2026-10-07"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The README says the bot sends orders to an exchange. It does not say whether a trade is signed by a wallet the bot can sign or by the person's own wallet.",
+          "source_url": "https://github.com/Drakkar-Software/OctoBot/blob/master/README.md",
+          "source_label": "OctoBot README",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://github.com/Drakkar-Software/OctoBot/blob/master/README.md",
+          "source_label": "OctoBot README",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "wallet-in-telegram",
+      "name": "Wallet in Telegram",
+      "aliases": [
+        "telegram wallet",
+        "wallet.tg",
+        "ton wallet"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "yes",
+          "detail": "The public page says setting up DeFi Account generates a secret key from a random seed phrase, and it says to create and confirm that seed phrase.",
+          "source_url": "https://wallet.tg/",
+          "source_label": "Wallet in Telegram",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "yes",
+          "detail": "The same page says restoring DeFi Account asks the person to enter their seed phrase.",
+          "source_url": "https://wallet.tg/",
+          "source_label": "Wallet in Telegram",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://wallet.tg/",
+          "source_label": "Wallet in Telegram",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The page describes two products. DeFi Account says only the person holds the private key. Crypto Wallet is described as a product where keys are managed for the person. The two are not collapsed into one reading.",
+          "source_url": "https://wallet.tg/",
+          "source_label": "Wallet in Telegram",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://wallet.tg/",
+          "source_label": "Wallet in Telegram",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "gunbot",
+      "name": "Gunbot",
+      "aliases": [
+        "gun bot"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "no",
+          "detail": "The homepage describes DeFi venues using your own wallets and exchange API keys. It does not describe the bot creating a wallet.",
+          "source_url": "https://www.gunbot.com/",
+          "source_label": "Gunbot homepage",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "no",
+          "detail": "The homepage names API keys. A keyword reading of the public text found no seed phrase and no private key.",
+          "source_url": "https://www.gunbot.com/",
+          "source_label": "Gunbot homepage",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://www.gunbot.com/",
+          "source_label": "Gunbot homepage",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The page names both a person's own wallets and exchange API keys. It does not pick one signing reading.",
+          "source_url": "https://www.gunbot.com/",
+          "source_label": "Gunbot homepage",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://www.gunbot.com/",
+          "source_label": "Gunbot homepage",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "cryptohopper",
+      "name": "Cryptohopper",
+      "aliases": [
+        "crypto hopper"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "unknown",
+          "detail": "The readable public text of this page did not state whether the bot creates or imports wallets.",
+          "source_url": "https://www.cryptohopper.com/",
+          "source_label": "Cryptohopper homepage",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "unknown",
+          "detail": "The readable public text of this page did not state whether the bot asks for a seed phrase or a private key.",
+          "source_url": "https://www.cryptohopper.com/",
+          "source_label": "Cryptohopper homepage",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://www.cryptohopper.com/",
+          "source_label": "Cryptohopper homepage",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The readable public text of this page did not state which wallet signs.",
+          "source_url": "https://www.cryptohopper.com/",
+          "source_label": "Cryptohopper homepage",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://www.cryptohopper.com/",
+          "source_label": "Cryptohopper homepage",
+          "as_of": "2026-10-23"
+        }
+      }
+    },
+    {
+      "id": "pionex",
+      "name": "Pionex",
+      "aliases": [
+        "pionex bot"
+      ],
+      "usernames": [],
+      "signals": {
+        "creates_wallets": {
+          "answer": "unknown",
+          "detail": "The readable public text of this page, after scripts were set aside, did not state whether the bot creates or imports wallets.",
+          "source_url": "https://www.pionex.com/",
+          "source_label": "Pionex homepage",
+          "as_of": "2026-10-23"
+        },
+        "asks_seed": {
+          "answer": "unknown",
+          "detail": "The readable public text of this page, after scripts were set aside, did not state whether the bot asks for a seed phrase or a private key.",
+          "source_url": "https://www.pionex.com/",
+          "source_label": "Pionex homepage",
+          "as_of": "2026-10-23"
+        },
+        "code_public": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public source repository.",
+          "source_url": "https://www.pionex.com/",
+          "source_label": "Pionex homepage",
+          "as_of": "2026-10-23",
+          "maintained": "unknown"
+        },
+        "signs_from": {
+          "answer": "unknown",
+          "detail": "The readable public text of this page, after scripts were set aside, did not state which wallet signs.",
+          "source_url": "https://www.pionex.com/",
+          "source_label": "Pionex homepage",
+          "as_of": "2026-10-23"
+        },
+        "public_incident": {
+          "answer": "unknown",
+          "detail": "The pages read for this check do not link a public incident report. Absence is not a no.",
+          "source_url": "https://www.pionex.com/",
+          "source_label": "Pionex homepage",
+          "as_of": "2026-10-23"
+        }
+      }
+    }
+  ]
+}

@@ -63,12 +63,13 @@ _NAME = re.compile(r"\*\*(.+?)\*\*")
 
 # `app.use('/api/chat', express.json({...}))` is body-parser middleware, not a
 # router, so there is nothing behind it to follow. `app.use('/api/panic',
-# panicApi.capBody)` is the same shape: a body cap, not the router. The
-# routers are the later `panicReceipt` and `panicApi` mounts, and those are
-# followed. Pinned rather than filtered by guesswork: a NEW unfollowable
-# mount is a router whose every path would read as a 404, and that must fail
-# here rather than quietly widen a blind spot.
-KNOWN_UNFOLLOWED_MOUNTS = {"/api/chat", "/api/panic"}
+# panicApi.capBody)` and `app.use('/api/botcheck/submit', express.json(...))`
+# are the same shape: a body cap, not the router. The routers are the later
+# panic and botcheck mounts, and those are followed. Pinned rather than
+# filtered by guesswork: a NEW unfollowable mount is a router whose every
+# path would read as a 404, and that must fail here rather than quietly
+# widen a blind spot.
+KNOWN_UNFOLLOWED_MOUNTS = {"/api/chat", "/api/panic", "/api/botcheck/submit"}
 
 
 class Row:

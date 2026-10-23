@@ -19,6 +19,7 @@
     "/admin": "The operator's settings page. It is linked from the dashboard for the operator only; every other account would land on a refusal, so the public landing page does not advertise it.",
     "/study": "The address people guess for the Study Room, whose door is labelled that; it answers a navigation page to /learn and is not a page of its own, so the landing page links /learn.",
     "/panic": "behind PANIC_BUTTON flag, off",
+    "/botcheck": "The custodial-bot check is served only when BOTCHECK_ENABLED is 1, true, yes, or on. Otherwise the page answers 404, so the landing page must not link a door that is closed.",
     "/rwa": "behind the RWA flag, off. It answers 404."
   }
 }
