@@ -31,7 +31,7 @@ const TX = require('../public/js/txray-model.js');
 const SR = require('../public/js/sigray-model.js');
 const G = require('../public/js/guard-model.js');
 const { simulate } = require('../lib/tx_simulate');
-const { CHAINS } = require('../lib/nft');
+const { CHAINS } = require('../lib/evm_chains');
 
 const router = express.Router();
 router.use(optionalAuth);

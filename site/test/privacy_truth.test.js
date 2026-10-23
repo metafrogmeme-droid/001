@@ -205,7 +205,7 @@ test('the Risk Scanner names every chain it reads and the providers it asks by d
 
 test('Claw Guard names the RPCs it simulates on, and keeps nothing for an anonymous check', async () => {
   const { createRequire } = await import('node:module')
-  const { CHAINS } = createRequire(import.meta.url)(path.join(REPO, 'app', 'lib', 'nft.js'))
+  const { CHAINS } = createRequire(import.meta.url)(path.join(REPO, 'app', 'lib', 'evm_chains.js'))
   const t = text()
   const para = (t.match(/Claw Guard\.[^]*?no address and no amount\./) || [''])[0]
   assert.ok(para, 'the page does not describe Claw Guard')

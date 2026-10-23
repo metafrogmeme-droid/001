@@ -19,7 +19,7 @@
  */
 
 const SIM = require('../public/js/txsim-model.js');
-const { CHAINS } = require('./nft');
+const { CHAINS } = require('./evm_chains');
 
 const TIMEOUT_MS = 6000;
 
