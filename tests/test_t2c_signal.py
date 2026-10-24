@@ -32,13 +32,23 @@ def test_flag_accepts_only_one_and_true():
     assert t2c_flag_on({"T2C_ENABLED": " True "}) is True
 
 
-def test_t_p95_unset_is_absent():
+def test_t_p95_unset_falls_back_to_ten_days():
+    from bot.t2c.config import observed_duration, weeth_restaked
     days, source = t_p95_days({})
-    assert days is None
-    assert source == "absent"
+    assert days == Decimal(10)
+    assert source == "fallback"
     days, source = t_p95_days({"T2C_T_P95_DAYS": "nope"})
     assert days is None
     assert source == "unreadable"
+    days, source = t_p95_days({"T2C_T_P95_DAYS": "12"})
+    assert days == Decimal(12)
+    assert source == "config"
+    observed = observed_duration()
+    assert observed["p50_days"] == "5.98"
+    assert observed["p95_days"] == "9.17"
+    assert observed["fallback_days"] == "10"
+    assert weeth_restaked({}) is False
+    assert weeth_restaked({"T2C_WEETH_RESTAKED": "1"}) is False
 
 
 def test_haircut_defaults_are_labelled_unverified():
@@ -62,6 +72,31 @@ def test_lido_yield_is_a_reading_and_absence_is_not_zero():
     assert below["source"] == "borrow_at_or_below_stake"
     assert carry_term(Decimal("0.05"), None)["carry"] is None
     assert duration_price(Decimal(1), Decimal("0.019"), Decimal("0.022"), Decimal(10), Decimal(0)) == Decimal(1)
+
+
+def test_weeth_is_priced_on_the_steth_route_then_the_lido_queue():
+    from bot.t2c.etherfi import cheapest_weeth_exit
+    from bot.t2c.price import apply_exit_fee
+    route = cheapest_weeth_exit(Decimal(0), Decimal(5000), Decimal(10))
+    assert route["route"] == "steth_then_lido_queue"
+    assert route["restaked"] is False
+    base = duration_price(Decimal(1), Decimal("0.05"), Decimal(0), Decimal(365), Decimal(0))
+    priced = apply_exit_fee(base, route["fee_bps"])
+    assert priced == base * Decimal("0.999")
+    assert cheapest_weeth_exit(None, Decimal(5000), Decimal(10))["route"] is None
+    assert cheapest_weeth_exit(Decimal(1), Decimal(5000), Decimal(10))["route"] == "instant_eth"
+    reading = assemble_reading({}, {
+        "t_p95_days": Decimal(365),
+        "aave_weth": Decimal("0.05"),
+        "morpho_weth": Decimal("0.04"),
+        "er_wsteth": Decimal(1),
+        "er_weeth": Decimal(1),
+        "y_wsteth": Decimal(0),
+        "y_weeth": Decimal(0),
+    })
+    weeth = next(asset for asset in reading["public"]["price"]["assets"] if asset["asset"] == "weETH")
+    assert weeth["restaked"] is False
+    assert Decimal(weeth["p"]) == (-Decimal("0.05")).exp() * Decimal("0.999") * Decimal("0.999")
 
 
 def test_borrow_rate_needs_both_venues():
@@ -206,7 +241,19 @@ def test_default_reading_does_not_invent_a_price_or_a_lead():
     anchor = next(day for day in july["days"] if day["day"] == "2025-07-21")
     assert anchor["curve"]["10000"] == "9017058912517896534594"
     assert anchor["borrow_ray"] == "55901435106137103049916020"
-    assert public["price"]["t_p95_days"] is None
+    assert public["price"]["t_p95_days"] == "10"
+    assert public["price"]["t_p95_source"] == "fallback"
+    assert public["duration_observed"]["p50_days"] == "5.98"
+    assert public["duration_observed"]["p95_days"] == "9.17"
+    assert public["consumers"]["price_feed"][0] == "Morpho"
+    assert public["consumers"]["unwind"]["venue"] == "Aave v3 Ethereum"
+    assert public["consumers"]["unwind"]["signal_only"] is True
+    assert public["consumers"]["unwind"]["liquidation_price"] is False
+    weeth = next(asset for asset in public["price"]["assets"] if asset["asset"] == "weETH")
+    assert weeth["restaked"] is False
+    assert weeth["exit_route"] == "steth_then_lido_queue"
+    assert weeth["exit_fee_bps"] == "10"
+    assert weeth["exit_source"] == "recorded_snapshot"
     assert public["duration"]["p95_days"] is None
     assert public["backtest"]["verdict"] == "not_established"
     assert public["backtest"]["july_31"] == "absent"
@@ -215,8 +262,11 @@ def test_default_reading_does_not_invent_a_price_or_a_lead():
     dumped = str(public)
     assert "$" not in dumped
     assert "3640000000" not in dumped
+    assert "6858000000" not in dumped
     admin = reading["admin"]
     assert admin["research"]["supplied_usd"][0]["usd"] == "3640000000"
+    assert admin["research"]["target_collateral_usd"] == "6858000000"
+    assert admin["research"]["target_collateral_billions"] == "6.86"
     assert admin["research"]["as_of"] == "2026-10-23"
 
 

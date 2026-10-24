@@ -18,6 +18,10 @@ def format_signal_text(reading: dict) -> str:
         "flag: " + ("on" if public["flag_on"] else "off"),
         "P: " + _show(price["p"]),
         "T_p95 days: " + _show(price["t_p95_days"]) + " (" + str(price["t_p95_source"]) + ")",
+        "recorded p50 / p95 days: "
+        + _show((public.get("duration_observed") or {}).get("p50_days"))
+        + " / "
+        + _show((public.get("duration_observed") or {}).get("p95_days")),
         "r_borrow: " + _show(price["r_borrow"]),
         "y_stake: " + _show(price["y_stake"]) + " (" + str(price["y_stake_source"]) + ")",
         "carry: " + _show(price.get("carry")) + " (" + str(price.get("carry_source")) + ")",

@@ -65,6 +65,36 @@ def interpret_limit(
     return {"capacity_eth": None, "reason": "unknown_output", "measured_zero": False}
 
 
+def cheapest_weeth_exit(
+    instant_eth: object,
+    steth_limit_eth: object,
+    steth_fee_bps: object,
+) -> dict:
+    """weETH leaves by its cheapest open exit.
+
+    Instant ETH at a measured 0 leaves the stETH route, then Lido's queue.
+    The restaking term is 0 on that path. An unread input does not become a fee.
+    """
+    instant = as_decimal(instant_eth)
+    limit = as_decimal(steth_limit_eth)
+    fee = as_decimal(steth_fee_bps)
+    closed = {"route": None, "fee_bps": None, "restaked": False, "source": "unreadable"}
+    if instant is None:
+        return closed
+    if instant > 0:
+        return {"route": "instant_eth", "fee_bps": None, "restaked": False, "source": "instant_open"}
+    if limit is None or fee is None or limit < 0 or fee < 0 or fee >= 10000:
+        return closed
+    if limit == 0:
+        return {"route": None, "fee_bps": None, "restaked": False, "source": "steth_route_closed"}
+    return {
+        "route": "steth_then_lido_queue",
+        "fee_bps": fee,
+        "restaked": False,
+        "source": "cheapest_open_exit",
+    }
+
+
 def recorded_etherfi() -> dict:
     """The 2026-10-23 snapshot, interpreted by the same rule as a live read."""
     eth = interpret_limit(ETH, pool_eth=RECORDED_ETH_POOL, floor_eth=RECORDED_ETH_FLOOR)

@@ -95,3 +95,11 @@ def duration_price(
         return None
     exponent = -carry * duration / YEAR_DAYS
     return exchange * exponent.exp() * (Decimal(1) - haircut)
+
+
+def apply_exit_fee(price: Decimal | None, fee_bps: object) -> Decimal | None:
+    """Price after a one-time exit fee. The fee is not a slash haircut."""
+    fee = as_decimal(fee_bps)
+    if price is None or fee is None or fee < 0 or fee >= 10000:
+        return None
+    return price * (Decimal(1) - fee / Decimal(10000))
