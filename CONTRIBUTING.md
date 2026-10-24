@@ -39,3 +39,8 @@ Business Source License 1.1 (BUSL-1.1), the same license as the project, and
 that Humanoid Traders may relicense the Licensed Work (including your
 contributions) under the Change License or a commercial license as described in
 [LICENSE](./LICENSE).
+
+Any production use of the Licensed Work or any derivative of it, including
+personal or internal-business use and trading your own or your organization's
+funds, requires a separate paid commercial license from Humanoid Traders.
+Contact Humanoid Traders at info@humanoid-traders.com.
