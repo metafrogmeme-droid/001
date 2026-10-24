@@ -362,6 +362,12 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// Cover drafts stay 404 for the public until COVER_ADL_ENABLED or
+// COVER_STOPGAP_ENABLED is set. Ahead of express.static so
+// public/cover-adl.html, cover-stopgap.html and js/cover.js are not served
+// while the flags are off. An admin can preview. Not offered to customers.
+// Licence review pending. Do not enable in production.
+app.use(require('./lib/cover_page').pageGate);
 // SaR Oracle and /tools stay 404 until SAR_ORACLE_ENABLED is set. Ahead
 // of express.static so public/tools.html is not served while the flag is off.
 app.use(require('./lib/sar_oracle_flag').pageGate);
@@ -540,6 +546,10 @@ app.use('/v1/rwa', require('./routes/rwa_precheck'));
 // Recursion Breaker. Public signals while RXB_ENABLED is on. While it is
 // off, the public gets 404 and an operator can still read. routes/rxb.js.
 app.use('/v1/node', require('./routes/rxb'));
+// Cover status. 404 for the public until the matching flag is set. An admin
+// can preview the hold. Even then the body says the product is not offered.
+// Not offered to customers. Licence review pending. Do not enable in production.
+app.use('/api/cover', require('./routes/cover'));
 // SaR Oracle readings. Public ratios while the flag is on. Dollar amounts
 // stay on the operator route inside the router. 404 while the flag is off.
 app.use('/api/sar-oracle', require('./routes/sar_oracle'));
@@ -613,21 +623,19 @@ app.get('/stress', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); r
 app.get('/sentinel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'sentinel.html')); });
 app.get('/guardian', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'guardian.html')); });
 app.get('/firewall', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'firewall.html')); });
-app.get('/guard', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  const v01 = require('./lib/claw_guard_v01');
-  // Flag off: the file on disk, the same document v0 serves.
-  if (!v01.enabled()) return res.sendFile(v01.guardPageFile());
-  res.type('html').send(v01.guardPageHtml(v01.readGuardPage()));
-});
+app.get('/guard', (req, res) => { require('./lib/claw_guard_v01').sendPage(req, res); });
 // /rwa — the pre-check page. Same shape as the other pages: an app.get whose
 // path is the canonical. 404 until RWA_PRECHECK_ENABLED, the same answer the
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
-app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
+app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); });
 // /rxb — public signals while RXB_ENABLED is on. While it is off, 404
 // for everyone who is not an operator.
 app.get('/rxb', (req, res) => { require('./lib/rxb_page').sendRxb(req, res); });
+// Cover pages. 404 for the public until the matching flag. An admin can
+// preview. Not offered to customers. Licence review pending. Do not enable in production.
+app.get('/cover-adl', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'adl'); });
+app.get('/cover-stopgap', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'stopgap'); });
 // /tools — the catalog. 404 until SAR_ORACLE_ENABLED. While the flag is
 // on, the HTML is the operator's. The card for SaR stays "Coming soon".
 app.get('/tools', (req, res) => { require('./lib/sar_oracle_flag').sendPage(req, res); });

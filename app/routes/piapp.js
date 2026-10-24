@@ -51,6 +51,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const { previewFlags, withBanner } = require('../lib/admin_preview');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const PiI18n = require('../public/js/pi-i18n.js');
 
@@ -199,13 +200,14 @@ function escAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function page(lang = 'en', offered = chunks()) {
+function page(lang = 'en', offered = chunks(), preview = null) {
   const code = lang === 'en' || Object.prototype.hasOwnProperty.call(offered, lang) ? lang : 'en';
   const head = HEAD_SCRIPTS.map((s) => `<script src="${s}"></script>`).join('\n');
   const list = SCRIPTS.slice();
-  // Scam or Safe is a tab only while SCAM_OR_SAFE_V0 is on. Off, the script
-  // list is the one this page has always shipped.
-  if (require('../lib/scam_or_safe').enabled()) {
+  // Scam or Safe is a tab only while SCAM_OR_SAFE_V0 is on for this caller.
+  // Off, and not an admin preview, the script list is the one this page has
+  // always shipped. `preview` defaults off so a direct _page() call stays that.
+  if (require('../lib/scam_or_safe').enabled() || (preview && preview.scam)) {
     const at = list.indexOf('/js/pi-arena.js?v=8');
     list.splice(at < 0 ? list.length : at, 0, '/js/scam-or-safe.js?v=2');
   }
@@ -213,7 +215,7 @@ function page(lang = 'en', offered = chunks()) {
   // before anything draws.
   if (code !== 'en') list.splice(list.indexOf(PI_I18N_SCRIPT) + 1, 0, offered[code]);
   const scripts = list.map((s) => `<script src="${s}" defer></script>`).join('\n');
-  return `<!doctype html>
+  const html = `<!doctype html>
 <html lang="${code}" dir="${PiI18n.dirOf(code)}"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -237,13 +239,22 @@ ${head}
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}
 </body></html>`;
+  return preview && preview.banner ? withBanner(html) : html;
 }
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   // The page depends on the reader's language; it is never cached anyway
   // (framable(), no-store), and Vary says so to anything in between.
   res.setHeader('Vary', 'Accept-Language');
-  res.type('html').send(page(pickLang(req)));
+  try {
+    const flags = await previewFlags(req);
+    res.type('html').send(page(pickLang(req), chunks(), {
+      scam: flags.includes('SCAM_OR_SAFE_V0'),
+      banner: flags.length > 0,
+    }));
+  } catch (e) {
+    if (!res.headersSent) res.type('html').send(page(pickLang(req)));
+  }
 });
 
 /**

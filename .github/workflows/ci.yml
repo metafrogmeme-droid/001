@@ -944,6 +944,33 @@ jobs:
         working-directory: contracts/rxb
         run: node ../../token/scripts/audit_gate.mjs .
 
+  cover-contracts:
+    name: Cover contracts (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: contracts/cover/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/cover
+        run: npm ci --no-audit --no-fund
+
+      # Compiles CoverEscrow (solc, pinned) and runs the bytecode on an
+      # in-process EVM. Hermetic: testnet chain ids only, no deploy, no network.
+      # Not offered to customers. Licence review pending. Do not enable in production.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/cover
+        run: npm test
+
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/cover
+        run: node ../../token/scripts/audit_gate.mjs .
+
   web-app:
     name: Web app (express)
     runs-on: ubuntu-latest

@@ -53,7 +53,8 @@ class ScamGate(FakeGate):
         self.puzzle = dict(PUZZLE)
         self.puzzle["fields"] = list(PUZZLE["fields"])
 
-    def sos_offer(self, now=None, player_key=None):
+    def sos_offer(self, now=None, player_key=None, *, caller_is_admin=False):
+        self.caller_is_admin = caller_is_admin
         self.offered = (now, player_key)
         return {
             "ok": True,
@@ -99,12 +100,14 @@ def test_flag_off_leaves_the_duel_commands_and_the_help_text_unchanged(tmp_path,
     assert sos.flag_on() is False
     bot, gate, _ = _bot(tmp_path)
     cmds, patterns = _commands(bot.build_app(TOKEN))
-    assert "scam" not in cmds
+    # The handler is registered so an admin can open it. A non-admin still
+    # gets NOT_OPEN, and the help text still omits the line.
+    assert "scam" in cmds
     assert cmds == {
         "start", "help", "duel", "result", "streak", "leaderboard",
-        "watch", "digest", "stop",
+        "watch", "digest", "stop", "scam",
     }
-    assert patterns == [r"^dd:"]
+    assert patterns == [r"^dd:", r"^sos:"]
     help_view = _update()
     _run(bot.cmd_help(help_view, None))
     assert sos.SCAM_HELP not in _texts(help_view)[0]
