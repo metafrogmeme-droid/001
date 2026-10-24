@@ -17,14 +17,7 @@
  */
 
 const path = require('node:path');
-
-const FLAG = 'SAR_ORACLE_ENABLED';
-
-function flag_on(env) {
-  const src = env || process.env;
-  const v = String(src[FLAG] == null ? '' : src[FLAG]).trim().toLowerCase();
-  return v === '1' || v === 'true';
-}
+const { FLAG, flag_on } = require('./sar/flag');
 
 function pageFile() {
   return path.join(__dirname, '..', 'public', 'tools.html');
@@ -52,11 +45,11 @@ async function sendPage(req, res, deps) {
     if (operator !== true) return res.status(404).type('text/plain').send('Not found');
     let html;
     try {
-      html = require('./tools_catalog').renderFile();
+      html = require('./tools_catalog').renderFile(process.env, { operator: true });
     } catch (err) {
       return res.status(500).type('text/plain').send(err && err.name ? err.name : 'Error');
     }
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-store');
     return res.type('html').send(html);
   } catch (err) {
     if (!res.headersSent) {
