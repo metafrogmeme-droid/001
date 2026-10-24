@@ -128,7 +128,8 @@ class Outcome(NamedTuple):
 #: pay for two full gates, and the serial gate is the one a local run can
 #: compare with CI.
 LOCAL_JOBS = ("Lint + tests (baseline gate)", "Web app (express)",
-              "Marketing site (vite)", "Anchor workspace (node)")
+              "Marketing site (vite)", "Anchor workspace (node)",
+              "RXB contracts (solidity)")
 PYTHON_JOBS = LOCAL_JOBS          # back-compat alias
 
 #: Steps to skip: setup, and anything whose name matches. Substring match on

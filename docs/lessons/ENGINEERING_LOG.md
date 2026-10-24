@@ -19,13 +19,14 @@ python3 scripts/preflight.py
 
 It runs what CI runs, by **parsing `.github/workflows/ci.yml`** rather than
 restating it — so it cannot drift, and a new CI step becomes a new preflight
-step for free. Twenty-two gates: two strict ruff passes, the whole-tree ruff
+step for free. Twenty-four gates: two strict ruff passes, the whole-tree ruff
 ratchet, mypy on the money modules, the whole-tree mypy ratchet, the honesty
 ratchet, bandit, pip-audit, the chat-eval cassettes, the baseline test gate, the red
 team, the custody red team, the web app's parse check, its npm advisory ratchet, its suite, the
 marketing site's build, its npm advisory ratchet, its published-output honesty
 tests, the check that the committed site is the built site, the Anchor
-workspace's typecheck, its npm advisory ratchet, and guard reachability.
+workspace's typecheck, its npm advisory ratchet, the RXB contracts' compile-and-EVM
+tests, their npm advisory ratchet, and guard reachability.
 
 **It takes about 45 minutes, and this line said ~14 for long enough to be
 worth a rule.** Driven on 2026-09-26, two independent full runs summed their

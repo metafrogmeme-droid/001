@@ -149,6 +149,7 @@
     "cgc": "ventanas del freno de conservación, testnet, solo lectura",
     "gates": "telemetría de aprobado/rechazado por cada gate",
     "flags": "flags de auditoría profunda opt-in",
+    "rxb": "lectura de recursión para el operador, solo razones",
     "shadow": "libro sombra contrafactual",
     "srb": "señales de restitución en sombra — una señal pública, no se paga",
     "audit": "informe de autoauditoría nocturna",

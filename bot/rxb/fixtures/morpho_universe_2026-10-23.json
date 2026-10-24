@@ -1,0 +1,10 @@
+{
+  "pulled_at": "2026-10-23",
+  "endpoint": "https://api.morpho.org/graphql",
+  "note": "Listing counts of Morpho Blue markets on that day. Not a historical vault-year, so they are not a false-fire denominator.",
+  "markets": {
+    "ethereum": 1852,
+    "base": 4369,
+    "arbitrum": 258
+  }
+}

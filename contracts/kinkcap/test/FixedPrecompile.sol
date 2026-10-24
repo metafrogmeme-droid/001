@@ -11,11 +11,24 @@ contract FixedPrecompile {
     }
 
     fallback() external {
-        bytes memory out = abi.encode(
-            words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]
-        );
+        uint256 w0 = words[0];
+        uint256 w1 = words[1];
+        uint256 w2 = words[2];
+        uint256 w3 = words[3];
+        uint256 w4 = words[4];
+        uint256 w5 = words[5];
+        uint256 w6 = words[6];
+        uint256 w7 = words[7];
         assembly ("memory-safe") {
-            return(add(out, 0x20), 256)
+            mstore(0x00, w0)
+            mstore(0x20, w1)
+            mstore(0x40, w2)
+            mstore(0x60, w3)
+            mstore(0x80, w4)
+            mstore(0xa0, w5)
+            mstore(0xc0, w6)
+            mstore(0xe0, w7)
+            return(0x00, 0x100)
         }
     }
 }

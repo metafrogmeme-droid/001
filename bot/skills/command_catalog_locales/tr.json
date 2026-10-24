@@ -149,6 +149,7 @@
     "cgc": "koruma freninin zaman pencereleri, testnet, salt okunur",
     "gates": "kapı başına geçti/kaldı telemetrisi",
     "flags": "isteğe bağlı derin denetim bayrakları",
+    "rxb": "operatör için özyineleme okuması, yalnızca oranlar",
     "shadow": "karşı-olgusal gölge defter",
     "srb": "gölge iade sinyalleri — herkese açık bir sinyal, ödeme yok",
     "audit": "gecelik öz denetim raporu",

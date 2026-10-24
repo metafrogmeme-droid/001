@@ -13,7 +13,10 @@ const M = require('./hrc_model');
 
 const BORROW_CAP_HUMAN = 500000000n;
 const RAW_PER_TOKEN = 100000000n;
-const SCENARIOS = [['scenario_a', 21500000n], ['scenario_b', 50000000n]];
+// Hyperliquid's per-user borrow cap, in USDC tokens. scenario_b withdraws one cap.
+// The pool cap above is the cap-hit denominator.
+const PER_USER_BORROW_CAP = 50000000n;
+const SCENARIOS = [['scenario_a', 21500000n], ['scenario_b', PER_USER_BORROW_CAP]];
 const SOURCES = new Set(['precompile', 'signed_feed', 'lower_of', 'none', 'info_api']);
 
 function historyPath(env) {
@@ -213,8 +216,7 @@ function dashboard(reading) {
   put(out, 'utilization', util);
   put(out, 'borrow_apy', rate);
   put(out, 'points_to_kink', util ? M.mul(M.sub(M.KINK, util), M.HUNDRED) : null);
-  const funding = asDec(reading.funding_apr);
-  const cross = M.crossoverUtilization(funding);
+  const cross = M.baselineCrossover();
   put(out, 'points_to_crossover', cross && util ? M.mul(M.sub(cross, util), M.HUNDRED) : null);
   const human = humanBorrows(reading);
   if (human) put(out, 'borrow_cap_ratio', M.div(human, M.fromInt(BORROW_CAP_HUMAN)));

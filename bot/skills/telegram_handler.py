@@ -1266,6 +1266,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("daily_report", self._cmd_daily_report),
             ("strategy", self._cmd_strategy),
             ("flags", self._cmd_flags),
+            ("rxb", self._cmd_rxb),
             # Signal stats
             ("signals", self._cmd_signals),
             # Admin commands

@@ -52,6 +52,7 @@ function compile() {
     'test/MockUSDC.sol': { content: readFileSync(join(HERE, 'MockUSDC.sol'), 'utf8') },
     'test/FixedPrecompile.sol': { content: readFileSync(join(HERE, 'FixedPrecompile.sol'), 'utf8') },
     'test/FixedL1.sol': { content: readFileSync(join(HERE, 'FixedL1.sol'), 'utf8') },
+    'test/Sink1155.sol': { content: readFileSync(join(HERE, 'Sink1155.sol'), 'utf8') },
   };
   const out = JSON.parse(solc.compile(JSON.stringify({ language: 'Solidity', sources, settings: SETTINGS })));
   const fatal = (out.errors || []).filter((e) => e.severity === 'error');
@@ -65,11 +66,13 @@ function compile() {
     token: pick('test/MockUSDC.sol', 'MockUSDC'),
     pre: pick('test/FixedPrecompile.sol', 'FixedPrecompile'),
     l1: pick('test/FixedL1.sol', 'FixedL1'),
+    sink: pick('test/Sink1155.sol', 'Sink1155'),
   };
 }
 
 const BUILT = compile();
 const marketIface = new Interface(BUILT.market.abi);
+const sinkIface = new Interface(BUILT.sink.abi);
 const tokenIface = new Interface(BUILT.token.abi);
 const preIface = new Interface(BUILT.pre.abi);
 const l1Iface = new Interface(BUILT.l1.abi);
@@ -121,7 +124,7 @@ async function mirror(vm, live) {
   }
 }
 
-async function setup(chainId = CHAIN, transfers = false) {
+async function setup(chainId = CHAIN, transfers = true) {
   const vm = await newVm(chainId);
   async function send(from, to, data, timestamp = 0n) {
     const res = await vm.evm.runCall({
@@ -199,7 +202,8 @@ function feedFrom(hour, supplied, borrowed, rateBps, fundingWad, wallets) {
 }
 
 const MAINNET = [500, 349, 12298058140850754n, 7773, 1, 0, 55236235337690993n, 42938185433855173n];
-const ABOVE = [1450, 0, 0, 8200, 1, 0, 1_000_000, 820099];
+// Formula on 820099/1000000 is 1454.7025 bp. 1453 is under 2 bp. 1450 is not.
+const ABOVE = [1453, 0, 0, 8200, 1, 0, 1_000_000, 820099];
 
 async function setWords(h, words) {
   const r = await h.call(alice, h.pre, preIface, 'set', [words]);
@@ -261,7 +265,11 @@ test('chain 999 and chain 1 are refused, and 998 deploys', async () => {
   assert.equal((await h.read(h.market, marketIface, 'CHAIN_ID', []))[0], 998n);
   assert.equal((await h.read(h.market, marketIface, 'PRECOMPILE', []))[0].toLowerCase(), PRECOMPILE);
   assert.equal((await h.read(h.market, marketIface, 'TOKEN_INDEX', []))[0], 0n);
-  assert.equal((await h.read(h.market, marketIface, 'transfersEnabled', []))[0], false);
+  assert.equal((await h.read(h.market, marketIface, 'PRECOMPILE_GAS', []))[0], 20720n);
+  assert.equal((await h.read(h.market, marketIface, 'RAW_PER_TOKEN', []))[0], 100000000n);
+  assert.equal((await h.read(h.market, marketIface, 'FUNDING_BASELINE_BPS', []))[0], 1160n);
+  assert.equal((await h.read(h.market, marketIface, 'TOLERANCE', []))[0], 2n * 10n ** 14n);
+  assert.equal((await h.read(h.market, marketIface, 'transfersEnabled', []))[0], true);
   assert.equal((await h.read(h.market, marketIface, 'guardian', []))[0].toLowerCase(), carol);
   assert.equal((await h.read(h.market, marketIface, 'DEFAULT_CEIL_BPS', []))[0], 4000n);
 });
@@ -378,33 +386,87 @@ test('neither source pays 0, and a precompile reading is only the current hour',
   assert.equal(life.nextHour, 5n);
 });
 
-test('transfers stay off unless the deployment said so, and a mint is not a transfer', async () => {
-  const off = await setup();
-  const id = await create(off, 0, 10000, 0, 1, 2, BIG, BIG);
-  await fund(off, 1000n);
-  const minted = await at(off, alice, 'mint', [id, 100, bob], 1);
-  assert.equal(off.logsOf(minted, marketIface, 'Minted').length, 1);
-  const moved = await off.call(bob, off.market, marketIface, 'transferPosition', [0, carol]);
-  assert.equal(revertName(moved.execResult), 'TransfersDisabled');
-  const safe = await off.call(bob, off.market, marketIface, 'safeTransferFrom', [bob, carol, 0]);
-  assert.equal(revertName(safe.execResult), 'TransfersDisabled');
-  const holder = (await off.read(off.market, marketIface, 'positions', [0])).holder;
-  assert.equal(holder.toLowerCase(), bob);
-
-  const on = await setup(CHAIN, true);
-  const id2 = await create(on, 0, 10000, 0, 1, 2, BIG, BIG);
+test('positions are transferable ERC-1155 by default, and transfers off still reverts', async () => {
+  const on = await setup();
+  const id = await create(on, 0, 10000, 0, 1, 2, BIG, BIG);
   await fund(on, 1000n);
-  await at(on, alice, 'mint', [id2, 100, bob], 1);
-  const ok = await at(on, bob, 'transferPosition', [0, carol], 1);
-  assert.ok(ok);
-  const now = (await on.read(on.market, marketIface, 'positions', [0])).holder;
-  assert.equal(now.toLowerCase(), carol);
+  const minted = await at(on, alice, 'mint', [id, 100, bob], 1);
+  assert.equal(on.logsOf(minted, marketIface, 'Minted').length, 1);
+  const issued = on.logsOf(minted, marketIface, 'TransferSingle');
+  assert.equal(issued.length, 2);
+  assert.equal(issued[0].args.from, ZERO);
+  assert.equal(issued[0].args.to.toLowerCase(), bob);
+  assert.equal(issued[0].args.id, 0n);
+  assert.equal(issued[0].args.value, 1n);
+  assert.equal(issued[1].args.to.toLowerCase(), alice);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [bob, 0]))[0], 1n);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [alice, 0]))[0], 0n);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [alice, 1]))[0], 1n);
+  const batch = await on.read(on.market, marketIface, 'balanceOfBatch', [[bob, alice], [0, 1]]);
+  assert.deepEqual(batch[0].map((n) => n), [1n, 1n]);
+  assert.equal((await on.read(on.market, marketIface, 'supportsInterface', ['0x01ffc9a7']))[0], true);
+  assert.equal((await on.read(on.market, marketIface, 'supportsInterface', ['0xd9b67a26']))[0], true);
+  assert.equal((await on.read(on.market, marketIface, 'supportsInterface', ['0x0e89341c']))[0], false);
+  assert.equal((await on.read(on.market, marketIface, 'supportsInterface', ['0xffffffff']))[0], false);
+
+  const moved = await at(on, bob, 'transferPosition', [0, carol], 1);
+  const single = on.logsOf(moved, marketIface, 'TransferSingle');
+  assert.equal(single.length, 1);
+  assert.equal(single[0].args.from.toLowerCase(), bob);
+  assert.equal(single[0].args.to.toLowerCase(), carol);
+  assert.equal((await on.read(on.market, marketIface, 'positions', [0])).holder.toLowerCase(), carol);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [carol, 0]))[0], 1n);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [bob, 0]))[0], 0n);
+
+  const stranger = await on.call(mallory, on.market, marketIface, 'safeTransferFrom(address,address,uint256,uint256,bytes)', [carol, bob, 0, 1, '0x']);
+  assert.equal(revertName(stranger.execResult), 'operator');
+  await at(on, carol, 'setApprovalForAll', [mallory, true], 1);
+  const byOp = await at(on, mallory, 'safeTransferFrom(address,address,uint256,uint256,bytes)', [carol, bob, 0, 1, '0x'], 1);
+  assert.equal(on.logsOf(byOp, marketIface, 'TransferSingle')[0].args.operator.toLowerCase(), mallory);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [bob, 0]))[0], 1n);
+  const tooMuch = await on.call(bob, on.market, marketIface, 'safeTransferFrom(address,address,uint256,uint256,bytes)', [bob, carol, 0, 2, '0x']);
+  assert.equal(revertName(tooMuch.execResult), 'amount');
+  const intoToken = await on.call(bob, on.market, marketIface, 'safeTransferFrom(address,address,uint256)', [bob, on.token, 0]);
+  assert.equal(revertName(intoToken.execResult), 'receiver');
+
+  const sink = await on.deploy(BUILT.sink.bytecode);
+  const toSink = await at(on, bob, 'safeTransferFrom(address,address,uint256)', [bob, sink, 0], 1);
+  assert.equal(on.logsOf(toSink, marketIface, 'TransferSingle')[0].args.to.toLowerCase(), sink.toLowerCase());
+  assert.equal((await on.read(sink, sinkIface, 'lastId', []))[0], 0n);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [sink, 0]))[0], 1n);
+  await at(on, alice, 'mint', [id, 100, bob], 1);
+  await on.call(alice, sink, sinkIface, 'setAccept', [false]);
+  const refused = await on.call(bob, on.market, marketIface, 'safeBatchTransferFrom', [bob, sink, [2], [1], '0x']);
+  assert.equal(revertName(refused.execResult), 'receiver');
+  const batched = await at(on, alice, 'safeBatchTransferFrom', [alice, carol, [1, 3], [1, 1], '0x'], 1);
+  assert.equal(on.logsOf(batched, marketIface, 'TransferBatch').length, 1);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [carol, 1]))[0], 1n);
+  assert.equal((await on.read(on.market, marketIface, 'balanceOf', [carol, 3]))[0], 1n);
+  const zeroBal = await on.call(alice, on.market, marketIface, 'balanceOf', [ZERO, 0]);
+  assert.equal(revertName(zeroBal.execResult), 'zero');
+
+  const off = await setup(CHAIN, false);
+  assert.equal((await off.read(off.market, marketIface, 'transfersEnabled', []))[0], false);
+  const idOff = await create(off, 0, 10000, 0, 1, 2, BIG, BIG);
+  await fund(off, 1000n);
+  const mintedOff = await at(off, alice, 'mint', [idOff, 100, bob], 1);
+  assert.equal(off.logsOf(mintedOff, marketIface, 'Minted').length, 1);
+  assert.equal(off.logsOf(mintedOff, marketIface, 'TransferSingle').length, 2);
+  const blocked = await off.call(bob, off.market, marketIface, 'transferPosition', [0, carol]);
+  assert.equal(revertName(blocked.execResult), 'TransfersDisabled');
+  const blockedSafe = await off.call(bob, off.market, marketIface, 'safeTransferFrom(address,address,uint256)', [bob, carol, 0]);
+  assert.equal(revertName(blockedSafe.execResult), 'TransfersDisabled');
+  const blockedStd = await off.call(bob, off.market, marketIface, 'safeTransferFrom(address,address,uint256,uint256,bytes)', [bob, carol, 0, 1, '0x']);
+  assert.equal(revertName(blockedStd.execResult), 'TransfersDisabled');
+  assert.equal((await off.read(off.market, marketIface, 'positions', [0])).holder.toLowerCase(), bob);
+  assert.equal((await off.read(off.market, marketIface, 'balanceOf', [bob, 0]))[0], 1n);
 });
 
 test('each series keeps its own collateral, and a donation stays put', async () => {
   const h = await setup();
   await setWords(h, FULL);
   const a = await create(h, 2, 0, 0, 7, 9, BIG, BIG, 100);
+  assert.equal(seriesOf(await h.read(h.market, marketIface, 'series', [a])).strikeBps, 1160n);
   const b = await create(h, 0, 5000, 0, 7, 9, BIG, BIG);
   await fund(h, BIG);
   await at(h, alice, 'mint', [a, 10000, bob], 1);

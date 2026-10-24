@@ -209,6 +209,7 @@ GROUPS: List[Group] = [
         ("gates", "per-gate pass/fail telemetry"),
         ("flags", "deep-audit opt-in flags"),
         ("cgc", "conservation-brake windows, testnet, read-only"),
+        ("rxb", "recursion look-through for an admin, ratios only"),
         ("shadow", "counterfactual shadow book — /shadow ladder and /shadow bounds for what "
                    "the size controls would have done"),
         ("audit", "nightly self-audit report"),
@@ -491,6 +492,7 @@ DESC_ZH: Dict[str, str] = {
     "compliance": "受限司法管轄區與全域同意帳本",
     "readiness": "學習迴路是否已驗證到可套用",
     "gates": "各關卡通過/失敗遙測", "flags": "深度稽核選用旗標",
+    "rxb": "遞迴穿透讀數，僅管理員，只給比率",
     "shadow": "反事實影子帳本 — /shadow ladder 與 /shadow bounds 看倉位控制本來會怎麼做",
     "srb": "影子償付訊號——公開訊號，不支付",
     "audit": "每夜自我稽核報告", "parity": "實盤 ↔ 回測一致性", "attribution": "哪些指標帶來獲利",

@@ -110,6 +110,27 @@ test_a_contract_job_stays_on_ci_and_off_the_local_plan = pytest.mark.parametrize
 )(test_a_contract_job_stays_on_ci_and_off_the_local_plan)
 
 
+def test_the_rxb_contract_job_is_a_local_gate():
+    """RXB is hermetic npm, and main added it to the local plan.
+
+    The log counts those two steps in the twenty-four gates. Leaving the job
+    uncovered would make that sentence a lie, and marking it continue-on-error
+    would hide a red contract run behind the shadow.
+    """
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import preflight
+
+    name = "RXB contracts (solidity)"
+    job = _job(name)
+    assert "concurrency" not in job
+    assert job.get("continue-on-error") is not True
+    assert name in preflight.LOCAL_JOBS
+    assert name not in preflight.uncovered()
+    planned = [(n, c, wd) for n, c, wd in preflight.steps(fast=False)]
+    assert any(wd == "contracts/rxb" and c.strip() == "npm test" for _, c, wd in planned)
+
+
 def test_the_fvb_solana_consumer_stays_on_the_staking_job():
     """The host cargo test is a step of the staking job, which local
     preflight does not run. Putting it in the local plan would require a

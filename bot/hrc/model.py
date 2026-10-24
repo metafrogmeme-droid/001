@@ -5,16 +5,14 @@ Hyperliquid's portfolio-margin borrow APY for stablecoins is
     0.05 + 4.75 * max(0, utilization - 0.8)
 
 compounded continuously, and indexed hourly. Utilization is
-borrowed / supplied, recomputed from the raw totals. The precompile
-publishes utilization and the yearly rate as integer basis points,
-floored, so a quote can sit under the rate from the raw totals by
-almost a basis point of utilization times the slope, plus one more
-basis point from flooring the rate itself.
+borrowed / supplied. The 0x812 totals are raw integers, 1e8 units per
+USDC, and the rate is the curve on that ratio. ``borrowYearlyRateBps``
+is an integer cross-check. A gap under 2 bp passes. A gap of 2 bp does
+not.
 
-The funding crossover is that formula inverted. It is not a stored
-utilization. A funding APR quoted as a continuous rate matches the
-compounded borrow APY at exp(funding) - 1, and the utilization is
-whatever the curve says that APY sits at.
+The funding baseline is 11.6%. The crossover is the utilization where
+the curve's borrow APY equals that baseline. It is derived. It is not
+a stored utilization, and it is not exp(funding) - 1.
 """
 
 from __future__ import annotations
@@ -36,21 +34,24 @@ CAP_HIT_TRIGGER = Decimal("0.98")
 # 90% utilization on the curve. 0.05 + 4.75 * 0.10 = 0.525.
 SHOCK_UTILIZATION = Decimal("0.90")
 SHOCK_RATE = BASE_RATE + SLOPE * (SHOCK_UTILIZATION - KINK)
-# HyperCore token amounts in the 0x812 words are raw integers.
+# HyperCore token amounts in the 0x812 words are raw integers, 1e8 per USDC.
 # On 23 Oct 2026 the mainnet USDC word, divided by 1e8, matched the
 # info API's human amount to the accrual between the two reads.
 RAW_PER_TOKEN = 10**8
+# Documented funding baseline. The carry-flip digital's default strike.
+FUNDING_BASELINE = Decimal("0.116")
+# Hyperliquid's per-user borrow cap, in USDC tokens. The pool cap used
+# by the cap-hit check is a different number.
+PER_USER_BORROW_CAP = Decimal(50_000_000)
 
 
 def truncation_tolerance() -> Decimal:
-    """How far a floored bps quote may sit from the rate on the raw totals.
+    """Exclusive cross-check bound for the integer bps word: 2 bp.
 
-    One floored basis point of utilization moves the borrow rate by
-    ``SLOPE`` basis points above the kink. The rate word is floored by
-    another basis point. A tolerance of one basis point rejects a quote
-    the precompile actually produced.
+    The rate we keep is the curve on the raw totals. The quote is only
+    a check. A gap under this bound passes. A gap equal to it does not.
     """
-    return (SLOPE + Decimal(1)) / BPS
+    return Decimal(2) / BPS
 
 
 def utilization_of(supplied: Optional[int], borrowed: Optional[int]) -> Optional[Decimal]:
@@ -98,16 +99,16 @@ def borrow_apy(utilization: Optional[Decimal]) -> Optional[Decimal]:
 def quoted_rate_matches(utilization: Optional[Decimal], quoted: Optional[Decimal]) -> bool:
     """Whether a quoted rate agrees with the curve on the raw ratio.
 
-    ``quoted`` is the rate itself (1 = 100% APY), not basis points. A gap
-    of one basis point is inside the truncation the precompile actually
-    produces, so the tolerance is wider than that and no wider.
+    ``quoted`` is the rate itself (1 = 100% APY), not basis points. The
+    quote is a cross-check. A gap under 2 bp passes. A gap of 2 bp does
+    not. The rate a caller stores is ``expected``, not ``quoted``.
     """
     if quoted is None or not isinstance(quoted, Decimal) or quoted < 0:
         return False
     expected = borrow_apy(utilization)
     if expected is None:
         return False
-    return abs(expected - quoted) <= truncation_tolerance()
+    return abs(expected - quoted) < truncation_tolerance()
 
 
 def floor_rate_bps(rate: Optional[Decimal]) -> Optional[int]:
@@ -152,8 +153,26 @@ def utilization_for_borrow_apy(apy: Optional[Decimal]) -> Optional[Decimal]:
     return KINK + (apy - BASE_RATE) / SLOPE
 
 
+def baseline_crossover() -> Optional[Decimal]:
+    """Utilization where the curve's borrow APY equals the 11.6% baseline.
+
+    Derived from the baseline and the slope. A stored crossover would be
+    a second answer.
+    """
+    return utilization_for_borrow_apy(FUNDING_BASELINE)
+
+
+def default_carry_strike() -> Decimal:
+    """The carry-flip digital's strike when the caller does not set one."""
+    return FUNDING_BASELINE
+
+
 def crossover_utilization(funding_apr: Optional[Decimal]) -> Optional[Decimal]:
-    """Utilization where the curve meets funding, derived, not stored."""
+    """Utilization where the curve meets a continuous funding print.
+
+    A missing print is unreadable. The product's own crossover is
+    ``baseline_crossover``, which uses the 11.6% baseline directly.
+    """
     return utilization_for_borrow_apy(borrow_apy_matching_funding(funding_apr))
 
 
@@ -197,7 +216,7 @@ def choose_settlement(
         return {"rate": feed_rate, "source": "signed_feed", "payout_zero": False}
     if feed_rate is None:
         return {"rate": precompile_rate, "source": "precompile", "payout_zero": False}
-    if abs(precompile_rate - feed_rate) <= truncation_tolerance():
+    if abs(precompile_rate - feed_rate) < truncation_tolerance():
         return {"rate": precompile_rate, "source": "precompile", "payout_zero": False}
     lower = precompile_rate if precompile_rate < feed_rate else feed_rate
     return {"rate": lower, "source": "lower_of", "payout_zero": False}
@@ -290,6 +309,9 @@ def rate_shock_loss_24h(borrows: Optional[Decimal]) -> Optional[Decimal]:
 
     This is a dollar amount. Callers that are not the admin view leave
     it out. None when borrows were not read. A measured zero stays zero.
+    One account can borrow at most ``PER_USER_BORROW_CAP`` USDC. This
+    function does not clip a book to that cap: a book larger than one
+    account is still the book that was read.
     """
     if borrows is None or not isinstance(borrows, Decimal):
         return None
