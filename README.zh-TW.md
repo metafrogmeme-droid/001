@@ -692,6 +692,7 @@ python -m bot.main --mode scan
 | `/setsigner` | 設定鏈上簽章金鑰（加密儲存） |
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
+| `/hrc` | Hyperliquid USDC 借款利率上限——利用率與利率，僅管理員 |
 | `/costs` | 今日模型與 API 支出對照每日預算 |
 
 <!-- END generated: telegram commands -->

@@ -1,0 +1,15 @@
+{
+  "checked_at_utc": "2026-10-23T20:28:30Z",
+  "network": "testnet",
+  "chain_id": 998,
+  "rpc": "https://rpc.hyperliquid-testnet.xyz/evm",
+  "corewriter": "0x3333333333333333333333333333333333333333",
+  "code_bytes": 544,
+  "action_id": 15,
+  "encoding": "version 1, action 15, abi.encode(uint8 operation, uint64 token, uint64 wei)",
+  "probe": "eth_call and eth_estimateGas only. No transaction was broadcast. wei was 1, not 0, so the probe was not a maximal supply or withdraw.",
+  "supply": {"operation": 0, "token": 0, "wei": 1, "eth_call": "success", "return": "0x", "estimate_gas": 48239},
+  "withdraw": {"operation": 1, "token": 0, "wei": 1, "eth_call": "success", "return": "0x", "estimate_gas": 48251},
+  "interpretation": "The testnet CoreWriter precompile accepted action 15 for supply and for withdraw and did not revert. An eth_call does not settle a HyperCore balance. sendRawAction succeeds on the EVM even when HyperCore later drops the action. This record is not an input to settlement.",
+  "depended_on": false
+}
