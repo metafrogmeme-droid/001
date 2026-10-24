@@ -1,0 +1,26 @@
+{
+  "observed": "2026-10-23",
+  "network": "mainnet",
+  "synthetic": false,
+  "note": "Precompile eth_call and the info API were different reads. Do not require raw/1e8 to equal the info string. Testnet bytes are not in this file.",
+  "precompile": {
+    "address": "0x0000000000000000000000000000000000000812",
+    "token": 0,
+    "words": [500, 349, 12298058140850754, 7773, 1, 0, 55236235337690993, 42938185433855173]
+  },
+  "info_api_different_read": {
+    "borrowYearlyRate": "0.05",
+    "supplyYearlyRate": "0.0349812554",
+    "balance": "122976432.728854984",
+    "utilization": "0.7773612316",
+    "oraclePx": "1.0",
+    "ltv": "0.0",
+    "totalSupplied": "552358204.389762044",
+    "totalBorrowed": "429381854.0310519934"
+  },
+  "spec_era_replay": {
+    "supplied": "551760966",
+    "borrowed": "430819345",
+    "unit": "human"
+  }
+}

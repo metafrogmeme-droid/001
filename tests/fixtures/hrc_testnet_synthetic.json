@@ -1,0 +1,6 @@
+{
+  "synthetic": true,
+  "network": "testnet",
+  "note": "Synthetic bytes for the decoder only. Not a calibration of the borrow curve.",
+  "words": [500, 100, 1000, 1000, 1, 0, 10000, 1000]
+}
