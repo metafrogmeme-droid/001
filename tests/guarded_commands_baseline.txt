@@ -34,6 +34,7 @@ _cmd_backtest backtest
 _cmd_backup backup
 _cmd_buy trade
 _cmd_calibration admin
+_cmd_cgc cgc
 _cmd_classpf portfolio
 _cmd_compliance compliance
 _cmd_connect connect

@@ -366,6 +366,9 @@ app.use(require('./lib/rwa_flag').pageGate);
 // An operator still receives the page. Ahead of express.static so
 // public/fvb.html is not a file a crawler can open while the flag is off.
 app.use(require('./lib/fvb_flag').pageGate);
+// Conservation-brake status stays 404 for a non-admin, flag on or off.
+// Ahead of express.static so public/cgc.html is not a file anyone can open.
+app.use(require('./lib/cgc_flag').pageGate);
 // Sandwich restitution stays 404 for the public while SRB_ENABLED is off.
 // Ahead of express.static so public/srb.html is not a file a crawler can open.
 app.use(require('./lib/srb_flag').pageGate);
@@ -554,6 +557,8 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
 app.use('/api/fvb', require('./routes/fvb'));
+// Conservation brake: admin-only status. 404 for everyone else, flag on or off.
+app.use('/api/cgc', require('./routes/cgc'));
 // Cover status. 404 for the public until the matching flag is set. An admin
 // can preview the hold. Even then the body says the product is not offered.
 // Not offered to customers. Licence review pending. Do not enable in production.
@@ -640,6 +645,11 @@ app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); })
 // /fvb — session-aware risk price. 404 to the public while FVB_ENABLED is
 // off; an operator gets the page with the preview banner.
 app.get('/fvb', (req, res) => { require('./lib/fvb_flag').sendPage(req, res); });
+// /cgc — conservation-brake status. Admin only. pageGate, ahead of static,
+// keeps /cgc.html and the page script from being files a non-admin can open.
+app.get('/cgc', (req, res, next) => {
+  require('./lib/cgc_flag').sendPage(req, res).catch(next);
+});
 // /srb — shadow restitution. 404 for the public while SRB_ENABLED is off.
 // An admin still receives it, and the client paints the preview banner.
 app.get('/srb', (req, res) => { require('./lib/srb_flag').sendPage(req, res); });

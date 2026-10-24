@@ -1,0 +1,15 @@
+{
+  "dated": "2026-10-23",
+  "chain_id": 998,
+  "note": "Asset scope for the HyperEVM watcher. Symbols only. No token is deployed by this repository, and no mainnet address is stored here.",
+  "hyperlend": {
+    "oft_collateral": ["sUSDe"],
+    "usde": { "collateral_factor": "0", "oft": false },
+    "usr": { "status": "frozen" },
+    "usdt0": { "symbol": "USD₮0", "accepted": true, "oft": false }
+  },
+  "morpho_felix": {
+    "material": ["cmETH"]
+  },
+  "cgc_assets": ["sUSDe", "cmETH"]
+}

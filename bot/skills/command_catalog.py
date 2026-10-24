@@ -208,6 +208,7 @@ GROUPS: List[Group] = [
         ("crossasset", "cross-asset correlation context"),
         ("gates", "per-gate pass/fail telemetry"),
         ("flags", "deep-audit opt-in flags"),
+        ("cgc", "conservation-brake windows, testnet, read-only"),
         ("shadow", "counterfactual shadow book — /shadow ladder and /shadow bounds for what "
                    "the size controls would have done"),
         ("audit", "nightly self-audit report"),
@@ -456,6 +457,7 @@ DESC_ZH: Dict[str, str] = {
     "rwa": "代幣化實體資產雷達",
     "fvb": "單一代幣化股票的時段風險價——公開訊號，不是建議",
     "crossasset": "跨資產相關性背景",
+    "cgc": "守恒制動的時間窗，僅測試網，唯讀",
     "etf": "美國現貨加密 ETF 本週資金流（圖卡，唯讀）",
     "spot": "跨交易所現貨交易對與現貨/永續基差（唯讀）",
     "nft": "依真實 7 日成交量排序的 NFT 系列：地板價與成交量（唯讀）",

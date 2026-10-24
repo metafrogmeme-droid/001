@@ -27,6 +27,7 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from bot.cgc import telegram_text as cgc_status_text
 from bot.skills.command_guard import guard
 from bot.utils.logger import system_log
 
@@ -93,6 +94,19 @@ class MarketCommands:
             update,
             card_text(load_board(path), preview=is_preview(update, "FVB_ENABLED")),
         )
+
+    @guard("cgc")
+    async def _cmd_cgc(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/cgc — conservation-brake windows on testnet.
+
+        CGC_ENABLED unset is off. A caller who is not an admin is answered
+        "Not found." The operator sees the chain windows from
+        contracts/cgc/chains.json. This process does not sign.
+        """
+        if not self._is_admin(update):
+            await self._send(update, "Not found.")
+            return
+        await self._send(update, cgc_status_text(True))
 
     @guard("rwa")
     async def _cmd_rwa(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
