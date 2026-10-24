@@ -39,6 +39,8 @@ _TAG = keccak256(b"HRCFeed.v1")
 class SigningRefused(Exception):
     """The feed was not signed. The message is not the reason a person sees."""
 
+    pass
+
 
 def confirmed_chain_id(env: Mapping[str, str]) -> Optional[int]:
     """The chain id the operator confirmed, or None when it was not set.
