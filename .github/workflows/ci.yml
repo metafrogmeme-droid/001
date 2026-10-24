@@ -303,9 +303,12 @@ jobs:
   # baseline gate under pytest-xdist so the two durations can be compared.
   # It is continue-on-error: a red shadow does not fail the workflow and must
   # not be added to a ruleset. Flake re-runs stay serial inside the gate.
-  # `loadfile` keeps one module on one worker; it does not give each worker
-  # its own state root, so an order dependence the serial run hides can show
-  # up here. That is the comparison, not a second verdict.
+  # `loadfile` keeps one module on one worker. Each worker gets its own state
+  # root (tests/conftest.py, only when PYTEST_XDIST_WORKER is set) so
+  # import-time init_db() does not lock one shared sqlite file and abort
+  # collection before a test runs. A duration of that abort is not a
+  # measurement of the suite. A failure that remains is still allowed: this
+  # job is a comparison, not a second verdict.
   test-parallel:
     name: Tests (parallel shadow, non-blocking)
     runs-on: ubuntu-latest

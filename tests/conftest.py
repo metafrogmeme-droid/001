@@ -1152,9 +1152,81 @@ def _register_module_timings(config) -> None:
     config.pluginmanager.register(ModuleTimings(path), "runeclaw_module_timings")
 
 
+def _point_a_worker_at_its_own_state() -> None:
+    """One state root per xdist worker, before any test module is imported.
+
+    ``bot/db/models.py`` calls ``init_db()`` at import, and every worker
+    collects the whole suite, so every worker opens the same sqlite file at
+    the same moment. The second one raises ``database is locked``, collection
+    differs between workers, and the run ends before a test executes. A
+    duration of that run is not a measurement of the suite.
+
+    The root stays inside the checkout (``data/`` is gitignored) so a path
+    the suite requires to live under the repo still does. ``DB_PATH`` is set
+    here, at import, because ``models`` reads it once while the module loads
+    and a later assignment does not move it. A process that is not a worker
+    leaves both variables alone: the serial gate is the required check, and
+    its paths stay the ones the rest of the suite pins.
+    """
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "").strip()
+    if not worker or os.environ.get("RUNECLAW_TEST_STATE_ROOT", "").strip():
+        return
+    root = pathlib.Path(__file__).resolve().parent.parent / "data" / "xdist" / worker
+    (root / "data").mkdir(parents=True, exist_ok=True)
+    os.environ["RUNECLAW_TEST_STATE_ROOT"] = str(root)
+    os.environ["DB_PATH"] = str(root / "data" / "runeclaw.db")
+
+
+_point_a_worker_at_its_own_state()
+
+
+def _install_xdist_worker_state_root() -> None:
+    """Redirect ``state_path`` at the worker root set above.
+
+    Import-time bindings (``PATH = state_path("data/…")``) happen when the
+    test module is collected, which is after ``pytest_configure``. Replacing
+    the function here is early enough for those bindings and late enough that
+    a serial run, which never sets the variable, still calls the original.
+    ``repo_path`` is not touched: a seed is a file the repository ships.
+    """
+    root = os.environ.get("RUNECLAW_TEST_STATE_ROOT", "").strip()
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "").strip()
+    if not root or not worker:
+        return
+    import bot.utils.paths as paths
+
+    base = pathlib.Path(root)
+
+    def state_path(relative: str) -> pathlib.Path:
+        p = pathlib.Path(relative).expanduser()
+        return p if p.is_absolute() else (base / p)
+
+    def env_state_path(env_var: str, default_relative: str) -> pathlib.Path:
+        raw = (os.environ.get(env_var) or "").strip()
+        return state_path(raw or default_relative)
+
+    paths.state_path = state_path
+    paths.env_state_path = env_state_path
+
+
+def _runtime_state_path(rel: str) -> str:
+    """Where ``_clean_runtime_state`` deletes ``rel``.
+
+    A worker's files live under its own root. Cleaning the checkout's
+    ``data/`` from every worker at once is the shared-file race the root
+    exists to avoid. A serial run has no root, and the path stays the
+    relative one the fixture has always used.
+    """
+    root = os.environ.get("RUNECLAW_TEST_STATE_ROOT", "").strip()
+    if not root:
+        return rel
+    return str(pathlib.Path(root) / rel)
+
+
 def pytest_configure(config):
     _register_module_timings(config)
     _refuse_a_live_store()
+    _install_xdist_worker_state_root()
     try:
         _refuse_a_background_flusher()
     except Exception as exc:
@@ -1182,17 +1254,17 @@ def pytest_configure(config):
 def _clean_runtime_state() -> None:
     for f in _STATE_FILES:
         try:
-            os.remove(f)
+            os.remove(_runtime_state_path(f))
         except FileNotFoundError:
             pass
     for pattern in _STATE_GLOBS:
-        for f in glob.glob(pattern):
+        for f in glob.glob(_runtime_state_path(pattern)):
             try:
                 os.remove(f)
             except FileNotFoundError:
                 pass
     for d in _STATE_DIRS:
-        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(_runtime_state_path(d), ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
