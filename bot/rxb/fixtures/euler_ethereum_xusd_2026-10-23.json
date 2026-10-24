@@ -1,0 +1,54 @@
+{
+  "pulled_at": "2026-10-23",
+  "endpoint": "https://v3.euler.finance/v3/evk/vaults",
+  "chain_id": 1,
+  "asset": "0xE2Fc85BfB48C4cF147921fBE110cf92Ef9f26F94",
+  "list": {
+    "data": [
+      {
+        "address": "0x5CD9876B7F0fd134F442F4e6c8A566F290cB7580",
+        "symbol": "exUSD-1"
+      },
+      {
+        "address": "0xf1BA8c5Ca5aB011d06f31e64DaD313d204aCb9Eb",
+        "symbol": "exUSD-2"
+      }
+    ],
+    "meta": {
+      "total": 2,
+      "timestamp": "2026-10-23T20:11:51.289Z"
+    }
+  },
+  "details": {
+    "0x5CD9876B7F0fd134F442F4e6c8A566F290cB7580": {
+      "data": {
+        "address": "0x5CD9876B7F0fd134F442F4e6c8A566F290cB7580",
+        "symbol": "exUSD-1",
+        "decimals": 6,
+        "totalAssets": "4154656",
+        "totalSupplyUsd": 0.24749676329664003,
+        "oraclePriceRaw": {
+          "amountIn": "1000000",
+          "amountOutMid": "0",
+          "queryFailure": true
+        },
+        "visibility": "pending_review"
+      }
+    },
+    "0xf1BA8c5Ca5aB011d06f31e64DaD313d204aCb9Eb": {
+      "data": {
+        "address": "0xf1BA8c5Ca5aB011d06f31e64DaD313d204aCb9Eb",
+        "symbol": "exUSD-2",
+        "decimals": 6,
+        "totalAssets": "12718888677182",
+        "totalSupplyUsd": 757676.1542550883,
+        "oraclePriceRaw": {
+          "amountIn": "1000000",
+          "amountOutMid": "1265847467799600000",
+          "queryFailure": false
+        },
+        "visibility": "hidden"
+      }
+    }
+  }
+}

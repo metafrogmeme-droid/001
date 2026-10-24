@@ -566,6 +566,9 @@ app.use('/v1/rwa', require('./routes/rwa_precheck'));
 // operator. The feed is percent and ratio only (routes/t2c.js).
 app.use('/api/t2c', require('./routes/t2c'));
 app.use('/api/tools', require('./routes/tools'));
+// Recursion Breaker. Public signals while RXB_ENABLED is on. While it is
+// off, the public gets 404 and an operator can still read. routes/rxb.js.
+app.use('/v1/node', require('./routes/rxb'));
 app.use('/api/fvb', require('./routes/fvb'));
 // Conservation brake: admin-only status. 404 for everyone else, flag on or off.
 app.use('/api/cgc', require('./routes/cgc'));
@@ -652,6 +655,9 @@ app.get('/guard', (req, res) => { require('./lib/claw_guard_v01').sendPage(req, 
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); });
+// /rxb — public signals while RXB_ENABLED is on. While it is off, 404
+// for everyone who is not an operator.
+app.get('/rxb', (req, res) => { require('./lib/rxb_page').sendRxb(req, res); });
 // /fvb — session-aware risk price. 404 to the public while FVB_ENABLED is
 // off; an operator gets the page with the preview banner.
 app.get('/fvb', (req, res) => { require('./lib/fvb_flag').sendPage(req, res); });

@@ -1268,6 +1268,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("strategy", self._cmd_strategy),
             ("flags", self._cmd_flags),
             ("t2c", self._cmd_t2c),
+            ("rxb", self._cmd_rxb),
             # Signal stats
             ("signals", self._cmd_signals),
             # Admin commands

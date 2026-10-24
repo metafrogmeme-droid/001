@@ -61,6 +61,7 @@ function loadCatalog() {
 function flagOn(name, env) {
   if (name === 'SAR_ORACLE_ENABLED') return require('./sar_oracle_flag').flag_on(env);
   if (name === 'RWA_PRECHECK_ENABLED') return require('./rwa_flag').enabled(env);
+  if (name === 'RXB_ENABLED') return require('./rxb_flag').flag_on(env);
   if (name === 'HRC_ENABLED') return require('./hrc_flag').flag_on(env);
   if (name === 'SRB_ENABLED') return require('./srb_flag').flag_on(env);
   if (name === 'FVB_ENABLED') return require('./fvb_flag').flagOn(env);
@@ -99,6 +100,19 @@ function labelMap(tools) {
     if (!labels[id]) throw fail('UnknownChain');
   }
   return { bar, labels };
+}
+
+function present(card, admin) {
+  const { labels } = labelMap([card]);
+  return {
+    id: card.id,
+    name: card.name,
+    description: card.description,
+    chains: card.chains.map((chain) => labels[chain]),
+    status_label: 'Coming soon',
+    href: admin === true && typeof card.route === 'string' && card.route.length > 0 ? card.route : null,
+    date: null,
+  };
 }
 
 function presentation(tool, env, view) {
@@ -174,5 +188,5 @@ function renderFile(env, view) {
 
 module.exports = {
   FILE, BAR, FIXED, loadCatalog, flagOn, extraLabels, labelMap,
-  presentation, renderBar, renderCards, renderFile,
+  present, presentation, renderBar, renderCards, renderFile,
 };

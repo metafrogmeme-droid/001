@@ -56,7 +56,7 @@ const STATIC_PATHS = [
 ];
 
 // Private / account / API surfaces crawlers should never index.
-const DISALLOW = ['/api/', '/dashboard', '/admin', '/reset', '/verify', '/wallet-link', '/t2c', '/tools'];
+const DISALLOW = ['/api/', '/dashboard', '/admin', '/reset', '/verify', '/wallet-link', '/t2c', '/rxb', '/tools'];
 
 function xmlEscape(s) {
   return String(s == null ? '' : s)

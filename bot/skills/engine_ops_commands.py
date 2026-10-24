@@ -1775,3 +1775,18 @@ class EngineOpsCommands:
             await ctx.bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode="HTML")
         except Exception as exc:
             await self._send_error(update, "the strategy settings", exc)
+
+    async def _cmd_rxb(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Recursion look-through for an admin. Ratios only. Nothing is sent."""
+        if not self._is_admin(update):
+            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
+            return
+        raw = ""
+        message = getattr(update, "message", None)
+        if message is not None and getattr(message, "text", None):
+            raw = str(message.text)
+        try:
+            from bot.rxb.report import admin_text
+            await self._send(update, admin_text(raw))
+        except Exception as exc:
+            await self._send_error(update, "the recursion reading", exc)

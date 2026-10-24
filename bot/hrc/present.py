@@ -1,9 +1,9 @@
 """The admin view: utilization and rate points.
 
-Dollars stay out of this view. ``rate_shock_loss_24h`` is added by
-``admin_packet`` and dropped by ``card_text``. A missing number is omitted
-on the dashboard and printed as unreadable on the card. A measured zero
-stays zero.
+The public dashboard omits dollar amounts. ``rate_shock_loss_24h`` is added
+by ``admin_packet``, and ``card_text`` prints it only when that key is
+present. A missing number is omitted on the dashboard and printed as
+unreadable on the card. A measured zero stays zero.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from bot.hrc.collector import _as_raw, history_path, load_history
 from bot.hrc.model import (
     DEFAULT_SPREAD_CEIL,
     KINK,
+    PER_USER_BORROW_CAP,
     RAW_PER_TOKEN,
+    baseline_crossover,
     borrow_apy,
     can_unfreeze,
     cap_hit_pays,
@@ -34,7 +36,9 @@ from bot.hrc.model import (
 from bot.hrc.rfq import quote_for
 
 BORROW_CAP_HUMAN = Decimal(500_000_000)
-_SCENARIOS = (("scenario_a", 21_500_000), ("scenario_b", 50_000_000))
+# scenario_b withdraws one per-user borrow cap. The pool cap above is the
+# cap-hit denominator, and it is not this number.
+_SCENARIOS = (("scenario_a", 21_500_000), ("scenario_b", int(PER_USER_BORROW_CAP)))
 _SOURCES = ("precompile", "signed_feed", "lower_of", "none", "info_api")
 
 
@@ -136,9 +140,11 @@ def dashboard(reading: dict) -> dict:
     _put(out, "utilization", util)
     _put(out, "borrow_apy", rate)
     _put(out, "points_to_kink", points_below(KINK, util))
-    funding = _dec(reading.get("funding_apr"))
-    cross = crossover_utilization(funding)
+    cross = baseline_crossover()
     _put(out, "points_to_crossover", points_below(cross, util) if cross is not None else None)
+    # A live funding print is a different reading from the 11.6% baseline.
+    # Missing stays off the card. It is not filled in from the baseline.
+    _put(out, "funding_crossover", crossover_utilization(_dec(reading.get("funding_apr"))))
     human = _human_borrows(reading)
     if human is not None:
         _put(out, "borrow_cap_ratio", human / BORROW_CAP_HUMAN)
@@ -262,7 +268,7 @@ def _line(label: str, value) -> str:
 
 
 def card_text(packet: dict) -> str:
-    """The telegram card. The shock field is not read."""
+    """The telegram card. The shock line is present only on an admin packet."""
     lines = []
     if isinstance(packet, dict) and packet.get("preview") is True:
         lines.append("Admin preview. Not public.")
@@ -304,4 +310,6 @@ def card_text(packet: dict) -> str:
             lines.append(
                 f"{name}: utilization {row.get('utilization')} borrow {row.get('borrow_apy')}"
             )
+    if isinstance(packet, dict) and "rate_shock_loss_24h" in packet:
+        lines.append(_line("24h rate-shock loss", packet.get("rate_shock_loss_24h")))
     return "\n".join(lines)
