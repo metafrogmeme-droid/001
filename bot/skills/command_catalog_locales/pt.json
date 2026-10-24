@@ -147,6 +147,7 @@
     "crossasset": "contexto de correlação entre ativos",
     "gates": "telemetria de aprovado/reprovado por gate",
     "flags": "flags de auditoria profunda opt-in",
+    "t2c": "teto e sinal de LTV da duração de saída do wstETH",
     "shadow": "livro sombra contrafactual",
     "audit": "relatório de autoauditoria noturna",
     "parity": "paridade real ↔ backtest",

@@ -147,6 +147,7 @@
     "crossasset": "correlatiecontext over activa heen",
     "gates": "geslaagd/gefaald-telemetrie per gate",
     "flags": "opt-in-flags voor diepe audit",
+    "t2c": "plafond en LTV-signaal voor de wstETH-uitstapduur",
     "shadow": "contrafeitelijk schaduwboek",
     "audit": "nachtelijk zelfauditrapport",
     "parity": "pariteit live ↔ backtest",

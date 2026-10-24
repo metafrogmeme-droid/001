@@ -26,6 +26,7 @@ const IF = new ethers.Interface([
   'function setApprovalForAll(address,bool)',
   'function safeTransferFrom(address,address,uint256)',
   'function multicall(bytes[])',
+  'function lockdown((address token, address spender)[])',
 ]);
 const SPENDER = '0x' + 'ee'.repeat(20);
 const OTHER = '0x' + 'dd'.repeat(20);
@@ -36,7 +37,8 @@ test('every selector in the model is the keccak of a real signature', () => {
     'permit(address,address,uint256,uint256,uint8,bytes32,bytes32)',
     'setApprovalForAll(address,bool)', 'safeTransferFrom(address,address,uint256)',
     'safeTransferFrom(address,address,uint256,bytes)',
-    'safeTransferFrom(address,address,uint256,uint256,bytes)', 'multicall(bytes[])'];
+    'safeTransferFrom(address,address,uint256,uint256,bytes)', 'multicall(bytes[])',
+    'lockdown((address,address)[])'];
   const real = new Set(sigs.map((s) => ethers.id(s).slice(0, 10)));
   for (const sel of X.SELECTORS) {
     assert.ok(real.has(sel), `${sel} is not the selector of any pinned signature`);
@@ -57,6 +59,18 @@ test('approve: exact allowance decoded; 2^128 is the unlimited line', () => {
 
   const max = X.decodeTx({ data: IF.encodeFunctionData('approve', [SPENDER, ethers.MaxUint256]) });
   assert.equal(max.actions[0].params.amount, 'UNLIMITED');
+});
+
+test('lockdown: one Permit2 revoke, no other call', () => {
+  const data = IF.encodeFunctionData('lockdown', [[[SPENDER, OTHER]]]);
+  const d = X.decodeTx({ data: data, value: '0' });
+  assert.equal(d.actions.length, 1);
+  assert.equal(d.actions[0].tid, 'txr.a_lockdown');
+  assert.equal(d.actions[0].params.n, 1);
+  assert.equal(d.actions[0].params.pairs[0].token, SPENDER.toLowerCase());
+  assert.equal(d.actions[0].params.pairs[0].spender, OTHER.toLowerCase());
+  assert.equal(d.flags.length, 0);
+  assert.notEqual(d.unknown, true);
 });
 
 test('setApprovalForAll: true is the drain primitive, false is a revocation', () => {

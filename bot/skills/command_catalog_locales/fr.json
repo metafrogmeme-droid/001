@@ -147,6 +147,7 @@
     "crossasset": "contexte de corrélation inter-actifs",
     "gates": "télémétrie réussite/échec par gate",
     "flags": "flags d'audit approfondi en opt-in",
+    "t2c": "plafond et signal de LTV pour la durée de sortie du wstETH",
     "shadow": "livre fantôme contrefactuel",
     "audit": "rapport d'auto-audit nocturne",
     "parity": "parité réel ↔ backtest",

@@ -31,6 +31,8 @@ const WALLET_FACING = [
       '0x7fe3e5ecbf1d4e566d5670d99e78264d1740bd0b025198bcc086c3067737b053', Z]],
   // allowances.js — the revoke
   ['approve(address,uint256)', ['0x1111111254EEB25477B68fb85Ed929f73A960582', 0n]],
+  // panic_tx.js — ApprovalForAll revoke
+  ['setApprovalForAll(address,bool)', ['0x1111111254EEB25477B68fb85Ed929f73A960582', false]],
   // nft.js — the mint voucher
   ['mint(bytes)', ['0x' + 'cd'.repeat(65)]],
 ];
@@ -105,7 +107,7 @@ test('an unsupported type is refused, never encoded approximately', () => {
   // A partial encoder that guesses at uint8[] or a tuple would be the original
   // bug with extra steps: well-formed calldata that means something else.
   assert.throws(() => encodeCall('f(uint256[])', [[1]]), /unsupported type/);
-  assert.throws(() => encodeCall('f(bool)', [true]), /unsupported type/);
+  assert.throws(() => encodeCall('f(int256)', [1]), /unsupported type/);
   assert.throws(() => encodeCall('f((address,uint256))', [[Z, 1]]), /unsupported|parse/);
   assert.throws(() => encodeCall('f(uint8)', [1]), /unsupported type/);
 });

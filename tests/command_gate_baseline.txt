@@ -163,6 +163,7 @@ strategy is_admin
 sweep guard
 swing guard
 sync require_registered
+t2c is_admin
 tier guard
 token guard
 trade guard
