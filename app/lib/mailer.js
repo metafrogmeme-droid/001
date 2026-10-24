@@ -9,44 +9,61 @@
 // degrade gracefully on a fresh deploy instead of crashing.
 //
 // Configure via env:
-//   SMTP_HOST      smtp.example.com            (required to actually send)
+//   SMTP_HOST      smtp.gmail.com              (required to actually send)
 //   SMTP_PORT      587 (default) or 465
-//   SMTP_SECURE    "true" → implicit TLS (port 465). Otherwise STARTTLS on 587.
-//   SMTP_USER      login username              (optional; AUTH LOGIN if set)
-//   SMTP_PASS      login password / API key    (optional)
-//   MAIL_FROM      optional override. Blank falls through to SMTP_FROM,
-//                  then to the built-in noreply sender below.
+//   SMTP_SECURE    "true" → implicit TLS (port 465). Otherwise STARTTLS on
+//                  587, and the relay must offer it: the password is not sent
+//                  on a clear connection.
+//   SMTP_USER      the mailbox, an email address (AUTH LOGIN if set)
+//   SMTP_PASS      app password or API key     (never logged)
+//   MAIL_FROM      optional override. Blank falls through to SMTP_FROM, then
+//                  to "Humanoid Traders <SMTP_USER>" when SMTP_USER is an
+//                  address. Gmail rejects a From that is not that account.
 //   SMTP_FROM      same job as MAIL_FROM, used when MAIL_FROM is blank.
-//   MAIL_REPLY_TO  support@…                   (optional; where a reply goes
-//                  when the sender is an address nobody reads)
+//   MAIL_REPLY_TO  optional. With a Gmail mailbox, replies already land there.
 //   PUBLIC_ORIGIN / APP_BASE_URL / WEBSITE_URL  (links; see lib/public_origin.js)
 //
 // Secrets are read from the environment only. An unconfigured send logs one
 // line (recipient and subject) and never the body — a body preview is the
-// verification token.
+// verification token. A delivery error is scrubbed of SMTP_PASS before it
+// is thrown. An own-domain noreply address is a documented alternative
+// (docs/EMAIL_SETUP.md), set explicitly via MAIL_FROM; it is not the default.
 
 const net = require('net');
 const tls = require('tls');
 
-// Used when neither MAIL_FROM nor SMTP_FROM is set. An explicit sender still
-// wins, and a blank MAIL_FROM does not hide a set SMTP_FROM.
-const DEFAULT_FROM = 'Humanoid Traders <noreply@humanoid-traders.com>';
+const DISPLAY_NAME = 'Humanoid Traders';
+
+// SMTP_USER is the From address only when it is a single mailbox. A login
+// that is not an address (an API key, a blank) is not wrapped into one:
+// Gmail would reject it, and a header must not carry a line break.
+function defaultFrom(user) {
+  const addr = String(user || '').trim();
+  if (!addr || /[\r\n<>\s]/.test(addr)) return '';
+  const at = addr.indexOf('@');
+  if (at <= 0 || at !== addr.lastIndexOf('@') || !addr.slice(at + 1).includes('.')) return '';
+  return `${DISPLAY_NAME} <${addr}>`;
+}
 
 function _cfg(env = process.env) {
   const host = (env.SMTP_HOST || '').trim();
+  const user = String(env.SMTP_USER || '').trim();
   // Trimmed before the fallback, so a blank MAIL_FROM does not hide SMTP_FROM.
+  // Neither set: the mailbox itself, which is the only From Gmail will send.
   const from = (env.MAIL_FROM || '').trim()
     || (env.SMTP_FROM || '').trim()
-    || DEFAULT_FROM;
+    || defaultFrom(user);
   const secure = String(env.SMTP_SECURE || '').toLowerCase() === 'true';
   const port = parseInt(env.SMTP_PORT || (secure ? '465' : '587'), 10);
   return {
     host,
     from,
     secure,
+    // Port 587 is clear until STARTTLS. Require the upgrade before AUTH.
+    requireTLS: !secure,
     port: Number.isFinite(port) ? port : 587,
-    user: env.SMTP_USER || '',
-    pass: env.SMTP_PASS || '',
+    user,
+    pass: String(env.SMTP_PASS || ''),
     replyTo: (env.MAIL_REPLY_TO || '').trim(),
     // Allow disabling cert verification only via an explicit opt-out (some
     // internal relays use self-signed certs). Defaults to verifying.
@@ -61,8 +78,8 @@ function _cfg(env = process.env) {
 // mailer is sending with (lib/config_audit.js used to check MAIL_FROM alone).
 function missingConfig(env = process.env) {
   const c = _cfg(env);
-  // The sender always resolves (explicit, then the built-in noreply address),
-  // so the only thing that leaves mail as a no-op is a missing host.
+  // A missing host is the no-op. The sender resolves from MAIL_FROM,
+  // SMTP_FROM, or SMTP_USER; it is not a second "is mail on" switch.
   return [!c.host && 'SMTP_HOST'].filter(Boolean);
 }
 
@@ -184,9 +201,21 @@ function _talk(socket, cfg) {
   return { read, send };
 }
 
-function _expect(reply, ...codes) {
+function _redact(text, cfg) {
+  let s = String(text == null ? '' : text);
+  const pass = cfg && cfg.pass;
+  if (!pass) return s;
+  // AUTH LOGIN puts the password on the wire as base64. Scrub both shapes
+  // before an SMTP reply can be logged by a caller.
+  for (const secret of [pass, Buffer.from(pass, 'utf8').toString('base64')]) {
+    if (secret) s = s.split(secret).join('[redacted]');
+  }
+  return s;
+}
+
+function _expect(reply, cfg, ...codes) {
   if (!codes.includes(reply.code)) {
-    const err = new Error(`SMTP unexpected reply ${reply.code}: ${reply.text.trim()}`);
+    const err = new Error(`SMTP unexpected reply ${reply.code}: ${_redact(String(reply.text || '').trim(), cfg)}`);
     err.code = reply.code;
     throw err;
   }
@@ -210,9 +239,11 @@ async function _deliver(cfg, envelope, message) {
     return new Promise((resolve, reject) => {
       const opts = {
         host: cfg.host,
-        servername: cfg.host,
         rejectUnauthorized: cfg.rejectUnauthorized,
       };
+      // SNI is a hostname. Node otherwise copies `host`, and an address is not
+      // a name it will send (a local relay in tests is one).
+      opts.servername = net.isIP(cfg.host) ? 'localhost' : cfg.host;
       if (existing) opts.socket = existing;
       const s = tls.connect(existing ? opts : { port: cfg.port, ...opts });
       s.setTimeout(connectTimeoutMs);
@@ -224,31 +255,39 @@ async function _deliver(cfg, envelope, message) {
 
   let socket = cfg.secure ? await connectTLS() : await connectPlain();
   let smtp = _talk(socket, cfg);
+  const expect = (reply, ...codes) => _expect(reply, cfg, ...codes);
   try {
-    _expect(await smtp.read(), 220);
+    expect(await smtp.read(), 220);
     const ehloHost = _ehloName(cfg.from);
-    let reply = _expect(await smtp.send(`EHLO ${ehloHost}`), 250);
+    let reply = expect(await smtp.send(`EHLO ${ehloHost}`), 250);
 
-    if (!cfg.secure && /STARTTLS/i.test(reply.text)) {
-      _expect(await smtp.send('STARTTLS'), 220);
+    if (cfg.requireTLS) {
+      // STARTTLS before any credential. A relay that does not offer it is
+      // refused: continuing would send SMTP_PASS in the clear.
+      if (!/STARTTLS/i.test(reply.text)) {
+        const err = new Error('SMTP server did not offer STARTTLS');
+        err.code = 'ESTARTTLS';
+        throw err;
+      }
+      expect(await smtp.send('STARTTLS'), 220);
       socket = await connectTLS(socket);
       smtp = _talk(socket, cfg);
-      reply = _expect(await smtp.send(`EHLO ${ehloHost}`), 250);
+      expect(await smtp.send(`EHLO ${ehloHost}`), 250);
     }
 
     if (cfg.user) {
-      _expect(await smtp.send('AUTH LOGIN'), 334);
-      _expect(await smtp.send(Buffer.from(cfg.user, 'utf8').toString('base64')), 334);
-      _expect(await smtp.send(Buffer.from(cfg.pass, 'utf8').toString('base64')), 235);
+      expect(await smtp.send('AUTH LOGIN'), 334);
+      expect(await smtp.send(Buffer.from(cfg.user, 'utf8').toString('base64')), 334);
+      expect(await smtp.send(Buffer.from(cfg.pass, 'utf8').toString('base64')), 235);
     }
 
-    _expect(await smtp.send(`MAIL FROM:<${envelope.from}>`), 250);
-    _expect(await smtp.send(`RCPT TO:<${envelope.to}>`), 250, 251);
-    _expect(await smtp.send('DATA'), 354);
+    expect(await smtp.send(`MAIL FROM:<${envelope.from}>`), 250);
+    expect(await smtp.send(`RCPT TO:<${envelope.to}>`), 250, 251);
+    expect(await smtp.send('DATA'), 354);
     // Send the message body followed by the terminating "<CRLF>.<CRLF>".
     socket.write(message);
     if (!message.endsWith('\r\n')) socket.write('\r\n');
-    _expect(await smtp.send('.'), 250);
+    expect(await smtp.send('.'), 250);
     try { await smtp.send('QUIT'); } catch { /* server may drop after QUIT */ }
   } finally {
     socket.end();
@@ -270,10 +309,15 @@ async function sendMail({ to, subject, text, html }) {
     console.warn(`[mailer] not configured; email not sent to=${_oneLine(to)} subject="${_oneLine(subject)}"`);
     return { skipped: true, reason: 'not_configured' };
   }
+  if (!cfg.from) {
+    const err = new Error('MAIL_FROM is unset and SMTP_USER is not an email address');
+    err.code = 'ENOMFROM';
+    throw err;
+  }
   const envelope = { from: _addrOnly(cfg.from), to: String(to).trim() };
   const message = buildMessage({ from: cfg.from, to, subject, text, html, replyTo: cfg.replyTo });
   await _deliver(cfg, envelope, message);
-  console.log(`[mailer] sent to=${to} subject="${subject}"`);
+  console.log(`[mailer] sent to=${_oneLine(to)} subject="${_oneLine(subject)}"`);
   return { skipped: false };
 }
 
@@ -287,5 +331,7 @@ module.exports = {
   _addrOnly,
   _encodeHeader,
   _ehloName,
-  DEFAULT_FROM,
+  _cfg,
+  defaultFrom,
+  DISPLAY_NAME,
 };

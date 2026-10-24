@@ -28,11 +28,11 @@ test('a site sending with SMTP_FROM is not told its mail is NOT sent', () => {
 });
 
 test('the warning names what is missing, and only that', () => {
-  // A host and no sender is configured: the mailer falls through to its
-  // built-in noreply address. The warning used to blame MAIL_FROM here,
-  // which would now be a second reading of a sender the mailer accepts.
+  // A host and no sender is configured: the mailer sends once SMTP_USER is
+  // an address, and a host alone is still "mail is on". The warning used to
+  // blame MAIL_FROM here, which would be a second reading of that fact.
   const hostOnly = smtpFinding({ SMTP_HOST: 'smtp.gmail.com' });
-  assert.equal(hostOnly, undefined, 'a host with no sender uses the built-in noreply address');
+  assert.equal(hostOnly, undefined, 'a host with no explicit sender is still configured');
 
   const noHost = smtpFinding({ MAIL_FROM: 'bot@example.com' });
   assert.match(noHost.msg, /^SMTP_HOST unset/);
@@ -51,7 +51,7 @@ test('the audit and the mailer agree on every shape of the settings', () => {
     { SMTP_HOST: 'smtp.x.io', MAIL_FROM: 'a@x.io' },
     { SMTP_HOST: 'smtp.x.io', SMTP_FROM: 'a@x.io' },
     { SMTP_HOST: '   ', MAIL_FROM: 'a@x.io' },          // a blank host is no host
-    { SMTP_HOST: 'smtp.x.io', MAIL_FROM: '  ' },        // blank sender → default noreply
+    { SMTP_HOST: 'smtp.x.io', MAIL_FROM: '  ' },        // blank sender, no mailbox yet
     { SMTP_HOST: 'smtp.x.io', MAIL_FROM: ' ', SMTP_FROM: 'a@x.io' },
   ];
   for (const env of envs) {
@@ -64,11 +64,21 @@ test('the audit and the mailer agree on every shape of the settings', () => {
   // did not, so a blank host made the mailer dial "   "; the one reading now
   // trims, and that is asserted on its own.
   assert.equal(mailer.isConfigured({ SMTP_HOST: '   ', MAIL_FROM: 'a@x.io' }), false);
-  // A blank sender is not "unconfigured": it falls through to the built-in
-  // noreply address. A blank MAIL_FROM still does not hide a set SMTP_FROM.
+  // A blank sender is not "unconfigured": the host is what turns mail on.
+  // The From address, when neither override is set, is the SMTP mailbox.
   assert.equal(mailer.isConfigured({ SMTP_HOST: 'smtp.x.io', MAIL_FROM: '  ' }), true);
   assert.equal(mailer.isConfigured({ SMTP_HOST: 'smtp.x.io', MAIL_FROM: ' ', SMTP_FROM: 'a@x.io' }), true);
-  assert.equal(mailer.DEFAULT_FROM, 'Humanoid Traders <noreply@humanoid-traders.com>');
+  assert.equal(
+    mailer._cfg({ SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'owner@gmail.com', SMTP_PASS: 'secret' }).from,
+    'Humanoid Traders <owner@gmail.com>',
+  );
+  assert.equal(mailer._cfg({ SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'owner@gmail.com' }).pass, '');
+  const explicit = mailer._cfg({
+    SMTP_HOST: 'smtp.gmail.com',
+    SMTP_USER: 'owner@gmail.com',
+    MAIL_FROM: 'Humanoid Traders <noreply@humanoid-traders.com>',
+  });
+  assert.equal(explicit.from, 'Humanoid Traders <noreply@humanoid-traders.com>');
 });
 
 test('an unconfigured send logs one line and not the message body', async () => {
