@@ -2,11 +2,12 @@
 /**
  * Sandwich restitution, behind SRB_ENABLED.
  *
- * A caller who is not the operator gets 404 — the same answer as a path
- * this server does not have — whether SRB_ENABLED is off or on. The flag
- * does not open a public page. The operator gets the page, and the client
- * is told "Admin preview. Not public." The public status word is Bonded.
- * The SOL label and the bond figure stay on the admin view.
+ * While SRB_ENABLED is off, a caller who is not the operator gets 404 —
+ * the same answer as a path this server does not have. The operator gets
+ * the page, and the client is told "Admin preview. Not public." While the
+ * flag is on, the page is public and the admin block stays with the
+ * operator. The public status word is Bonded. The SOL label and the bond
+ * figure stay on the admin view.
  *
  * The report itself is produced by `python3 -m bot.srb.report`. This file
  * scripts that process so the gate and the copy rules run without a Python
@@ -216,7 +217,7 @@ test('a public render says Bonded and an admin render is where the units go', ()
   assert.equal(empty.nodes['#srb-amounts'].hidden, true);
 });
 
-test('off is 404, an admin preview works, and the flag does not make it public', async () => {
+test('off is 404 for the public, an admin preview works, and on is public Bonded', async () => {
   delete process.env.SRB_ENABLED;
   scripted = { status: 0, stdout: `${JSON.stringify(REPORT)}\n`, stderr: '' };
   const server = http.createServer(buildApp());
@@ -257,26 +258,35 @@ test('off is 404, an admin preview works, and the flag does not make it public',
     assert.equal(preview.admin.amounts.signals[0].would_record_base_units, 2);
 
     process.env.SRB_ENABLED = '1';
-    for (const urlPath of ['/srb', '/srb.html', '/js/srb.js', '/api/srb/signals']) {
-      const closed = await call(server, urlPath);
-      assert.equal(closed.status, 404, `flag on ${urlPath}`);
-      assert.equal(closed.text, 'Not found');
+    for (const urlPath of ['/srb', '/srb.html', '/js/srb.js']) {
+      const openPage = await call(server, urlPath);
+      assert.equal(openPage.status, 200, `flag on ${urlPath}`);
     }
+    const openRes = await call(server, '/api/srb/signals');
+    assert.equal(openRes.status, 200);
+    const open = JSON.parse(openRes.text);
+    assert.equal(open.preview, false);
+    assert.equal(open.banner, null);
+    assert.equal(Object.hasOwn(open, 'admin'), false);
+    assert.equal(open.public.providers[0].status, 'Bonded');
+    assert.equal(openRes.text.includes(String(BOND)), false);
+    assert.equal(openRes.text.includes('Bonded ✓'), false);
+    assert.equal(openRes.text.includes('✓'), false);
+    assert.doesNotMatch(openRes.text, /\bSOL\b/);
     const flaggedFree = await call(server, '/api/srb/signals', FREE);
-    assert.equal(flaggedFree.status, 404);
+    assert.equal(flaggedFree.status, 200);
+    assert.equal(Object.hasOwn(JSON.parse(flaggedFree.text), 'admin'), false);
     assert.equal(flaggedFree.text.includes(String(BOND)), false);
     const flaggedRes = await call(server, '/api/srb/signals', ADMIN);
     assert.equal(flaggedRes.status, 200);
     const flagged = JSON.parse(flaggedRes.text);
-    assert.equal(flagged.preview, true);
-    assert.equal(flagged.banner, 'Admin preview. Not public.');
+    assert.equal(flagged.preview, false);
+    assert.equal(flagged.banner, null);
     assert.equal(flagged.admin.label, 'Bonded ✓ 4.242424242 SOL');
     assert.equal(JSON.stringify(flagged.public).includes(String(BOND)), false);
     assert.equal(JSON.stringify(flagged.public).includes('Bonded ✓'), false);
     assert.equal(JSON.stringify(flagged.public).includes('✓'), false);
     assert.doesNotMatch(JSON.stringify(flagged.public), /\bSOL\b/);
-    const flaggedPage = await call(server, '/srb', ADMIN);
-    assert.equal(flaggedPage.status, 200);
 
     scripted = { status: 1, stdout: '', stderr: 'secret key material at /home/key' };
     const bad = await call(server, '/api/srb/signals', ADMIN);

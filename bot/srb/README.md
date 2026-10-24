@@ -43,11 +43,11 @@ mint. No program is deployed. There is no deploy script and no program id.
 
 ## Flag
 
-`SRB_ENABLED` is off unless it is `1` or `true`. The admin record is the
-one place that reads it, and says whether it is on. That reading does not
-open the page. A caller who is not the operator gets 404. An operator (the
-site's admin plan, or a Telegram admin) can open it; the page says
-`Admin preview. Not public.`
+`SRB_ENABLED` is off unless it is `1` or `true`. The page asks
+`flag_on_for`. While the flag is off, a caller who is not the operator
+gets 404, and an operator sees `Admin preview. Not public.` While it is
+on, the page is public and the admin block stays with the operator. The
+Telegram command stays operator-only either way.
 
 ## Layout
 

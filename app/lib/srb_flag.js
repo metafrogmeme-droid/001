@@ -2,10 +2,11 @@
 /**
  * Sandwich restitution, behind SRB_ENABLED.
  *
- * Off unless the variable is "1" or "true". The flag does not open a
- * public page. A caller who is not the operator gets the same 404 a
- * missing path gets, flag on or off. The operator gets the page, and the
- * client is told to show "Admin preview. Not public."
+ * Off unless the variable is "1" or "true". While it is off, the public
+ * gets the same 404 a missing path gets, and an operator gets the page
+ * with the shared admin-preview banner. The decision is flag_on_for
+ * (lib/admin_preview.js): the public reader is flag_on, and a failed
+ * operator read is not an operator.
  *
  * The page gate is mounted ahead of express.static. public/srb.html is on
  * disk so the page tests can read it; without this gate the file would be
@@ -14,11 +15,11 @@
 
 const path = require('node:path');
 
-const { optionalAuth } = require('../auth');
+const { flag_on_for, BANNER } = require('./admin_preview');
 const { isOperator } = require('./operator_view');
 
 const FLAG = 'SRB_ENABLED';
-const PREVIEW = 'Admin preview. Not public.';
+const PREVIEW = BANNER;
 
 function flag_on(env) {
   const src = env || process.env;
@@ -32,34 +33,37 @@ function pageFile() {
   return path.join(__dirname, '..', 'public', 'srb.html');
 }
 
-function identify(req, res) {
-  return new Promise((resolve) => {
-    optionalAuth(req, res, () => resolve());
-  });
-}
-
 /**
  * Whether this caller may see the shadow page.
  *
- * The operator only. The flag does not admit anyone else: nothing here is
- * public until the owner says so. A failed operator read is not an operator.
+ * flag_on_for is the gate. While the flag is off that is the operator
+ * only, and the client is told this is a preview. While the flag is on
+ * the page is public, and the admin block stays with the operator.
  */
-async function access(req, res) {
-  await identify(req, res);
-  let admin = false;
+async function access(req) {
+  let on = false;
   try {
-    admin = await isOperator(req);
+    on = await flag_on_for(req, FLAG);
   } catch (err) {
-    admin = false;
+    on = false;
   }
-  if (!admin) return { ok: false, preview: false, admin: false };
+  if (on !== true) return { ok: false, preview: false, admin: false };
+  if (flag_on() === true) {
+    let admin = false;
+    try {
+      admin = (await isOperator(req)) === true;
+    } catch (err) {
+      admin = false;
+    }
+    return { ok: true, preview: false, admin };
+  }
   return { ok: true, preview: true, admin: true };
 }
 
 function sendPage(req, res) {
-  access(req, res).then((decision) => {
+  access(req).then((decision) => {
     if (!decision.ok) return res.status(404).type('text/plain').send('Not found');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', decision.preview ? 'private, no-store' : 'no-cache');
     return res.sendFile(pageFile());
   }).catch(() => {
     if (!res.headersSent) res.status(404).type('text/plain').send('Not found');
@@ -73,10 +77,10 @@ function sendPage(req, res) {
 function pageGate(req, res, next) {
   const p = req.path;
   if (p !== '/srb.html' && p !== '/js/srb.js') return next();
-  access(req, res).then((decision) => {
+  access(req).then((decision) => {
     if (!decision.ok) return res.status(404).type('text/plain').send('Not found');
     if (p === '/js/srb.js') return next();
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', decision.preview ? 'private, no-store' : 'no-cache');
     return res.sendFile(pageFile());
   }).catch(() => {
     if (!res.headersSent) res.status(404).type('text/plain').send('Not found');

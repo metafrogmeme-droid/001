@@ -2,9 +2,9 @@
 /**
  * The shadow restitution record.
  *
- * Operator only. There is no public dashboard. A caller who is not the
- * operator gets 404, the same answer as a path this server does not have.
- * The admin view carries the bond label. The public block does not.
+ * While SRB_ENABLED is off, a caller who is not the operator gets 404,
+ * the same answer as a path this server does not have. The admin view
+ * carries the bond label. The public block does not.
  */
 
 const { spawnSync } = require('node:child_process');

@@ -69,6 +69,13 @@ def test_flag_on_is_off_unless_set(monkeypatch):
     assert on["admin"]["flag_on"] is True
     assert "flag_on" not in _public_blob(on)
     assert on["public"]["providers"][0]["status"] == "Bonded"
+    from bot.admin_preview import flag_on_for
+    assert flag_on_for(None, "SRB_ENABLED", env={}, store={}) is False
+    assert flag_on_for("999", "SRB_ENABLED", env={"SRB_ENABLED": "1"}, store={}) is True
+    assert flag_on_for("999", "SRB_ENABLED", env={}, store={}) is False
+    assert flag_on_for(
+        "42", "SRB_ENABLED", env={}, store={"42": {"role": "admin"}},
+    ) is True
 
 
 def test_classic_records_a_public_signal_and_pays_nothing():
@@ -405,10 +412,14 @@ def test_srb_command_admin_preview_is_bonded_and_the_units_stay_here(monkeypatch
 
 def test_srb_command_stays_admin_when_the_flag_is_on(monkeypatch):
     monkeypatch.setenv("SRB_ENABLED", "1")
+    refused = _srb_host(False)
+    asyncio.run(refused._cmd_srb(None, None))
+    assert "operator command" in refused.sent[0]
+    assert "Bonded" not in refused.sent[0]
     host = _srb_host(True)
     asyncio.run(host._cmd_srb(None, None))
     text = host.sent[0]
-    assert text.startswith("Admin preview. Not public.")
+    assert "Admin preview. Not public." not in text
     assert "SRB_ENABLED is on." in text
     assert "SRB_ENABLED is off." not in text
     assert "provider-a: Bonded ✓ 4.242424242 SOL" in text

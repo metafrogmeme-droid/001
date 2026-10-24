@@ -74,6 +74,24 @@ function spendersFor(chainKey) {
   return SPENDERS.filter((s) => !s.chains || s.chains.includes(chainKey));
 }
 
+/** approve(spender, 0) calldata. The only revoke encoding this module writes. */
+function approveRevokeCalldata(spenderAddress) {
+  return encodeCall('approve(address,uint256)', [spenderAddress, 0n]);
+}
+
+/**
+ * The unsigned revoke the owner's wallet sends. Same bytes the X-ray puts on
+ * each finding. This server does not sign it and does not send it.
+ */
+function revokePlan(tokenAddress, spenderAddress, chainId) {
+  return {
+    to: tokenAddress,
+    data: approveRevokeCalldata(spenderAddress),
+    value: '0x0',
+    chain_id: chainId,
+  };
+}
+
 /**
  * Read one chain's allowance grid for `owner`.
  * @returns { chain, label, spenders_checked, findings, zero_pairs,
@@ -94,7 +112,7 @@ async function readAllowances(owner, chainKey) {
   // are compile-time constants, so a failure means this module is broken, not
   // that a chain was slow.
   const revokeData = new Map(spenders.map(
-    (s) => [s.address, encodeCall('approve(address,uint256)', [s.address, 0n])]));
+    (s) => [s.address, approveRevokeCalldata(s.address)]));
 
   const findings = [];
   let zero = 0, unreadable = 0;
@@ -159,4 +177,7 @@ async function readAllowances(owner, chainKey) {
   };
 }
 
-module.exports = { readAllowances, setEthCaller, SPENDERS, UNLIMITED_MIN, spendersFor };
+module.exports = {
+  readAllowances, setEthCaller, SPENDERS, UNLIMITED_MIN, spendersFor,
+  approveRevokeCalldata, revokePlan,
+};

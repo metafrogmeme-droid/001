@@ -123,6 +123,7 @@
   <section class="panel" id="cardPanel" hidden>
     <h2 data-i18n="duel.card_h">Today’s card</h2>
     <p class="note" id="chipsNote" hidden data-i18n="duel.chips_note">Chips are play money: every player gets the same 1,000 each season, and nobody can buy, sell, send or cash them out. They are worth nothing outside this game. Put some on a call at the odds shown; a correct call pays them at those odds, a wrong one loses them, and a push gives them back.</p>
+    <p id="adminPreview" hidden>Admin preview. Not public.</p>
     <div class="d-rounds" id="rounds"></div>
     <p class="note" id="sportsNote" hidden data-i18n="duel.sports_unreadable">The football feed could not be read when today’s card was dealt, so no match is on it. This is on our side.</p>
   </section>
@@ -211,6 +212,8 @@
       });
     }).join('');
     $('chipsNote').hidden = !(data.chips && data.chips.enabled);
+    var note = $('adminPreview');
+    if (note) note.hidden = !data.admin_preview;
     // Only a feed that FAILED is reported; a day with no match says nothing.
     $('sportsNote').hidden = !(data.sources && data.sources.sports === 'unreadable');
     $('cardPanel').hidden = false;

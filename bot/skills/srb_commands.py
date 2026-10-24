@@ -30,7 +30,7 @@ class SrbCommands:
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
-        lines: list[str] = ["Admin preview. Not public."]
+        lines: list[str] = []
         try:
             report = demo_report()
         except Exception as exc:  # noqa: BLE001 — the chat is told the class only
@@ -43,6 +43,8 @@ class SrbCommands:
         providers = public.get("providers")
         admin = report.get("admin")
         flag_state = admin.get("flag_on") if isinstance(admin, dict) else None
+        if flag_state is not True:
+            lines.append("Admin preview. Not public.")
         if flag_state is True:
             lines.append("SRB_ENABLED is on.")
         elif flag_state is False:
