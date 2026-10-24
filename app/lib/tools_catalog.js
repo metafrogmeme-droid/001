@@ -99,10 +99,20 @@ function labelMap(tools) {
   return { bar, labels };
 }
 
-function presentation(tool, env) {
+function presentation(tool, env, view) {
   const src = env || process.env;
-  // v0 has no public SaR dashboard. The flag gates the feed, not a page.
-  if (tool && tool.id === 'sar-oracle') return { label: 'Coming soon', href: null };
+  // No public SaR dashboard. The operator, and only the operator, gets a
+  // link to the admin feed once the flag is on. An admin preview passes
+  // view.preview while the public flag is still off. Everyone else stays
+  // "Coming soon", including an operator while the flag is off.
+  if (tool && tool.id === 'sar-oracle') {
+    const admin = view && view.operator === true;
+    const preview = view && view.preview === true;
+    if (admin && (flagOn('SAR_ORACLE_ENABLED', src) || preview)) {
+      return { label: 'Admin view', href: '/api/sar-oracle/admin/packets' };
+    }
+    return { label: 'Coming soon', href: null };
+  }
   // /t2c is the operator's page. The catalog never links it. The operator
   // route is added on GET /api/tools, and only for that caller.
   if (tool && tool.id === 't2c') return { label: 'Coming soon', href: null };
@@ -130,19 +140,19 @@ function renderBar(tools) {
   }).join('');
 }
 
-function renderCards(tools, env) {
+function renderCards(tools, env, view) {
   const { labels } = labelMap(tools);
   return tools.map((tool) => {
-    const view = presentation(tool, env);
+    const card = presentation(tool, env, view);
     const chips = tool.chains.map((id) => `<li>${esc(labels[id])}</li>`).join('');
     const attrs = `class="tool-card" data-tool="${esc(tool.id)}" data-chains="${esc(tool.chains.join(' '))}"`;
-    const body = `<h2>${esc(tool.name)}</h2><p>${esc(tool.description)}</p><ul class="chain-chips">${chips}</ul><p class="tool-status">${esc(view.label)}</p>`;
-    if (!view.href) return `<article ${attrs}>${body}</article>`;
-    return `<a ${attrs} href="${esc(view.href)}">${body}</a>`;
+    const body = `<h2>${esc(tool.name)}</h2><p>${esc(tool.description)}</p><ul class="chain-chips">${chips}</ul><p class="tool-status">${esc(card.label)}</p>`;
+    if (!card.href) return `<article ${attrs}>${body}</article>`;
+    return `<a ${attrs} href="${esc(card.href)}">${body}</a>`;
   }).join('\n');
 }
 
-function renderFile(env) {
+function renderFile(env, view) {
   const tools = loadCatalog();
   const html = fs.readFileSync(PAGE, 'utf8');
   if (!html.includes('<!--CHAIN_BAR-->') || !html.includes('<!--TOOL_CARDS-->')) {
@@ -150,7 +160,7 @@ function renderFile(env) {
   }
   return html
     .replace('<!--CHAIN_BAR-->', renderBar(tools))
-    .replace('<!--TOOL_CARDS-->', renderCards(tools, env));
+    .replace('<!--TOOL_CARDS-->', renderCards(tools, env, view));
 }
 
 module.exports = {

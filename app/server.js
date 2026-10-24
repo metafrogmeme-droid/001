@@ -373,8 +373,9 @@ app.use(require('./lib/srb_flag').pageGate);
 // while the flags are off. An admin can preview. Not offered to customers.
 // Licence review pending. Do not enable in production.
 app.use(require('./lib/cover_page').pageGate);
-// SaR Oracle and /tools stay 404 until SAR_ORACLE_ENABLED is set. Ahead
-// of express.static so public/tools.html is not served while the flag is off.
+// SaR Oracle and /tools stay 404 until SAR_ORACLE_ENABLED is set, except
+// an admin preview. Ahead of express.static so public/tools.html is not
+// served while the flag is off for this caller.
 app.use(require('./lib/sar_oracle_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
@@ -644,8 +645,9 @@ app.get('/srb', (req, res) => { require('./lib/srb_flag').sendPage(req, res); })
 // preview. Not offered to customers. Licence review pending. Do not enable in production.
 app.get('/cover-adl', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'adl'); });
 app.get('/cover-stopgap', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'stopgap'); });
-// /tools — the catalog. 404 until SAR_ORACLE_ENABLED. While the flag is
-// on, the HTML is the operator's. The card for SaR stays "Coming soon".
+// /tools — the catalog. 404 until SAR_ORACLE_ENABLED, except an admin
+// preview. While the flag is on, the HTML is the operator's. The public
+// card for SaR stays "Coming soon".
 app.get('/tools', (req, res) => { require('./lib/sar_oracle_flag').sendPage(req, res); });
 // /t2c is the operator's signal page and answers 404 for everyone else,
 // flag on or off (lib/t2c_flag.js).
