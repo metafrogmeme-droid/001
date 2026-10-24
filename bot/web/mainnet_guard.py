@@ -35,22 +35,32 @@ _TESTNET_CAPABLE_KEYS = (
 _ENV_BOOL_TRUE = frozenset({"true", "1", "yes"})
 
 
+def _row_chain_id(row: Mapping[str, object]) -> Optional[int]:
+    """The row's chain id when it is an int. A bool is not one: ``True`` is 1."""
+    value = row.get("chain_id")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
 def mainnet_chain_ids() -> frozenset[int]:
     """Chain ids the network table marks as not a testnet. One reading."""
-    return frozenset(
-        int(row["chain_id"])
-        for row in gate.NETWORKS.values()
-        if not row.get("testnet")
-    )
+    found: list[int] = []
+    for row in gate.NETWORKS.values():
+        cid = _row_chain_id(row)
+        if cid is not None and not row.get("testnet"):
+            found.append(cid)
+    return frozenset(found)
 
 
 def testnet_chain_ids() -> frozenset[int]:
     """Chain ids the network table marks as a testnet. One reading."""
-    return frozenset(
-        int(row["chain_id"])
-        for row in gate.NETWORKS.values()
-        if row.get("testnet")
-    )
+    found: list[int] = []
+    for row in gate.NETWORKS.values():
+        cid = _row_chain_id(row)
+        if cid is not None and row.get("testnet"):
+            found.append(cid)
+    return frozenset(found)
 
 
 def execution_refused(chain_id: object) -> Optional[str]:
@@ -83,8 +93,13 @@ def startup_refusal(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
     An explicit mapping is the whole environment. ``{}`` is nothing set,
     not the process environment.
     """
-    e: Mapping = os.environ if env is None else env
-    if gate.mainnet_allowed(e):
+    e: Mapping[str, str] = os.environ if env is None else env
+    # mainnet_allowed reads a dict. None means "the process environment",
+    # which is the same reading as ``e`` when the caller passed no mapping.
+    allowed_env: Optional[dict] = None if env is None else {
+        str(key): str(value) for key, value in env.items()
+    }
+    if gate.mainnet_allowed(allowed_env):
         return (
             "WEB3_LIVE_EXEC_ALLOW_MAINNET is set; the server does not start "
             "with mainnet execution allowed"
