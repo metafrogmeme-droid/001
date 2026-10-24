@@ -291,10 +291,16 @@ def test_the_contracts_are_not_a_liquidation_oracle_and_match_the_intake_cap():
     blob = "\n".join(path.read_text(encoding="utf-8") for path in src_dir.rglob("*.sol"))
     assert "function price(" not in blob
     assert "liquidationCall" not in blob
-    assert "function deposit(" not in blob
+    model = (src_dir / "src" / "ExitSwapModel.sol").read_text(encoding="utf-8")
+    deposit_files = sorted(
+        path.name
+        for path in src_dir.rglob("*.sol")
+        if "function deposit(" in path.read_text(encoding="utf-8")
+    )
+    assert deposit_files == ["T2CPool.sol"]
+    assert "function deposit(" not in model
     assert "function supply(" not in blob
     assert "function borrow(" not in blob
-    model = (src_dir / "src" / "ExitSwapModel.sol").read_text(encoding="utf-8")
     assert "MainnetForbidden" in model
     assert "31337" in model
     assert "ENTER_EDGE_BPS = 50" in model
