@@ -24,6 +24,7 @@ from bot.rxb.indexer import (
     parse_history_point,
 )
 from bot.rxb.machine import fresh_state, step
+from bot.rxb.mainnet import mainnet_config
 from bot.rxb.metrics import GEdge, GToken, cross_venue_dms, solve_graph
 from bot.rxb.oracle_math import (
     _BITS,
@@ -39,7 +40,14 @@ from bot.rxb.report import admin_text
 from bot.rxb.solver import Claim, Issuer, solve_issuers
 from bot.utils.outbound import reply_safe
 from bot.vaults.cap_coordinator import coordinate_caps
-from bot.vaults.cap_id import MIN_INCREASE_DELAY_S, cap_id_hex, collateral_id_data, onboard_vault
+from bot.vaults.cap_id import (
+    MIN_INCREASE_DELAY_S,
+    cap_id_hex,
+    collateral_id_data,
+    decrease_calldata,
+    keccak256,
+    onboard_vault,
+)
 from bot.vaults.sentinel import plan_cap_down
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -262,8 +270,13 @@ def test_an_absent_opinion_does_not_loosen_and_mainnet_never_sends(tmp_path):
     base = dict(vault="v", id_data="id", broadcaster=broadcaster, audit_path=path,
                 proposals=[{"source": "rxb", "vault": "v", "id_data": "id",
                             "absolute": 0, "relative": None, "readable": True}])
-    refused = plan_cap_down(chain_id=1, current_absolute=100, current_relative=None, env={"RXB_ENABLED": "1"}, **base)
-    assert refused["reason"] == "mainnet_refusal"
+    refused = plan_cap_down(
+        chain_id=1, current_absolute=100, current_relative=None,
+        env={"RXB_ENABLED": "1"}, increase_delay=None, **base,
+    )
+    assert refused["reason"] == "timelock_unreadable"
+    assert refused["sent"] is False
+    assert refused["signed"] is False
     assert calls == []
     assert MAINNET_CHAIN_IDS == {1, 8453, 4663}
     for chain in (1, 8453, 4663, 42161, 10, 137, 56, 43114):
@@ -285,6 +298,63 @@ def test_an_absent_opinion_does_not_loosen_and_mainnet_never_sends(tmp_path):
                          env={"RXB_ENABLED": "1"}, increase_delay=MIN_INCREASE_DELAY_S, **base)
     assert sent["sent"] is True
     assert calls == [[{"kind": "absolute", "cap": 0, "id_data": "id", "cap_id": None}]]
+
+
+def test_a_mainnet_decrease_is_unsigned_and_the_fork_rehearses_it(tmp_path):
+    token = "0x" + "e5" * 20
+    data = collateral_id_data(token)
+    assert data is not None
+    id_data = "0x" + data.hex()
+    calls: list = []
+    path = str(tmp_path / "audit.jsonl")
+    base = dict(
+        vault="0x" + "11" * 20, id_data=id_data, broadcaster=calls.append, audit_path=path,
+        proposals=[{"source": "rxb", "vault": "0x" + "11" * 20, "id_data": id_data,
+                    "absolute": 0, "relative": None, "readable": True}],
+        current_absolute=100, current_relative=None, increase_delay=MIN_INCREASE_DELAY_S,
+    )
+    env = {"RXB_ENABLED": "1", "RXB_MAINNET_ACTIVATE": "1", "RXB_MAINNET_SENTINEL": "0x" + "ab" * 20}
+    key = "0x" + "ab" * 32
+    leaked = mainnet_config({**env, "RXB_MAINNET_SENTINEL": key})
+    assert leaked["sentinel"] is None
+    assert leaked["sentinel_reason"] == "not_an_address"
+    assert key not in json.dumps(leaked)
+    cfg = mainnet_config(env)
+    assert cfg["activated"] is False
+    assert cfg["signs"] is False
+    assert cfg["holds_keys"] is False
+    assert cfg["sentinel"] == "0x" + "ab" * 20
+    paused = plan_cap_down(chain_id=1, env={**env, "RXB_SENTINEL_PAUSED": "1"}, **base)
+    assert paused["reason"] == "paused"
+    assert paused["signed"] is False
+    assert calls == []
+    fork_paused = plan_cap_down(chain_id=31337, env={**env, "RXB_SENTINEL_PAUSED": "true"}, **base)
+    assert fork_paused["reason"] == "paused"
+    assert calls == []
+    mainnet = plan_cap_down(chain_id=1, env=env, **base)
+    assert mainnet["reason"] == "unsigned_proposal"
+    assert mainnet["sent"] is False
+    assert mainnet["signed"] is False
+    assert mainnet["broadcast"] is False
+    assert mainnet["activated"] is False
+    assert calls == []
+    fork = plan_cap_down(chain_id=31337, env=env, **base)
+    assert fork["sent"] is True
+    assert fork["signed"] is False
+    assert calls[0][0]["kind"] == "absolute"
+    assert calls[0][0]["cap"] == 0
+    assert calls[0][0]["id_data"] == id_data
+    calldata = mainnet["plan"][0]["calldata"]
+    assert calldata == decrease_calldata("absolute", id_data, 0)
+    assert calldata.startswith("0x" + keccak256(b"decreaseAbsoluteCap(bytes,uint256)").hex()[:8])
+    assert "0" * 64 in calldata[10:]
+    raised = plan_cap_down(
+        chain_id=1, env=env, current_absolute=0, current_relative=None,
+        vault=base["vault"], id_data=id_data, broadcaster=calls.append, audit_path=path,
+        proposals=base["proposals"], increase_delay=MIN_INCREASE_DELAY_S,
+    )
+    assert raised["reason"] == "no_decrease"
+    assert len(calls) == 1
 
 
 def test_the_flag_accepts_only_one_and_true():
