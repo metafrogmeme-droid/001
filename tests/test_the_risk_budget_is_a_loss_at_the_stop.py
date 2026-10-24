@@ -213,7 +213,8 @@ class TestTheLeverageIsTheOrders:
         """At the plain 1x the base is the notional it always was -- the
         record reproduces -- and the margin-risk cap is measured at the venue
         a 1x sizing maps to (2x, against the 60% cap: 30% at 1x), so a 10%
-        stop the live reading refuses is admitted where the fill really runs
+        stop the live reading reduces (and refuses with leverage-from-stop
+        off) is admitted where the fill really runs
         at 1x."""
         eng = _engine()
         plain = eng.evaluate(_idea(20.0), atr=2.0, fill_leverage=1)
@@ -224,7 +225,13 @@ class TestTheLeverageIsTheOrders:
         wide_at_1x = eng.evaluate(_idea(10.0), atr=2.0, fill_leverage=1)
         assert not any(ln.startswith("MARGIN_RISK") for ln in wide_at_1x.checks_failed)
         wide_at_5x = eng.evaluate(_idea(10.0), atr=2.0)
-        assert any(ln.startswith("MARGIN_RISK") for ln in wide_at_5x.checks_failed), wide_at_5x.checks_passed
+        assert any("reduced leverage" in ln for ln in wide_at_5x.checks_passed), wide_at_5x.checks_passed
+        object.__setattr__(CONFIG.risk, "leverage_from_stop_enabled", False)
+        try:
+            refused = eng.evaluate(_idea(10.0), atr=2.0)
+        finally:
+            object.__setattr__(CONFIG.risk, "leverage_from_stop_enabled", True)
+        assert any(ln.startswith("MARGIN_RISK") for ln in refused.checks_failed), refused.checks_passed
 
     def test_a_fill_leverage_under_one_reads_as_one(self, no_override):
         check = _engine().evaluate(_idea(20.0), atr=2.0, fill_leverage=0)

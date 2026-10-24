@@ -129,6 +129,14 @@ GATES: dict[str, tuple[str, str, str]] = {
         "per-trade risk scales up with volatility instead of being capped"),
     "kelly_sizing_enabled": (
         "Kelly sizing", KIND_SIZE, "no half-Kelly tightening of size"),
+    "kelly_on_risk_enabled": (
+        "Kelly on risk", KIND_SIZE,
+        "a short or non-positive record leaves the full fixed-fractional "
+        "size instead of the floor risk budget"),
+    "leverage_from_stop_enabled": (
+        "Leverage from the stop", KIND_SIZE,
+        "the analyzer pulls the stop in to fit the venue's leverage, and an "
+        "over-cap stop is refused unless vol-scaling is also on"),
     "correlation_sizing_enabled": (
         "Correlation sizing", KIND_SIZE,
         "correlated positions are not shrunk, only counted"),

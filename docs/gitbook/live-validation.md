@@ -7,7 +7,8 @@ This page keeps two kinds of evidence apart:
   analyses and one backtest on real BTC/USDT candles, each run once. The market figures are from that
   day; they are not live.
 - **A stress test anyone can re-run**: 500 backtests on generated prices with fixed seeds, last run on
-  15 Oct 2026. `python3 run_deep_backtest.py` reproduces it.
+  15 Oct 2026. `python3 run_deep_backtest.py` reproduces it. It is a synthetic smoke test of the
+  pipeline. It is not evidence of an edge.
 
 Neither is a forecast. A backtest replays the rules on past or generated prices: it shows how the risk
 engine behaves, not what a trade will earn.
@@ -136,6 +137,9 @@ access.
 ---
 
 ## Stress test: 500 runs on generated prices
+
+This is a synthetic smoke test. The prices are generated, and the figures below are not evidence
+of an edge.
 
 20 symbols, 5 market regimes (bull trend, bear trend, range/chop, high volatility, crash then
 recovery) and 5 fixed seeds: 500 backtests of 1,500 one-hour bars each, on prices generated with

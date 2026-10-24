@@ -63,6 +63,12 @@ RECOVERY_TREND = 0.0004
 RECOVERY_SEED_OFFSET = 10000  # the recovery half draws from its own seed
 
 COMMAND = "python3 run_deep_backtest.py"
+# Every price this script writes is generated. The file is a pipeline smoke
+# test, not a measurement of an edge. The page that cites it says the same.
+SMOKE_LABEL = (
+    "Synthetic smoke test (GBM+GARCH with a mean-reversion overlay). "
+    "Not evidence of an edge."
+)
 
 OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backtest_deep_results.json")
 
@@ -190,6 +196,29 @@ def summarise(valid):
         "crashed_runs": sum(1 for r in valid if r["max_drawdown_pct"] > 20),
         "total_commission": round(sum(r["total_commission"] for r in valid), 2),
         "total_slippage": round(sum(r["total_slippage"] for r in valid), 2),
+    }
+
+
+def result_meta(total_runs: int, valid: list, errors: list, elapsed: float) -> dict:
+    """The file's meta block. ``role`` is smoke_test on every run of this script."""
+    return {
+        "symbols": len(SYMBOLS),
+        "regimes": len(REGIMES),
+        "seeds": len(SEEDS),
+        "total_runs": total_runs,
+        "valid_runs": len(valid),
+        "error_runs": len(errors),
+        "bars_per_run": BARS,
+        "runtime_seconds": round(elapsed, 1),
+        # Read alone, this file is 500 named-crypto runs; say inside it
+        # that every price in it was generated (audit B4-10) and that the
+        # file is a smoke test, not evidence.
+        "data_source": "synthetic",
+        "used_synthetic": True,
+        "role": "smoke_test",
+        "label": SMOKE_LABEL,
+        "fill_mode": BacktestConfig().fill_mode,
+        "provenance": provenance(),
     }
 
 
@@ -415,21 +444,7 @@ async def main():
     # Save full results
     with open(OUTPUT_PATH, "w") as f:
         json.dump({
-            "meta": {
-                "symbols": len(SYMBOLS),
-                "regimes": len(REGIMES),
-                "seeds": len(SEEDS),
-                "total_runs": total_runs,
-                "valid_runs": len(valid),
-                "error_runs": len(errors),
-                "bars_per_run": BARS,
-                "runtime_seconds": round(elapsed, 1),
-                # Read alone, this file is 500 named-crypto runs; say inside it
-                # that every price in it was generated (audit B4-10).
-                "data_source": "synthetic",
-                "used_synthetic": True,
-                "provenance": provenance(),
-            },
+            "meta": result_meta(total_runs, valid, errors, elapsed),
             "summary": summary,
             "results": all_results,
         }, f, indent=2, default=str)

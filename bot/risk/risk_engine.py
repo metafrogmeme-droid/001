@@ -2038,9 +2038,11 @@ class RiskEngine:
         # (max_symbol_exposure_pct) is enforced separately by check #15.
         # Kelly sizing (default ON; tighten-only). Take the SMALLER of
         # the fixed-fractional size and the half-Kelly size from realized history.
-        # Kelly can only shrink the position, never grow it — a no-edge or
-        # no-history Kelly returns 0.0, which is treated as "leave size as-is"
-        # (it never forces the size to zero). The hard cap + check #2 below remain
+        # Kelly can only shrink the position, never grow it. With
+        # KELLY_ON_RISK_ENABLED the fraction is equity lost at the stop, and a
+        # short or non-positive record uses the floor risk budget instead of
+        # the full fixed-fractional size. With that flag off, 0.0 still means
+        # leave the size as-is. The hard cap + check #2 below remain
         # authoritative. Confidence SCALES the fraction (kelly_f * 0.5 * conf)
         # -- the MEASURED confidence: `_kelly_size_usd` asks the quality
         # ladder's reading, so a MANUAL ticket takes the unshrunk half-Kelly
@@ -2053,7 +2055,9 @@ class RiskEngine:
         _base_multiplier = (position_usd / _base_usd) if _base_usd > 0 else None
         _kelly_ceiling: Optional[float] = None
         if CONFIG.risk.kelly_sizing_enabled:
-            kelly_usd = self._kelly_size_usd(idea, sizing_equity, live_mode)
+            kelly_usd = self._kelly_size_usd(
+                idea, sizing_equity, live_mode,
+                stop_distance_pct=stop_distance_pct, leverage=_lev_std)
             if kelly_usd > 0:
                 _kelly_ceiling = kelly_usd
                 _before = position_usd
@@ -2609,8 +2613,11 @@ class RiskEngine:
                 max_margin_risk_pct=margin_risk_cap_pct(
                     CONFIG.risk.max_margin_risk_pct, _lev_pair),
                 min_leverage=leverage_floor(CONFIG.exchange),
-                may_reduce=bool(getattr(CONFIG.exchange,
-                                        'dynamic_leverage_enabled', False)),
+                # Vol-scaling and "leverage from the stop" are different
+                # switches. Either one may reduce; neither one raises.
+                may_reduce=bool(
+                    getattr(CONFIG.exchange, 'dynamic_leverage_enabled', False)
+                    or getattr(CONFIG.risk, 'leverage_from_stop_enabled', False)),
             )
             if _mr.state == "reduced":
                 # Rides on the IDEA because that is the one thing both the set
@@ -3153,16 +3160,22 @@ class RiskEngine:
 
         # -- Funding clock (default ON, narrow by construction) --
         # Blocks ONLY an entry that would sit on the PAYING side of an
-        # extreme funding rate inside the pre-settlement window (Bitget
-        # settles 00/08/16 UTC): the position pays immediately, and extreme
-        # funding marks crowded positioning that unwinds around the settle.
+        # extreme funding rate inside the pre-settlement window. The grid
+        # is the symbol's own interval; an unreadable one uses the 8h
+        # fallback and says so. The position pays at that settlement, and
+        # extreme funding marks crowded positioning that unwinds around it.
         # Fail-open on missing/stale/wrong-symbol funding data — backtests
-        # carry no funding stream, so the gate self-skips there. Every
-        # block is priced by the shadow book (/shadow shows whether the
-        # gate earns or eats edge).
+        # carry no funding stream, so the gate self-skips there.
+        # FUNDING_CLOCK_GATE_MODE=cost_only does not refuse; it charges one
+        # settlement into expectancy. Both decisions are shadow-logged.
         try:
             if CONFIG.risk.funding_clock_gate_enabled:
-                from bot.risk.funding_clock import funding_clock_verdict
+                from bot.risk.funding_clock import (
+                    append_funding_clock_shadow,
+                    funding_clock_gate_mode,
+                    funding_clock_pair,
+                )
+                from bot.risk.funding_interval import book as _interval_book
                 _fc_sig = self._last_of_signal
                 _fc_rate = None
                 if (_fc_sig is not None
@@ -3171,14 +3184,44 @@ class RiskEngine:
                 _dir = (idea.direction.value
                         if hasattr(idea.direction, "value")
                         else str(idea.direction))
-                _blocked, _fc_reason = funding_clock_verdict(
+                _iv = _interval_book().get(idea.asset)
+                _stop_pct = None
+                if idea.entry_price and idea.entry_price > 0:
+                    _stop_pct = abs(idea.entry_price - idea.stop_loss) / idea.entry_price
+                _pair = funding_clock_pair(
                     _dir, _fc_rate, self._now(),
                     window_sec=CONFIG.risk.funding_clock_window_min * 60.0,
-                    extreme_rate=CONFIG.risk.funding_clock_extreme_rate)
-                if _blocked:
-                    failed.append(f"FUNDING_CLOCK: {_fc_reason}")
+                    extreme_rate=CONFIG.risk.funding_clock_extreme_rate,
+                    interval_sec=_iv.hours * 3600.0,
+                    confidence=getattr(idea, "confidence", None),
+                    reward_r=getattr(idea, "risk_reward_ratio", None),
+                    stop_distance_pct=_stop_pct)
+                _fc_mode = funding_clock_gate_mode(
+                    getattr(CONFIG.risk, "funding_clock_gate_mode", "block"))
+                if _fc_mode == "cost_only":
+                    # Not a refusal. The imminent settlement, when the block
+                    # rule would have fired, is a cost on expectancy.
+                    passed.append(f"FUNDING_CLOCK: {_pair['cost_only']['reason']}")
+                elif _pair["block"]["would_block"]:
+                    failed.append(f"FUNDING_CLOCK: {_pair['block']['reason']}")
                 else:
-                    passed.append(f"FUNDING_CLOCK: {_fc_reason}")
+                    passed.append(f"FUNDING_CLOCK: {_pair['block']['reason']}")
+                # Side by side, whichever mode applied. A log fault must not
+                # fall into the handler below and turn a block into a pass.
+                try:
+                    append_funding_clock_shadow({
+                        "symbol": idea.asset,
+                        "direction": _dir,
+                        "applied_mode": _fc_mode,
+                        "interval_hours": _iv.hours,
+                        "interval_measured": _iv.measured,
+                        "interval_source": _iv.source,
+                        "now_ts": self._now(),
+                        "block": _pair["block"],
+                        "cost_only": _pair["cost_only"],
+                    })
+                except Exception:
+                    pass
         except Exception as exc:
             # Fail-open: a broken clock must never block trading.
             passed.append(f"FUNDING_CLOCK: skipped (error: {exc})")
@@ -3499,48 +3542,89 @@ class RiskEngine:
         return min(max(half_kelly, 0.0), cap)
 
     def get_recommended_size(self, idea: TradeIdea) -> float:
-        """Compute recommended position size in USD for a given TradeIdea.
+        """Recommended margin in USD for ``idea``.
 
-        Uses trade history to derive win_rate, avg_win, avg_loss.
-        Falls back to fixed-fractional sizing if insufficient history.
+        The same reading as ``_kelly_size_usd``. With ``KELLY_ON_RISK_ENABLED``
+        off, a record shorter than 10 closes falls back to the full
+        ``max_position_pct`` margin, which is the reading this method had
+        before that flag.
         """
-        history = self._portfolio.trade_history
-        closed = [t for t in history if t.exit_price is not None]
-
         try:
             state = self._portfolio.snapshot()
             equity = state.equity_usd
         except Exception as e:
             risk_log.debug("Portfolio snapshot unavailable in get_recommended_size: %s", e)
             return 0.0
-
         if equity <= 0:
             return 0.0
+        if not CONFIG.risk.kelly_on_risk_enabled:
+            history = self._portfolio.trade_history
+            closed = [t for t in history if t.exit_price is not None]
+            if len(closed) < 10:
+                return equity * (CONFIG.risk.max_position_pct / 100.0)
+            wins = [t for t in closed if t.pnl > 0]
+            losses = [t for t in closed if t.pnl < 0]
+            win_rate = len(wins) / len(closed) if closed else 0.0
+            avg_win = (sum(t.pnl for t in wins) / len(wins)) if wins else 0.0
+            avg_loss = (abs(sum(t.pnl for t in losses)) / len(losses)) if losses else 0.0
+            _conf, _conf_why = kelly_confidence_factor(idea)
+            fraction = self.kelly_position_size(_conf, win_rate, avg_win, avg_loss)
+            return round(equity * fraction, 2)
+        stop = self._kelly_stop_distance(idea)
+        return self._kelly_size_usd(
+            idea, equity, stop_distance_pct=stop, leverage=sizing_standard_now())
 
-        # Need at least 10 trades for meaningful stats
-        if len(closed) < 10:
-            # Fallback: fixed-fractional
-            return equity * (CONFIG.risk.max_position_pct / 100.0)
+    @staticmethod
+    def _kelly_stop_distance(idea: TradeIdea) -> Optional[float]:
+        """Stop distance as a fraction of entry, or None when it cannot be read.
 
-        wins = [t for t in closed if t.pnl > 0]
-        losses = [t for t in closed if t.pnl < 0]
-        win_rate = len(wins) / len(closed) if closed else 0.0
-        avg_win = (sum(t.pnl for t in wins) / len(wins)) if wins else 0.0
-        avg_loss = (abs(sum(t.pnl for t in losses)) / len(losses)) if losses else 0.0
+        A missing price is not a zero price. A zero entry is not a distance.
+        """
+        try:
+            entry = float(idea.entry_price)
+            stop_px = float(idea.stop_loss)
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if entry <= 0 or entry != entry or stop_px != stop_px:
+            return None
+        return abs(entry - stop_px) / entry
 
-        # Same reading as `_kelly_size_usd`: two Kelly sizers scaling by two
-        # readings of "confidence" would be two answers about a manual ticket.
+    def _kelly_record(self, idea: TradeIdea, pnls: list[float]) -> tuple[float, str]:
+        """``(fraction of equity at risk, 'edge'|'floor'|'noop')``.
+
+        ``noop`` is only the flag-off reading of a short or non-positive
+        record: the caller leaves the size as-is. An unreadable record is
+        not an edge, so with the flag on it takes the floor too.
+        """
+        on_risk = bool(CONFIG.risk.kelly_on_risk_enabled)
+        floor = float(CONFIG.risk.kelly_floor_risk_pct) / 100.0
+        if len(pnls) < CONFIG.risk.kelly_min_trades:
+            return (floor, "floor") if on_risk else (0.0, "noop")
+        wins = [p for p in pnls if p > 0]
+        losses = [p for p in pnls if p < 0]
+        win_rate = len(wins) / len(pnls) if pnls else 0.0
+        avg_win = (sum(wins) / len(wins)) if wins else 0.0
+        avg_loss = (abs(sum(losses)) / len(losses)) if losses else 0.0
         _conf, _conf_why = kelly_confidence_factor(idea)
         fraction = self.kelly_position_size(_conf, win_rate, avg_win, avg_loss)
-        return round(equity * fraction, 2)
+        if fraction <= 0:
+            return (floor, "floor") if on_risk else (0.0, "noop")
+        return fraction, "edge"
 
     def _kelly_size_usd(self, idea: TradeIdea, sizing_equity: float,
-                        live_mode: bool = False) -> float:
-        """Half-Kelly size in USD from realized history for the opt-in tighten-only
-        path in evaluate(). Returns 0.0 (a NO-OP signal — caller leaves size as-is)
-        when there is not yet enough history to estimate an edge, or when the
-        estimate has no positive edge. Never used to GROW size: the caller takes
-        ``min(fixed_fractional, this)`` only when this is > 0.
+                        live_mode: bool = False, *,
+                        stop_distance_pct: Optional[float] = None,
+                        leverage: Optional[int] = None) -> float:
+        """Half-Kelly margin in USD for the tighten-only path in evaluate().
+
+        f* is the fraction of equity lost if the stop hits. With
+        ``KELLY_ON_RISK_ENABLED`` the returned margin is
+        ``equity × f* / (stop × leverage)``, the same conversion the
+        fixed-fractional base uses, so the caller can ``min`` the two.
+        A record shorter than ``kelly_min_trades``, or one with f* ≤ 0,
+        uses ``kelly_floor_risk_pct`` instead of the full budget. With the
+        flag off, that case returns 0.0 (leave the size) and a positive f*
+        is applied as ``equity × f*``, the old margin ceiling.
 
         The record is the one of the mode the evaluation runs in. Paper and
         backtest: this engine's tracker. LIVE: the realized window (every
@@ -3561,19 +3645,24 @@ class RiskEngine:
                         if t.exit_price is not None]
         except Exception as exc:
             risk_log.debug("Kelly history unavailable: %s", exc)
+            pnls = []
+        fraction, kind = self._kelly_record(idea, pnls)
+        if kind == "noop" or fraction <= 0:
             return 0.0
-        if len(pnls) < CONFIG.risk.kelly_min_trades:
-            return 0.0  # no edge estimate yet → leave fixed-fractional size intact
-        wins = [p for p in pnls if p > 0]
-        losses = [p for p in pnls if p < 0]
-        win_rate = len(wins) / len(pnls)
-        avg_win = (sum(wins) / len(wins)) if wins else 0.0
-        avg_loss = (abs(sum(losses)) / len(losses)) if losses else 0.0
-        # The MEASURED confidence, or 1.0 for an unmeasured one (a manual
-        # ticket's stamp): `bot/risk/quality_ladder.kelly_confidence_factor`.
-        _conf, _conf_why = kelly_confidence_factor(idea)
-        fraction = self.kelly_position_size(_conf, win_rate, avg_win, avg_loss)
-        return round(sizing_equity * fraction, 2)
+        if not CONFIG.risk.kelly_on_risk_enabled:
+            return round(sizing_equity * fraction, 2)
+        stop = stop_distance_pct
+        if stop is None or stop <= 0:
+            stop = self._kelly_stop_distance(idea)
+        if stop is None or stop <= 0:
+            # An unreadable stop is not a full-size grant. The risk fraction
+            # of equity is the tighter ceiling, and it is what the caller mins.
+            return round(sizing_equity * fraction, 2)
+        stop = max(float(stop), 0.001)
+        lev = leverage if leverage and leverage > 0 else sizing_standard_now()
+        if lev <= 0:
+            return round(sizing_equity * fraction, 2)
+        return round(sizing_equity * fraction / (stop * lev), 2)
 
     # ── Feature #2: Multi-Timeframe Confirmation ─────────────────────
 
