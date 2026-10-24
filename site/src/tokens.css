@@ -10,16 +10,16 @@
  * values alone".
  */
 :root {
-  --bg: #0a0b10;
-  --surface: #12141c;
-  --surface-2: #181b25;
-  --surface-3: #1f2330;
-  --line: #232838;
-  --line-2: #313950;
+  --bg: #080a10;
+  --surface: #10131c;
+  --surface-2: #171b26;
+  --surface-3: #1e2433;
+  --line: #2a3142;
+  --line-2: #3c465c;
   --gold: #3fb6ff;
   --gold-bright: #8fd9ff;
   --gold-dim: rgba(63, 182, 255, 0.13);
-  --steel: #b9c5d6;
+  --steel: #c5d0de;
   --glow: 0 0 18px rgba(63, 182, 255, 0.30);
   --up: #2fbf71;
   --up-dim: rgba(47, 191, 113, 0.13);
@@ -27,7 +27,7 @@
   --down-dim: rgba(250, 123, 128, 0.13);
   --warn: #f5a524;
   --warn-dim: rgba(245, 165, 36, 0.13);
-  --text: #edeef2;
-  --text-2: #a9b1c1;
-  --text-3: #8f99ab;
+  --text: #f3f5f8;
+  --text-2: #b7c0d0;
+  --text-3: #96a0b3;
 }
