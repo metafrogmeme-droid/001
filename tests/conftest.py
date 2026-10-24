@@ -1139,7 +1139,21 @@ def _refuse_a_background_flusher() -> None:
         raise RuntimeError("a flusher thread started anyway")
 
 
+def _register_module_timings(config) -> None:
+    """Record per-file durations only when the gate asked for the file.
+
+    An ordinary pytest does not set the variable, and this function then
+    does nothing. The gate's shadow run and its serial run both set it.
+    """
+    path = os.environ.get("RUNECLAW_MODULE_TIMINGS", "").strip()
+    if not path:
+        return
+    from tests.module_timings import ModuleTimings
+    config.pluginmanager.register(ModuleTimings(path), "runeclaw_module_timings")
+
+
 def pytest_configure(config):
+    _register_module_timings(config)
     _refuse_a_live_store()
     try:
         _refuse_a_background_flusher()
