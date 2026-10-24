@@ -2222,7 +2222,8 @@ class RiskEngine:
         # the streak, exactly like /resume) once that many hours have elapsed
         # since the last loss. Only the STREAK cause — daily-loss/drawdown/
         # manual keep their own paths, so account-drain protection is intact.
-        _sbh = CONFIG.risk.streak_breaker_autoreset_hours
+        from bot.core.testnet_book import effective_streak_hours
+        _sbh = effective_streak_hours(CONFIG.risk.streak_breaker_autoreset_hours)
         if (_sbh > 0 and self._circuit_open
                 and self._circuit_trip_cause == "streak"
                 and self._last_loss_time is not None
@@ -2830,6 +2831,10 @@ class RiskEngine:
             failed.append(f"STALE_DATA: evaluation error ({type(exc).__name__})")
 
         # RC-AUD-008: cooldown-after-loss also binds for manual trades (anti-revenge).
+        # The testnet trial (internal review 2026-10-24) changes the wait by
+        # the symbol being entered. Off that profile the wait is the configured
+        # field and the sentence is the one this check has always written.
+        _cooldown_decision = None
         try:
             # 13. Cooldown after loss. Under backtest replay both the loss
             # stamp (via _now/set_sim_time) and this comparison use SIMULATED
@@ -2838,6 +2843,11 @@ class RiskEngine:
             # Two stamps, one wait, and the sentence names which: a loss and
             # a close nobody could price are different facts, and "after last
             # loss" over an unpriced close would be a loss nobody measured.
+            from bot.core.testnet_book import ARM_OFF, cooldown_for, log_cooldown_decision
+            _cooldown_decision = cooldown_for(
+                getattr(idea, "asset", None), CONFIG.risk.cooldown_after_loss_seconds)
+            log_cooldown_decision(_cooldown_decision, where="risk_gate")
+            _tag = "" if _cooldown_decision.arm == ARM_OFF else f" arm={_cooldown_decision.arm}"
             _stamps = [(t, why) for t, why in (
                 (self._last_loss_time, "last loss"),
                 (self._last_unpriced_close_time, "a close that could not be priced"),
@@ -2846,13 +2856,14 @@ class RiskEngine:
                 _at, _why = max(_stamps, key=lambda s: s[0])
                 _now_epoch = as_of.timestamp() if as_of is not None else self._now()
                 elapsed = _now_epoch - _at
-                if elapsed < CONFIG.risk.cooldown_after_loss_seconds:
-                    remaining = CONFIG.risk.cooldown_after_loss_seconds - elapsed
-                    failed.append(f"COOLDOWN: {remaining:.0f}s remaining after {_why}")
+                if elapsed < _cooldown_decision.seconds:
+                    remaining = _cooldown_decision.seconds - elapsed
+                    failed.append(
+                        f"COOLDOWN: {remaining:.0f}s remaining after {_why}{_tag}")
                 else:
-                    passed.append("COOLDOWN: cooldown period elapsed")
+                    passed.append(f"COOLDOWN: cooldown period elapsed{_tag}")
             else:
-                passed.append("COOLDOWN: no recent losses")
+                passed.append(f"COOLDOWN: no recent losses{_tag}")
         except Exception as exc:
             failed.append(f"COOLDOWN: evaluation error ({type(exc).__name__})")
 
@@ -3450,6 +3461,12 @@ class RiskEngine:
         _audit_data = check.model_dump(mode="json")
         _audit_data["leverage"] = _lev
         _audit_data["approx_notional_usd"] = round(position_usd * _lev, 2)
+        if _cooldown_decision is not None:
+            from bot.core.testnet_book import ARM_OFF, primary_book
+            if _cooldown_decision.arm != ARM_OFF:
+                _audit_data["cooldown_arm"] = _cooldown_decision.arm
+                _audit_data["cooldown_sec"] = _cooldown_decision.seconds
+                _audit_data["primary_book"] = primary_book()
         audit(risk_log, f"Risk {verdict.value} for {idea.asset} [{len(passed)}P/{len(failed)}F]",
               action="risk_check", result=verdict.value,
               data=_audit_data)

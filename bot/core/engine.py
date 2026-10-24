@@ -8528,9 +8528,15 @@ class RuneClawEngine:
         # than off the risk engine that ran the recheck: that engine gates
         # live entries, and a practice loss must never arm it. The idea stays
         # pending, as it does behind every other refusal that is about timing.
+        from bot.core.testnet_book import cooldown_for, log_cooldown_decision
+        # The trial's wait is this entry's symbol. The engine's scan pause
+        # stays on the configured seconds, so one treatment loss does not
+        # stop the control arm.
+        _cd = cooldown_for(getattr(idea, "asset", None),
+                           CONFIG.risk.cooldown_after_loss_seconds)
+        log_cooldown_decision(_cd, where="practice_entry")
         _wait = practice_cooldown_reason(
-            portfolio.trade_history, datetime.now(UTC),
-            CONFIG.risk.cooldown_after_loss_seconds)
+            portfolio.trade_history, datetime.now(UTC), _cd.seconds)
         if _wait:
             return f"\u23f8 [PAPER] {_wait}"
         size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id,

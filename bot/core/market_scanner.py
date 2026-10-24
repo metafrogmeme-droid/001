@@ -380,6 +380,8 @@ class MarketScanner:
         Returns the top N signals sorted by momentum, with asset_category set.
         """
         from bot.config import RUNTIME
+        from bot.core.testnet_book import note_primary_book
+        note_primary_book()
         universe = RUNTIME.asset_universe
 
         # Futures-only universes

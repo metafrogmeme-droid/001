@@ -4231,7 +4231,8 @@ class PlaybookSkill(BaseSkill):
         lines.append(f"- Max Drawdown: <code>{CONFIG.risk.max_drawdown_pct:.0f}%</code>")
         lines.append(f"- Max Positions: <code>{CONFIG.risk.max_open_positions}</code>")
         lines.append(f"- Max Exposure: <code>{CONFIG.risk.max_portfolio_exposure_pct:.0f}%</code>")
-        lines.append(f"- Cooldown: <code>{CONFIG.risk.cooldown_after_loss_seconds}s</code>")
+        from bot.core.testnet_book import cooldown_card_line
+        lines.append(cooldown_card_line(CONFIG.risk.cooldown_after_loss_seconds))
         lines.append(f"- Circuit Breaker: {gate_words(gate)}")
         lines.append("")
 

@@ -285,8 +285,20 @@ def board_vol_rotation(cfg: dict, rows: dict[str, list]) -> dict:
 
 
 def board_daily_trend(cfg: dict, rows: dict[str, list]) -> dict:
-    """Each market's trend score, vol and the weight the sleeve would hold."""
+    """Each market's trend score, vol and the weight the sleeve would hold.
+
+    On the testnet profile whose primary book is B1v, the numbers are B1v's
+    (60-day vol). The sleeve still places nothing. Off that profile the
+    preset is read as it is written.
+    """
     from bot.core.daily_trend import read_book
+    from bot.core.testnet_book import (
+        B1V_BOOK,
+        b1v_parameters,
+        overlay_daily_trend,
+        primary_book,
+    )
+    cfg = overlay_daily_trend(cfg)
     book = read_book(rows, cfg)
     if book["params"] is None:
         return {"rows": [], "verdict": "Its numbers could not be read, so no scan runs it."}
@@ -308,7 +320,13 @@ def board_daily_trend(cfg: dict, rows: dict[str, list]) -> dict:
         verdict = "No market has a positive trend score, so it would hold nothing."
     else:
         verdict = "No market read, so it names no book."
-    return {"rows": out, "verdict": verdict}
+    body: dict[str, Any] = {"rows": out, "verdict": verdict}
+    if primary_book() == B1V_BOOK:
+        spec = b1v_parameters()
+        body["book"] = B1V_BOOK
+        body["vol_window"] = spec.vol_window
+        body["leverage_cap"] = spec.leverage_cap
+    return body
 
 
 def board_limit_entry(cfg: dict, rows: dict[str, list]) -> dict:

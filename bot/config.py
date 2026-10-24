@@ -3226,3 +3226,9 @@ class RuntimeState:
 
 
 RUNTIME = RuntimeState()
+
+# The testnet book (internal review 2026-10-24) is not a field here. These
+# fields stay the live values. bot/core/testnet_book.py is the reading that
+# selects B1v and the hourly overrides on a venue testnet, or on a paper
+# process that sets TESTNET_BOOK_PROFILE. A live mainnet process does not
+# consult it. docs/TESTNET_SETTINGS.md says how to revert.
