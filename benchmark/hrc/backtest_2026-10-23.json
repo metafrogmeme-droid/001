@@ -1,0 +1,230 @@
+{
+  "source": "https://hypebasis.io/native-reserves/data.csv",
+  "fetched": "2026-10-23",
+  "asset": "USDC",
+  "captures": 168,
+  "tape_hours": 163,
+  "readable_hours": 168,
+  "first": "2026-10-16T21:17:42Z",
+  "last": "2026-10-23T20:17:29Z",
+  "formula": "0.05 + 4.75 * max(0, u - 0.8)",
+  "unit": "fraction of notional",
+  "payouts": {
+    "spread_ceiling_0.40": {
+      "0.04": {
+        "accrued_hours": 142,
+        "paying_hours": 142,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0.000283277273811421",
+        "p50": "0.000001141552511416",
+        "p95": "0.00000594787647673",
+        "frozen_at": null
+      },
+      "0.05": {
+        "accrued_hours": 142,
+        "paying_hours": 47,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0.000121176817190416",
+        "p50": "0",
+        "p95": "0.000004806323965314",
+        "frozen_at": null
+      },
+      "0.10": {
+        "accrued_hours": 142,
+        "paying_hours": 1,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0.000000193553052557",
+        "p50": "0",
+        "p95": "0",
+        "frozen_at": null
+      },
+      "0.20": {
+        "accrued_hours": 142,
+        "paying_hours": 0,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0",
+        "p50": "0",
+        "p95": "0",
+        "frozen_at": null
+      },
+      "0.40": {
+        "accrued_hours": 142,
+        "paying_hours": 0,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0",
+        "p50": "0",
+        "p95": "0",
+        "frozen_at": null
+      }
+    },
+    "cap_ceiling_1": {
+      "0.04": {
+        "accrued_hours": 142,
+        "paying_hours": 142,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0.000283277273811421",
+        "p50": "0.000001141552511416",
+        "p95": "0.00000594787647673",
+        "frozen_at": null
+      },
+      "0.05": {
+        "accrued_hours": 142,
+        "paying_hours": 47,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0.000121176817190416",
+        "p50": "0",
+        "p95": "0.000004806323965314",
+        "frozen_at": null
+      },
+      "0.10": {
+        "accrued_hours": 142,
+        "paying_hours": 1,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0.000000193553052557",
+        "p50": "0",
+        "p95": "0",
+        "frozen_at": null
+      },
+      "0.20": {
+        "accrued_hours": 142,
+        "paying_hours": 0,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0",
+        "p50": "0",
+        "p95": "0",
+        "frozen_at": null
+      },
+      "0.40": {
+        "accrued_hours": 142,
+        "paying_hours": 0,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0",
+        "p50": "0",
+        "p95": "0",
+        "frozen_at": null
+      }
+    },
+    "digital_d_0.01": {
+      "0.04": {
+        "accrued_hours": 142,
+        "paying_hours": 142,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "1.42",
+        "p50": "0.01",
+        "p95": "0.01",
+        "frozen_at": null
+      },
+      "0.05": {
+        "accrued_hours": 142,
+        "paying_hours": 47,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0.47",
+        "p50": "0",
+        "p95": "0.01",
+        "frozen_at": null
+      }
+    }
+  },
+  "manipulation": {
+    "definition": "Tokens of supply withdrawn so the borrow rate reaches the strike, held for 6 hours, divided by a scenario open-interest cap of 1000000 tokens. A withdrawal of 0 means utilization is already there. An unreachable strike has no withdrawal, which is not zero.",
+    "as_of": "2026-10-23T20:17:29Z",
+    "supplied_tokens": "560340325.9164869",
+    "borrowed_tokens": "427858264.646081",
+    "utilization": "0.76356857584054905",
+    "strikes": [
+      {
+        "strike": "0.04",
+        "reachable": true,
+        "target_utilization": "0.8",
+        "withdrawal_tokens": "0",
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": "0",
+        "hours": 6
+      },
+      {
+        "strike": "0.05",
+        "reachable": true,
+        "target_utilization": "0.8",
+        "withdrawal_tokens": "0",
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": "0",
+        "hours": 6
+      },
+      {
+        "strike": "0.10",
+        "reachable": true,
+        "target_utilization": "0.810526315789473684",
+        "withdrawal_tokens": "32463246.158335016883116883",
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": "32.463246158335016883",
+        "hours": 6
+      },
+      {
+        "strike": "0.20",
+        "reachable": true,
+        "target_utilization": "0.831578947368421053",
+        "withdrawal_tokens": "45827222.861073039240506329",
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": "45.827222861073039241",
+        "hours": 6
+      },
+      {
+        "strike": "0.40",
+        "reachable": true,
+        "target_utilization": "0.873684210526315789",
+        "withdrawal_tokens": "70623035.056514671084337349",
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": "70.623035056514671084",
+        "hours": 6
+      },
+      {
+        "strike": "0.525",
+        "reachable": true,
+        "target_utilization": "0.9",
+        "withdrawal_tokens": "84942254.087508011111111111",
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": "84.942254087508011111",
+        "hours": 6
+      },
+      {
+        "strike": "1",
+        "reachable": true,
+        "target_utilization": "1",
+        "withdrawal_tokens": "132482061.2704059",
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": "132.4820612704059",
+        "hours": 6
+      },
+      {
+        "strike": "1.01",
+        "reachable": false,
+        "target_utilization": null,
+        "withdrawal_tokens": null,
+        "oi_cap_tokens": "1000000",
+        "withdrawal_over_oi_cap": null,
+        "hours": 6
+      }
+    ]
+  },
+  "collector": {
+    "readable": true,
+    "observed": "2026-10-23",
+    "network": "mainnet",
+    "synthetic": false,
+    "formula_rate": "0.05",
+    "utilization": "0.777355393092039282",
+    "note": "One mainnet precompile read. It is not an hourly path, so it is not in the payout distribution."
+  }
+}
