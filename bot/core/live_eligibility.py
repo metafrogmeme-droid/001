@@ -2,7 +2,7 @@
 
 Autonomous live orders (the tick's auto-confirm and the ``/forcescan`` loop,
 both of which confirm under ``user_id="auto"``) used to need one thing: the
-``AUTO_CONFIRM_LIVE_ENABLED`` flag, which ships ON in the code. A flag can be
+``AUTO_CONFIRM_LIVE_ENABLED`` flag, which defaults off in the code. A flag can be
 flipped back by mistake, and the ``/forcescan`` loop never read the tick's
 suppression at all; it was stopped only at the compliance Lock-5 mint, by the
 same flag. So nothing in code required evidence that the strategy works before
