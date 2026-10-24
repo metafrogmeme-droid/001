@@ -98,9 +98,11 @@ Testnets only. The signer refuses a mainnet chain id before it signs.
 | Robinhood Chain | testnet (46630) | Morpho adapter |
 
 Tokenized-stock lending for this bridge is on Ethereum (Morpho and
-Euler) and on Robinhood Chain (Morpho). Base and Arbitrum are not
-targets. No market address is recorded in the repo. Robinhood Chain
-mainnet (4663) and Ethereum mainnet are on the refuse list.
+Euler) and on Robinhood Chain (Morpho, launched 22 Oct 2026). The
+largest of those books is Flowdesk's wSPYx/AUSD market on Morpho.
+Base and Arbitrum are not targets. No market address is recorded in
+the repo. Robinhood Chain mainnet (4663) and Ethereum mainnet are on
+the refuse list.
 
 Euler's `OP_LIQUIDATE` is bit 11 (`1 << 11`). Bit 12 is the flash-loan
 operation on the current vault kit.
@@ -131,4 +133,5 @@ None of these are live quotes.
 - The published-print replay uses the published print and a constructed book, not an archive of HIP-3 fills.
 - Post-quantum schemes are not implemented. A commitment is stored so a later verifier can be bound to a key that was named in advance. Collusion of 3 signers, and a quantum break before that rotation, remain residual.
 - There is no production signer ceremony.
-- The Solana program, when it lands, is host-tested. An SBF artifact is a separate question.
+- The Solana consumer in `contracts/fvb/solana` is host-tested. It accepts the devnet cluster only and checks a 3-of-5 ed25519 quorum over the same field encoding the Python signer uses. An SBF artifact is not produced: the crate is its own workspace so a host `cargo test` cannot rewrite the staking program's lockfile, and dalek is not cross-compiled here.
+- The EVM consumers in `contracts/fvb` are compiled and executed in-process. The constructor refuses Ethereum mainnet, Base, Arbitrum One, HyperEVM mainnet and Robinhood Chain mainnet. There is no deploy script and no market address. `OP_LIQUIDATE` on the Euler probe is bit 11.

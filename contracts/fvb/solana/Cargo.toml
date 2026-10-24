@@ -1,0 +1,12 @@
+[workspace]
+
+[package]
+name = "fvb_solana"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Host-tested devnet consumer for the fair-value bridge. No SBF build."
+
+[dependencies]
+ed25519-dalek = "=2.1.1"
+tiny-keccak = { version = "=2.0.2", features = ["keccak"] }

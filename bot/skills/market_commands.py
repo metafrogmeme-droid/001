@@ -72,6 +72,29 @@ class MarketCommands:
 
         def _get_tg_id(self, update: Update) -> str: ...
 
+    @guard("fvb")
+    async def _cmd_fvb(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/fvb — session-aware risk price for one tokenized equity.
+
+        The card is the board the publisher wrote. This command does not
+        recompute it. The door is flag_on_for. While the flag is off a
+        non-admin gets the same "Not found." a missing command gets; an
+        admin gets the preview banner. A missing board says it is not published.
+        """
+        from bot.admin_preview import flag_on_for, is_preview
+        from bot.fvb.board import load_board
+        from bot.fvb.render import card_text
+        from bot.utils.paths import env_state_path
+
+        if not flag_on_for(update, "FVB_ENABLED"):
+            await self._send(update, "Not found.")
+            return
+        path = env_state_path("FVB_BOARD_PATH", "data/fvb_board.json")
+        await self._send(
+            update,
+            card_text(load_board(path), preview=is_preview(update, "FVB_ENABLED")),
+        )
+
     @guard("cgc")
     async def _cmd_cgc(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/cgc — conservation-brake windows on testnet.
