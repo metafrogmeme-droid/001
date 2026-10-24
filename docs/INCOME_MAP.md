@@ -2683,3 +2683,15 @@ That is a finding about the map rather than about the product, and it is the
 reason this document lists the unmapped capabilities above instead of
 forcing each into the nearest leaf. Forcing them would have made the coverage
 look better and told you less.
+
+## Exit-adjusted NAV
+
+A vault's exit haircut, in basis points of account value, from a resting
+book. The filled part is the SaR walk
+(`app/lib/sar/metrics.js::walkSide`, called from
+`app/lib/xnav/depth.js::exitCost`). The same haircut is the weight on an
+RXB look-through node (`bot/xnav/graph.py::vault_exit_node`, which calls
+`bot/rxb/metrics.py::solve_graph`). The quote route is
+`app/routes/xnav.js::get('/quote')`. The ranking route is
+`app/routes/xnav.js::get('/rank')`. Admin only, behind `XNAV_ENABLED`,
+off by default. Basis points only. The narrative is `docs/xnav/README.md`.

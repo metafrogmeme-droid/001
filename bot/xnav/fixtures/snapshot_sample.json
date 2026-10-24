@@ -1,0 +1,190 @@
+{
+  "as_of": "2026-10-24T16:49:00Z",
+  "source": "Resting-book snapshot, one observation. Dollar notionals are not stored.",
+  "caveat": "Resting book only, no replenishment. Bucket rounding can bias the cost up by at most one bucket. An unfilled remainder was priced at the last visible level and capped at that remainder.",
+  "vaults": [
+    {
+      "name": "drkmttr",
+      "address": "0xc179e03922afe8fa9533d3f896338b9fb87ce0c8",
+      "haircut_bps": 4560,
+      "unfilled_bps": 11024,
+      "stress_bps": null,
+      "positions": [
+        {
+          "coin": "XMR",
+          "side": "long",
+          "cost_bps": 4256
+        },
+        {
+          "coin": "VVV",
+          "side": "long",
+          "cost_bps": 243
+        },
+        {
+          "coin": "HYPE",
+          "side": "long",
+          "cost_bps": 53
+        },
+        {
+          "coin": "ETH",
+          "side": "long",
+          "cost_bps": 4
+        }
+      ]
+    },
+    {
+      "name": "Systemic L/S Grids",
+      "address": "0x07fd993f0fa3a185f7207adccd29f7a87404689d",
+      "haircut_bps": 2015,
+      "unfilled_bps": 2161,
+      "stress_bps": null,
+      "positions": [
+        {
+          "coin": "IO",
+          "side": "short",
+          "cost_bps": 280
+        },
+        {
+          "coin": "STBL",
+          "side": "short",
+          "cost_bps": 211
+        },
+        {
+          "coin": "POL",
+          "side": "long",
+          "cost_bps": 184
+        },
+        {
+          "coin": "ATOM",
+          "side": "short",
+          "cost_bps": 179
+        }
+      ]
+    },
+    {
+      "name": "Systemic HyperGrowth",
+      "address": "0xd6e56265890b76413d1d527eb9b75e334c0c5b42",
+      "haircut_bps": 851,
+      "unfilled_bps": 328,
+      "stress_bps": null,
+      "positions": [
+        {
+          "coin": "MERL",
+          "side": "short",
+          "cost_bps": 290
+        },
+        {
+          "coin": "LAYER",
+          "side": "short",
+          "cost_bps": 170
+        },
+        {
+          "coin": "ZETA",
+          "side": "short",
+          "cost_bps": 127
+        },
+        {
+          "coin": "AVNT",
+          "side": "short",
+          "cost_bps": 85
+        }
+      ]
+    },
+    {
+      "name": "Long LINK Short XRP",
+      "address": "0x73ce82fb75868af2a687e9889fcf058dd1cf8ce9",
+      "haircut_bps": 692,
+      "unfilled_bps": 0,
+      "stress_bps": null,
+      "positions": [
+        {
+          "coin": "LINK",
+          "side": "long",
+          "cost_bps": 691
+        },
+        {
+          "coin": "NEAR",
+          "side": "long",
+          "cost_bps": 1
+        },
+        {
+          "coin": "XRP",
+          "side": "short",
+          "cost_bps": 0
+        }
+      ]
+    },
+    {
+      "name": "BredoStrategy",
+      "address": "0x654016a8c9fcf0c4cb7ed6078aba21f7f399f7b7",
+      "haircut_bps": 168,
+      "unfilled_bps": 0,
+      "stress_bps": null,
+      "positions": [
+        {
+          "coin": "SKY",
+          "side": "long",
+          "cost_bps": 32
+        },
+        {
+          "coin": "AERO",
+          "side": "long",
+          "cost_bps": 24
+        },
+        {
+          "coin": "LINK",
+          "side": "long",
+          "cost_bps": 21
+        },
+        {
+          "coin": "MORPHO",
+          "side": "long",
+          "cost_bps": 18
+        }
+      ]
+    },
+    {
+      "name": "Hyperrr",
+      "address": "0xca230e816bdb34a46960c2f978a30a563d1ae9e0",
+      "haircut_bps": 108,
+      "unfilled_bps": 0,
+      "stress_bps": null,
+      "positions": [
+        {
+          "coin": "HYPE",
+          "side": "long",
+          "cost_bps": 108
+        }
+      ]
+    },
+    {
+      "name": "Growi HF",
+      "address": "0x1e37a337ed460039d1b15bd3bc489de789768d5e",
+      "haircut_bps": 2,
+      "unfilled_bps": 0,
+      "stress_bps": null,
+      "positions": [
+        {
+          "coin": "UNI",
+          "side": "long",
+          "cost_bps": 0
+        },
+        {
+          "coin": "INJ",
+          "side": "long",
+          "cost_bps": 0
+        },
+        {
+          "coin": "DOT",
+          "side": "long",
+          "cost_bps": 0
+        },
+        {
+          "coin": "BCH",
+          "side": "long",
+          "cost_bps": 0
+        }
+      ]
+    }
+  ]
+}

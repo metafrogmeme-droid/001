@@ -31,6 +31,7 @@
     "/cover-adl": "ADL re-entry cover is not offered. COVER_ADL_ENABLED is off for the public and the route answers 404; an admin can preview. A landing link would advertise a product waiting on an AFM licence review.",
     "/cover-stopgap": "Parametric stop-gap cover is not offered. COVER_STOPGAP_ENABLED is off for the public and the route answers 404; an admin can preview. A landing link would advertise a product waiting on an AFM licence review.",
     "/tools": "behind SAR_ORACLE_ENABLED flag, off. It answers 404. The catalog is the operator's, and the landing page does not link it.",
-    "/t2c": "Admin-only duration signal. It answers 404 for everyone who is not the operator, including while the flag is on, so the landing page has no public door to it."
+    "/t2c": "Admin-only duration signal. It answers 404 for everyone who is not the operator, including while the flag is on, so the landing page has no public door to it.",
+    "/xnav": "Exit-adjusted NAV. Admin-only, and XNAV_ENABLED is off by default. A non-operator gets 404 even when the flag is on, so the landing page does not advertise it."
   }
 }
