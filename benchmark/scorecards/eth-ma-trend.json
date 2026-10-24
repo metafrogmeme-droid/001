@@ -5,7 +5,7 @@
     "reset_bars": 24,
     "trips": 0
   },
-  "code_sha": "5c46595e3222b6b32320b412c8cb1ed4e0991376",
+  "code_sha": "1317fe42c19319e80014cbfc1fea2f52674b717a",
   "dataset": "majors_1h",
   "dataset_hash": "ccc3f70b7ed7cd7dae1840f63b3efcd46916caca28a8518841b4ab022a129f75",
   "engine": "runeclaw.backtest",
@@ -54,7 +54,7 @@
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce. Direction is the closed-bar 50/200 simple moving average, and the position reverses only when that relationship changes. The average is read on closed 4h bars resampled from 1h bars; a trailing unfinished 4h group is dropped. The fill is that closed bar's close. The house risk gate does not size or exit this book. Each row's confidence is the signal's stated 0.7, not a measured probability.",
   "preset": "eth ma trend",
-  "recorded_at": "2026-10-12T06:53:17+00:00",
+  "recorded_at": "2026-10-24T18:35:03+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",

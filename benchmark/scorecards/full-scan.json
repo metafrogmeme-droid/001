@@ -3,9 +3,9 @@
   "bars": 1500,
   "breaker": {
     "reset_bars": 24,
-    "trips": 2
+    "trips": 1
   },
-  "code_sha": "5c46595e3222b6b32320b412c8cb1ed4e0991376",
+  "code_sha": "1317fe42c19319e80014cbfc1fea2f52674b717a",
   "dataset": "majors_1h",
   "dataset_hash": "ccc3f70b7ed7cd7dae1840f63b3efcd46916caca28a8518841b4ab022a129f75",
   "engine": "runeclaw.backtest",
@@ -21,28 +21,28 @@
   },
   "honest": true,
   "measured": {
-    "calmar_ratio": -4.28,
-    "max_drawdown_pct": 8.71,
-    "profit_factor": 0.48,
-    "sharpe_ratio": -4.02,
-    "sortino_ratio": -2.43,
-    "total_return_pct": -6.37,
-    "total_trades": 25,
-    "win_rate": 0.32
+    "calmar_ratio": -4.18,
+    "max_drawdown_pct": 5.02,
+    "profit_factor": 0.55,
+    "sharpe_ratio": -4.44,
+    "sortino_ratio": -2.57,
+    "total_return_pct": -3.58,
+    "total_trades": 32,
+    "win_rate": 0.4062
   },
   "metrics": {
-    "calmar_ratio": -4.28,
-    "max_drawdown_pct": 8.71,
-    "profit_factor": 0.48,
-    "sharpe_ratio": -4.02,
-    "sortino_ratio": -2.43,
-    "total_return_pct": -6.37,
-    "total_trades": 25,
-    "win_rate": 0.32
+    "calmar_ratio": -4.18,
+    "max_drawdown_pct": 5.02,
+    "profit_factor": 0.55,
+    "sharpe_ratio": -4.44,
+    "sortino_ratio": -2.57,
+    "total_return_pct": -3.58,
+    "total_trades": 32,
+    "win_rate": 0.4062
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "full scan",
-  "recorded_at": "2026-10-12T06:53:17+00:00",
+  "recorded_at": "2026-10-24T18:34:54+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
@@ -94,7 +94,7 @@
       "volume_spike_ratio": 0.456
     },
     {
-      "confidence": 0.89,
+      "confidence": 0.88,
       "direction": "LONG",
       "exit_reason": "SL",
       "fills": 1,
@@ -105,7 +105,7 @@
       "volume_spike_ratio": 1.173
     },
     {
-      "confidence": 0.63,
+      "confidence": 0.62,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -127,7 +127,7 @@
       "volume_spike_ratio": 0.415
     },
     {
-      "confidence": 0.7,
+      "confidence": 0.69,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -160,18 +160,18 @@
       "volume_spike_ratio": 0.22
     },
     {
-      "confidence": 0.69,
+      "confidence": 0.62,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
-      "pnl_pct": 0.1,
+      "pnl_pct": 0.34,
       "regime": "TREND_DOWN",
       "setup": "swing",
-      "signal_type": "momentum_confluence",
-      "volume_spike_ratio": 0.867
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 1.116
     },
     {
-      "confidence": 0.86,
+      "confidence": 0.91,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -186,14 +186,14 @@
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
-      "pnl_pct": 1.72,
+      "pnl_pct": 1.71,
       "regime": "TREND_DOWN",
       "setup": "swing",
       "signal_type": "regime_trend",
       "volume_spike_ratio": 0.563
     },
     {
-      "confidence": 0.65,
+      "confidence": 0.66,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -204,7 +204,40 @@
       "volume_spike_ratio": 0.576
     },
     {
-      "confidence": 0.6,
+      "confidence": 0.8,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "fills": 1,
+      "pnl_pct": 3.76,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 0.603
+    },
+    {
+      "confidence": 0.69,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "fills": 1,
+      "pnl_pct": -0.1,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 1.072
+    },
+    {
+      "confidence": 0.75,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "fills": 1,
+      "pnl_pct": 1.36,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 0.813
+    },
+    {
+      "confidence": 0.61,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -215,7 +248,18 @@
       "volume_spike_ratio": 0.499
     },
     {
-      "confidence": 0.81,
+      "confidence": 0.65,
+      "direction": "SHORT",
+      "exit_reason": "TIME_STOP",
+      "fills": 1,
+      "pnl_pct": -0.51,
+      "regime": "EXPANSION",
+      "setup": "scalp",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 1.302
+    },
+    {
+      "confidence": 0.85,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -226,7 +270,18 @@
       "volume_spike_ratio": 1.531
     },
     {
-      "confidence": 0.72,
+      "confidence": 0.7,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "fills": 1,
+      "pnl_pct": 1.12,
+      "regime": "EXPANSION",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 0.417
+    },
+    {
+      "confidence": 0.7,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -237,7 +292,7 @@
       "volume_spike_ratio": 0.578
     },
     {
-      "confidence": 0.67,
+      "confidence": 0.68,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -248,7 +303,18 @@
       "volume_spike_ratio": 0.436
     },
     {
-      "confidence": 0.7,
+      "confidence": 0.6,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "fills": 1,
+      "pnl_pct": -2.89,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 0.46
+    },
+    {
+      "confidence": 0.69,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -270,7 +336,18 @@
       "volume_spike_ratio": 1.313
     },
     {
-      "confidence": 0.67,
+      "confidence": 0.63,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "fills": 1,
+      "pnl_pct": 1.61,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 1.229
+    },
+    {
+      "confidence": 0.72,
       "direction": "SHORT",
       "exit_reason": "TRAILING_SL",
       "fills": 2,
@@ -281,7 +358,7 @@
       "volume_spike_ratio": 0.757
     },
     {
-      "confidence": 0.61,
+      "confidence": 0.63,
       "direction": "SHORT",
       "exit_reason": "TRAILING_SL",
       "fills": 2,
@@ -292,7 +369,7 @@
       "volume_spike_ratio": 1.298
     },
     {
-      "confidence": 0.69,
+      "confidence": 0.66,
       "direction": "SHORT",
       "exit_reason": "TIME_STOP",
       "fills": 1,
@@ -303,7 +380,7 @@
       "volume_spike_ratio": 0.741
     },
     {
-      "confidence": 0.7,
+      "confidence": 0.68,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
@@ -314,7 +391,7 @@
       "volume_spike_ratio": 2.113
     },
     {
-      "confidence": 0.71,
+      "confidence": 0.7,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
