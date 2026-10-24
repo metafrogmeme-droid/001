@@ -21055,20 +21055,30 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 284 test files already do — and `app/test/helpers/code_only.js`
-is the same thing for JS, which was already in the tree when that guard was
-written.
+copying it. How many files already do is measured by
+`tests/source_scan_census.py`, not written here. The walk reads `tests/` and
+`scripts/`, skips a file named `source_scan.py`, and counts an importer as a
+file whose AST has an `ImportFrom` whose module name ends with `source_scan`.
+A private copy is a function named `code_only`, `_code_only`, `strip_comments`
+or `_strip_comments` whose body contains `tokenize.generate_tokens` or
+`tokenize.tokenize`. Both spellings count, because a walk that knew only the
+first answered 14 when the tree held 18. The third count is a file that
+imports the module and still defines such a function. Those three numbers are
+printed by `scripts/ci_test_gate.py` as `[source-scan]` and are not restated
+here, so adding a test file does not edit this log.
+`app/test/helpers/code_only.js` is the same thing for JS, which was already
+in the tree when that guard was written.
 
-**The backlog is 18, and this paragraph used to name one of them.** It said
+**The backlog used to be named as one file.** The paragraph said
 `tests/test_preflight_matches_ci.py` "still carries a private copy", which a
-reader takes as *we are down to one* and stops looking. Driven by AST, 18 files
-define their own `tokenize`-based stripper instead of importing the shared one,
-and **8 of those already have the module open** — they import `handler_sources`
-from `source_scan` in the same file. Naming one where there are eighteen is
+reader takes as *we are down to one* and stops looking. On the day the walk
+was first driven the tree held 18 such functions, and 8 of the files that
+held one already had the module open — they import `handler_sources` from
+`source_scan` in the same file. Naming one where the walk found eighteen is
 coverage UNDERSTATED, the inverse of the failure the rest of this document is
-about, and it is the *a number in prose is the part that rots first* shape
-either way: both counts are DERIVED by `tests/test_claude_md_accuracy.py` now
-rather than restated here.
+about. Eighteen and eight are that day's reading, kept as the basis; the walk
+above is what a later tree is measured with, and it is the *a number in prose
+is the part that rots first* shape either way.
 
 **Consolidating them is not the instruction, because today it is not a
 defect.** Both false-pass directions were measured across every copy that could
@@ -21878,10 +21888,12 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **512 of 1379** reach for source text through `source_scan`, `code_only`
-or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 512 is a FLOOR and the honest shape is
-*about half the suite*. (It read 398 for one slice, because the first rule
+How many `tests/test_*.py` files reach for source text is printed on that
+same `[source-scan]` line, not written here. A file reaches when its AST
+imports `source_scan`, or calls `code_only`, `_code_only` or `getsource` —
+an import or a call, never a mention in a docstring. A hand-rolled
+`read_text()` on a module path is a source scan that rule does not see, so
+the count is a FLOOR and the honest shape is *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
 slice added an eighth and moved the number. It is an AST usage test now:
