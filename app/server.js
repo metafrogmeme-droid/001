@@ -362,6 +362,9 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// SaR Oracle and /tools stay 404 until SAR_ORACLE_ENABLED is set. Ahead
+// of express.static so public/tools.html is not served while the flag is off.
+app.use(require('./lib/sar_oracle_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -534,6 +537,9 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
+// SaR Oracle readings. Public ratios while the flag is on. Dollar amounts
+// stay on the operator route inside the router. 404 while the flag is off.
+app.use('/api/sar-oracle', require('./routes/sar_oracle'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -616,6 +622,9 @@ app.get('/guard', (req, res) => {
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
+// /tools — the catalog. 404 until SAR_ORACLE_ENABLED. While the flag is
+// on, the HTML is the operator's. The card for SaR stays "Coming soon".
+app.get('/tools', (req, res) => { require('./lib/sar_oracle_flag').sendPage(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.
@@ -1202,4 +1211,14 @@ async function migrateWithRetry() {
   // recorded anchor that no longer checks out, a Bitcoin proof stuck or never
   // sent, a day short of its quorum. Served on /diagz.
   require('./lib/anchor_watch').startAnchorWatch();
+
+  // SaR Oracle poll. The module does not start on require. The flag is
+  // read here, once, the same way the page reads it per request.
+  if (require('./lib/sar_oracle_flag').flag_on()) {
+    try {
+      require('./lib/sar/indexer').start();
+    } catch (err) {
+      console.error('SaR Oracle start:', err && err.name ? err.name : 'Error');
+    }
+  }
 })();

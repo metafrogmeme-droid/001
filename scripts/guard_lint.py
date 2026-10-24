@@ -514,6 +514,16 @@ RULES: list[Rule] = [
                            # rate limited by IP inside the router, nothing
                            # signed, sent or stored about who asked; an account
                            # would add a login in front of a public fact.
+            "sar_oracle",  # GET /api/sar-oracle/packets is public when
+                           # SAR_ORACLE_ENABLED is on and carries ratios and
+                           # scores only. GET /api/sar-oracle/admin/packets is
+                           # the operator's, via isOperator, and the only route
+                           # that returns dollar amounts. No account. 404 while
+                           # the flag is off, before the operator check and
+                           # before the rate limit. IP rate limit. Signs only
+                           # on Base Sepolia. The key is never in the repo.
+                           # The test asserts no write route and that the
+                           # public JSON has no dollar-shaped key.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public
