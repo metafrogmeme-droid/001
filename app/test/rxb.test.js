@@ -32,7 +32,7 @@ test('the flag is only 1 or true', () => {
 });
 
 test('the public card is coming soon with no date and no issuer', () => {
-  const card = loadCatalog()[0];
+  const card = loadCatalog().find((row) => row.id === 'recursion-breaker');
   const pub = present(card, false);
   const admin = present(card, true);
   assert.equal(pub.status_label, 'Coming soon');

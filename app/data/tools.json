@@ -1,5 +1,59 @@
 [
   {
+    "id": "sar-oracle",
+    "name": "SaR Oracle",
+    "description": "A signed reading of how far a book would slip if a share of open interest had to be traded. This version has no public dashboard and publishes no dollar amounts.",
+    "chains": ["hyperliquid", "base", "solana"],
+    "route": null,
+    "status": "runtime",
+    "flag": "SAR_ORACLE_ENABLED"
+  },
+  {
+    "id": "panic-button",
+    "name": "Panic Button",
+    "description": "A read-only digest of approvals on the chains the approval-hygiene checker reads. It signs nothing and it has no web page.",
+    "chains": ["ethereum", "base", "avalanche", "arbitrum"],
+    "route": null,
+    "status": "runtime",
+    "flag": null
+  },
+  {
+    "id": "rwa-precheck",
+    "name": "RWA Pre-check",
+    "description": "Read-only flags on one real-world-asset contract: which interface it exposes, how old its oracle answer is, and which admin powers it keeps.",
+    "chains": ["ethereum", "base", "avalanche", "bnb", "arbitrum", "polygon", "zksync"],
+    "route": "/rwa",
+    "status": "runtime",
+    "flag": "RWA_PRECHECK_ENABLED"
+  },
+  {
+    "id": "risk-scanner",
+    "name": "Risk Scanner",
+    "description": "How many LayerZero verifiers must agree before an app takes a message, read from the chain. A count, not a verdict.",
+    "chains": ["ethereum", "base", "arbitrum", "optimism"],
+    "route": "/scanner",
+    "status": "runtime",
+    "flag": null
+  },
+  {
+    "id": "claw-guard",
+    "name": "Claw Guard",
+    "description": "A verdict on a transaction or a signature before it is signed, on the chains the guard reads.",
+    "chains": ["base", "base-sepolia"],
+    "route": "/guard",
+    "status": "runtime",
+    "flag": null
+  },
+  {
+    "id": "allowance-xray",
+    "name": "Allowance X-ray",
+    "description": "Allowances a wallet has already granted, and Solana delegates, read without signing.",
+    "chains": ["ethereum", "base", "arbitrum", "optimism", "bnb", "avalanche", "polygon", "solana"],
+    "route": "/approvals",
+    "status": "runtime",
+    "flag": null
+  },
+  {
     "id": "recursion-breaker",
     "name": "Recursion Breaker",
     "description": "A look-through of collateral that is backed by itself.",
