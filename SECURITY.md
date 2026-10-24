@@ -50,4 +50,4 @@ We follow a coordinated disclosure model. Please allow us reasonable time to add
 ---
 
 **Repository:** [github.com/metafrogmeme-droid/001](https://github.com/metafrogmeme-droid/001)
-**License:** BUSL-1.1 (Business Source License 1.1)
+**License:** BUSL-1.1 (Business Source License 1.1). Any production use requires a separate paid commercial license from Humanoid Traders. Contact info@humanoid-traders.com.
