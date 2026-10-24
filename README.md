@@ -760,6 +760,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/setsigner` | set the on-chain signing key (encrypted) |
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
+| `/hrc` | Hyperliquid USDC borrow-rate caps — utilization and rate, admin |
 | `/costs` | today's model and API spend against the daily budget |
 
 <!-- END generated: telegram commands -->

@@ -61,6 +61,7 @@ function loadCatalog() {
 function flagOn(name, env) {
   if (name === 'SAR_ORACLE_ENABLED') return require('./sar_oracle_flag').flag_on(env);
   if (name === 'RWA_PRECHECK_ENABLED') return require('./rwa_flag').enabled(env);
+  if (name === 'HRC_ENABLED') return require('./hrc_flag').flag_on(env);
   if (name === 'SRB_ENABLED') return require('./srb_flag').flag_on(env);
   if (name === 'FVB_ENABLED') return require('./fvb_flag').flagOn(env);
   return false;
