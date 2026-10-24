@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Fair-value bridge</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/fvb">
+<meta name="description" content="A session-aware risk price for a tokenized equity, separate from the last trade. Public signals, not advice.">
+<meta property="og:title" content="RUNECLAW — Fair-value bridge">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="A session-aware risk price for a tokenized equity. Public signals, not advice.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/fvb">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Fair-value bridge">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .fvb-wrap { max-width: 960px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .fvb-wrap h1 { font-family: var(--font-display); letter-spacing: .04em; font-size: clamp(26px, 4vw, 40px); margin: 0 0 var(--s2); }
+  .lede { color: var(--text-2); max-width: 68ch; line-height: 1.6; }
+  .fvb-banner { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3); color: var(--text-2); }
+  .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: var(--fs-sm); }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--text-3); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; }
+  #fvb-out { overflow-x: auto; }
+  table { min-width: 640px; }
+  .tone-muted td { color: var(--text-3); }
+  .fvb-err { color: var(--text-1); }
+  a:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="fvb-wrap" role="main">
+  <nav class="topnav" style="display:flex;gap:var(--s3);margin-bottom:var(--s4)">
+    <a href="/">← RUNECLAW</a>
+  </nav>
+  <!--FVB_BANNER-->
+  <h1>Fair-value bridge</h1>
+  <p class="lede">A session-aware risk price for a tokenized equity, kept separate from the last trade. Chains: Hyperliquid HIP-3 on HyperEVM testnet, Solana devnet (Kamino xStocks), Ethereum Sepolia (Morpho and Euler), Robinhood Chain testnet (Morpho).</p>
+  <p class="disc">Public signals, not advice.</p>
+  <div id="fvb-out" aria-live="polite"></div>
+</div>
+<script src="/js/api-retry.js?v=3"></script>
+<script src="/js/fvb-page.js?v=1"></script>
+</body>
+</html>

@@ -68,6 +68,7 @@ forcescan guard
 fullscan guard
 funding guard
 fundingscan guard
+fvb guard
 gates is_admin
 golive guard
 grant_live is_admin

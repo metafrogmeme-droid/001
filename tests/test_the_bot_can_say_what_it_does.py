@@ -818,7 +818,9 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # strategy page's "Scan now".
     # And again for /dailytrend, the sixth scan door: the daily trend sleeve's
     # board, typed bare it reaches no rule either.
-    assert (named, nothing, len(hits)) == (113, 104, 9), (named, nothing, hits)
+    # And again for /fvb: a bare "fvb" reaches no rule, so the fair-value
+    # card is a command a caller types. The web door is /fvb, behind the flag.
+    assert (named, nothing, len(hits)) == (114, 105, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 
