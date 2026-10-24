@@ -69,6 +69,54 @@ test('the SaR card stays coming soon with the flag on or off', () => {
   assert.deepStrictEqual(catalog.presentation(panic, {}), { label: 'No web page', href: null });
 });
 
+test('only an operator, with the flag on, gets the admin link', () => {
+  const sar = catalog.loadCatalog().find((t) => t.id === 'sar-oracle');
+  const open = { label: 'Admin view', href: '/api/sar-oracle/admin/packets' };
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: '1' }, { operator: true }),
+    open,
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: 'true' }, { operator: true }),
+    open,
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: '1' }, { operator: false }),
+    { label: 'Coming soon', href: null },
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, { SAR_ORACLE_ENABLED: '1' }, { operator: 'admin' }),
+    { label: 'Coming soon', href: null },
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, {}, { operator: true }),
+    { label: 'Coming soon', href: null },
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, {}, { operator: true, preview: true }),
+    open,
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(sar, {}, { preview: true }),
+    { label: 'Coming soon', href: null },
+  );
+  const previewed = catalog.renderFile({}, { operator: true, preview: true });
+  const previewAt = previewed.indexOf('data-tool="sar-oracle"');
+  const previewCard = previewed.slice(previewAt - 40, previewed.indexOf('data-tool="panic-button"'));
+  assert.match(previewCard, /href="\/api\/sar-oracle\/admin\/packets"/);
+  assert.equal(previewCard.includes('_usd_'), false);
+  assert.equal(previewCard.includes('$'), false);
+  const rendered = catalog.renderFile({ SAR_ORACLE_ENABLED: '1' }, { operator: true });
+  const at = rendered.indexOf('data-tool="sar-oracle"');
+  const cardHtml = rendered.slice(at - 40, rendered.indexOf('data-tool="panic-button"'));
+  assert.match(cardHtml, /<a /);
+  assert.match(cardHtml, /href="\/api\/sar-oracle\/admin\/packets"/);
+  assert.match(cardHtml, /Admin view/);
+  assert.equal(cardHtml.includes('_usd_'), false);
+  assert.equal(cardHtml.includes('$'), false);
+  assert.equal(HTML.includes('/api/sar-oracle/admin/packets'), false);
+});
+
 test('the restitution card is coming soon with no date until its flag is on', () => {
   const tool = catalog.loadCatalog().find((t) => t.id === 'srb');
   assert.equal(tool.chains.includes('solana'), true);

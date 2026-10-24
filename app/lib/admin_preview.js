@@ -3,7 +3,7 @@
  * Admin preview of a product flag that is still off for everyone else.
  *
  * The public reader of each flag stays where it is (`enabled`,
- * `avalancheEnabled`). This module asks that reader, and when the answer is
+ * `flag_on`, `avalancheEnabled`). This module asks that reader, and when the answer is
  * off it asks the existing operator check: `users.plan === 'admin'`, re-read
  * from the database (`lib/operator_view.js` `isOperator`). Signed in is not
  * enough. A failed read is not an admin. There is no second allowlist.
@@ -44,6 +44,9 @@ const READERS = {
   },
   AVALANCHE_ANCHOR_ENABLED(env) {
     return require('./root_anchor').avalancheEnabled(env) === true;
+  },
+  SAR_ORACLE_ENABLED(env) {
+    return require('./sar/flag').flag_on(env) === true;
   },
   SRB_ENABLED(env) {
     return require('./srb_flag').flag_on(env) === true;
@@ -122,5 +125,5 @@ function withBanner(html) {
 }
 
 module.exports = {
-  BANNER, READERS, publicOn, hasCredential, flag_on_for, previewFlags, bannerHtml, withBanner,
+  BANNER, READERS, publicOn, hasCredential, identify, flag_on_for, previewFlags, bannerHtml, withBanner,
 };

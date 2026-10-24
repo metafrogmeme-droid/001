@@ -12,19 +12,16 @@
  * would be served while the API is 404.
  *
  * While the flag is on, the HTML is the operator's. The check runs
- * only after the flag is on, so a closed flag never opens the database.
- * The signed feed is a different door: it is not operator-gated.
+ * only after the flag is on. While the flag is off, an admin may
+ * preview the same HTML (`flag_on_for`); that path does not use the
+ * injected operator seam, so a closed flag still does not count one.
+ * The signed feed is a different door: it is not operator-gated, and
+ * a preview does not open it.
  */
 
 const path = require('node:path');
-
-const FLAG = 'SAR_ORACLE_ENABLED';
-
-function flag_on(env) {
-  const src = env || process.env;
-  const v = String(src[FLAG] == null ? '' : src[FLAG]).trim().toLowerCase();
-  return v === '1' || v === 'true';
-}
+const { FLAG, flag_on } = require('./sar/flag');
+const { flag_on_for, identify, withBanner } = require('./admin_preview');
 
 function pageFile() {
   return path.join(__dirname, '..', 'public', 'tools.html');
@@ -35,28 +32,39 @@ function defaultOperator(req) {
 }
 
 /**
- * The /tools document. 404 while the flag is off, before any operator
- * check. While the flag is on, 404 unless the caller is the operator.
+ * The /tools document. 404 while the flag is off for this caller.
+ * While the flag is on, 404 unless the caller is the operator. An
+ * admin, while the flag is off, gets the same operator HTML plus the
+ * preview banner. That preview does not call `deps.isOperator`.
  */
 async function sendPage(req, res, deps) {
   try {
-    if (!flag_on()) return res.status(404).type('text/plain').send('Not found');
-    const check = deps && deps.isOperator ? deps.isOperator : defaultOperator;
+    const on = flag_on();
     let operator = false;
-    try {
-      operator = await check(req);
-    } catch (err) {
-      console.error('operator check failed:', err && err.name ? err.name : 'Error');
-      operator = false;
+    let preview = false;
+    if (on) {
+      const injected = deps && deps.isOperator;
+      const check = injected || defaultOperator;
+      try {
+        if (!injected) await identify(req);
+        operator = await check(req);
+      } catch (err) {
+        console.error('operator check failed:', err && err.name ? err.name : 'Error');
+        operator = false;
+      }
+    } else {
+      preview = (await flag_on_for(req, FLAG)) === true;
+      operator = preview;
     }
     if (operator !== true) return res.status(404).type('text/plain').send('Not found');
     let html;
     try {
-      html = require('./tools_catalog').renderFile(undefined, { operator: true });
+      html = require('./tools_catalog').renderFile(process.env, { operator: true, preview });
     } catch (err) {
       return res.status(500).type('text/plain').send(err && err.name ? err.name : 'Error');
     }
-    res.setHeader('Cache-Control', 'no-cache');
+    if (preview) html = withBanner(html);
+    res.setHeader('Cache-Control', preview ? 'private, no-store' : 'no-store');
     return res.type('html').send(html);
   } catch (err) {
     if (!res.headersSent) {
@@ -70,17 +78,27 @@ async function sendPage(req, res, deps) {
  * Blocks the on-disk names ahead of express.static. /tools itself is
  * app.get('/tools') in server.js, so a canonical can name it. This gate
  * keeps /tools.html and the page script from being served as static
- * files while the flag is off. While the flag is on, /tools.html is the
- * rendered catalog, not the placeholder file, and only for the operator.
- * The page script is not operator-gated: it draws the catalog and
- * fetches nothing.
+ * files while the flag is off for this caller. An admin preview is
+ * allowed through. While the flag is on, /tools.html is the rendered
+ * catalog, not the placeholder file, and only for the operator. The
+ * page script is not operator-gated once the caller may see the page:
+ * it draws the catalog and fetches nothing.
  */
-function pageGate(req, res, next) {
+async function pageGate(req, res, next) {
   const p = req.path;
   if (p !== '/tools.html' && p !== '/js/tools-page.js') return next();
-  if (!flag_on()) return res.status(404).type('text/plain').send('Not found');
-  if (p === '/js/tools-page.js') return next();
-  return sendPage(req, res);
+  try {
+    if (!flag_on() && (await flag_on_for(req, FLAG)) !== true) {
+      return res.status(404).type('text/plain').send('Not found');
+    }
+    if (p === '/js/tools-page.js') return next();
+    return sendPage(req, res);
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).type('text/plain').send(err && err.name ? err.name : 'Error');
+    }
+    return undefined;
+  }
 }
 
 module.exports = { FLAG, flag_on, pageGate, pageFile, sendPage };
