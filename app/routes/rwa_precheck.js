@@ -15,16 +15,22 @@
 const express = require('express');
 const { optionalAuth } = require('../auth');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
-const { enabled } = require('../lib/rwa_flag');
+const { flag_on_for } = require('../lib/admin_preview');
 const { CHAINS, publicChain } = require('../lib/rwa_chains');
 const { precheck, canonicalInput, project, DISCLAIMER } = require('../lib/rwa_precheck');
 
 const router = express.Router();
 router.use(optionalAuth);
 
-router.use((req, res, next) => {
-  if (!enabled()) return res.status(404).json({ error: 'Not found' });
-  return next();
+router.use(async (req, res, next) => {
+  try {
+    if (!(await flag_on_for(req, 'RWA_PRECHECK_ENABLED'))) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    return next();
+  } catch (e) {
+    return res.status(500).json({ error: 'Not found' });
+  }
 });
 
 router.get('/chains', (req, res) => {

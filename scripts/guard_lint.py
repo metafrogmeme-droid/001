@@ -474,7 +474,8 @@ RULES: list[Rule] = [
                            # routes/memeclaw.js, counted under the mixed-module
                            # rule below, route by route.
             "scam_page",   # /scam — ONE HTML document for Scam or Safe? Daily.
-                           # 404 unless SCAM_OR_SAFE_V0 is on. The call is
+                           # 404 unless SCAM_OR_SAFE_V0 is on for this caller
+                           # (an admin may preview it; lib/admin_preview.js). The call is
                            # POST /api/scam-or-safe/pick, which carries
                            # authMiddleware in routes/scam_or_safe.js. Requiring
                            # a session to fetch the page would require one to

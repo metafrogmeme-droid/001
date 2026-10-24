@@ -75,11 +75,15 @@ class FakeGate:
             body["confidence"] = True
         return body
 
-    def offer(self, now=None):
+    def offer(self, now=None, *, caller_is_admin=False):
         if self.fail == "offer":
             from bot.daily_duel_gate import GateDown
             raise GateDown("offer")
-        return dict(self.offer_body)
+        self.caller_is_admin = caller_is_admin
+        body = dict(self.offer_body)
+        if caller_is_admin:
+            body["confidence"] = True
+        return body
 
     def seal(self, facts):
         self.sealed.append(dict(facts))
@@ -110,7 +114,7 @@ class FakeGate:
         n = len(picked_at)
         return {"ok": True, "current": n, "best": n, "active_today": bool(n)}
 
-    def calibration(self, payloads, now=None):
+    def calibration(self, payloads, now=None, *, caller_is_admin=False):
         self.calibrated.append(list(payloads))
         if self.fail == "calibration":
             from bot.daily_duel_gate import GateDown
@@ -299,19 +303,21 @@ def test_build_app_registers_the_duel_and_the_digest_and_not_a_mini_app(monkeypa
                     patterns.append(h.pattern.pattern)
         return cmds, patterns
 
-    # /panic is the panic flag's command. Off, the duel list is the one it was.
+    # /panic is registered only while PANIC_BUTTON is on. /scam stays
+    # registered while its public flag is off, so an admin can open it.
     monkeypatch.delenv("PANIC_BUTTON", raising=False)
     cmds, patterns = registered(bot.build_app(TOKEN))
     base = {
         "start", "help", "duel", "result", "streak", "leaderboard",
-        "watch", "digest", "stop",
+        "watch", "digest", "stop", "scam",
     }
     assert cmds == base
-    assert patterns == [r"^dd:"]
+    assert "panic" not in cmds
+    assert patterns == [r"^dd:", r"^sos:"]
     monkeypatch.setenv("PANIC_BUTTON", "1")
     cmds_on, patterns_on = registered(bot.build_app(TOKEN))
     assert cmds_on == base | {"panic"}
-    assert patterns_on == [r"^dd:"]
+    assert patterns_on == [r"^dd:", r"^sos:"]
     assert "WebAppInfo" not in SRC
     assert "web_app" not in SRC
 
