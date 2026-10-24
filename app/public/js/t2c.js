@@ -30,6 +30,10 @@ function render(body) {
   const obs = body.observation || {};
   const scenario = obs.scenario || {};
   const cap = body.cap || {};
+  const recordedCarry = body.carry_recorded || {};
+  const requestTime = body.request_time || {};
+  const daily = backtest.daily || {};
+  const sanity = daily.sanity || {};
   const lines = [
     row('Flag', body.flag_on ? 'on' : 'off'),
     row('P', show(price.p)),
@@ -38,6 +42,8 @@ function render(body) {
     row('Stake yield', show(price.y_stake) + ' (' + esc(price.y_stake_source || 'not read') + ')'),
     row('T p95, days', show(price.t_p95_days) + ' (' + esc(price.t_p95_source || 'not read') + ')'),
     row('Haircut s', show(price.s)),
+    row('Carry', show(price.carry) + ' (' + esc(price.carry_source || 'not read') + ')'),
+    row('Recorded carry', show(recordedCarry.carry) + ' (' + esc(recordedCarry.carry_source || 'not read') + ')'),
     row('Duration p50, days', show(duration.p50_days)),
     row('Duration p95, days', show(duration.p95_days)),
     row('Cap ratio', show(cap.ratio)),
@@ -61,10 +67,35 @@ function render(body) {
     row('Cap scenario, hours', show(scenario.sum_hours)),
     row('Matches the quote', scenario.matches_quoted_wait === false ? 'no' : show(scenario.matches_quoted_wait)),
   ];
+  const buckets = Array.isArray(requestTime.buckets) ? requestTime.buckets : [];
+  const bucketRows = buckets.map((bucket) => row(
+    show(bucket.size_eth) + ' ETH, seconds',
+    show(bucket.t_secs) + ' (' + esc(bucket.source || 'not read') + ')',
+  )).join('');
+  const bucketPanel = buckets.length
+    ? panel('Lido request time, recorded', bucketRows)
+    : '';
+  const lead = daily.lead && typeof daily.lead === 'object' ? daily.lead : {};
+  const sanityRows = [
+    row('Days in the file', show(daily.days)),
+    row('Curve 10k days', show(daily.curve_10k_days)),
+    row('Borrow days', show(daily.borrow_days)),
+    row('Days not mined', show(daily.not_mined)),
+    row('Days with a failed call', show(daily.error_days)),
+    row('Lead', esc(lead.verdict || 'not read')),
+    row('Exit result, bps', show(daily.result_bps)),
+    row('Widest 10k Curve cost, bp', show(daily.widest_10k_discount_bps) + ' on ' + show(daily.widest_10k_day)),
+    row('10k sale status', esc(sanity.sale_status || 'not read')),
+    row('Measured sale, percent', show(sanity.measured_sale_pct)),
+    row('Queue cost', esc(sanity.queue_cost_status || 'not read')),
+  ].join('');
   return panel('Signal', lines.join(''))
     + '<p class="note">' + esc(backtest.reason || '') + '</p>'
     + panel('ether.fi, recorded 23 Oct 2026', recorded.join(''))
     + panel('Exit queue observation', queue.join(''))
+    + bucketPanel
+    + panel('Daily series, Jul 2025 to Oct 2026', sanityRows)
+    + '<p class="note">' + esc(daily.reason || '') + '</p>'
     + '<p class="note">' + esc(backtest.weeth_note || '') + '</p>';
 }
 

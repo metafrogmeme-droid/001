@@ -11,18 +11,35 @@ from bot.t2c.config import S_CAP
 from bot.t2c.numbers import as_decimal
 
 YEAR_DAYS = Decimal(365)
-LIDO_ASSETS = frozenset({"steth", "wsteth", "lido"})
 
 
 def stake_yield(asset: str, reading: object = None) -> dict:
-    """Lido stake yield is 0 by rule. Any other absent reading stays absent."""
-    name = str(asset or "").strip().lower()
-    if name in LIDO_ASSETS:
-        return {"y_stake": Decimal(0), "source": "lido_rule"}
+    """A stake APR. Absence is unread for every asset, including Lido.
+
+    ``asset`` is part of the reading's identity. It does not invent a yield.
+    """
+    del asset
     number = as_decimal(reading)
     if number is None:
         return {"y_stake": None, "source": "absent"}
+    if number < 0:
+        return {"y_stake": None, "source": "unreadable"}
     return {"y_stake": number, "source": "reading"}
+
+
+def carry_term(r_borrow: object, y_stake: object) -> dict:
+    """max(0, r_borrow − y_stake).
+
+    When both rates were read and borrow is at or below the stake APR, the
+    term is a measured 0. A missing rate is not that case.
+    """
+    borrow = as_decimal(r_borrow)
+    stake = as_decimal(y_stake)
+    if borrow is None or stake is None or borrow < 0 or stake < 0:
+        return {"carry": None, "source": "unreadable"}
+    if borrow <= stake:
+        return {"carry": Decimal(0), "source": "borrow_at_or_below_stake"}
+    return {"carry": borrow - stake, "source": "borrow_minus_stake"}
 
 
 def slash_haircut(
@@ -72,8 +89,9 @@ def duration_price(
     assert stake is not None and duration is not None and haircut is not None
     if exchange <= 0 or duration < 0 or haircut < 0 or haircut >= 1:
         return None
-    carry = borrow - stake
-    if carry < 0:
-        carry = Decimal(0)
+    term = carry_term(borrow, stake)
+    carry = term["carry"]
+    if not isinstance(carry, Decimal):
+        return None
     exponent = -carry * duration / YEAR_DAYS
     return exchange * exponent.exp() * (Decimal(1) - haircut)

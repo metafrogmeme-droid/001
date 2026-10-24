@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from bot.t2c.backtest import july_window
 from bot.t2c.borrow import borrow_rate
+from bot.t2c.chain_series import daily_report
 from bot.t2c.churn import cap_queue_scenario, churn_eth_per_epoch, confirmed_churn
 from bot.t2c.config import haircut_config, t_eigen_days, t_p95_days, weeth_restaked
 from bot.t2c.consumers import admin_consumer_context, public_consumers
@@ -15,8 +16,10 @@ from bot.t2c.duration import duration_percentiles, smooth_samples
 from bot.t2c.etherfi import WEETH, interpret_limit, recorded_etherfi
 from bot.t2c.flag import t2c_flag_on
 from bot.t2c.numbers import as_decimal, json_num
-from bot.t2c.price import duration_price, slash_haircut, stake_yield
+from bot.t2c.packet import build_packet, haircut_for
+from bot.t2c.price import carry_term, duration_price, slash_haircut, stake_yield
 from bot.t2c.rxb import attempt_sign, sentinel_submit
+from bot.t2c.snapshots import recorded_carry, recorded_request_times
 
 
 def _choose(estimated: object, configured: Decimal | None, source: str) -> tuple[Decimal | None, str]:
@@ -41,6 +44,7 @@ def _asset_price(
     hair: dict,
 ) -> dict:
     y = stake_yield(asset, y_reading)
+    term = carry_term(r_borrow, y["y_stake"])
     s = slash_haircut(t_p95, restaked, eigen, hair["h_base"], hair["h_restake"])
     price = duration_price(er, r_borrow, y["y_stake"], t_p95, s)
     return {
@@ -49,6 +53,8 @@ def _asset_price(
         "er": json_num(as_decimal(er)),
         "y_stake": json_num(y["y_stake"]),
         "y_stake_source": y["source"],
+        "carry": json_num(term["carry"]),
+        "carry_source": term["source"],
         "s": json_num(s),
         "p": json_num(price),
     }
@@ -95,6 +101,24 @@ def assemble_reading(
                      measured.get("y_rseth"), t_p95, eigen, hair),
     ]
     headline = assets[0]
+    request_time = recorded_request_times()
+    packets = []
+    for bucket in request_time["buckets"]:
+        packets.append(build_packet(
+            "wstETH",
+            bucket.get("size_eth"),
+            bucket.get("t_secs"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            haircut_for(
+                bucket.get("t_secs"), False, eigen,
+                hair["h_base"], hair["h_restake"],
+            ),
+            request_time.get("fetched_at"),
+        ))
     wrong_key = interpret_limit(WEETH, Decimal(0))
     cap = cap_json(propose_cap_down(as_decimal(headline["p"]), headline_er))
     signed = attempt_sign({"kind": "t2c_cap_signal"})
@@ -147,7 +171,11 @@ def assemble_reading(
             "sentinel": sentinel["sink"],
             "applied": sentinel["applied"],
         },
+        "packets": packets,
+        "request_time": request_time,
+        "carry_recorded": recorded_carry(),
         "backtest": july_window(),
+        "daily": daily_report(),
         "fee": {
             "applies_to": "exit_swap_only",
             "formula_bps": "clamp(10 + 40*U^2, 5, 100)",
@@ -170,6 +198,8 @@ def public_payload(built: dict) -> dict:
             "r_borrow": built["r_borrow"],
             "y_stake": built["assets"][0]["y_stake"],
             "y_stake_source": built["assets"][0]["y_stake_source"],
+            "carry": built["assets"][0]["carry"],
+            "carry_source": built["assets"][0]["carry_source"],
             "t_p95_days": built["t_p95_days"],
             "t_p95_source": built["t_p95_source"],
             "s": built["assets"][0]["s"],
@@ -194,6 +224,13 @@ def public_payload(built: dict) -> dict:
         "etherfi": built["etherfi"],
         "etherfi_wrong_key": built["etherfi_wrong_key"],
         "consumers": built["consumers"],
+        "packets": built["packets"],
+        "request_time": {
+            "source": built["request_time"]["source"],
+            "fetched_at": built["request_time"].get("fetched_at"),
+            "buckets": built["request_time"].get("buckets"),
+        },
+        "carry_recorded": built["carry_recorded"],
         "cap": built["cap"],
         "rxb": built["rxb"],
         "backtest": {
@@ -207,6 +244,7 @@ def public_payload(built: dict) -> dict:
             "missing_days": backtest["missing_days"],
             "rows": backtest["rows"],
             "lead": backtest["lead"],
+            "daily": built["daily"],
         },
         "fee": built["fee"],
     }

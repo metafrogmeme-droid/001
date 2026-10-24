@@ -1,0 +1,15 @@
+{
+  "queried_at": "2026-10-23",
+  "stake": {
+    "source": "eth-api.lido.fi/v1/protocol/steth/apr/sma",
+    "field": "smaApr",
+    "unit": "percent",
+    "sma_apr_percent": "2.2242857142857146",
+    "time_unix": 1792758131
+  },
+  "borrow": {
+    "source": "aave v3 core ethereum getReserveData WETH currentVariableBorrowRate",
+    "ray": "19224610372756132943347991",
+    "queried_at": "2026-10-23"
+  }
+}

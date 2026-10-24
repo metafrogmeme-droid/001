@@ -1,6 +1,7 @@
 """The duration price, the flag, and the July verdict."""
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -48,15 +49,19 @@ def test_haircut_defaults_are_labelled_unverified():
     assert hair["h_restake_source"] == "unverified_config"
 
 
-def test_lido_yield_is_zero_by_rule_and_other_absence_is_not():
-    lido = stake_yield("wstETH", Decimal("0.04"))
-    assert lido["y_stake"] == 0
-    assert lido["source"] == "lido_rule"
-    missing = stake_yield("weETH", None)
-    assert missing["y_stake"] is None
-    assert missing["source"] == "absent"
-    read = stake_yield("weETH", Decimal("0.03"))
+def test_lido_yield_is_a_reading_and_absence_is_not_zero():
+    from bot.t2c.price import carry_term
+    unread = stake_yield("wstETH", None)
+    assert unread["y_stake"] is None
+    assert unread["source"] == "absent"
+    read = stake_yield("wstETH", Decimal("0.03"))
     assert read["y_stake"] == Decimal("0.03")
+    assert read["source"] == "reading"
+    below = carry_term(Decimal("0.019"), Decimal("0.022"))
+    assert below["carry"] == 0
+    assert below["source"] == "borrow_at_or_below_stake"
+    assert carry_term(Decimal("0.05"), None)["carry"] is None
+    assert duration_price(Decimal(1), Decimal("0.019"), Decimal("0.022"), Decimal(10), Decimal(0)) == Decimal(1)
 
 
 def test_borrow_rate_needs_both_venues():
@@ -182,8 +187,25 @@ def test_default_reading_does_not_invent_a_price_or_a_lead():
     assert public["liquidation_price"] is False
     assert public["price"]["p"] is None
     assert public["price"]["r_borrow"] is None
-    assert public["price"]["y_stake"] == "0"
-    assert public["price"]["y_stake_source"] == "lido_rule"
+    assert public["price"]["y_stake"] is None
+    assert public["price"]["y_stake_source"] == "absent"
+    assert public["carry_recorded"]["carry"] == "0"
+    assert public["carry_recorded"]["carry_source"] == "borrow_at_or_below_stake"
+    daily = public["backtest"]["daily"]
+    assert daily["sanity"]["sale_status"] == "matches_stated"
+    assert daily["sanity"]["queue_cost_status"] == "not_read"
+    assert daily["days"] == 480
+    assert daily["curve_10k_days"] == 477
+    assert daily["borrow_days"] == 477
+    assert daily["error_days"] == 0
+    assert daily["not_mined"] == 3
+    assert daily["result_bps"] is None
+    assert daily["lead"]["verdict"] == "not_established"
+    assert daily["widest_10k_day"] == "2026-04-19"
+    july = json.loads((ROOT / "benchmark" / "t2c" / "daily_chain.json").read_text(encoding="utf-8"))
+    anchor = next(day for day in july["days"] if day["day"] == "2025-07-21")
+    assert anchor["curve"]["10000"] == "9017058912517896534594"
+    assert anchor["borrow_ray"] == "55901435106137103049916020"
     assert public["price"]["t_p95_days"] is None
     assert public["duration"]["p95_days"] is None
     assert public["backtest"]["verdict"] == "not_established"
@@ -204,6 +226,7 @@ def test_an_estimated_duration_overrides_config_and_prices_wsteth():
         "aave_weth": Decimal("0.05"),
         "morpho_weth": Decimal("0.04"),
         "er_wsteth": Decimal(1),
+        "y_wsteth": Decimal(0),
     })
     price = reading["public"]["price"]
     assert price["t_p95_source"] == "estimated"
@@ -274,6 +297,14 @@ def test_the_contracts_are_not_a_liquidation_oracle_and_match_the_intake_cap():
     model = (src_dir / "src" / "ExitSwapModel.sol").read_text(encoding="utf-8")
     assert "MainnetForbidden" in model
     assert "31337" in model
+    assert "ENTER_EDGE_BPS = 50" in model
+    assert "EXIT_EDGE_BPS = 20" in model
+    assert "function quote(" in blob
+    assert "function sell(" in blob
+    assert "function claim(" in blob
+    assert "event Bought" in blob
+    assert "function latest(" in blob
+    assert "event Posted" in blob
     assert f"INTAKE_NUMERATOR = {INTAKE_NUMERATOR}" in model
     assert f"INTAKE_DENOMINATOR = {INTAKE_DENOMINATOR}" in model
     tree = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "bot" / "t2c").glob("*.py"))

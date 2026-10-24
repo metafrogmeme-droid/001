@@ -99,6 +99,45 @@ def test_flash_shortfall_rolls_back_and_a_claim_keeps_an_unread_steth_out():
     assert settled["steth_out"] is None
 
 
+def test_the_edge_band_and_the_claim_cycle():
+    from bot.t2c.exit_model import (
+        IDLE,
+        QUOTING,
+        claim,
+        exit_cycle,
+        mark_finalized,
+        note_edge,
+        sell,
+    )
+    ledger = new_ledger(Decimal(1000))
+    held = note_edge(ledger, Decimal(50), Decimal(0))
+    assert held["moved"] is False
+    assert ledger["state"] == IDLE
+    opened = note_edge(ledger, Decimal("50.1"), Decimal(0))
+    assert opened["state"] == QUOTING
+    stay = note_edge(ledger, Decimal(20), Decimal(0))
+    assert stay["moved"] is False
+    closed = note_edge(ledger, Decimal("19.9"), Decimal(0))
+    assert closed["state"] == IDLE
+    unread = note_edge(ledger, None, Decimal(1))
+    assert unread["reason"] == "unreadable"
+    assert ledger["state"] == IDLE
+    refused = sell(ledger, LOCAL_FORK, "steth", Decimal(1), Decimal(0), Decimal(1), 1)
+    assert refused["reason"] == "wrong_state"
+    assert ledger["lp_fee_eth"] == 0
+    cycle = exit_cycle()
+    assert cycle["event"] == "Bought"
+    assert cycle["claimed"] is True
+    assert cycle["state"] == "idle"
+    book = new_ledger(Decimal(1000))
+    note_edge(book, Decimal(80), Decimal(0))
+    sold = sell(book, LOCAL_FORK, "wsteth", Decimal(1), Decimal("0.5"), Decimal(1), 1)
+    assert sold["filled"] is True
+    assert mark_finalized(book, sold["request_id"])["finalized"] is True
+    assert claim(book, [])["reason"] == "unreadable"
+    assert book["state"] == "claimable"
+
+
 def test_the_fork_demo_is_not_a_broadcast():
     demo = fork_demo()
     assert demo["broadcast"] is False
