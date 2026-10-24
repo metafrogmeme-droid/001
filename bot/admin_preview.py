@@ -29,7 +29,7 @@ BANNER = "Admin preview. Not public."
 
 # Product flags the Telegram surfaces in this tree actually gate. Web-only
 # flags stay in app/lib/admin_preview.js. An unlisted name is off.
-_FLAGS = frozenset({"SCAM_OR_SAFE_V0", "DUEL_CONFIDENCE_ENABLED"})
+_FLAGS = frozenset({"SCAM_OR_SAFE_V0", "DUEL_CONFIDENCE_ENABLED", "SRB_ENABLED"})
 _CONFIDENCE_ON = frozenset({"1", "true", "yes", "on"})
 
 
@@ -39,6 +39,9 @@ def public_on(flag: str, env: Optional[Mapping[str, str]] = None) -> bool:
         return False
     if flag == "SCAM_OR_SAFE_V0":
         from bot.scam_or_safe import flag_on
+        return flag_on(env) is True
+    if flag == "SRB_ENABLED":
+        from bot.srb.flag import flag_on
         return flag_on(env) is True
     source = os.environ if env is None else env
     return str(source.get("DUEL_CONFIDENCE_ENABLED", "")).strip().lower() in _CONFIDENCE_ON

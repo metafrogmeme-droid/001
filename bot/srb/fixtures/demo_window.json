@@ -1,0 +1,63 @@
+{
+  "cluster": "fixture",
+  "now": 1700000000,
+  "wide_slots": 3,
+  "linkage": {
+    "funding": [],
+    "cex": []
+  },
+  "transfers": [],
+  "provider": {
+    "provider_id": "provider-a",
+    "policy_hash": "policy-v0",
+    "bonded": true,
+    "amount_base_units": 4242424242,
+    "cover_cap_per_tx_base_units": 5,
+    "cover_cap_per_epoch_base_units": 100,
+    "wallet_cap_base_units": 50,
+    "unbond_requested_at": null
+  },
+  "receipt": {
+    "recv_ts": 1000,
+    "max_slippage_bps": 3000,
+    "hold_back": false
+  },
+  "swaps": [
+    {
+      "sig": "sig-f",
+      "slot": 10,
+      "index": 0,
+      "signer": "wallet-a",
+      "pool": "pool-1",
+      "mint_in": "quote",
+      "mint_out": "base",
+      "amount_in": 1000,
+      "amount_out": 10,
+      "quoted_out": null
+    },
+    {
+      "sig": "sig-v",
+      "slot": 10,
+      "index": 1,
+      "signer": "wallet-v",
+      "pool": "pool-1",
+      "mint_in": "quote",
+      "mint_out": "base",
+      "amount_in": 1000,
+      "amount_out": 8,
+      "quoted_out": 10
+    },
+    {
+      "sig": "sig-b",
+      "slot": 10,
+      "index": 2,
+      "signer": "wallet-a",
+      "pool": "pool-1",
+      "mint_in": "base",
+      "mint_out": "quote",
+      "amount_in": 10,
+      "amount_out": 1100,
+      "quoted_out": null
+    }
+  ]
+}
