@@ -17,6 +17,13 @@
 # is not optional at all — a guarded import means the code SURVIVES the absence,
 # not that the feature is expendable. Being heavy is a reason to cache the
 # install, not to stop testing the feature.
+#
+# Every pin below is exact (`==`). This file has no `--hash` lines. pip treats
+# any hash as `--require-hashes` for the whole file and then will not install
+# a transitive that the file does not name. CI runs `pip install -r` this
+# file, so a partial hash lock would break that install. The pip wheel in
+# ci.yml and the Docker base image are hash-pinned and digest-pinned on their
+# own.
 python-dotenv==1.2.2
 pydantic==2.13.3
 ccxt==4.5.56
@@ -27,12 +34,12 @@ aiohttp==3.14.4
 # The lock pins this, so CI has to install it. Same release the SCA gate scans.
 certifi==2026.10.19
 websockets==16.0
-cryptography>=50.0.0
-Pillow>=10.3.0
-redis>=5.0.0
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
-PyJWT>=2.7.0
+cryptography==50.0.0
+Pillow==13.0.0
+redis==8.1.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.3
+PyJWT==2.15.1
 # Pinned to the exact lock versions: the baseline-diff gate needs a reproducible
 # environment, and these three now run 20 tests that never executed before.
 matplotlib==3.11.1
@@ -45,11 +52,11 @@ anthropic==0.104.1
 # Dev / test tooling
 pytest==8.3.5
 pytest-asyncio==0.24.0
-pytest-timeout>=2.3.0
+pytest-timeout==2.4.0
 hypothesis==6.155.7
 ruff==0.11.13
 mypy==1.15.0
 # CI quality gates (coverage, dependency audit, SAST)
-pytest-cov>=6.0.0
-pip-audit>=2.9.0
-bandit>=1.8.0
+pytest-cov==6.1.1
+pip-audit==2.9.0
+bandit==1.8.3

@@ -26,6 +26,7 @@ from bot.skills.skill_registry import build_default_registry
 from bot.skills.telegram_handler import TelegramHandler
 from bot.utils.build_info import short as build_short
 from bot.utils.logger import audit, system_log
+from bot.web.mainnet_guard import refuse_server_start
 
 _PID_FILE = os.path.join(os.environ.get("RUNECLAW_STATE_DIR", "data"), "runeclaw.pid")
 
@@ -868,6 +869,12 @@ def main() -> None:
         default="telegram",
         help="Run mode: telegram (bot), cli (interactive), scan (one-shot), backtest")
     args = parser.parse_args()
+
+    # Before any mode, including scan and backtest: a mainnet chain id
+    # combined with a signing key, or WEB3_LIVE_EXEC_ALLOW_MAINNET, means
+    # this process must not start. The marker is set even when startup is
+    # allowed, so a child cannot broadcast on mainnet.
+    refuse_server_start()
 
     # STATE GUARD — before the mode dispatch, because scan and backtest write
     # state too. Every state path here is relative to the process CWD, so a
