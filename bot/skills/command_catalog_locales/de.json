@@ -145,6 +145,7 @@
     "journal": "wöchentliches Trade-Journal (Operator-Konto)",
     "strategy": "aktive Strategie und Regime-Routing",
     "crossasset": "marktübergreifender Korrelationskontext",
+    "cgc": "Zeitfenster der Erhaltungsbremse, Testnet, nur lesen",
     "gates": "Bestanden/Nicht-bestanden-Telemetrie pro Gate",
     "flags": "Opt-in-Flags für den Tiefen-Audit",
     "t2c": "Obergrenze und LTV-Signal für die wstETH-Ausstiegsdauer",
