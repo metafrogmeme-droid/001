@@ -1,0 +1,13 @@
+{
+  "chain_id": 998,
+  "hour": 4,
+  "supplied": 1000000,
+  "borrowed": 100000,
+  "rate_bps": 500,
+  "funding_wad": 0,
+  "digest": "0x57ac3a4eb44a5efb3f7c49c793e9060dd609534123dc2b2a75f8ddb7d97590a2",
+  "r": "0xb217db70a88f64b4c108db12cd93f2282836f89d29d1015224674cad27afefb4",
+  "s": "0x05b0d7603a74faf02b3faf9dfd86463f720172131aebc9251ea35278424867cf",
+  "v": 27,
+  "address": "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf"
+}

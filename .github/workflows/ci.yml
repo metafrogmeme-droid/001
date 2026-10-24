@@ -944,6 +944,33 @@ jobs:
         working-directory: contracts/rxb
         run: node ../../token/scripts/audit_gate.mjs .
 
+  kinkcap-contracts:
+    name: Kink Cap contracts (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: contracts/kinkcap/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/kinkcap
+        run: npm ci --no-audit --no-fund
+
+      # Compiles KinkCapMarket (solc, viaIR) and runs the bytecode on an
+      # in-process EVM. Hermetic: no network. The website does not ship
+      # this bytecode, so there is no committed artifact to byte-compare.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/kinkcap
+        run: npm test
+
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/kinkcap
+        run: node ../../token/scripts/audit_gate.mjs .
+
   cgc-contracts:
     name: CGC contracts (solidity)
     runs-on: ubuntu-latest

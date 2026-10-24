@@ -182,6 +182,7 @@
     "setgateway": "das Web-Gateway-Geheimnis reparieren",
     "setsigner": "setzt den On-Chain-Signaturschlüssel (verschlüsselt)",
     "yield": "Yield-Radar für ungenutzte Assets (nur lesend)",
+    "hrc": "Obergrenzen für den USDC-Leihzinssatz von Hyperliquid — Auslastung und Satz, nur für Admins",
     "idleyield": "Bestzins-Scan über alle Quellen",
     "stake": "ungenutzte Stables DEINES verknüpften Bitget-Kontos in flexibles Earn legen — eine Plan-Karte, nichts bewegt sich vor Bestätigen",
     "unstake": "dein flexibles Earn zurück in die Handelsmargin holen — per Button bestätigt",

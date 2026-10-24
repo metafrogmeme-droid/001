@@ -1,0 +1,21 @@
+{
+  "name": "kinkcap-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kink Cap — fully collateralized hourly caps on Hyperliquid's USDC borrow rate. HyperEVM testnet (chain id 998) only. Compile + EVM-execution tests, no network.",
+  "license": "BUSL-1.1",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@ethereumjs/common": "^4.4.0",
+    "@ethereumjs/util": "^9.1.0",
+    "@ethereumjs/vm": "^8.1.1",
+    "ethers": "^6.13.4",
+    "solc": "0.8.37"
+  },
+  "overrides": {
+    "tmp": "0.2.7"
+  }
+}

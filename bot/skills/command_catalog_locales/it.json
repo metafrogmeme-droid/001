@@ -182,6 +182,7 @@
     "setgateway": "ripara il segreto del gateway web",
     "setsigner": "imposta la chiave di firma on-chain (cifrata)",
     "yield": "radar del rendimento degli asset inattivi (sola lettura)",
+    "hrc": "tetti del tasso di prestito USDC di Hyperliquid — utilizzo e tasso, solo per l'amministratore",
     "idleyield": "scansione del miglior tasso tra le fonti",
     "stake": "mettere gli stable inattivi del TUO account Bitget collegato in Earn flessibile — una scheda piano, nulla si muove fino a Conferma",
     "unstake": "riscattare il tuo Earn flessibile verso il margine di trading — confermato con pulsante",

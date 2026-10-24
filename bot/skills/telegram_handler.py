@@ -81,6 +81,7 @@ from bot.skills.callback_handler import CallbackHandler
 from bot.skills.command_guard import guard
 from bot.skills.engine_ops_commands import EngineOpsCommands
 from bot.skills.guardian_commands import GuardianCommands
+from bot.skills.hrc_commands import HrcCommands
 from bot.skills.llm_commands import LLMCommands
 from bot.skills.market_commands import MarketCommands
 from bot.skills.portfolio_commands import PortfolioCommands
@@ -1136,7 +1137,7 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
     return self_admitted_paper_caller(getattr(handler, "users", None), str(tg_id))
 
 
-class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands,
+class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
                       EngineOpsCommands, PortfolioCommands, ScanCommands, SrbCommands,
                       TradingCommands, StartCommands, AlertsMonitor, CallbackHandler):
@@ -1312,6 +1313,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # Admin: cross-source idle-yield optimizer (CEX Earn + non-custodial
             # Lido/Aave), non-custodial preferred honestly. Read-only.
             ("idleyield", self._cmd_idleyield),
+            ("hrc", self._cmd_hrc),
             # Admin: web live-trading readiness + per-user enablement control
             ("weblive", self._cmd_weblive),
             # Stake/redeem flexible Earn on the CALLER's linked account
