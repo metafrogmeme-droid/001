@@ -149,6 +149,7 @@
     "cgc": "finestre del freno di conservazione, testnet, sola lettura",
     "gates": "telemetria pass/fail per ogni gate",
     "flags": "flag opt-in per l'audit approfondito",
+    "rxb": "lettura della ricorsione per l'operatore, solo rapporti",
     "shadow": "libro ombra controfattuale",
     "srb": "segnali di restituzione in ombra — un segnale pubblico, non si paga",
     "audit": "report notturno di auto-audit",

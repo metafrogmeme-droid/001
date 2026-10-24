@@ -925,6 +925,31 @@ jobs:
         working-directory: contracts/memeclaw
         run: node ../../token/scripts/audit_gate.mjs .
 
+  rxb-contracts:
+    name: RXB contracts (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: contracts/rxb/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/rxb
+        run: npm ci --no-audit --no-fund
+
+      # Fork and public-testnet bytecode only. Hermetic: no network.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/rxb
+        run: npm test
+
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/rxb
+        run: node ../../token/scripts/audit_gate.mjs .
+
   fvb-contracts:
     name: FVB contracts (solidity)
     runs-on: ubuntu-latest
