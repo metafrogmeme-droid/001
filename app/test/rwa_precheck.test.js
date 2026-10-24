@@ -569,7 +569,7 @@ test('the page is gated ahead of static, and the flag hides it', async () => {
   assert.ok(gateAt > 0 && gateAt < staticAt, 'the gate is mounted before static');
   // The canonical names /rwa, so the server must register that path the same
   // way it registers the other pages. pageGate does not answer /rwa; sendPage does.
-  assert.match(serverSrc, /app\.get\('\/rwa', \(req, res\) => \{ require\('\.\/lib\/rwa_flag'\)\.sendPage\(res\); \}\);/);
+  assert.match(serverSrc, /app\.get\('\/rwa', \(req, res\) => \{ require\('\.\/lib\/rwa_flag'\)\.sendPage\(req, res\); \}\);/);
 
   const prev = process.env.RWA_PRECHECK_ENABLED;
   const app = express();

@@ -20,7 +20,7 @@ const express = require('express');
 const { optionalAuth } = require('../auth');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { CHAINS } = require('../lib/evm_chains');
-const { enabled } = require('../lib/claw_guard_v01');
+const { flag_on_for } = require('../lib/admin_preview');
 const poison = require('../public/js/address-poison.js');
 const { readErc20Inbound } = require('../lib/poison_logs');
 
@@ -35,7 +35,7 @@ function chainOf(body) {
 }
 
 router.post('/', rateLimit({ name: 'guard_v01_poison', windowMs: 60000, max: 20, key: ipKey }), async (req, res) => {
-  if (!enabled()) return res.status(404).json({ error: 'Not found' });
+  if (!(await flag_on_for(req, 'CLAW_GUARD_V01'))) return res.status(404).json({ error: 'Not found' });
   try {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const chainId = chainOf(body);
