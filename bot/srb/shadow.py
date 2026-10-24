@@ -50,13 +50,19 @@ _DEMO = Path(__file__).resolve().parent / "fixtures" / "demo_window.json"
 class ShadowError(Exception):
     """A shadow run that did not produce a record."""
 
+    pass
+
 
 class ClusterRefused(ShadowError):
     """The source is not devnet, testnet, or a recorded fixture."""
 
+    pass
+
 
 class FixtureUnreadable(ShadowError):
     """A recorded window that cannot be read. Not an empty result."""
+
+    pass
 
 
 def demo_report() -> dict:

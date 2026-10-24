@@ -54,6 +54,15 @@
     "flag": null
   },
   {
+    "id": "t2c",
+    "name": "Time to cash",
+    "description": "A cap and LTV signal for the time it takes to exit. It is not a liquidation price.",
+    "chains": ["ethereum"],
+    "route": null,
+    "status": "runtime",
+    "flag": "T2C_ENABLED"
+  },
+  {
     "id": "srb",
     "name": "Sandwich restitution",
     "description": "A shadow record of a same-pool front and back on Solana. Nothing is paid, and there is no public dashboard.",
