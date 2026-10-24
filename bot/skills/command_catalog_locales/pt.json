@@ -145,6 +145,7 @@
     "journal": "diário semanal de operações (conta do operador)",
     "strategy": "estratégia ativa e encaminhamento por regime",
     "crossasset": "contexto de correlação entre ativos",
+    "cgc": "janelas do freio de conservação, testnet, somente leitura",
     "gates": "telemetria de aprovado/reprovado por gate",
     "flags": "flags de auditoria profunda opt-in",
     "shadow": "livro sombra contrafactual",
