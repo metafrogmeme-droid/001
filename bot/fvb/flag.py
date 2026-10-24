@@ -7,13 +7,14 @@ the recorded ambiguity count would move.
 from __future__ import annotations
 
 import os
+from typing import Mapping, Optional
 
 FLAG = "FVB_ENABLED"
 
 
-def flag_on(env: os._Environ[str] | dict[str, str] | None = None) -> bool:
+def flag_on(env: Optional[Mapping[str, str]] = None) -> bool:
     """True only for ``1`` or ``true``, ignoring case and surrounding space."""
-    src = os.environ if env is None else env
+    src = env if env is not None else os.environ
     raw = src.get(FLAG)
     if raw is None:
         return False
