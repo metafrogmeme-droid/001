@@ -148,6 +148,7 @@
     "gates": "geslaagd/gefaald-telemetrie per gate",
     "flags": "opt-in-flags voor diepe audit",
     "shadow": "contrafeitelijk schaduwboek",
+    "srb": "schaduw-restitutiesignalen — een openbaar signaal, er wordt niets betaald",
     "audit": "nachtelijk zelfauditrapport",
     "parity": "pariteit live ↔ backtest",
     "duplicates": "dubbel geboekte sluitingen in de boeken van de operator",
