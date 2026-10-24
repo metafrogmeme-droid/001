@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Sandwich restitution</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/srb">
+<meta name="robots" content="noindex">
+<meta name="description" content="A shadow restitution record. Nothing is paid. While the flag is off this page is an admin preview.">
+<meta property="og:title" content="RUNECLAW — Sandwich restitution">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="Shadow mode records a Solana swap and pays nothing. While the flag is off this page is an admin preview.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/srb">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Sandwich restitution">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .srb-wrap { max-width: 820px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .srb-wrap h1 { font-family: var(--font-display); letter-spacing: .04em; font-size: clamp(26px, 4vw, 40px); margin: 0 0 var(--s2); }
+  .lede, .srb-sentence { color: var(--text-2); max-width: 68ch; line-height: 1.6; }
+  .banner { border: 1px solid var(--line-2); background: var(--surface); color: var(--text-1); border-radius: var(--radius); padding: var(--s3) var(--s4); margin: var(--s3) 0; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin: var(--s4) 0; }
+  .srb-k { color: var(--text-3); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 var(--s2); }
+  .status { font-family: var(--font-display); letter-spacing: .08em; }
+  .signal { padding: var(--s3) 0; border-top: 1px solid var(--line); }
+  .signal:first-of-type { border-top: 0; }
+  .meta { color: var(--text-3); font-size: var(--fs-sm); font-family: var(--font-data); }
+  .disc { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; margin-top: var(--s4); }
+  .srb-err { color: var(--text-1); }
+  a:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+</style>
+<script src="/js/api-retry.js?v=3"></script>
+</head>
+<body>
+<div class="srb-wrap" role="main">
+  <nav class="topnav" style="display:flex;gap:var(--s3);margin-bottom:var(--s4)">
+    <a href="/">← RUNECLAW</a>
+  </nav>
+  <h1>Sandwich restitution</h1>
+  <p class="lede">Shadow mode can read a fixture, devnet, testnet, or mainnet. A mainnet read holds no key and signs nothing. Nothing is paid. While the flag is off this page is an admin preview.</p>
+  <p id="srb-banner" class="banner" hidden></p>
+  <section class="panel" aria-live="polite">
+    <p class="srb-k">Provider</p>
+    <p id="srb-provider" class="status"></p>
+    <div id="srb-signals"></div>
+    <p id="srb-amounts" hidden></p>
+    <p id="srb-err" class="srb-err" hidden></p>
+  </section>
+  <p class="disc">A signal is not a statement about a named wallet. Restitution here is a record of what would have been covered. Nothing moves.</p>
+</div>
+<script src="/js/srb.js?v=2"></script>
+</body>
+</html>
