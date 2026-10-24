@@ -7,7 +7,7 @@ This page keeps two kinds of evidence apart:
   analyses and one backtest on real BTC/USDT candles, each run once. The market figures are from that
   day; they are not live.
 - **A stress test anyone can re-run**: 500 backtests on generated prices with fixed seeds, last run on
-  15 Oct 2026. `python3 run_deep_backtest.py` reproduces it. It is a synthetic smoke test of the
+  24 Oct 2026. `python3 run_deep_backtest.py` reproduces it. It is a synthetic smoke test of the
   pipeline. It is not evidence of an edge.
 
 Neither is a forecast. A backtest replays the rules on past or generated prices: it shows how the risk
@@ -147,7 +147,7 @@ geometric Brownian motion and GARCH volatility. The rule engine decides alone (n
 0.1% commission and 0.05% slippage. Every return is a percentage of each run's simulated starting
 balance.
 
-Last run on **15 Oct 2026** at commit `59fae43`. Every run's result, with the parameters its prices
+Last run on **24 Oct 2026** at commit `e5ddb3c`. Every run's result, with the parameters its prices
 were generated from, is in `backtest_deep_results.json`; run `python3 run_deep_backtest.py` to
 reproduce it. Averages are over the runs that traded: a run that opened no position returned exactly
 0%, and folding it into an average would pull every figure toward zero.
@@ -155,28 +155,28 @@ reproduce it. Averages are over the runs that traded: a run that opened no posit
 | Measure | Result |
 |---|---|
 | Runs completed | 500 of 500 |
-| Runs that traded | 415 (85 did not trade) |
-| Trades | 5,157 |
-| Average return, runs that traded | +0.82% |
-| Best run | +4.96% |
-| Worst run | -2.16% |
-| Profitable runs | 304 of 415 that traded; 304 of 500 in all |
-| Median profit factor | 1.80 (11 runs had no losing trade, so no ratio) |
-| Average win rate, runs that traded | 61.3% |
-| Average max drawdown, runs that traded | 0.82% |
-| Worst drawdown | 2.62% |
+| Runs that traded | 416 (84 did not trade) |
+| Trades | 7,306 |
+| Average return, runs that traded | -0.02% |
+| Best run | +3.92% |
+| Worst run | -3.44% |
+| Profitable runs | 205 of 416 that traded; 205 of 500 in all |
+| Median profit factor | 0.98 (4 runs had no losing trade, so no ratio) |
+| Average win rate, runs that traded | 57.6% |
+| Average max drawdown, runs that traded | 1.37% |
+| Worst drawdown | 4.12% |
 | Runs past 20% drawdown | 0 |
 
 | Regime | Runs | Traded | Trades | Average return, runs that traded | Profitable runs |
 |---|---|---|---|---|---|
-| Bull Trend | 100 | 95 | 1,288 | +0.59% | 69 of 95 |
-| Bear Trend | 100 | 95 | 1,138 | +0.82% | 68 of 95 |
-| Range/Chop | 100 | 95 | 1,157 | +0.86% | 67 of 95 |
-| High Volatility | 100 | 35 | 268 | +0.77% | 26 of 35 |
-| Crash Recovery | 100 | 95 | 1,306 | +1.04% | 74 of 95 |
+| Bull Trend | 100 | 95 | 1,878 | -0.51% | 30 of 95 |
+| Bear Trend | 100 | 95 | 1,567 | +0.20% | 54 of 95 |
+| Range/Chop | 100 | 95 | 1,615 | +0.00% | 47 of 95 |
+| High Volatility | 100 | 36 | 378 | +0.21% | 18 of 36 |
+| Crash Recovery | 100 | 95 | 1,868 | +0.16% | 56 of 95 |
 
 **What it shows.** How the risk engine behaves across very different markets: the worst drawdown in any
-of the 500 runs was 2.62%, against the 10% maximum drawdown of the default risk settings
+of the 500 runs was 4.12%, against the 10% maximum drawdown of the default risk settings
 (`MAX_DRAWDOWN_PCT` in `bot/config.py`).
 
 **What it does not show.** An edge. The prices are a random walk with a drift and a volatility, with
