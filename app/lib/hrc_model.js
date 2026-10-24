@@ -2,9 +2,11 @@
 /**
  * The borrow curve, in the same numbers the Python model pins.
  *
- * 0.05 + 4.75 * max(0, utilization - 0.8), capped at 1. The funding
- * crossover is that formula inverted through exp(funding) - 1. It is
- * computed here. A stored utilization would be a second answer.
+ * 0.05 + 4.75 * max(0, utilization - 0.8), capped at 1. Utilization is
+ * borrowed / supplied on the raw 1e8 totals. The integer quote is a
+ * cross-check under 2 bp. The funding baseline is 0.116, and the
+ * crossover is that rate inverted through the curve. A stored
+ * utilization would be a second answer.
  *
  * Fixed point, SCALE digits. The kink arithmetic on terminating decimals
  * is exact. A missing value stays null. Zero utilization is the base rate.
@@ -68,7 +70,8 @@ const BASE = parseDec('0.05');
 const KINK = parseDec('0.8');
 const SLOPE = parseDec('4.75');
 const RATE_CAP = parseDec('1');
-const TOLERANCE = parseDec('0.000575');
+const TOLERANCE = parseDec('0.0002');
+const FUNDING_BASELINE = parseDec('0.116');
 const HOURS = parseDec('8760');
 const CAP_HIT = parseDec('0.98');
 const SPREAD_CEIL = parseDec('0.40');
@@ -119,6 +122,10 @@ function utilizationForBorrowApy(apy) {
   return add(KINK, div(sub(apy, BASE), SLOPE));
 }
 
+function baselineCrossover() {
+  return utilizationForBorrowApy(FUNDING_BASELINE);
+}
+
 function crossoverUtilization(funding) {
   return utilizationForBorrowApy(borrowApyMatchingFunding(funding));
 }
@@ -130,7 +137,7 @@ function quoteMatches(utilization, rateBps) {
   const expected = borrowApy(utilization);
   if (!quoted || !expected) return false;
   const gap = abs(sub(expected, quoted));
-  return cmp(gap, TOLERANCE) <= 0;
+  return cmp(gap, TOLERANCE) < 0;
 }
 
 function trailingMean(rates) {
@@ -150,7 +157,7 @@ function chooseSettlement(precompileRate, feedRate) {
   if (!pre && !feed) return { rate: null, source: 'none', payoutZero: true };
   if (!pre) return { rate: feed, source: 'signed_feed', payoutZero: false };
   if (!feed) return { rate: pre, source: 'precompile', payoutZero: false };
-  if (cmp(abs(sub(pre, feed)), TOLERANCE) <= 0) {
+  if (cmp(abs(sub(pre, feed)), TOLERANCE) < 0) {
     return { rate: pre, source: 'precompile', payoutZero: false };
   }
   const lower = cmp(pre, feed) <= 0 ? pre : feed;
@@ -169,8 +176,8 @@ function percentTenth(utilization) {
 }
 
 module.exports = {
-  BASE, KINK, SLOPE, RATE_CAP, TOLERANCE, HOURS, CAP_HIT, SPREAD_CEIL, SHOCK_RATE, DAY, HUNDRED, ZERO,
+  BASE, KINK, SLOPE, RATE_CAP, TOLERANCE, FUNDING_BASELINE, HOURS, CAP_HIT, SPREAD_CEIL, SHOCK_RATE, DAY, HUNDRED, ZERO,
   isDec, parseDec, fromInt, fmt, add, sub, mul, div, cmp,
   borrowApy, utilizationOf, borrowApyMatchingFunding, utilizationForBorrowApy,
-  crossoverUtilization, quoteMatches, trailingMean, chooseSettlement, percentTenth,
+  baselineCrossover, crossoverUtilization, quoteMatches, trailingMean, chooseSettlement, percentTenth,
 };

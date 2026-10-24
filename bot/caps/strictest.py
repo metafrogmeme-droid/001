@@ -21,7 +21,10 @@ from typing import Optional
 
 from bot.utils.atomic_write import atomic_write_json
 
-SOURCES = ("CGC", "RXB", "T2C", "HRC")
+# CGC is the earlier source. Batch 3 is built in this order. The minimum
+# of the proposals ignores order.
+BATCH_3 = ("RXB", "HRC", "T2C")
+SOURCES = ("CGC",) + BATCH_3
 
 
 class CapRefused(Exception):

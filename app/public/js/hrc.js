@@ -1,7 +1,8 @@
 'use strict';
 /**
- * Draw GET /api/hrc. Numbers are text. A missing number is the word
- * unreadable. Nothing on this page is coloured as profit or loss.
+ * Draw the operator shock packet. Numbers are text. A missing number is
+ * the word unreadable. The 24h loss row is painted only when the packet
+ * carries that key. Nothing on this page is coloured as profit or loss.
  */
 (function () {
   var out = document.getElementById('hrc-out');
@@ -63,10 +64,13 @@
         line(out, name, 'utilization ' + row.utilization + ' borrow ' + row.borrow_apy);
       });
     }
+    if (Object.prototype.hasOwnProperty.call(packet, 'rate_shock_loss_24h')) {
+      line(out, '24h rate-shock loss (USD)', packet.rate_shock_loss_24h);
+    }
   }
 
   function run() {
-    fetch('/api/hrc', { credentials: 'same-origin', signal: AbortSignal.timeout(8000) })
+    fetch('/api/hrc/shock', { credentials: 'same-origin', signal: AbortSignal.timeout(8000) })
       .then(function (r) {
         if (!r.ok) throw new Error('status');
         return r.json();

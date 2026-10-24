@@ -134,11 +134,22 @@
         "p50": "0",
         "p95": "0.01",
         "frozen_at": null
+      },
+      "0.116": {
+        "accrued_hours": 142,
+        "paying_hours": 0,
+        "mean_unreadable_hours": 21,
+        "no_rate_hours": 0,
+        "total_per_unit": "0",
+        "p50": "0",
+        "p95": "0",
+        "frozen_at": null
       }
     }
   },
   "manipulation": {
-    "definition": "Tokens of supply withdrawn so the borrow rate reaches the strike, held for 6 hours, divided by a scenario open-interest cap of 1000000 tokens. A withdrawal of 0 means utilization is already there. An unreachable strike has no withdrawal, which is not zero.",
+    "definition": "Tokens of supply withdrawn so the borrow rate reaches the strike, held for 6 hours, divided by a scenario open-interest cap of 1000000 tokens and by the per-user borrow cap of 50000000 USDC tokens. A withdrawal of 0 means utilization is already there. An unreachable strike has no withdrawal, which is not zero.",
+    "per_user_borrow_cap_tokens": "50000000",
     "as_of": "2026-10-23T20:17:29Z",
     "supplied_tokens": "560340325.9164869",
     "borrowed_tokens": "427858264.646081",
@@ -151,6 +162,8 @@
         "withdrawal_tokens": "0",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "0",
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": "0",
         "hours": 6
       },
       {
@@ -160,6 +173,8 @@
         "withdrawal_tokens": "0",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "0",
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": "0",
         "hours": 6
       },
       {
@@ -169,6 +184,8 @@
         "withdrawal_tokens": "32463246.158335016883116883",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "32.463246158335016883",
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": "0.649264923166700338",
         "hours": 6
       },
       {
@@ -178,6 +195,8 @@
         "withdrawal_tokens": "45827222.861073039240506329",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "45.827222861073039241",
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": "0.916544457221460785",
         "hours": 6
       },
       {
@@ -187,6 +206,8 @@
         "withdrawal_tokens": "70623035.056514671084337349",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "70.623035056514671084",
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": "1.412460701130293422",
         "hours": 6
       },
       {
@@ -196,6 +217,8 @@
         "withdrawal_tokens": "84942254.087508011111111111",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "84.942254087508011111",
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": "1.698845081750160222",
         "hours": 6
       },
       {
@@ -205,6 +228,8 @@
         "withdrawal_tokens": "132482061.2704059",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "132.4820612704059",
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": "2.649641225408118",
         "hours": 6
       },
       {
@@ -214,6 +239,8 @@
         "withdrawal_tokens": null,
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": null,
+        "per_user_borrow_cap_tokens": "50000000",
+        "withdrawal_over_per_user_cap": null,
         "hours": 6
       }
     ]

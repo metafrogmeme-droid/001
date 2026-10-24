@@ -122,7 +122,8 @@ class Outcome(NamedTuple):
 #: and not to this tuple runs in CI while `--list` reports it under "NOT
 #: covered locally", which is the honest half of the design.
 LOCAL_JOBS = ("Lint + tests (baseline gate)", "Web app (express)",
-              "Marketing site (vite)", "Anchor workspace (node)")
+              "Marketing site (vite)", "Anchor workspace (node)",
+              "RXB contracts (solidity)")
 PYTHON_JOBS = LOCAL_JOBS          # back-compat alias
 
 #: Steps to skip: setup, and anything whose name matches. Substring match on

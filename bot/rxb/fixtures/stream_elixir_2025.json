@@ -1,0 +1,86 @@
+{
+  "pulled_at": "2026-10-23",
+  "endpoint": "https://api.morpho.org/graphql",
+  "interval": "DAY",
+  "start": 1759276800,
+  "end": 1762473600,
+  "note": "DAY series for the Ethereum markets the assets search returned. The live USD figure on the pull did not match this October series and is not stored. NAV and cycle edges were not in the payload, so these rows are not a look-through.",
+  "market_facts": [
+    {
+      "market_id": "0x0f9563442d64ab3bd3bcb27058db0b0d4046a4c46f0acd811dacae9551d2b129",
+      "pair": "sdeUSD/USDC",
+      "chain_id": 1,
+      "as_of": "2025-10-01/2025-11-04",
+      "supplying_vaults": [],
+      "supplying_vault_v2s": [],
+      "points": [
+        {"x": 1759276800, "day": "2025-10-01", "field": "supply_usd", "y": "1652856.83"},
+        {"x": 1759276800, "day": "2025-10-01", "field": "borrow_usd", "y": "1411726.01"},
+        {"x": 1759276800, "day": "2025-10-01", "field": "collateral_usd", "y": "1623645.63"},
+        {"x": 1760918400, "day": "2025-10-20", "field": "supply_usd", "y": "12127739.22"},
+        {"x": 1760918400, "day": "2025-10-20", "field": "borrow_usd", "y": "10181962.03"},
+        {"x": 1760918400, "day": "2025-10-20", "field": "collateral_usd", "y": "11361173.50"},
+        {"x": 1761523200, "day": "2025-10-27", "field": "supply_usd", "y": "12013280.60"},
+        {"x": 1761523200, "day": "2025-10-27", "field": "borrow_usd", "y": "10166931.19"},
+        {"x": 1761523200, "day": "2025-10-27", "field": "collateral_usd", "y": "11321552.91"},
+        {"x": 1761609600, "day": "2025-10-28", "field": "supply_usd", "y": "11920360.58"},
+        {"x": 1761609600, "day": "2025-10-28", "field": "borrow_usd", "y": "10169234.12"},
+        {"x": 1761609600, "day": "2025-10-28", "field": "collateral_usd", "y": "11336510.60"},
+        {"x": 1762214400, "day": "2025-11-04", "field": "supply_usd", "y": "8660292.79"},
+        {"x": 1762214400, "day": "2025-11-04", "field": "borrow_usd", "y": "8660011.52"},
+        {"x": 1762214400, "day": "2025-11-04", "field": "collateral_usd", "y": "9557622.80"}
+      ]
+    },
+    {
+      "market_id": "0xbd1ad3b968f5f0552dbd8cf1989a62881407c5cccf9e49fb3657c8731caf0c1f",
+      "pair": "deUSD/USDC",
+      "chain_id": 1,
+      "as_of": "2025-10-01/2025-11-07",
+      "note": "Early October was a small book. The loan described in the public writeups was not in this market.",
+      "points": []
+    },
+    {
+      "market_id": "0xc05394d0261ed1c3c1af310007fdc4e64b3bcf650822b70526763fefc64b729e",
+      "pair": "xUSD/USDC",
+      "chain_id": 1,
+      "as_of": "2025-10-01/2025-11-07",
+      "note": "Collateral stayed near one dollar across the window. This is not the circular book.",
+      "points": []
+    },
+    {
+      "market_id": "0x39fe55e5102beac5fb3caff54142f26250b97dcdb5bea6122818c7760f38b331",
+      "pair": "xUSD/USDC",
+      "chain_id": 1,
+      "as_of": "2025-10-01/2025-11-07",
+      "note": "Collateral stayed near one dollar across the window. This is not the circular book.",
+      "points": []
+    }
+  ],
+  "published": {
+    "as_of": "2025-10-28",
+    "basis": "published_comparison",
+    "note": "Not a chain read. The public on-chain-face versus borrowed-size comparison is dated 28-29 Oct 2025. The two edges are one SCC, so the mutual claim is zeroed in the look-through and still counts as on-chain face for deUSD.",
+    "nodes": [
+      {
+        "token": "xUSD",
+        "nav": 530000000,
+        "external": 170000000,
+        "onchain_face": 170000000,
+        "debt": 0,
+        "attested": 0,
+        "attestation_age_s": null,
+        "claims": [{"to": "deUSD", "amount": 68000000}]
+      },
+      {
+        "token": "deUSD",
+        "nav": 104615385,
+        "external": 36615385,
+        "onchain_face": 104615385,
+        "debt": 0,
+        "attested": 0,
+        "attestation_age_s": null,
+        "claims": [{"to": "xUSD", "amount": 68000000}]
+      }
+    ]
+  }
+}

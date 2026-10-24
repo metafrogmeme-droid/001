@@ -150,6 +150,7 @@
     "gates": "télémétrie réussite/échec par gate",
     "flags": "flags d'audit approfondi en opt-in",
     "t2c": "plafond et signal de LTV pour la durée de sortie du wstETH",
+    "rxb": "lecture de récursion pour l'opérateur, ratios seulement",
     "shadow": "livre fantôme contrefactuel",
     "srb": "signaux de restitution en ombre — un signal public, rien n'est payé",
     "audit": "rapport d'auto-audit nocturne",
