@@ -48,6 +48,9 @@ const READERS = {
   SAR_ORACLE_ENABLED(env) {
     return require('./sar/flag').flag_on(env) === true;
   },
+  SRB_ENABLED(env) {
+    return require('./srb_flag').flag_on(env) === true;
+  },
   COVER_ADL_ENABLED(env) {
     return require('../../contracts/cover/flags.cjs').adlOn(env) === true;
   },
