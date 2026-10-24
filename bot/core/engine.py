@@ -6945,13 +6945,13 @@ class RuneClawEngine:
         # of the DATACLASS defaults, in the flattering direction, on the one
         # comment a reader consults to decide whether the bypass is safe:
         # `AUTO_CONFIRM_THRESHOLD` defaults to 0.85 (so the gate is ON) and
-        # `AUTO_CONFIRM_LIVE_ENABLED` defaults to True (so the suppression
-        # below does NOT fire). The shipped `.env.example` does set 1.0/false,
-        # so an install made by copying it is safe -- which is what made the
-        # sentence read true to everyone who checked the file rather than the
-        # field. An operator who writes a minimal `.env`, or who follows this
-        # file's own admin auto-trade policy ("set 0.85 AND enable live
-        # auto-confirm"), gets the other configuration.
+        # `AUTO_CONFIRM_LIVE_ENABLED` defaults to False (so the suppression
+        # below DOES fire until an operator sets the flag). The shipped
+        # `.env.example` sets the threshold to 1.0 and the live flag false:
+        # the live flag matches the code default, and the threshold is raised
+        # above 0.85 on purpose. An operator who wants the admin auto-trade
+        # policy sets 0.85 AND enables live auto-confirm, and still needs an
+        # eligibility record.
         #
         # In LIVE mode the flag is the second line. The first is an
         # eligibility record for the running strategy

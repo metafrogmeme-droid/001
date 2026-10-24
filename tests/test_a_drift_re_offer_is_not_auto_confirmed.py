@@ -101,14 +101,19 @@ def _offer(conf: float = 0.92, price: float = 111.0) -> TradeIdea:
 # ---------------------------------------------------------------------------
 
 def test_the_defect_was_reachable_at_the_dataclass_defaults():
-    """Every component, read off the live config rather than remembered."""
+    """The threshold default still lets the loop run. The live flag does not.
+
+    ``AUTO_CONFIRM_LIVE_ENABLED`` defaults off, so the SUPPRESSED_LIVE branch
+    fires at the dataclass default. The refusal below still proves a re-offer
+    is refused when the flag is explicitly on: that gate does not read the flag.
+    """
     threshold = CONFIG.auto_confirm_threshold
     offer = _offer()
     assert not auto_confirm_is_disabled(threshold), (
         f"the sentinel that switches auto-confirm off is 1.0; the default is "
         f"{threshold}, so the loop runs")
-    assert CONFIG.auto_confirm_live_enabled is True, (
-        "and the SUPPRESSED_LIVE branch cannot fire at the default")
+    assert CONFIG.auto_confirm_live_enabled is False, (
+        "the SUPPRESSED_LIVE branch fires at the default")
     assert offer.confidence >= threshold, (
         f"the copied confidence {offer.confidence} clears {threshold} -- which "
         f"is the whole defect: the bar is cleared by a number about another "

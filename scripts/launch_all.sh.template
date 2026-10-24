@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# RUNECLAW launcher — starts BOTH processes and refuses to lie about either.
+# RUNECLAW launcher — starts every entry point and refuses to lie about any.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # THIS IS A TEMPLATE. COPY IT OUTSIDE THE REPO BEFORE USING IT.
@@ -15,7 +15,7 @@
 # nothing running. A launcher tracked by the thing it deploys is not a launcher.
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# WHY THIS EXISTS: THERE ARE TWO PROCESSES, AND ONLY ONE WAS BEING STARTED.
+# WHY THIS EXISTS: THE ALWAYS-ON PAIR, AND ONLY ONE WAS BEING STARTED.
 #
 #   $PY_BIN -m bot.main   the Telegram bot + engine. Also serves the GATEWAY
 #                         on :8080 — chat, proof, cards. This is what every
@@ -23,16 +23,21 @@
 #   $PY_BIN api_bridge.py a SEPARATE uvicorn app on :8000. Three dashboard
 #                         panels read it: insight, patterns, lab.
 #
+# Two more entry points are optional and start only when their token is set:
+# `python3 -m bot.duel_bot` (health on :8081) and
+# `python3 -m bot.daily_duel_bot` (health on :8082). Neither builds an engine
+# and neither signs. The always-on pair is still both required.
+#
 # On 2026-08-25 the bridge was down for hours. Nothing had crashed — nothing
 # had ever started it. The bot restarted fine, the gateway recovered, the
 # status page said the system was healthy, and two panels returned 502 until an
-# operator noticed broken pages. A deploy that starts one of two processes and
-# reports success is the same defect as a test suite that runs a subset and
-# reports it as the whole.
+# operator noticed broken pages. A deploy that starts one of the always-on
+# processes and reports success is the same defect as a test suite that runs
+# a subset and reports it as the whole.
 #
-# So: both start, both are smoke-tested, and DEPLOY_DONE is gated on both still
-# being alive — not on both having been launched. Those differ by exactly the
-# interval in which a misconfigured process gives up.
+# So: the always-on pair starts, both are smoke-tested, and DEPLOY_DONE is
+# gated on both still being alive — not on both having been launched. Those
+# differ by exactly the interval in which a misconfigured process gives up.
 
 set -euo pipefail
 

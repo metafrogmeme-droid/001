@@ -50,7 +50,7 @@ All figures measured 2026-10-24 on `main` at `64e91f2` unless stated.
 | D2 default-deny eligibility at the Lock-5 mint | Phase 0 | **Landed.** `bot/core/live_eligibility.py`, read at the compliance mint; `benchmark/eligibility/README.md` describes the record. No record ships. |
 | D0 Day-0 production readout | Phase 0, step 1 | **Not run.** ADR 0001 still says "readout not yet run". |
 | G0 operator decisions as ADRs | Phase 0, step 2 | **Half.** ADRs 0001 to 0010 written; all ten remain "Proposed, decision pending operator". |
-| D1 research mode; auto-confirm default off | Phase 0 | **Not landed.** `bot/config.py::Config.auto_confirm_live_enabled` still defaults to on while `.env.example` says off. D2 makes the disagreement harmless for autonomous orders, but the two readings still disagree. |
+| D1 research mode; auto-confirm default off | Phase 0 | **The code default is off.** `bot/config.py::Config.auto_confirm_live_enabled` defaults to false, and `.env.example` sets the same. Research-mode notional (ADR 0002's other half) is still an operator decision. |
 | G1 lean CLAUDE.md, lessons archive, backlog | Phase 0 | **Landed, minus the backlog.** Guide at 15 KB under a 25 KB test; lessons log and generated index. `docs/BACKLOG.yaml` does not exist. |
 | G11, G5 derived ratchet totals, symbol citations | Phase 0 | **Landed.** No stored totals; `scripts/rerecord.py --all`; `scripts/cite.py` anchors in the income map. |
 | G14 merge queue | Phase 0 | **Not landed.** `ci.yml` cancels in-progress runs per ref; six `main` commits in ten days got no verdict of their own. |
@@ -99,7 +99,7 @@ The September principles stand. Three are added:
 |---|---|---|---|
 | H1 | Run ADR 0001's Day-0 readout: flags, caps, budgets, ledger row counts and date ranges, LLM and rule shares, venue-priced close share, adopted positions with unread margin, the four processes' uptime. No secrets. Append it to ADR 0001 and set it Accepted. | S (half a day, read-only) | - |
 | H2 | Decide ADRs 0002 to 0010. Each gets a chosen option, who chose it and the date, or an explicit "defer to the recorded default on <date>". | S (2 to 3 hours) | H1 |
-| H3 | Flip `Config.auto_confirm_live_enabled` to default off in code (ADR 0002's recommendation), so the code and `.env.example` read the same. Drive both readings in one test. | S | H2 |
+| H3 | Flip `Config.auto_confirm_live_enabled` to default off in code (ADR 0002's recommendation), so the code and `.env.example` read the same. Drive both readings in one test. **Landed:** the code default is false, `.env.example` has one `AUTO_CONFIRM_LIVE_ENABLED=false`, and the tests pin both. | S | H2 |
 | H4 | Name the product's centre in ADR 0011: (a) copilot plus validated core, with the Duel and Pi family as acquisition; (b) the proof-and-duel family as the product, with the engine as its evidence source; (c) both at equal priority. Every open and future surface PR cites which centre it serves. | S | H2 |
 | H5 | Work-in-progress limit: at most four open product-surface pull requests, written into the PR template and checked by a workflow that fails a fifth. Money-path, CI, security and dependency PRs are exempt. | S | H4 |
 
