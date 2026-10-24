@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,10 +74,10 @@ def test_the_parallel_shadow_is_the_same_gate_and_does_not_block():
     assert "pytest-xdist" not in serial_runs
 
 
-def test_the_cgc_contract_job_stays_on_ci_and_off_the_local_plan():
-    """CGC contracts landed as their own solidity job.
+def test_a_contract_job_stays_on_ci_and_off_the_local_plan(name, workdir):
+    """A solidity job of its own, not a step of the test gate.
 
-    The per-SHA group is workflow-wide, so this job gets the same main
+    The per-SHA group is workflow-wide, so the job gets the same main
     verdict as the rest of the workflow. It is not folded into the shadow
     and not into local preflight: a solidity suite in the local plan would
     change the gate count, and continue-on-error would make a red contract
@@ -86,17 +87,26 @@ def test_the_cgc_contract_job_stays_on_ci_and_off_the_local_plan():
     sys.path.insert(0, str(ROOT / "scripts"))
     import preflight
 
-    job = _job("CGC contracts (solidity)")
+    job = _job(name)
     assert "concurrency" not in job
     assert job.get("continue-on-error") is not True
     runs = [
         (step.get("working-directory"), str(step.get("run") or ""))
         for step in job["steps"]
     ]
-    assert ("contracts/cgc", "npm test") in runs
-    assert "CGC contracts (solidity)" not in preflight.LOCAL_JOBS
-    assert "CGC contracts (solidity)" in preflight.uncovered()
+    assert (workdir, "npm test") in runs
+    assert name not in preflight.LOCAL_JOBS
+    assert name in preflight.uncovered()
     assert _SHADOW not in preflight.LOCAL_JOBS
+
+
+test_a_contract_job_stays_on_ci_and_off_the_local_plan = pytest.mark.parametrize(
+    "name,workdir",
+    [
+        ("CGC contracts (solidity)", "contracts/cgc"),
+        ("Kink Cap contracts (solidity)", "contracts/kinkcap"),
+    ],
+)(test_a_contract_job_stays_on_ci_and_off_the_local_plan)
 
 
 def test_the_shadow_is_not_a_local_preflight_gate():
