@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -39,6 +40,7 @@ from bot.hrc.feed import (  # noqa: E402
 )
 from bot.hrc.index import calibrate  # noqa: E402
 from bot.hrc.model import floor_rate_bps  # noqa: E402
+from bot.hrc.store import columns, ensure, postgres_ddl, record_quote, record_sample  # noqa: E402
 
 
 def _cap_updates(env):
@@ -80,6 +82,70 @@ def _sign_sample(reading: dict) -> dict:
     }
 
 
+def _dec(value):
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, str):
+        try:
+            return Decimal(value)
+        except Exception:
+            return None
+    return None
+
+
+def persist_sample(env, reading: dict) -> bool:
+    """Write the hour when HRC_SAMPLE_DB is set. Unset leaves the tape alone.
+
+    The sqlite columns have to match the Postgres DDL. A mismatch writes
+    nothing. A quote is stored only when the caller passed a series, a
+    side, and a notional. An unreadable premium is NULL, not zero.
+    """
+    db = env.get("HRC_SAMPLE_DB")
+    if not isinstance(db, str) or not db.strip():
+        return False
+    if not isinstance(reading, dict) or reading.get("readable") is not True:
+        return False
+    supplied = _dec(reading.get("supplied"))
+    borrowed = _dec(reading.get("borrowed"))
+    if supplied is None or borrowed is None:
+        return False
+    expected = columns(postgres_ddl(), "reserve_samples")
+    conn = sqlite3.connect(db)
+    try:
+        ensure(conn)
+        have = [row[1] for row in conn.execute("PRAGMA table_info(reserve_samples)").fetchall()]
+        if have != expected:
+            return False
+        ts_utc = reading.get("ts_utc")
+        src = reading.get("source")
+        if not isinstance(ts_utc, str) or not isinstance(src, str):
+            return False
+        wrote = record_sample(
+            conn,
+            ts_utc=ts_utc,
+            src=src,
+            token=0,
+            total_supplied=supplied,
+            total_borrowed=borrowed,
+            util=_dec(reading.get("utilization")),
+            borrow_rate=_dec(reading.get("formula_rate")),
+            supply_rate=None,
+            l1_block=reading.get("l1_block") if type(reading.get("l1_block")) is int else None,
+        )
+        series = env.get("HRC_QUOTE_SERIES")
+        side = env.get("HRC_QUOTE_SIDE")
+        notional = _dec(env.get("HRC_QUOTE_NOTIONAL"))
+        premium = _dec(reading.get("premium"))
+        if isinstance(series, str) and series and side in ("buy", "sell") and notional is not None:
+            record_quote(
+                conn, series_id=series, side=side, notional=notional, premium=premium,
+            )
+        conn.commit()
+        return wrote
+    finally:
+        conn.close()
+
+
 def run(env, transport, hour: int, *, precompile_transport=None) -> dict:
     """Collect one hour. Sign only when the confirmed chain is 998."""
     chain = confirmed_chain_id(env)
@@ -119,6 +185,7 @@ def run(env, transport, hour: int, *, precompile_transport=None) -> dict:
             book = load_book(cap_path)
             apply_pending(book, _coerce(updates))
             save_book(cap_path, book)
+    persist_sample(env, reading if isinstance(reading, dict) else {})
     return {"reading": reading, "signed": signed, "verified": verified}
 
 

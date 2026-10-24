@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import sqlite3
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from bot.caps.strictest import (
     empty_book,
     load_book,
 )
+from bot.hrc.backtest import build_report, replay
 from bot.hrc.collector import (
     collect_hour,
     combine_readings,
@@ -28,6 +30,7 @@ from bot.hrc.collector import (
     http_transport,
     load_history,
 )
+from bot.hrc.corewriter_probe import encode_action, load_record
 from bot.hrc.feed import (
     SigningRefused,
     address_of,
@@ -46,19 +49,27 @@ from bot.hrc.index import (
 )
 from bot.hrc.keccak import keccak256
 from bot.hrc.model import (
+    DEFAULT_SPREAD_CEIL,
+    KIND_CAP,
+    KIND_DIGITAL,
+    KIND_SPREAD,
     borrow_apy,
     borrow_apy_matching_funding,
+    can_unfreeze,
     cap_hit_pays,
     carry_strike,
     choose_settlement,
     collateral_for,
+    collateral_for_series,
     crossover_utilization,
+    freeze_reason,
     hour_payoff,
     points_below,
     quote_matches,
     quoted_rate_matches,
     rate_shock_loss_24h,
     replay_withdrawal,
+    supply_to_hold,
     trailing_mean,
     truncation_tolerance,
     utilization_for_borrow_apy,
@@ -66,6 +77,7 @@ from bot.hrc.model import (
 )
 from bot.hrc.present import admin_packet, card_text, dashboard
 from bot.hrc.rfq import premium_fraction
+from bot.hrc.store import columns, ensure, postgres_ddl, record_quote, record_sample
 from bot.skills.hrc_commands import HrcCommands
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -506,6 +518,67 @@ def test_the_dashboard_shows_rates_and_the_card_drops_the_shock():
     assert zero["borrow_apy"] == "0.05"
 
 
+def test_series_terms_appear_only_when_the_reading_carries_them():
+    bare = dashboard({
+        "readable": True, "network": "mainnet", "synthetic": False, "source": "precompile",
+        "unit": "human", "supplied": "100", "borrowed": "50", "oracle": "1",
+    })
+    for key in ("hour_payoff_tokens", "collateral_tokens", "freeze", "can_unfreeze"):
+        assert key not in bare
+    struck = dashboard({
+        "readable": True, "network": "mainnet", "synthetic": False, "source": "precompile",
+        "unit": "human", "supplied": "100", "borrowed": "50", "oracle": "1",
+        "strike": "0.04", "rates": ["0.05", "0.05", "0.05", "0.05", "0.05", "0.05"],
+        "notional": 10_000_000, "hours": 24,
+        "previous_hour": 10, "hour": 13, "formula_ok": True, "model_ok": True,
+        "frozen_at": 10, "now_hour": 12, "good_hours": [11, 12], "guardian": True,
+    })
+    assert struck["freeze"] == "gap"
+    assert struck["can_unfreeze"] is True
+    assert int(struck["hour_payoff_tokens"]) > 0
+    assert int(struck["collateral_tokens"]) > 0
+    held = dashboard({
+        "readable": True, "network": "mainnet", "synthetic": False, "source": "precompile",
+        "unit": "human", "supplied": "100", "borrowed": "50", "oracle": "1",
+        "strike": "0.20", "rates": ["0.05", "0.05", "0.05", "0.05", "0.05", "0.05"],
+        "notional": 10_000_000, "hours": 24, "hour": 11, "formula_ok": True, "model_ok": True,
+    })
+    assert held["hour_payoff_tokens"] == "0"
+    assert "freeze" not in held
+
+
+def test_a_sample_db_stores_the_hour_and_leaves_a_missing_util_null(tmp_path):
+    mod = _collect_mod()
+    db = tmp_path / "samples.sqlite"
+    reading = {
+        "readable": True,
+        "source": "info_api",
+        "supplied": "100",
+        "borrowed": "50",
+        "formula_rate": Decimal("0.05"),
+        "ts_utc": "2026-10-23T20:00:00Z",
+    }
+    assert mod.persist_sample({"HRC_SAMPLE_DB": str(db)}, reading) is True
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT util, borrow_rate, total_supplied FROM reserve_samples"
+    ).fetchone()
+    assert row[0] is None
+    assert row[1] == "0.05"
+    assert row[2] == "100"
+    quoted = dict(reading)
+    quoted["premium"] = None
+    assert mod.persist_sample({
+        "HRC_SAMPLE_DB": str(db),
+        "HRC_QUOTE_SERIES": "1",
+        "HRC_QUOTE_SIDE": "sell",
+        "HRC_QUOTE_NOTIONAL": "10",
+    }, quoted) is True
+    premium = conn.execute("SELECT premium FROM quotes").fetchone()
+    assert premium == (None,)
+    assert mod.persist_sample({}, reading) is False
+
+
 def test_an_unreadable_quote_is_not_a_zero_premium():
     assert premium_fraction(None, Decimal("0.1"), 24) is None
     assert premium_fraction(Decimal("0.1"), Decimal("0.2"), 24) == Decimal(0)
@@ -564,3 +637,128 @@ def test_the_command_is_not_found_for_anyone_else_and_previews_for_an_admin(tmp_
     admin.sent.clear()
     asyncio.run(admin._cmd_hrc(None, None))
     assert "Admin preview. Not public." not in admin.sent[0]
+    assert "cap spread" in admin.sent[0]
+    assert "0.40" in admin.sent[0]
+
+
+def test_spread_collateral_uses_the_ceiling_and_a_digital_does_not_divide_by_the_year():
+    assert collateral_for_series(KIND_CAP, 8760, Decimal(0), 10) == collateral_for(8760, Decimal(0), 10)
+    assert collateral_for_series(KIND_SPREAD, 8760, Decimal("0.05"), 10, None) == 4
+    assert collateral_for_series(KIND_SPREAD, 8760, Decimal("0.05"), 10, DEFAULT_SPREAD_CEIL) == 4
+    assert collateral_for_series(KIND_DIGITAL, 10000, Decimal(0), 2, digital=Decimal("0.01")) == 200
+    assert collateral_for_series(KIND_DIGITAL, 10000, Decimal(0), 2, digital=None) is None
+    high = [(hour, Decimal("0.50")) for hour in range(8)]
+    spread = replay(high, kind=KIND_SPREAD, strike=Decimal("0.10"), ceil=DEFAULT_SPREAD_CEIL)
+    cap = replay(high, kind=KIND_CAP, strike=Decimal("0.10"))
+    digital = replay(high, kind=KIND_DIGITAL, strike=Decimal("0.10"), digital=Decimal("0.01"))
+    assert spread["pays"][5]["pay"] == Decimal("0.30") / Decimal(8760)
+    assert cap["pays"][5]["pay"] == Decimal("0.40") / Decimal(8760)
+    assert digital["pays"][5]["pay"] == Decimal("0.01")
+    assert spread["pays"][4]["reason"] == "mean_unreadable"
+    assert spread["pays"][4]["pay"] == Decimal(0)
+    gapped = replay(
+        [(0, Decimal("0.2")), (1, Decimal("0.2")), (4, Decimal("0.2"))],
+        kind=KIND_CAP, strike=Decimal("0.05"),
+    )
+    assert gapped["frozen_at"] == 4
+    assert [item["hour"] for item in gapped["pays"]] == [0, 1]
+
+
+def test_a_freeze_needs_a_real_gap_and_unfreeze_needs_the_guardian():
+    assert freeze_reason(None, 10, True, True) is None
+    assert freeze_reason(10, 12, True, True) is None
+    assert freeze_reason(10, 13, True, True) == "gap"
+    assert freeze_reason(10, 11, False, True) == "formula"
+    assert freeze_reason(10, 11, True, False) == "rate_model"
+    assert freeze_reason(None, None, False, False) is None
+    assert can_unfreeze(10, 12, [11, 12], True) is True
+    assert can_unfreeze(10, 12, [11], True) is False
+    assert can_unfreeze(10, 12, [11, 12], False) is False
+    assert can_unfreeze(10, 35, [11, 12], True) is False
+    held = supply_to_hold(Decimal(100), Decimal(0), Decimal("0.10"))
+    assert held["reachable"] is False
+    assert held["withdrawal"] is None
+    already = supply_to_hold(Decimal(100), Decimal(50), Decimal("0.05"))
+    assert already["withdrawal"] == Decimal(0)
+
+
+def test_reserve_rows_keep_a_missing_rate_null_and_match_the_postgres_columns():
+    pg = columns(postgres_ddl(), "reserve_samples")
+    quotes = columns(postgres_ddl(), "quotes")
+    assert pg == [
+        "ts_utc", "src", "token", "total_supplied", "total_borrowed",
+        "util", "borrow_rate", "supply_rate", "l1_block",
+    ]
+    assert quotes == ["id", "series_id", "side", "notional", "premium", "model_ver", "created_at"]
+    conn = sqlite3.connect(":memory:")
+    ensure(conn)
+    sql_cols = [
+        row[1] for row in conn.execute("PRAGMA table_info(reserve_samples)").fetchall()
+    ]
+    assert sql_cols == pg
+    assert record_sample(
+        conn, ts_utc="2026-10-23T20:00:00Z", src="precompile", token=0,
+        total_supplied=Decimal("100"), total_borrowed=Decimal("50"),
+        util=None, borrow_rate=Decimal("0.05"), supply_rate=None, l1_block=None,
+    ) is True
+    assert record_sample(
+        conn, ts_utc="2026-10-23T20:00:00Z", src="precompile", token=0,
+        total_supplied=Decimal(0), total_borrowed=Decimal(0),
+        util=Decimal(0), borrow_rate=Decimal(0), supply_rate=Decimal(0), l1_block=0,
+    ) is False
+    row = conn.execute(
+        "SELECT util, supply_rate, l1_block FROM reserve_samples"
+    ).fetchone()
+    assert row == (None, None, None)
+    assert record_quote(
+        conn, series_id="1", side="sell", notional=Decimal(10), premium=None,
+    ) is True
+    stored = conn.execute("SELECT premium, model_ver FROM quotes").fetchone()
+    assert stored[0] is None
+    assert stored[1] == "HRCModel.v1"
+
+
+def test_the_hourly_replay_and_the_corewriter_record_stay_off_the_settlement_path():
+    report = build_report(
+        ROOT / "tests/fixtures/hypebasis_usdc_hourly.csv",
+        MAINNET,
+    )
+    saved = json.loads((ROOT / "benchmark/hrc/backtest_2026-10-23.json").read_text())
+    assert saved == report
+    assert report["readable_hours"] == 168
+    assert report["collector"]["formula_rate"] == "0.05"
+    assert report["collector"]["synthetic"] is False
+    spread = report["payouts"]["spread_ceiling_0.40"]
+    # Five captures clear 10%. One trailing mean does. The 20% strike never does.
+    assert spread["0.10"]["paying_hours"] == 1
+    assert spread["0.20"]["paying_hours"] == 0
+    assert spread["0.04"]["accrued_hours"] == 142
+    assert spread["0.04"]["mean_unreadable_hours"] == 21
+    assert Decimal(spread["0.04"]["total_per_unit"]) > 0
+    assert spread["0.04"]["total_per_unit"] == report["payouts"]["cap_ceiling_1"]["0.04"]["total_per_unit"]
+    curve = {row["strike"]: row for row in report["manipulation"]["strikes"]}
+    assert curve["0.05"]["withdrawal_tokens"] == "0"
+    assert Decimal(curve["0.10"]["withdrawal_tokens"]) > 0
+    assert curve["1.01"]["reachable"] is False
+    assert curve["1.01"]["withdrawal_tokens"] is None
+    blob = json.dumps(report)
+    assert "$" not in blob
+    assert "total_supplied_usd" not in blob
+
+    encoded = encode_action(0, 0, 1)
+    assert encoded is not None and encoded[:4] == bytes([1, 0, 0, 15])
+    assert encode_action(0, 0, 0) is None
+    record = load_record()
+    spec = importlib.util.spec_from_file_location(
+        "hrc_replay_under_test", ROOT / "scripts" / "hrc_replay.py")
+    replay_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(replay_mod)
+    assert replay_mod.record_encodes(record) is True
+    assert replay_mod.record_encodes({"depended_on": True}) is False
+    assert record["depended_on"] is False
+    assert record["chain_id"] == 998
+    assert record["supply"]["eth_call"] == "success"
+    assert record["withdraw"]["eth_call"] == "success"
+    market = (ROOT / "contracts/kinkcap/KinkCapMarket.sol").read_text(encoding="utf-8")
+    assert "3333333333333333333333333333333333333333" not in market
+    assert "corewriter_action15" not in (ROOT / "bot/hrc/model.py").read_text(encoding="utf-8")

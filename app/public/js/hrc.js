@@ -45,6 +45,8 @@
     line(out, 'Points below the kink', packet.points_to_kink);
     line(out, 'Points below the funding crossover', packet.points_to_crossover);
     line(out, 'Borrow cap used', packet.borrow_cap_ratio);
+    line(out, 'Series', packet.kind);
+    line(out, 'Ceiling', packet.ceiling);
     line(out, 'Trailing mean', packet.trailing_mean);
     line(out, 'Premium fraction', packet.premium);
     if (packet.cap_hit === true) line(out, 'Cap-hit', 'yes');

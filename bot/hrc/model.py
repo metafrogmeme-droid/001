@@ -321,6 +321,217 @@ def replay_withdrawal(
     return {"readable": True, "utilization": util, "borrow_apy": rate}
 
 
+KIND_CAP = 0
+KIND_SPREAD = 1
+KIND_DIGITAL = 2
+DEFAULT_SPREAD_CEIL = Decimal("0.40")
+CAP_CEIL = Decimal("1")
+GAP_LIMIT_HOURS = 2
+UNFREEZE_GOOD_HOURS = 2
+UNFREEZE_WINDOW_HOURS = 24
+MODEL_VER = "HRCModel.v1"
+
+
+def ceil_for(kind: int, ceil: Optional[Decimal]) -> Optional[Decimal]:
+    """The ceiling a series collateralizes.
+
+    A cap is 100%. A spread with no ceiling uses 40%. A digital has no
+    ceiling. A missing spread ceiling is the default, not zero.
+    """
+    if kind == KIND_CAP:
+        return CAP_CEIL
+    if kind == KIND_SPREAD:
+        if ceil is None:
+            return DEFAULT_SPREAD_CEIL
+        if not isinstance(ceil, Decimal) or ceil <= 0:
+            return None
+        return ceil
+    return None
+
+
+def accrual_per_unit(
+    kind: int,
+    mean: Optional[Decimal],
+    strike: Optional[Decimal],
+    ceil: Optional[Decimal] = None,
+    digital: Optional[Decimal] = None,
+) -> Optional[Decimal]:
+    """Hourly accrual per 1 of notional.
+
+    Cap: max(0, mean − strike) / 8760. Spread: max(0, min(mean, ceiling) −
+    strike) / 8760. Digital: D when the mean is strictly above the strike,
+    else a measured 0. None when the mean or the strike was not read. A
+    mean sitting on the strike is a measured 0, including the digital.
+    """
+    if kind not in (KIND_CAP, KIND_SPREAD, KIND_DIGITAL):
+        return None
+    if mean is None or strike is None:
+        return None
+    if not isinstance(mean, Decimal) or not isinstance(strike, Decimal):
+        return None
+    if strike < 0 or mean < 0:
+        return None
+    if kind == KIND_DIGITAL:
+        if digital is None or not isinstance(digital, Decimal) or digital < 0:
+            return None
+        if mean > strike:
+            return digital
+        return Decimal(0)
+    ceiling = ceil_for(kind, ceil)
+    if ceiling is None:
+        return None
+    capped = mean if mean < ceiling else ceiling
+    gap = capped - strike
+    if gap <= 0:
+        return Decimal(0)
+    return gap / HOURS_PER_YEAR
+
+
+def _round_up(raw: Decimal) -> int:
+    whole = int(raw)
+    if Decimal(whole) < raw:
+        return whole + 1
+    return whole
+
+
+def collateral_for_series(
+    kind: int,
+    notional: Optional[int],
+    strike: Optional[Decimal],
+    hours: Optional[int],
+    ceil: Optional[Decimal] = None,
+    digital: Optional[Decimal] = None,
+) -> Optional[int]:
+    """N · (C − K) · T / 8760, rounded up. A cap uses C = 1.
+
+    A digital collateralizes N · D · T, because that payoff is not divided
+    by 8760. None when an input was not read. A measured zero notional is 0.
+    """
+    if kind not in (KIND_CAP, KIND_SPREAD, KIND_DIGITAL):
+        return None
+    if type(notional) is not int or notional < 0:
+        return None
+    if type(hours) is not int or hours < 0:
+        return None
+    if strike is None or not isinstance(strike, Decimal) or strike < 0:
+        return None
+    if hours == 0 or notional == 0:
+        return 0
+    if kind == KIND_DIGITAL:
+        if digital is None or not isinstance(digital, Decimal) or digital < 0:
+            return None
+        return _round_up(Decimal(notional) * digital * Decimal(hours))
+    ceiling = ceil_for(kind, ceil)
+    if ceiling is None or ceiling < strike:
+        return None
+    if ceiling == strike:
+        return 0
+    raw = Decimal(notional) * (ceiling - strike) * Decimal(hours) / HOURS_PER_YEAR
+    return _round_up(raw)
+
+
+def freeze_reason(
+    previous_hour: Optional[int],
+    hour: Optional[int],
+    formula_ok: Optional[bool],
+    model_ok: Optional[bool],
+) -> Optional[str]:
+    """Why this hour freezes the series, or None when it does not.
+
+    A missing previous hour is the first sample, not a gap. A formula
+    failure and a model failure are separate reasons. None is not "no
+    freeze" when the hour itself was not read: that returns None only
+    alongside an unreadable hour number, and the caller does not sample it.
+    """
+    if type(hour) is not int or hour < 0:
+        return None
+    if type(previous_hour) is int and hour > previous_hour + GAP_LIMIT_HOURS:
+        return "gap"
+    if model_ok is False:
+        return "rate_model"
+    if formula_ok is False:
+        return "formula"
+    return None
+
+
+def can_unfreeze(
+    frozen_at: Optional[int],
+    now: Optional[int],
+    good_hours: Optional[Sequence[int]],
+    is_guardian: bool,
+) -> bool:
+    """Guardian, two good hours immediately after the freeze, inside 24h.
+
+    ``good_hours`` are hour ids whose samples were good. Hours that were
+    not read are absent from the sequence. They are not good hours.
+    """
+    if is_guardian is not True:
+        return False
+    if type(frozen_at) is not int or type(now) is not int:
+        return False
+    if now > frozen_at + UNFREEZE_WINDOW_HOURS:
+        return False
+    if not isinstance(good_hours, (list, tuple)):
+        return False
+    needed = {frozen_at + 1, frozen_at + 2}
+    seen = {item for item in good_hours if type(item) is int}
+    return needed <= seen
+
+
+def target_utilization(strike: Optional[Decimal]) -> Optional[Decimal]:
+    """Utilization at which the curve's rate reaches ``strike``.
+
+    None when the strike is above 100% (the curve cannot get there) or
+    was not read. A strike at or under the base rate is already met at
+    every utilization, and the result is the kink's base, not zero: the
+    caller treats a non-positive withdrawal as "already there".
+    """
+    if strike is None or not isinstance(strike, Decimal):
+        return None
+    if strike < 0 or strike > RATE_CAP:
+        return None
+    if strike <= BASE_RATE:
+        return KINK
+    return KINK + (strike - BASE_RATE) / SLOPE
+
+
+def supply_to_hold(
+    supplied: Optional[Decimal],
+    borrowed: Optional[Decimal],
+    strike: Optional[Decimal],
+) -> dict:
+    """Supply that must be withdrawn so the curve's rate stays at ``strike``.
+
+    The amount is tokens, in the same unit as ``supplied``. Zero is a real
+    reading: utilization is already high enough. None means the strike
+    cannot be reached by withdrawing supply, which is not a withdrawal of
+    zero. Holding it for six hours is the caller's window; this function
+    does not turn the amount into interest.
+    """
+    if supplied is None or borrowed is None or not isinstance(supplied, Decimal) or not isinstance(borrowed, Decimal):
+        return {"reachable": None, "withdrawal": None, "target_utilization": None}
+    if supplied <= 0 or borrowed < 0:
+        return {"reachable": None, "withdrawal": None, "target_utilization": None}
+    if strike is None or not isinstance(strike, Decimal) or strike < 0:
+        return {"reachable": None, "withdrawal": None, "target_utilization": None}
+    if strike > RATE_CAP:
+        return {"reachable": False, "withdrawal": None, "target_utilization": None}
+    target = target_utilization(strike)
+    if target is None:
+        return {"reachable": False, "withdrawal": None, "target_utilization": None}
+    if strike <= BASE_RATE:
+        return {"reachable": True, "withdrawal": Decimal(0), "target_utilization": target}
+    current = borrowed / supplied
+    if current >= target:
+        return {"reachable": True, "withdrawal": Decimal(0), "target_utilization": target}
+    if borrowed == 0:
+        return {"reachable": False, "withdrawal": None, "target_utilization": target}
+    withdrawal = supplied - (borrowed / target)
+    if withdrawal < 0:
+        withdrawal = Decimal(0)
+    return {"reachable": True, "withdrawal": withdrawal, "target_utilization": target}
+
+
 def points_below(level: Optional[Decimal], value: Optional[Decimal]) -> Optional[Decimal]:
     """How many percentage points ``value`` sits under ``level``.
 
