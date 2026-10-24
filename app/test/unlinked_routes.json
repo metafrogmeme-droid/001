@@ -21,7 +21,7 @@
     "/panic": "behind PANIC_BUTTON flag, off",
     "/botcheck": "The custodial-bot check is served only when BOTCHECK_ENABLED is 1, true, yes, or on. Otherwise the page answers 404, so the landing page must not link a door that is closed.",
     "/rwa": "behind the RWA flag, off. It answers 404.",
-    "/rxb": "Admin look-through. It answers 404 for everyone who is not an operator, including while the flag is on, so the landing page must not advertise it.",
+    "/rxb": "Behind RXB_ENABLED. While the flag is off the public gets 404, so the landing page must not advertise it.",
     "/tools": "behind SAR_ORACLE_ENABLED flag, off. It answers 404."
   }
 }

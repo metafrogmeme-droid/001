@@ -1,7 +1,6 @@
 # Recursion Breaker — sentinel onboarding
 
-Verified 2026-10-23. This is the operator note. Readings stay on the admin
-page. The public card says coming soon and names no issuer.
+Verified 2026-10-24. RXB_ENABLED off: the public gets 404 and an admin can read. On: /rxb and /v1/node are public signals, not verdicts, with no dollar amounts.
 
 ## Price
 
@@ -11,7 +10,7 @@ P_mkt is a 30-minute DEX TWAP and only an upper bound. If DEX depth within 2% is
 
 Packets are signed by this deployment's own 2-of-3 signers and are valid for 1 hour.
 
-Quotes are wad (1e18 = 1.0). Morpho IOracle.price() is 1e36-scaled. Confirmed 2026-10-23 against morpho-blue IOracle.sol: the price of 1 asset of collateral quoted in 1 asset of loan token, scaled by 1e36. If both tokens are 18 decimals, 1:1 is 1e36. A wad quote of 1.0 is scaled by 1e36 * 10^(loanDec - collDec). For 18 and 18 that is the wad multiplied by 1e18. A nonzero quote that would round to zero reverts.
+Quotes are wad (1e18 = 1.0). Morpho IOracle.price() is 1e36-scaled by 1e36 * 10^(loanDec - collDec). A nonzero quote that would round to zero reverts.
 
 ## Who can grant the sentinel
 
@@ -21,7 +20,7 @@ decreaseAbsoluteCap(bytes idData, uint256 newAbsoluteCap) and decreaseRelativeCa
 
 Vault V2 cap-increase timelocks default to 0, and the delay can be configured down to zero. Onboarding refuses a vault whose cap-increase timelock is unread or under 72 hours, so a curator cannot undo a cap-down at once. Fork setup calls setIsSentinel from the owner. This sentinel never calls an increase.
 
-This process never takes a sentinel role on mainnet and never signs there. Reading mainnet data is allowed. The cap-down bot runs on a fork only.
+This process never takes a sentinel role on mainnet and never signs there. Reading is allowed. An unsigned decrease can be prepared for the owner's key or multisig. It is not deployed and not activated. Going live needs the owner's go after an external audit. No environment variable turns activation on. RXB_SENTINEL_PAUSED pauses it. A fork broadcast rehearses it.
 
 ## Shared decreases
 
@@ -35,7 +34,7 @@ Challenge bonds are 5000 USDC of the testnet mock (6 decimals), doubling after e
 
 No. The backtest does not show a threshold crossing before 28 Oct 2025. Earlier windows are unreadable, which is not an all-clear. The earliest sourced snapshot that crosses is 28 Oct 2025, on the published comparison, not on a chain read.
 
-The Morpho DAY series was pulled 2026-10-23 from https://api.morpho.org/graphql. A local professor data directory is not a source.
+The Morpho DAY series was pulled 2026-10-23 from https://api.morpho.org/graphql. A local professor directory is not a source.
 
 ## Phase 2
 

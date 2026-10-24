@@ -1,8 +1,8 @@
 'use strict';
 
 const { optionalAuth } = require('../auth');
-const operatorView = require('./operator_view');
 const { readPage } = require('./rxb_read');
+const { access } = require('./rxb_access');
 
 function esc(value) {
   return String(value == null ? '' : value)
@@ -34,28 +34,40 @@ function cell(value) {
   return String(value);
 }
 
-function render(model) {
+function reasonCell(row) {
+  // A missing failure reason is not an unreadable metric. USD3 carries
+  // no_lookthrough_inputs; a fired row has no reason and the cell stays empty.
+  if (row && row.reason) return String(row.reason);
+  return '';
+}
+
+function render(model, audience) {
   const back = model && model.backtest ? model.backtest : {};
   const nodes = model && Array.isArray(model.nodes) ? model.nodes : [];
-  const doc = model && model.onboarding && model.onboarding.readable === true
-    ? model.onboarding.text
-    : 'Onboarding document could not be read.';
   const flag = model && (model.flag_on === true || model.flag_on === false)
     ? (model.flag_on ? 'on' : 'off')
     : 'unreadable';
+  const publicView = audience !== 'admin_test';
+  const doc = !publicView && model && model.onboarding && model.onboarding.readable === true
+    ? model.onboarding.text
+    : '';
   const rows = nodes.map((row) => `<tr>
     <td>${esc(cell(row.token))}</td>
     <td>${esc(cell(row.state))}</td>
     <td>${esc(cell(row.cbf))}</td>
     <td>${esc(cell(row.lts))}</td>
     <td>${esc(cell(row.uf))}</td>
-    <td>${esc(cell(row.reason))}</td>
+    <td>${esc(reasonCell(row))}</td>
   </tr>`).join('\n');
   const crossing = back.shows_crossing_before_2025_10_28 === false && back.all_clear === false
     ? `No crossing is shown before 2025-10-28. The earlier windows are not an all-clear.${coverageLine(back)}`
     : (back.readable === false
       ? 'The backtest could not be read.'
       : 'See the onboarding note for how to read this result.');
+  const banner = publicView
+    ? 'Public signal, not a verdict. Ratios only. Flag: ' + flag + '.'
+    : 'Admin test. The flag is off, so the public gets 404. Ratios only. Flag: ' + flag + '.';
+  const note = doc ? `<article class="panel"><pre>${esc(doc)}</pre></article>` : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -67,20 +79,22 @@ function render(model) {
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/styles.css?v=52">
 <style>
-  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
   h1 { font-family: var(--font-display); letter-spacing: .04em; }
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; overflow-x: auto; }
   pre { white-space: pre-wrap; font: inherit; color: var(--text-2); }
   table { width: 100%; border-collapse: collapse; }
-  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-family: var(--font-data); font-size: 14px; }
+  td, th { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--line); font-family: var(--font-data); font-size: 13px; white-space: nowrap; }
   .muted { color: var(--text-2); }
+  .signal { color: var(--text-2); }
 </style>
 </head>
 <body>
 <main class="wrap">
   <h1>Recursion Breaker</h1>
-  <p class="muted">Admin view. Flag: ${esc(flag)}. Ratios only.</p>
+  <p class="signal">${esc(banner)}</p>
   <p>${esc(crossing)}</p>
+  <p class="muted">Mainnet signing is refused. A decrease prepared here is unsigned, and it is not activated.</p>
   <form method="get" action="/rxb">
     <label for="token">Token</label>
     <input id="token" name="token" maxlength="32" autocomplete="off">
@@ -88,11 +102,11 @@ function render(model) {
   </form>
   <div class="panel">
     <table>
-      <thead><tr><th>Token</th><th>State</th><th>CBF</th><th>LTS</th><th>UF</th><th>Note</th></tr></thead>
+      <thead><tr><th>Token</th><th>Signal</th><th>CBF</th><th>LTS</th><th>UF</th><th>Note</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>
-  <article class="panel"><pre>${esc(doc)}</pre></article>
+  ${note}
 </main>
 </body>
 </html>`;
@@ -100,18 +114,12 @@ function render(model) {
 
 function sendRxb(req, res, deps) {
   const auth = (deps && deps.optionalAuth) || optionalAuth;
-  const ask = (deps && deps.isOperator) || operatorView.isOperator;
   const load = (deps && deps.readPage) || readPage;
   auth(req, res, async () => {
-    let allowed = false;
-    try {
-      allowed = await ask(req) === true;
-    } catch (err) {
-      allowed = false;
-    }
-    if (!allowed) return res.status(404).type('text/plain').send('Not found');
+    const gate = await access(req, deps);
+    if (!gate.ok) return res.status(404).type('text/plain').send('Not found');
     res.setHeader('Cache-Control', 'no-store');
-    return res.type('html').send(render(load()));
+    return res.type('html').send(render(load(), gate.audience));
   });
 }
 

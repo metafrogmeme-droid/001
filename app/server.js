@@ -537,8 +537,8 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
-// Recursion Breaker read API. 404 unless the caller is the operator.
-// The flag does not publish it. routes/rxb.js.
+// Recursion Breaker. Public signals while RXB_ENABLED is on. While it is
+// off, the public gets 404 and an operator can still read. routes/rxb.js.
 app.use('/v1/node', require('./routes/rxb'));
 // SaR Oracle readings. Public ratios while the flag is on. Dollar amounts
 // stay on the operator route inside the router. 404 while the flag is off.
@@ -625,7 +625,8 @@ app.get('/guard', (req, res) => {
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(res); });
-// /rxb is the admin look-through. It answers 404 for everyone else.
+// /rxb — public signals while RXB_ENABLED is on. While it is off, 404
+// for everyone who is not an operator.
 app.get('/rxb', (req, res) => { require('./lib/rxb_page').sendRxb(req, res); });
 // /tools — the catalog. 404 until SAR_ORACLE_ENABLED. While the flag is
 // on, the HTML is the operator's. The card for SaR stays "Coming soon".

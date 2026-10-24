@@ -106,6 +106,43 @@ def cap_id_hex(id_data: bytes) -> str:
     return "0x" + keccak256(id_data).hex()
 
 
+_DECREASE = {
+    "absolute": "decreaseAbsoluteCap(bytes,uint256)",
+    "relative": "decreaseRelativeCap(bytes,uint256)",
+}
+
+
+def _hex_bytes(value: object) -> bytes | None:
+    if not isinstance(value, str) or not value.startswith("0x"):
+        return None
+    try:
+        raw = bytes.fromhex(value[2:])
+    except ValueError:
+        return None
+    return raw
+
+
+def decrease_calldata(kind: str, id_data_hex: object, new_cap: object) -> str | None:
+    """Unsigned calldata for a Vault V2 decrease. None when an input is unreadable.
+
+    This is the transaction the owner's key or multisig would submit. It is
+    not signed here.
+    """
+    sig = _DECREASE.get(kind)
+    if sig is None or isinstance(new_cap, bool) or not isinstance(new_cap, int) or new_cap < 0:
+        return None
+    raw = _hex_bytes(id_data_hex)
+    if raw is None:
+        return None
+    selector = keccak256(sig.encode())[:4]
+    offset = (64).to_bytes(32, "big")
+    cap = new_cap.to_bytes(32, "big")
+    length = len(raw).to_bytes(32, "big")
+    pad = (32 - (len(raw) % 32)) % 32
+    body = selector + offset + cap + length + raw + (b"\x00" * pad)
+    return "0x" + body.hex()
+
+
 def delay_refusal(delay: object) -> str | None:
     """None when the timelock is at least 72 hours. ``0`` is the Vault V2 default, and it is refused."""
     if isinstance(delay, bool) or not isinstance(delay, int) or delay < 0:
