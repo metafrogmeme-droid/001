@@ -207,7 +207,7 @@ applies a per-IP limit of 60 requests a minute.
 
 **This surface makes no confirmation promise.** "require human confirmation for any trade execution (even via MCP)" is not a promise the code keeps:
 no MCP tool places an order, and the engine's own rule depends on configuration.
-`bot/config.py` defaults `auto_confirm_live_enabled` to True, and the shipped
+`bot/config.py` defaults `auto_confirm_live_enabled` to False, and the shipped
 `.env.example` turns it off (`AUTO_CONFIRM_LIVE_ENABLED=false`,
 `AUTO_CONFIRM_THRESHOLD=1.0`). With it on, a live order nobody pressed is placed
 only when a committed eligibility record exists for the running strategy

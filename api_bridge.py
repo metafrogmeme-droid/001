@@ -1167,6 +1167,10 @@ if os.path.isdir(_WEBSITE_DIR):
 # ── Run ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Before uvicorn reimports this module: the bridge is a server, and a
+    # server does not start holding a mainnet signing key.
+    from bot.web.mainnet_guard import refuse_server_start
+    refuse_server_start()
     import uvicorn
     # Loopback by default: the web app reaches this bridge via localhost, and
     # it exposes trade-capable endpoints (/confirm, /close) — never bind it
