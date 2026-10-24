@@ -365,6 +365,9 @@ app.use(require('./lib/rwa_flag').pageGate);
 // Kink Cap stays 404 for anyone who is not the operator, flag on or off.
 // Ahead of express.static so public/hrc.html is not a public file.
 app.use(require('./lib/hrc_flag').pageGate);
+// Sandwich restitution stays 404 for the public while SRB_ENABLED is off.
+// Ahead of express.static so public/srb.html is not a file a crawler can open.
+app.use(require('./lib/srb_flag').pageGate);
 // Cover drafts stay 404 for the public until COVER_ADL_ENABLED or
 // COVER_STOPGAP_ENABLED is set. Ahead of express.static so
 // public/cover-adl.html, cover-stopgap.html and js/cover.js are not served
@@ -517,6 +520,8 @@ app.use('/api/botcheck', require('./routes/botcheck'));
 // Scam or Safe? Daily. The page is a document; the call is the authed router.
 // Both answer 404 unless SCAM_OR_SAFE_V0 is on.
 app.use('/api/scam-or-safe', require('./routes/scam_or_safe'));
+// Shadow restitution. Operator only. There is no public dashboard.
+app.use('/api/srb', require('./routes/srb'));
 app.use('/scam', require('./routes/scam_page'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
@@ -631,6 +636,9 @@ app.get('/guard', (req, res) => { require('./lib/claw_guard_v01').sendPage(req, 
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); });
 app.get('/hrc', (req, res) => { require('./lib/hrc_flag').sendPage(req, res); });
+// /srb — shadow restitution. 404 for the public while SRB_ENABLED is off.
+// An admin still receives it, and the client paints the preview banner.
+app.get('/srb', (req, res) => { require('./lib/srb_flag').sendPage(req, res); });
 // Cover pages. 404 for the public until the matching flag. An admin can
 // preview. Not offered to customers. Licence review pending. Do not enable in production.
 app.get('/cover-adl', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'adl'); });

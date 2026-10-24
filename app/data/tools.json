@@ -54,6 +54,15 @@
     "flag": null
   },
   {
+    "id": "srb",
+    "name": "Sandwich restitution",
+    "description": "A shadow record of a same-pool front and back on Solana. Nothing is paid, and there is no public dashboard.",
+    "chains": ["solana"],
+    "route": "/srb",
+    "status": "runtime",
+    "flag": "SRB_ENABLED"
+  },
+  {
     "id": "kink-cap",
     "name": "Kink Cap",
     "description": "Hourly caps on the Hyperliquid USDC borrow rate. The page shows utilization and the rate. Testnet readings are synthetic.",
