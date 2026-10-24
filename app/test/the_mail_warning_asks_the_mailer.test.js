@@ -28,16 +28,19 @@ test('a site sending with SMTP_FROM is not told its mail is NOT sent', () => {
 });
 
 test('the warning names what is missing, and only that', () => {
-  const noFrom = smtpFinding({ SMTP_HOST: 'smtp.gmail.com' });
-  assert.ok(noFrom, 'no warning with no sender at all');
-  assert.match(noFrom.msg, /^MAIL_FROM \(or SMTP_FROM\) unset/);
-  assert.doesNotMatch(noFrom.msg, /SMTP_HOST/, 'it blames a host that is set');
+  // A host and no sender is configured: the mailer falls through to its
+  // built-in noreply address. The warning used to blame MAIL_FROM here,
+  // which would now be a second reading of a sender the mailer accepts.
+  const hostOnly = smtpFinding({ SMTP_HOST: 'smtp.gmail.com' });
+  assert.equal(hostOnly, undefined, 'a host with no sender uses the built-in noreply address');
 
   const noHost = smtpFinding({ MAIL_FROM: 'bot@example.com' });
   assert.match(noHost.msg, /^SMTP_HOST unset/);
+  assert.doesNotMatch(noHost.msg, /MAIL_FROM/, 'the sender is set; the host is what is missing');
 
   const neither = smtpFinding({});
-  assert.match(neither.msg, /^SMTP_HOST and MAIL_FROM \(or SMTP_FROM\) unset/);
+  assert.match(neither.msg, /^SMTP_HOST unset/);
+  assert.doesNotMatch(neither.msg, /MAIL_FROM/);
 });
 
 test('the audit and the mailer agree on every shape of the settings', () => {
@@ -48,7 +51,7 @@ test('the audit and the mailer agree on every shape of the settings', () => {
     { SMTP_HOST: 'smtp.x.io', MAIL_FROM: 'a@x.io' },
     { SMTP_HOST: 'smtp.x.io', SMTP_FROM: 'a@x.io' },
     { SMTP_HOST: '   ', MAIL_FROM: 'a@x.io' },          // a blank host is no host
-    { SMTP_HOST: 'smtp.x.io', MAIL_FROM: '  ' },        // nor a blank sender
+    { SMTP_HOST: 'smtp.x.io', MAIL_FROM: '  ' },        // blank sender → default noreply
     { SMTP_HOST: 'smtp.x.io', MAIL_FROM: ' ', SMTP_FROM: 'a@x.io' },
   ];
   for (const env of envs) {
@@ -61,7 +64,33 @@ test('the audit and the mailer agree on every shape of the settings', () => {
   // did not, so a blank host made the mailer dial "   "; the one reading now
   // trims, and that is asserted on its own.
   assert.equal(mailer.isConfigured({ SMTP_HOST: '   ', MAIL_FROM: 'a@x.io' }), false);
-  assert.equal(mailer.isConfigured({ SMTP_HOST: 'smtp.x.io', MAIL_FROM: '  ' }), false);
-  // A blank MAIL_FROM does not hide a set SMTP_FROM.
+  // A blank sender is not "unconfigured": it falls through to the built-in
+  // noreply address. A blank MAIL_FROM still does not hide a set SMTP_FROM.
+  assert.equal(mailer.isConfigured({ SMTP_HOST: 'smtp.x.io', MAIL_FROM: '  ' }), true);
   assert.equal(mailer.isConfigured({ SMTP_HOST: 'smtp.x.io', MAIL_FROM: ' ', SMTP_FROM: 'a@x.io' }), true);
+  assert.equal(mailer.DEFAULT_FROM, 'Humanoid Traders <noreply@humanoid-traders.com>');
+});
+
+test('an unconfigured send logs one line and not the message body', async () => {
+  const lines = [];
+  const orig = console.warn;
+  console.warn = (line) => lines.push(String(line));
+  const prev = process.env.SMTP_HOST;
+  delete process.env.SMTP_HOST;
+  try {
+    const r = await mailer.sendMail({
+      to: 'a@b.co',
+      subject: 'Verify',
+      text: 'secret-token-do-not-log abcdef',
+    });
+    assert.deepEqual(r, { skipped: true, reason: 'not_configured' });
+  } finally {
+    console.warn = orig;
+    if (prev === undefined) delete process.env.SMTP_HOST;
+    else process.env.SMTP_HOST = prev;
+  }
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /not configured/);
+  assert.equal(lines.join('\n').includes('secret-token-do-not-log'), false);
+  assert.equal(lines.join('\n').includes('abcdef'), false);
 });

@@ -14,35 +14,44 @@
 //   SMTP_SECURE    "true" → implicit TLS (port 465). Otherwise STARTTLS on 587.
 //   SMTP_USER      login username              (optional; AUTH LOGIN if set)
 //   SMTP_PASS      login password / API key    (optional)
-//   MAIL_FROM      "RUNECLAW <no-reply@…>"     (required to actually send)
+//   MAIL_FROM      optional override. Blank falls through to SMTP_FROM,
+//                  then to the built-in noreply sender below.
+//   SMTP_FROM      same job as MAIL_FROM, used when MAIL_FROM is blank.
 //   MAIL_REPLY_TO  support@…                   (optional; where a reply goes
-//                  when MAIL_FROM is an address nobody reads)
-//   APP_BASE_URL   https://app.example.com     (used to build links in emails)
+//                  when the sender is an address nobody reads)
+//   PUBLIC_ORIGIN / APP_BASE_URL / WEBSITE_URL  (links; see lib/public_origin.js)
 //
-// Secrets are read from the environment only; nothing is logged except the
-// recipient, subject, and — when unconfigured — the plaintext body preview.
+// Secrets are read from the environment only. An unconfigured send logs one
+// line (recipient and subject) and never the body — a body preview is the
+// verification token.
 
 const net = require('net');
 const tls = require('tls');
 
+// Used when neither MAIL_FROM nor SMTP_FROM is set. An explicit sender still
+// wins, and a blank MAIL_FROM does not hide a set SMTP_FROM.
+const DEFAULT_FROM = 'Humanoid Traders <noreply@humanoid-traders.com>';
+
 function _cfg(env = process.env) {
   const host = (env.SMTP_HOST || '').trim();
   // Trimmed before the fallback, so a blank MAIL_FROM does not hide SMTP_FROM.
-  const from = (env.MAIL_FROM || '').trim() || (env.SMTP_FROM || '').trim();
-  const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true';
-  const port = parseInt(process.env.SMTP_PORT || (secure ? '465' : '587'), 10);
+  const from = (env.MAIL_FROM || '').trim()
+    || (env.SMTP_FROM || '').trim()
+    || DEFAULT_FROM;
+  const secure = String(env.SMTP_SECURE || '').toLowerCase() === 'true';
+  const port = parseInt(env.SMTP_PORT || (secure ? '465' : '587'), 10);
   return {
     host,
     from,
     secure,
     port: Number.isFinite(port) ? port : 587,
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || '',
-    replyTo: (process.env.MAIL_REPLY_TO || '').trim(),
+    user: env.SMTP_USER || '',
+    pass: env.SMTP_PASS || '',
+    replyTo: (env.MAIL_REPLY_TO || '').trim(),
     // Allow disabling cert verification only via an explicit opt-out (some
     // internal relays use self-signed certs). Defaults to verifying.
     rejectUnauthorized:
-      String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || 'true').toLowerCase() !== 'false',
+      String(env.SMTP_TLS_REJECT_UNAUTHORIZED || 'true').toLowerCase() !== 'false',
   };
 }
 
@@ -52,7 +61,9 @@ function _cfg(env = process.env) {
 // mailer is sending with (lib/config_audit.js used to check MAIL_FROM alone).
 function missingConfig(env = process.env) {
   const c = _cfg(env);
-  return [!c.host && 'SMTP_HOST', !c.from && 'MAIL_FROM (or SMTP_FROM)'].filter(Boolean);
+  // The sender always resolves (explicit, then the built-in noreply address),
+  // so the only thing that leaves mail as a no-op is a missing host.
+  return [!c.host && 'SMTP_HOST'].filter(Boolean);
 }
 
 function isConfigured(env = process.env) {
@@ -248,11 +259,15 @@ async function _deliver(cfg, envelope, message) {
 // Send an email. Resolves { skipped, messageId } — never rejects for a
 // not-configured mailer (the caller treats email as best-effort). A real
 // delivery failure DOES reject, so callers can log it.
+function _oneLine(value) {
+  return String(value || '').replace(/[\r\n]/g, ' ').slice(0, 200);
+}
+
 async function sendMail({ to, subject, text, html }) {
   const cfg = _cfg();
-  if (!cfg.host || !cfg.from) {
-    const preview = String(text || '').replace(/\s+/g, ' ').slice(0, 200);
-    console.log(`[mailer] (no-op, SMTP not configured) would send to=${to} subject="${subject}" :: ${preview}`);
+  if (!cfg.host) {
+    // One line, no body. The body of a verification mail is the token.
+    console.warn(`[mailer] not configured; email not sent to=${_oneLine(to)} subject="${_oneLine(subject)}"`);
     return { skipped: true, reason: 'not_configured' };
   }
   const envelope = { from: _addrOnly(cfg.from), to: String(to).trim() };
@@ -272,4 +287,5 @@ module.exports = {
   _addrOnly,
   _encodeHeader,
   _ehloName,
+  DEFAULT_FROM,
 };

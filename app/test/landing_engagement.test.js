@@ -62,6 +62,8 @@ test('hero proof strip uses recorded percent/count fields only', () => {
   assert.match(landing, /win_rate_pct/);
   assert.match(landing, /profit_factor/);
   assert.match(landing, /max_drawdown_pct/);
+  assert.match(landing, /first_trade_at/);
+  assert.match(landing, /how this is measured/);
   // Never the dollar fields the same payload carries.
   assert.ok(!strip.includes('net_pnl_usd') && !strip.includes('current_equity_usd')
     && !strip.includes('avg_win_usd'),

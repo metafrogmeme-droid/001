@@ -192,8 +192,8 @@
     "sha": "be8d68160630f13d"
   },
   "js/fvb-page.js": {
-    "v": 1,
-    "sha": "518ca067e65627b6"
+    "v": 2,
+    "sha": "20d58329b49e89a0"
   },
   "js/guard-page.js": {
     "v": 2,
@@ -212,8 +212,8 @@
     "sha": "173436196745d52c"
   },
   "js/i18n-core.js": {
-    "v": 207,
-    "sha": "d9cf94442adccc0f"
+    "v": 208,
+    "sha": "6ab121ff0707fdf4"
   },
   "js/icons.js": {
     "v": 6,

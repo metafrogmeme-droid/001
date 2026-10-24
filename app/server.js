@@ -603,7 +603,12 @@ app.use('/api/public/status', require('./routes/public_status'));
 // confirm a deploy actually landed instead of guessing.
 app.get('/api/version', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
-  res.json(require('./lib/version').buildInfo());
+  // mail_configured is a boolean, read from the mailer, and is not part of
+  // the memoised build stamp: it can differ per deploy without a new commit.
+  const build = require('./lib/version').buildInfo();
+  res.json(Object.assign({}, build, {
+    mail_configured: require('./lib/mailer').isConfigured(),
+  }));
 });
 app.use('/api/nft', require('./routes/nft'));
 app.use('/api/learn', require('./routes/learn'));

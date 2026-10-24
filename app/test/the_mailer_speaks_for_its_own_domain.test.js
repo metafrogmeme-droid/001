@@ -83,6 +83,19 @@ test('the mailer says EHLO with the sender\'s domain, not a .local name', async 
   assert.equal(mailer._ehloName('a@bad domain.com'), 'runeclaw.local');
 });
 
+test('a blank MAIL_FROM does not hide SMTP_FROM, and no sender uses the noreply default', async () => {
+  const viaSmtpFrom = await sendThrough({
+    MAIL_FROM: ' ',
+    SMTP_FROM: 'Desk <desk@humanoid-traders.com>',
+  });
+  assert.ok(viaSmtpFrom.some((l) => l === 'From: Desk <desk@humanoid-traders.com>'),
+    viaSmtpFrom.join('\n'));
+  const viaDefault = await sendThrough({ MAIL_FROM: '', SMTP_FROM: '' });
+  assert.ok(viaDefault.some((l) => l === 'From: Humanoid Traders <noreply@humanoid-traders.com>'),
+    viaDefault.join('\n'));
+  assert.equal(viaDefault[0], 'EHLO humanoid-traders.com');
+});
+
 test('Reply-To is sent only when configured', async () => {
   const withIt = await sendThrough({ MAIL_FROM: 'RUNECLAW <no-reply@humanoid-traders.com>',
     MAIL_REPLY_TO: 'info@humanoid-traders.com' });
