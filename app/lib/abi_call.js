@@ -9,6 +9,7 @@
  *   * tool8257.js  registerTool(...)   — the ERC-8257 registration
  *   * allowances.js approve(spender,0) — REVOKING a token approval
  *   * nft.js       mint(voucher)       — the badge mint
+ *   * panic_tx.js  setApprovalForAll(operator, false) — revoking an operator
  *
  * With `'0x'` calldata all three become a zero-value call to the contract that
  * does nothing. The mint wastes gas. The registration wastes gas. The revoke
@@ -20,7 +21,7 @@
  *
  * So calldata is built here, from the same in-repo keccak256, with no
  * dependency for a host to substitute. The supported type set is deliberately
- * tiny — exactly what those three calls need — and anything else THROWS.
+ * tiny — exactly what those wallet-facing calls need — and anything else THROWS.
  * A partial encoder that quietly mis-encodes an unknown type would be the
  * original bug with extra steps.
  *
@@ -33,7 +34,7 @@
 const { keccak256, toUtf8Bytes } = require('./keccak256');
 
 const WORD = 32;
-const SUPPORTED = ['address', 'uint256', 'bytes32', 'string', 'bytes'];
+const SUPPORTED = ['address', 'uint256', 'bytes32', 'string', 'bytes', 'bool'];
 
 /** `name(type,type)` → the canonical signature string, whitespace stripped. */
 function canonicalSignature(sig) {
@@ -100,6 +101,12 @@ function encodeAddress(value) {
   return padLeft(a.slice(2).toLowerCase());
 }
 
+function encodeBool(value) {
+  if (value === true) return encodeUint(1);
+  if (value === false) return encodeUint(0);
+  throw new Error('abi_call: bool needs true or false');
+}
+
 function encodeBytes32(value) {
   const b = String(value == null ? '' : value).trim();
   if (!/^0x[0-9a-fA-F]{64}$/.test(b)) {
@@ -156,6 +163,7 @@ function encodeCall(sig, args) {
     }
     if (t === 'address') return encodeAddress(list[i]);
     if (t === 'uint256') return encodeUint(list[i]);
+    if (t === 'bool') return encodeBool(list[i]);
     return encodeBytes32(list[i]);
   });
 
