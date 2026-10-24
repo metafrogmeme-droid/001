@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import csv
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -193,10 +193,20 @@ def _quantile(values: list[Decimal], p: Decimal) -> Optional[Decimal]:
     return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
 
 
+# The last digit of a 28-digit quotient moves between the 3.11 build CI runs
+# and a 3.12 build. Eighteen decimal places are the same on both, and the
+# tail was never a second reading of the tape.
+_SHOW = Decimal("1e-18")
+
+
 def _fmt(value: Optional[Decimal]) -> Optional[str]:
-    if value is None:
+    if value is None or not isinstance(value, Decimal):
         return None
-    return format(value, "f")
+    shown = value.quantize(_SHOW, rounding=ROUND_HALF_EVEN)
+    text = format(shown, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def summarize(replayed: dict) -> dict:

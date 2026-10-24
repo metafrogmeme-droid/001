@@ -16,9 +16,9 @@
         "paying_hours": 142,
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
-        "total_per_unit": "0.0002832772738114208516049858105",
-        "p50": "0.000001141552511415525114155251142",
-        "p95": "0.000005947876476729607121565254498",
+        "total_per_unit": "0.000283277273811421",
+        "p50": "0.000001141552511416",
+        "p95": "0.00000594787647673",
         "frozen_at": null
       },
       "0.05": {
@@ -26,9 +26,9 @@
         "paying_hours": 47,
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
-        "total_per_unit": "0.0001211768171904162853949401508",
-        "p50": "0.00",
-        "p95": "0.000004806323965314082007410003357",
+        "total_per_unit": "0.000121176817190416",
+        "p50": "0",
+        "p95": "0.000004806323965314",
         "frozen_at": null
       },
       "0.10": {
@@ -36,9 +36,9 @@
         "paying_hours": 1,
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
-        "total_per_unit": "0.0000001935530525569727016172749429",
-        "p50": "0.00",
-        "p95": "0.00",
+        "total_per_unit": "0.000000193553052557",
+        "p50": "0",
+        "p95": "0",
         "frozen_at": null
       },
       "0.20": {
@@ -47,8 +47,8 @@
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
         "total_per_unit": "0",
-        "p50": "0.00",
-        "p95": "0.00",
+        "p50": "0",
+        "p95": "0",
         "frozen_at": null
       },
       "0.40": {
@@ -57,8 +57,8 @@
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
         "total_per_unit": "0",
-        "p50": "0.00",
-        "p95": "0.00",
+        "p50": "0",
+        "p95": "0",
         "frozen_at": null
       }
     },
@@ -68,9 +68,9 @@
         "paying_hours": 142,
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
-        "total_per_unit": "0.0002832772738114208516049858105",
-        "p50": "0.000001141552511415525114155251142",
-        "p95": "0.000005947876476729607121565254498",
+        "total_per_unit": "0.000283277273811421",
+        "p50": "0.000001141552511416",
+        "p95": "0.00000594787647673",
         "frozen_at": null
       },
       "0.05": {
@@ -78,9 +78,9 @@
         "paying_hours": 47,
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
-        "total_per_unit": "0.0001211768171904162853949401508",
-        "p50": "0.00",
-        "p95": "0.000004806323965314082007410003357",
+        "total_per_unit": "0.000121176817190416",
+        "p50": "0",
+        "p95": "0.000004806323965314",
         "frozen_at": null
       },
       "0.10": {
@@ -88,9 +88,9 @@
         "paying_hours": 1,
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
-        "total_per_unit": "0.0000001935530525569727016172749429",
-        "p50": "0.00",
-        "p95": "0.00",
+        "total_per_unit": "0.000000193553052557",
+        "p50": "0",
+        "p95": "0",
         "frozen_at": null
       },
       "0.20": {
@@ -99,8 +99,8 @@
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
         "total_per_unit": "0",
-        "p50": "0.00",
-        "p95": "0.00",
+        "p50": "0",
+        "p95": "0",
         "frozen_at": null
       },
       "0.40": {
@@ -109,8 +109,8 @@
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
         "total_per_unit": "0",
-        "p50": "0.00",
-        "p95": "0.00",
+        "p50": "0",
+        "p95": "0",
         "frozen_at": null
       }
     },
@@ -121,8 +121,8 @@
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
         "total_per_unit": "1.42",
-        "p50": "0.0100",
-        "p95": "0.0100",
+        "p50": "0.01",
+        "p95": "0.01",
         "frozen_at": null
       },
       "0.05": {
@@ -131,8 +131,8 @@
         "mean_unreadable_hours": 21,
         "no_rate_hours": 0,
         "total_per_unit": "0.47",
-        "p50": "0.00",
-        "p95": "0.0100",
+        "p50": "0",
+        "p95": "0.01",
         "frozen_at": null
       }
     }
@@ -142,7 +142,7 @@
     "as_of": "2026-10-23T20:17:29Z",
     "supplied_tokens": "560340325.9164869",
     "borrowed_tokens": "427858264.646081",
-    "utilization": "0.7635685758405490502409947145",
+    "utilization": "0.76356857584054905",
     "strikes": [
       {
         "strike": "0.04",
@@ -165,43 +165,43 @@
       {
         "strike": "0.10",
         "reachable": true,
-        "target_utilization": "0.8105263157894736842105263158",
-        "withdrawal_tokens": "32463246.1583350168831168831",
+        "target_utilization": "0.810526315789473684",
+        "withdrawal_tokens": "32463246.158335016883116883",
         "oi_cap_tokens": "1000000",
-        "withdrawal_over_oi_cap": "32.4632461583350168831168831",
+        "withdrawal_over_oi_cap": "32.463246158335016883",
         "hours": 6
       },
       {
         "strike": "0.20",
         "reachable": true,
-        "target_utilization": "0.8315789473684210526315789474",
-        "withdrawal_tokens": "45827222.8610730392405063291",
+        "target_utilization": "0.831578947368421053",
+        "withdrawal_tokens": "45827222.861073039240506329",
         "oi_cap_tokens": "1000000",
-        "withdrawal_over_oi_cap": "45.8272228610730392405063291",
+        "withdrawal_over_oi_cap": "45.827222861073039241",
         "hours": 6
       },
       {
         "strike": "0.40",
         "reachable": true,
-        "target_utilization": "0.8736842105263157894736842105",
-        "withdrawal_tokens": "70623035.0565146710843373494",
+        "target_utilization": "0.873684210526315789",
+        "withdrawal_tokens": "70623035.056514671084337349",
         "oi_cap_tokens": "1000000",
-        "withdrawal_over_oi_cap": "70.6230350565146710843373494",
+        "withdrawal_over_oi_cap": "70.623035056514671084",
         "hours": 6
       },
       {
         "strike": "0.525",
         "reachable": true,
         "target_utilization": "0.9",
-        "withdrawal_tokens": "84942254.0875080111111111111",
+        "withdrawal_tokens": "84942254.087508011111111111",
         "oi_cap_tokens": "1000000",
-        "withdrawal_over_oi_cap": "84.9422540875080111111111111",
+        "withdrawal_over_oi_cap": "84.942254087508011111",
         "hours": 6
       },
       {
         "strike": "1",
         "reachable": true,
-        "target_utilization": "1.0",
+        "target_utilization": "1",
         "withdrawal_tokens": "132482061.2704059",
         "oi_cap_tokens": "1000000",
         "withdrawal_over_oi_cap": "132.4820612704059",
@@ -224,7 +224,7 @@
     "network": "mainnet",
     "synthetic": false,
     "formula_rate": "0.05",
-    "utilization": "0.7773553930920392816933289275",
+    "utilization": "0.777355393092039282",
     "note": "One mainnet precompile read. It is not an hourly path, so it is not in the payout distribution."
   }
 }
