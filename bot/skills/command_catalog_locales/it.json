@@ -148,6 +148,7 @@
     "gates": "telemetria pass/fail per ogni gate",
     "flags": "flag opt-in per l'audit approfondito",
     "shadow": "libro ombra controfattuale",
+    "srb": "segnali di restituzione in ombra — un segnale pubblico, non si paga",
     "audit": "report notturno di auto-audit",
     "parity": "parità live ↔ backtest",
     "duplicates": "chiusure registrate due volte nei registri dell'operatore",
