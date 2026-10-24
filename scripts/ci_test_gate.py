@@ -25,10 +25,15 @@ Usage:
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import json
+import os
 import pathlib
 import re
 import subprocess
 import sys
+import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tests" / "known_failures.txt"
@@ -256,7 +261,143 @@ def _tree_fingerprint() -> str:
     return h.hexdigest()
 
 
+def parallel_requested(argv: list[str] | None = None) -> bool:
+    """True when this process was asked for the shadow run, not the serial gate."""
+    return "--parallel" in (sys.argv if argv is None else argv)
+
+
+def xdist_importable() -> bool:
+    try:
+        import xdist  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def apply_parallel(cmd: list[str], *, parallel: bool) -> list[str]:
+    """The first-pass pytest command. The serial command is returned unchanged.
+
+    ``loadfile`` keeps one module on one worker. pytest-timeout's ``signal``
+    method does not survive an xdist worker, so the parallel command asks for
+    ``thread`` instead. Flake re-runs do not come through here: they stay serial.
+    """
+    if not parallel:
+        return list(cmd)
+    out: list[str] = []
+    skip_next = False
+    for arg in cmd:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--timeout-method=signal":
+            out.append("--timeout-method=thread")
+            continue
+        if arg == "--timeout-method":
+            out.extend(["--timeout-method", "thread"])
+            skip_next = True
+            continue
+        out.append(arg)
+    out.extend(["-n", "auto", "--dist", "loadfile"])
+    return out
+
+
+def rerun_command(node: str, *, cov_available: bool) -> list[str]:
+    """One node, in its own process, never under xdist.
+
+    A re-run is the evidence that a failure is not an order artifact. Running
+    it in parallel with the rest of the suite would be a different question.
+    """
+    extra = ["--no-cov"] if cov_available else []
+    return PYTEST_CMD + extra + [node]
+
+
+def _load_module(path: pathlib.Path, name: str):
+    """Load a module by path.
+
+    A dataclass looks the defining module up in ``sys.modules`` while the
+    class body is still executing. ``exec_module`` before the module is
+    registered raises, so the registration comes first.
+    """
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(str(path))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    return mod
+
+
+def _load_timings(path: pathlib.Path) -> dict | None:
+    """The file the suite wrote, or None when it wrote nothing readable.
+
+    An empty or broken file is not a duration of zero.
+    """
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _census_line() -> str:
+    try:
+        mod = _load_module(ROOT / "tests" / "source_scan_census.py", "_source_scan_census")
+        return mod.format_census()
+    except Exception as exc:  # noqa: BLE001 — the suite verdict must not depend on this line
+        return f"[source-scan] not recorded: {type(exc).__name__}"
+
+
+def _timing_formatters():
+    """The report helpers, loaded by path so the gate does not depend on ``tests`` being a package."""
+    return _load_module(ROOT / "tests" / "module_timings.py", "_module_timings")
+
+
+def _emit_measurements(
+    *,
+    suite_s: float,
+    flake_s: float | None,
+    cov_s: float | None,
+    total_s: float,
+    timings_path: pathlib.Path,
+) -> None:
+    """Step timings, the slowest modules, and the derived source-scan counts.
+
+    The counts are printed only when the suite actually finished far enough
+    to write the timing file. A fake or aborted pytest does not, and a line
+    printed for a run that collected nothing would be a measurement of a
+    different tree than the one the log line sits under.
+    """
+    try:
+        fmt = _timing_formatters()
+    except Exception as exc:  # noqa: BLE001 — a missing formatter is not a suite verdict
+        print()
+        print(f"[gate] step timings: not recorded: {type(exc).__name__}")
+        return
+    print()
+    for line in fmt.format_step_timings(
+            suite_s=suite_s, flake_s=flake_s, cov_s=cov_s, total_s=total_s):
+        print(line)
+    payload = _load_timings(timings_path)
+    for line in fmt.format_timing_report(payload):
+        print(line)
+    if payload is not None:
+        print(_census_line())
+
+
 def main() -> int:
+    if parallel_requested() and not xdist_importable():
+        print("[gate] FAIL — --parallel needs pytest-xdist and it is not "
+              "installed, so the suite did not run.")
+        print("=" * 70)
+        return 1
     update = "--update" in sys.argv
     cov_available = False
     try:
@@ -264,9 +405,24 @@ def main() -> int:
         cov_available = True
     except Exception:
         cov_available = False
-    first_cmd = PYTEST_CMD + (COV_FLAGS if cov_available else [])
+    first_cmd = apply_parallel(
+        PYTEST_CMD + (COV_FLAGS if cov_available else []),
+        parallel=parallel_requested(),
+    )
+    timings_path = pathlib.Path(tempfile.gettempdir()) / f"runeclaw-mod-{os.getpid()}.json"
+    try:
+        timings_path.unlink()
+    except OSError:
+        pass
+    env = os.environ.copy()
+    env["RUNECLAW_MODULE_TIMINGS"] = str(timings_path)
+    started = time.perf_counter()
     fingerprint_before = _tree_fingerprint()
-    proc = subprocess.run(first_cmd, cwd=ROOT, capture_output=True, text=True)
+    suite_started = time.perf_counter()
+    proc = subprocess.run(first_cmd, cwd=ROOT, capture_output=True, text=True, env=env)
+    suite_s = time.perf_counter() - suite_started
+    flake_s: float | None = None
+    cov_s: float | None = None
     output = proc.stdout + proc.stderr
     print(output)
 
@@ -290,12 +446,26 @@ def main() -> int:
     # interrupted, 3 internal error, 4 usage/conftest error, 5 nothing
     # collected — means the parse below is describing a run that did not
     # happen.
+    def _finish(rc: int) -> int:
+        _emit_measurements(
+            suite_s=suite_s,
+            flake_s=flake_s,
+            cov_s=cov_s,
+            total_s=time.perf_counter() - started,
+            timings_path=timings_path,
+        )
+        try:
+            timings_path.unlink()
+        except OSError:
+            pass
+        return rc
+
     if proc.returncode not in (0, 1):
         print(f"[gate] FAIL — pytest exited {proc.returncode}: the suite did not "
               "run to completion, so the failure list below describes nothing. "
               "(2=interrupted, 3=internal, 4=usage/conftest, 5=no tests collected)")
         print("=" * 70)
-        return 1
+        return _finish(1)
 
     # rc=1 with nothing parsed is the same hazard wearing a different hat:
     # pytest says tests failed and this parser cannot see them, so its silence
@@ -305,7 +475,7 @@ def main() -> int:
               "parsed. The gate cannot describe this run; refusing to call it "
               "green.")
         print("=" * 70)
-        return 1
+        return _finish(1)
 
     if update:
         header = (
@@ -315,7 +485,7 @@ def main() -> int:
         )
         BASELINE.write_text(header + "\n".join(sorted(failed)) + "\n")
         print(f"\n[gate] baseline updated: {len(failed)} known failures written to {BASELINE}")
-        return 0
+        return _finish(0)
 
     known = _load_baseline()
     new_failures = sorted(failed - known)
@@ -381,9 +551,12 @@ def main() -> int:
     elif new_failures:
         confirmed: list[str] = []
         print("\n----- re-running new failures individually (flake filter) -----")
+        flake_started = time.perf_counter()
         for node in new_failures:
             # --no-cov on re-runs so they don't overwrite the full-suite coverage.
-            r = subprocess.run(PYTEST_CMD + (["--no-cov"] if cov_available else []) + [node],
+            # Serial, on purpose: the parallel shadow's first pass is the thing
+            # being compared, and a re-run is one node in its own process.
+            r = subprocess.run(rerun_command(node, cov_available=cov_available),
                                cwd=ROOT, capture_output=True, text=True)
             node_failed, node_internal = _parse_failures(r.stdout + r.stderr)
             internal_error = internal_error or node_internal
@@ -411,6 +584,7 @@ def main() -> int:
                 confirmed.append(node)
                 print(f"  ? could not be re-run alone (pytest exit "
                       f"{r.returncode}) — counted as failing: {node}")
+        flake_s = time.perf_counter() - flake_started
         flaky = sorted(flaky)
         new_failures = sorted(confirmed)
 
@@ -439,7 +613,9 @@ def main() -> int:
     # a check.
     cov = COV_NOT_REQUESTED
     if _coverage_was_requested(first_cmd) and not (new_failures or internal_error):
+        cov_started = time.perf_counter()
         cov = _coverage_verdict()
+        cov_s = time.perf_counter() - cov_started
     cov_failed = cov == COV_BELOW
 
     if not new_failures and not internal_error and not now_passing and not cov_failed:
@@ -464,8 +640,8 @@ def main() -> int:
     print("=" * 70)
 
     if new_failures or internal_error or now_passing or cov_failed:
-        return 1
-    return CANNOT_CHECK_EXIT if cov == COV_UNMEASURED else 0
+        return _finish(1)
+    return _finish(CANNOT_CHECK_EXIT if cov == COV_UNMEASURED else 0)
 
 
 if __name__ == "__main__":
