@@ -20,6 +20,7 @@ const { sealDuelPick, sealDuelRound, sealDuelSettle, newRoundNonce,
 const confidence = require('./duel_confidence');
 const duel = require('./duel');
 const chips = require('./duel_chips');
+const { flag_on_for } = require('./admin_preview');
 const review = require('./duel_review');
 const sportsFeed = require('./sports_feed');
 const duelContext = require('./duel_context');
@@ -170,6 +171,8 @@ async function ensureRounds(day, now = new Date()) {
   // Chips (lib/duel_chips.js): with the layer on, each round is dealt at the
   // table's odds for its category, sealed with it (v9). Off, the round is the
   // v6 round it always was, with no odds column written.
+  // Public flag only. An admin preview must not write odds onto the shared
+  // row: every other caller would then see chips the flag still withholds.
   const withChips = chips.enabled();
   for (const r of built) {
     // Provable Calls v6: the round is sealed as dealt, stance included, and
@@ -394,8 +397,12 @@ async function placePick(userId, roundId, rawPick, now = new Date(), opts = {}) 
     return { ok: false, status: 400,
       error: `Call ${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}.` };
   }
-  const odds = chips.oddsOf(round);
-  const chipsOn = chips.enabled();
+  const viewer = { user: { user_id: userId } };
+  const dealtOdds = chips.oddsOf(round);
+  const chipsPublic = chips.enabled();
+  const chipsOn = chipsPublic || await flag_on_for(viewer, 'DUEL_CHIPS_ENABLED');
+  // Preview odds live on this call only. The round row stays as it was dealt.
+  const odds = dealtOdds || (chipsOn && !chipsPublic ? chips.oddsFor(kind).odds : dealtOdds);
   // Everything but the stack is checked before a price is read; the stack is
   // checked under the player's row lock, below.
   const early = chips.checkPut({ on: chipsOn, odds, kind, pick, chips: put });
@@ -451,7 +458,8 @@ async function placePick(userId, roundId, rawPick, now = new Date(), opts = {}) 
   // of the three words. Off, a client that sends one is ignored, so the
   // receipt is the receipt it has always been. A word that is not one of the
   // three is refused rather than stored as something else.
-  if (confidence.enabled() && opts && opts.confidence != null && opts.confidence !== '') {
+  const confidenceOn = confidence.enabled() || await flag_on_for(viewer, 'DUEL_CONFIDENCE_ENABLED');
+  if (confidenceOn && opts && opts.confidence != null && opts.confidence !== '') {
     const level = confidence.levelOf(opts.confidence);
     if (!level) {
       return { ok: false, status: 400, error: 'Choose low, medium or high. Your call was not recorded.' };
@@ -506,6 +514,9 @@ async function placePick(userId, roundId, rawPick, now = new Date(), opts = {}) 
   };
   if (put !== null) { out.chips = put; out.odds = odds[pick]; }
   if (facts.confidence) out.confidence = facts.confidence;
+  if ((facts.confidence && !confidence.enabled()) || (put !== null && !chipsPublic)) {
+    out.admin_preview = true;
+  }
   if (kind === 'mover') { out.symbol_b = round.symbol_b; out.entry_price_b = entryB; }
   if (kind === 'range') out.threshold_pct = Number(round.threshold_pct);
   if (kind === 'sports') {
@@ -530,7 +541,7 @@ async function placePick(userId, roundId, rawPick, now = new Date(), opts = {}) 
  * rather than a stack of 1,000 for a game the player was never offered.
  */
 async function chipsBlock(userId, picks, now) {
-  const on = chips.enabled();
+  const on = chips.enabled() || await flag_on_for({ user: { user_id: userId } }, 'DUEL_CHIPS_ENABLED');
   if (!on && !(picks || []).some((p) => p && p.chips != null)) return null;
   const stack = await stackFor(userId, now, pool, picks);
   if (!on && stack.calls_with_chips === 0) return null;
@@ -543,7 +554,11 @@ async function cardFor(userId, now = new Date()) {
   const picks = await loadPicks(userId);
   await settleDue(rounds, picks, now);
   const mine = new Map(picks.map((p) => [String(p.round_id), p]));
-  const chipsOn = chips.enabled();
+  const viewer = { user: { user_id: userId } };
+  const chipsPublic = chips.enabled();
+  const chipsOn = chipsPublic || await flag_on_for(viewer, 'DUEL_CHIPS_ENABLED');
+  const confidencePublic = confidence.enabled();
+  const confidenceOn = confidencePublic || await flag_on_for(viewer, 'DUEL_CONFIDENCE_ENABLED');
 
   const cards = [];
   for (const r of rounds) {
@@ -553,7 +568,12 @@ async function cardFor(userId, now = new Date()) {
     const view = duel.publicRound(r, { revealAgent: Boolean(pick), now });
     // The odds this round was dealt at, offered while the layer is on. A
     // round dealt without chips carries `odds: null`, which a surface says.
-    if (chipsOn) view.odds = chips.oddsOf(r);
+    if (chipsOn) {
+      const dealt = chips.oddsOf(r);
+      if (dealt) view.odds = dealt;
+      else if (!chipsPublic) view.odds = chips.oddsFor(duel.kindOf(r)).odds;
+      else view.odds = null;
+    }
     if (pick) {
       view.my_call = duel.publicPick(pick, { now, round: r });
       const rated = confidence.fromPayload(pick.seal_payload);
@@ -583,10 +603,11 @@ async function cardFor(userId, now = new Date()) {
     counts_only: true,
   };
   // Off: the keys are absent, so a card is the card it was.
-  if (confidence.enabled()) {
+  if (confidenceOn) {
     out.confidence = true;
     out.confidence_levels = confidence.LEVELS.slice();
   }
+  if ((!confidencePublic && confidenceOn) || (!chipsPublic && chipsOn)) out.admin_preview = true;
   return out;
 }
 
@@ -704,8 +725,15 @@ async function recordFor(userId, now = new Date()) {
   };
   // Off, and no sealed rating in the window: the record is the record it was.
   // A rating sealed while the flag was on is still counted after it is off.
-  if (confidence.enabled() || calibration.scored > 0 || calibration.unscored > 0) {
+  const confidencePublic = confidence.enabled();
+  const confidenceOn = confidencePublic || await flag_on_for(
+    { user: { user_id: userId } }, 'DUEL_CONFIDENCE_ENABLED');
+  if (confidenceOn || calibration.scored > 0 || calibration.unscored > 0) {
     record.calibration = calibration;
+  }
+  const chipsPublic = chips.enabled();
+  if ((!confidencePublic && confidenceOn) || (!chipsPublic && record.chips && record.chips.enabled)) {
+    record.admin_preview = true;
   }
   return record;
 }
