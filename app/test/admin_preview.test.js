@@ -13,6 +13,7 @@ delete process.env.SCAM_OR_SAFE_V0;
 delete process.env.DUEL_CONFIDENCE_ENABLED;
 delete process.env.DUEL_CHIPS_ENABLED;
 delete process.env.AVALANCHE_ANCHOR_ENABLED;
+delete process.env.SAR_ORACLE_ENABLED;
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -303,6 +304,93 @@ test('Avalanche is listed for an admin and no signable mainnet plan is issued', 
     assert.equal(pub.cache, 'public, max-age=300');
   } finally {
     delete process.env.AVALANCHE_ANCHOR_ENABLED;
+    await close(server);
+  }
+});
+
+test('SaR stays off in public, and an admin previews the tools page and the admin routes', async () => {
+  delete process.env.SAR_ORACLE_ENABLED;
+  const app = express();
+  const sarFlag = require('../lib/sar_oracle_flag');
+  const sarRouter = require('../routes/sar_oracle');
+  let seam = 0;
+  sarRouter.setOperatorCheckForTests(() => { seam += 1; return true; });
+  app.use(sarFlag.pageGate);
+  app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.get('/tools', (req, res) => { sarFlag.sendPage(req, res); });
+  app.use('/api/sar-oracle', sarRouter);
+  const server = await listen(app);
+  try {
+    const anonPage = await hit(server, '/tools');
+    assert.equal(anonPage.status, 404);
+    assert.equal(anonPage.raw.includes(preview.BANNER), false);
+    const userPage = await hit(server, '/tools', { token: userToken });
+    assert.equal(userPage.status, 404);
+    const anonHtml = await hit(server, '/tools.html');
+    assert.equal(anonHtml.status, 404);
+    const anonScript = await hit(server, '/js/tools-page.js');
+    assert.equal(anonScript.status, 404);
+    const anonFeed = await hit(server, '/api/sar-oracle/packets');
+    assert.equal(anonFeed.status, 404);
+    const adminFeed = await hit(server, '/api/sar-oracle/packets', { token: adminToken });
+    assert.equal(adminFeed.status, 404);
+    assert.equal(adminFeed.raw.includes('_usd_'), false);
+    const userAdmin = await hit(server, '/api/sar-oracle/admin/packets', { token: userToken });
+    assert.equal(userAdmin.status, 404);
+    assert.equal(userAdmin.raw.includes('_usd_'), false);
+    assert.equal(seam, 0);
+
+    const adminPage = await hit(server, '/tools', { token: adminToken });
+    assert.equal(adminPage.status, 200);
+    assert.ok(adminPage.raw.includes(preview.BANNER));
+    assert.match(adminPage.raw, /href="\/api\/sar-oracle\/admin\/packets"/);
+    assert.match(adminPage.raw, /Admin view/);
+    assert.equal(adminPage.raw.includes('_usd_'), false);
+    assert.equal(adminPage.raw.includes('$'), false);
+    assert.equal(adminPage.cache, 'private, no-store');
+    const adminHtml = await hit(server, '/tools.html', { token: adminToken });
+    assert.equal(adminHtml.status, 200);
+    assert.ok(adminHtml.raw.includes(preview.BANNER));
+    const adminScript = await hit(server, '/js/tools-page.js', { token: adminToken });
+    assert.equal(adminScript.status, 200);
+    assert.match(adminScript.raw, /visibleIds/);
+
+    const adminPkt = await hit(server, '/api/sar-oracle/admin/packets', { token: adminToken });
+    assert.equal(adminPkt.status, 200);
+    assert.equal(adminPkt.cache, 'private, no-store');
+    assert.equal(adminPkt.body.markets[0].operator_amounts.oi_usd_e6, null);
+    const userAdopt = await hit(server, '/api/sar-oracle/admin/adoption', { token: userToken });
+    assert.equal(userAdopt.status, 404);
+    const adminAdopt = await hit(server, '/api/sar-oracle/admin/adoption', { token: adminToken });
+    assert.equal(adminAdopt.status, 200);
+    assert.equal(adminAdopt.raw.includes('_usd_'), false);
+    assert.equal(adminAdopt.body.alerts.status, 'not_read');
+    assert.equal(adminAdopt.body.replay.status, 'not_read');
+    assert.equal(adminAdopt.body.replay.reason, 'dataset_absent');
+    assert.equal(adminAdopt.body.hip3.signs, false);
+    assert.equal(adminAdopt.body.hip3.submits, false);
+    assert.equal(seam, 0);
+
+    sarRouter.setOperatorCheckForTests(null);
+    process.env.SAR_ORACLE_ENABLED = '1';
+    const publicPage = await hit(server, '/tools');
+    assert.equal(publicPage.status, 404);
+    const openPage = await hit(server, '/tools', { token: adminToken });
+    assert.equal(openPage.status, 200);
+    assert.equal(openPage.raw.includes(preview.BANNER), false);
+    assert.match(openPage.raw, /Admin view/);
+    assert.equal(openPage.cache, 'no-store');
+    const openFeed = await hit(server, '/api/sar-oracle/packets');
+    assert.equal(openFeed.status, 200);
+    assert.equal(openFeed.raw.includes('_usd_'), false);
+    const closedAdmin = await hit(server, '/api/sar-oracle/admin/packets');
+    assert.equal(closedAdmin.status, 404);
+    const openAdmin = await hit(server, '/api/sar-oracle/admin/packets', { token: adminToken });
+    assert.equal(openAdmin.status, 200);
+    assert.equal(openAdmin.cache, 'no-store');
+  } finally {
+    sarRouter.setOperatorCheckForTests(null);
+    delete process.env.SAR_ORACLE_ENABLED;
     await close(server);
   }
 });
