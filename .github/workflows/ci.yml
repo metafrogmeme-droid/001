@@ -1244,3 +1244,30 @@ jobs:
             node scripts/reprint_failures.js test-output.log | tail -300
           fi
           exit $code
+
+  qch-contracts:
+    name: QCH contracts (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: contracts/qch/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/qch
+        run: npm ci --no-audit --no-fund
+
+      # Compiles QCHOracle and QCHSentinel (solc, pinned) and runs the
+      # bytecode on an in-process EVM. Hermetic: testnet chain ids only,
+      # no deploy, no network. The server does not sign on mainnet.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/qch
+        run: npm test
+
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/qch
+        run: node ../../token/scripts/audit_gate.mjs .

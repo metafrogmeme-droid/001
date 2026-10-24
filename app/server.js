@@ -387,6 +387,10 @@ app.use(require('./lib/cover_page').pageGate);
 // an admin preview. Ahead of express.static so public/tools.html is not
 // served while the flag is off for this caller.
 app.use(require('./lib/sar_oracle_flag').pageGate);
+// QCH — quantum custody haircut. Admin-only, flag off by default.
+// Ahead of express.static so public/qch.html and js/qch.js are not files
+// a non-admin can open. A non-admin is 404 with the flag off or on.
+app.use(require('./lib/qch_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -572,6 +576,8 @@ app.use('/v1/node', require('./routes/rxb'));
 app.use('/api/fvb', require('./routes/fvb'));
 // Conservation brake: admin-only status. 404 for everyone else, flag on or off.
 app.use('/api/cgc', require('./routes/cgc'));
+// QCH — admin-only custody reading. 404 for everyone else, flag on or off.
+app.use('/api/qch', require('./routes/qch'));
 // Cover status. 404 for the public until the matching flag is set. An admin
 // can preview the hold. Even then the body says the product is not offered.
 // Not offered to customers. Licence review pending. Do not enable in production.
@@ -681,6 +687,11 @@ app.get('/tools', (req, res) => { require('./lib/sar_oracle_flag').sendPage(req,
 // /t2c is the operator's signal page and answers 404 for everyone else,
 // flag on or off (lib/t2c_flag.js).
 app.get('/t2c', (req, res) => { require('./lib/t2c_flag').sendT2C(req, res); });
+// QCH — quantum custody haircut. Admin only. pageGate, ahead of static,
+// keeps /qch.html and the page script from being files a non-admin can open.
+app.get('/qch', (req, res, next) => {
+  require('./lib/qch_flag').sendPage(req, res).catch(next);
+});
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

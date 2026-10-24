@@ -1,0 +1,9 @@
+{
+  "testnets": [
+    {"name": "Ethereum Sepolia", "chain_id": 11155111},
+    {"name": "Base Sepolia", "chain_id": 84532},
+    {"name": "Arbitrum Sepolia", "chain_id": 421614},
+    {"name": "HyperEVM testnet", "chain_id": 998}
+  ],
+  "mainnets_refused": [1, 8453, 42161, 999]
+}
