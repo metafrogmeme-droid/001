@@ -34,6 +34,13 @@ function cell(value) {
   return String(value);
 }
 
+function reasonCell(row) {
+  // A missing failure reason is not an unreadable metric. USD3 carries
+  // no_lookthrough_inputs; a fired row has no reason and the cell stays empty.
+  if (row && row.reason) return String(row.reason);
+  return '';
+}
+
 function render(model, audience) {
   const back = model && model.backtest ? model.backtest : {};
   const nodes = model && Array.isArray(model.nodes) ? model.nodes : [];
@@ -50,7 +57,7 @@ function render(model, audience) {
     <td>${esc(cell(row.cbf))}</td>
     <td>${esc(cell(row.lts))}</td>
     <td>${esc(cell(row.uf))}</td>
-    <td>${esc(cell(row.reason))}</td>
+    <td>${esc(reasonCell(row))}</td>
   </tr>`).join('\n');
   const crossing = back.shows_crossing_before_2025_10_28 === false && back.all_clear === false
     ? `No crossing is shown before 2025-10-28. The earlier windows are not an all-clear.${coverageLine(back)}`
@@ -72,12 +79,12 @@ function render(model, audience) {
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/styles.css?v=52">
 <style>
-  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
   h1 { font-family: var(--font-display); letter-spacing: .04em; }
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; overflow-x: auto; }
   pre { white-space: pre-wrap; font: inherit; color: var(--text-2); }
   table { width: 100%; border-collapse: collapse; }
-  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-family: var(--font-data); font-size: 14px; }
+  td, th { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--line); font-family: var(--font-data); font-size: 13px; white-space: nowrap; }
   .muted { color: var(--text-2); }
   .signal { color: var(--text-2); }
 </style>

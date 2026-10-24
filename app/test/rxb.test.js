@@ -117,6 +117,8 @@ test('the flag on publishes a signal and still refuses a dollar amount', async (
     assert.match(html, /Public signal, not a verdict/);
     assert.match(html, /not an all-clear/);
     assert.match(html, /36\/53/);
+    assert.match(html, /<td>xUSD<\/td>[\s\S]*?<td>Fired<\/td>[\s\S]*?<td>34\/265<\/td>[\s\S]*?<td>36\/53<\/td>[\s\S]*?<td>0\/1<\/td>\s*<td><\/td>/);
+    assert.match(html, /no_lookthrough_inputs/);
     assert.match(html, /unsigned/);
     assert.match(html, /not activated/);
     assert.ok(!html.includes('setIsSentinel'));
