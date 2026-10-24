@@ -24,8 +24,9 @@ def gate(flag_is_on: bool, is_operator: bool) -> str:
     """``open`` for everyone, ``preview`` for an operator while the flag is
     off, ``deny`` for everyone else while it is off.
 
-    The website turns ``deny`` into 404. Telegram turns it into the same
-    "Not found." a missing command gets. ``preview`` is the banner.
+    The door that asks who the caller is is ``admin_preview.flag_on_for``.
+    This function only names the three answers once those two bits are known.
+    ``deny`` is 404. ``preview`` is the banner.
     """
     if flag_is_on:
         return "open"

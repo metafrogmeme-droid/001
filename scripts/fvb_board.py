@@ -15,11 +15,11 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from bot.admin_preview import flag_on_for  # noqa: E402
 from bot.fvb.board import load_board, save_board  # noqa: E402
 from bot.fvb.chains import assert_testnet_chain  # noqa: E402
 from bot.fvb.config import FvbConfig  # noqa: E402
 from bot.fvb.euler import OP_LIQUIDATE, liquidate_enabled  # noqa: E402
-from bot.fvb.flag import flag_on, gate  # noqa: E402
 from bot.fvb.packet import SESSION_CODE, public_signal, scale_price  # noqa: E402
 from bot.fvb.pricer import Pricer, Reading  # noqa: E402
 from bot.fvb.render import card_text  # noqa: E402
@@ -103,7 +103,7 @@ def signer_roundtrip() -> bool:
     committee.rotate_signer(signers[0].signer_id, nxt)
     if not liquidate_enabled(OP_LIQUIDATE):
         return False
-    return gate(flag_on(), False) == "deny"
+    return flag_on_for(None, "FVB_ENABLED", store={}) is False
 
 
 def main(argv: list[str]) -> int:

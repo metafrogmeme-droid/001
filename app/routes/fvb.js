@@ -4,7 +4,9 @@
  *
  * The blend is not recomputed here. A missing file is "not published".
  * While FVB_ENABLED is off the public gets 404; an operator gets the
- * board with the preview banner.
+ * board with the preview banner. The door is flag_on_for. optionalAuth
+ * stays in the handler list so the mixed-module guard sees it; flag_on_for
+ * does not load auth again once the request already has a user.
  */
 
 const express = require('express');
@@ -55,17 +57,16 @@ function optionalAuth(req, res, next) {
 }
 
 router.get('/board', optionalAuth, function (req, res) {
-  const { isOperator } = require('../lib/operator_view');
+  const { flag_on_for } = require('../lib/admin_preview');
   const flag = require('../lib/fvb_flag');
-  Promise.resolve(isOperator(req)).then(function (op) {
-    const decision = flag.gate(flag.flagOn(), !!op);
-    if (decision === 'deny') return res.status(404).type('text/plain').send('Not found');
+  flag_on_for(req, flag.FLAG).then(function (on) {
+    if (on !== true) return res.status(404).type('text/plain').send('Not found');
     const doc = readBoard();
-    if (decision === 'preview') doc.banner = flag.BANNER;
+    if (flag.flagOn() !== true) doc.banner = flag.BANNER;
     res.setHeader('Cache-Control', 'no-cache');
     res.json(doc);
   }).catch(function () {
-    res.status(404).type('text/plain').send('Not found');
+    if (!res.headersSent) res.status(404).type('text/plain').send('Not found');
   });
 });
 

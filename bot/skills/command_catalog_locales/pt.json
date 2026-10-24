@@ -149,6 +149,7 @@
     "gates": "telemetria de aprovado/reprovado por gate",
     "flags": "flags de auditoria profunda opt-in",
     "shadow": "livro sombra contrafactual",
+    "srb": "sinais de restituição em sombra — um sinal público, nada é pago",
     "audit": "relatório de autoauditoria noturna",
     "parity": "paridade real ↔ backtest",
     "duplicates": "fechamentos registrados duas vezes nos livros do operador",

@@ -700,6 +700,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/compliance` | restricted jurisdictions and the global consent ledger |
 | `/backup` | verifiable backups of critical state |
 | `/readiness` | is the learning loop validated enough to apply |
+| `/srb` | shadow restitution signals — a public signal, nothing is paid |
 
 ### 🚦 Engine ops (operator) — *operator only*
 
@@ -1174,6 +1175,14 @@ counts as unlimited.
 `APPROVAL_DIGEST_POLL_SEC` defaults to 3600. The chat id used to deliver a
 digest is kept in memory only. After a restart, the next message from that
 chat binds it again and a digest that came due in the meantime is sent then.
+
+`/panic <address>` is separate from the digest. It is off unless
+`PANIC_BUTTON` is `1` or `true`, and while it is off the reply is
+`not available yet`. When it is on, it lists what can still move that
+wallet, worst first, and links `https://www.humanoid-traders.com/panic`
+(or `PANIC_PAGE_URL`) where the unsigned revokes are prepared. It does not
+add the address to the watch list and it does not store the address.
+Chains are the digest's: Ethereum, Base, Avalanche C-Chain, Arbitrum.
 
 The digest itself is `bot.approval_digest.ApprovalDigest`. This process
 constructs that object and registers `/watch`, `/digest` and `/stop`. A later

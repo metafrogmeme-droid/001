@@ -149,6 +149,7 @@
     "gates": "kapı başına geçti/kaldı telemetrisi",
     "flags": "isteğe bağlı derin denetim bayrakları",
     "shadow": "karşı-olgusal gölge defter",
+    "srb": "gölge iade sinyalleri — herkese açık bir sinyal, ödeme yok",
     "audit": "gecelik öz denetim raporu",
     "parity": "canlı ↔ geriye dönük test paritesi",
     "duplicates": "operatörün defterlerinde iki kez kaydedilen kapanışlar",

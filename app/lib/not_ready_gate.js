@@ -44,7 +44,12 @@
  */
 
 /** The /api/ paths that need no database and are served while not ready. */
-const DB_FREE_API = new Set(['/api/version']);
+const DB_FREE_API = new Set([
+  '/api/version',
+  // The public SaR feed. Flag off answers 404 without a database. The
+  // operator copy is not in this set: it has to know who is asking.
+  '/api/sar-oracle/packets',
+]);
 
 /** Set on a refusal that was held first. Read by public/js/api-retry.js. */
 const HELD_HEADER = 'X-RC-Starting-Held';

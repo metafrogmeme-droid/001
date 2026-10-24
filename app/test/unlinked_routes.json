@@ -18,8 +18,13 @@
     "/signal": "One signal's thesis, opened from a stream row as /signal?key=. A bare landing link has no id, so the page can only say the link has none.",
     "/admin": "The operator's settings page. It is linked from the dashboard for the operator only; every other account would land on a refusal, so the public landing page does not advertise it.",
     "/study": "The address people guess for the Study Room, whose door is labelled that; it answers a navigation page to /learn and is not a page of its own, so the landing page links /learn.",
+    "/panic": "behind PANIC_BUTTON flag, off",
     "/botcheck": "The custodial-bot check is served only when BOTCHECK_ENABLED is 1, true, yes, or on. Otherwise the page answers 404, so the landing page must not link a door that is closed.",
     "/rwa": "behind the RWA flag, off. It answers 404.",
-    "/fvb": "behind FVB_ENABLED, off by default. The public gets 404. An operator gets an admin preview."
+    "/fvb": "behind FVB_ENABLED, off by default. The public gets 404. An operator gets an admin preview.",
+    "/srb": "404 for the public while SRB_ENABLED is off. There is no public dashboard, so the landing page does not advertise it.",
+    "/cover-adl": "ADL re-entry cover is not offered. COVER_ADL_ENABLED is off for the public and the route answers 404; an admin can preview. A landing link would advertise a product waiting on an AFM licence review.",
+    "/cover-stopgap": "Parametric stop-gap cover is not offered. COVER_STOPGAP_ENABLED is off for the public and the route answers 404; an admin can preview. A landing link would advertise a product waiting on an AFM licence review.",
+    "/tools": "behind SAR_ORACLE_ENABLED flag, off. It answers 404."
   }
 }

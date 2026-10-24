@@ -77,6 +77,19 @@
       out.flags.push(flag('gasless_permit', 'medium'));
       if (v >= UNLIMITED) out.flags.push(flag('unlimited_approval', 'high'));
     },
+    '0xcc53287f': function (b, out) { // lockdown((address,address)[]) — Permit2
+      var arrOff = Number(uint(b, 0)) / 32;
+      var n = Number(uint(b, arrOff));
+      if (!Number.isFinite(n) || n < 0 || n > 20) throw new Error('lockdown');
+      var pairs = [];
+      for (var i = 0; i < n; i++) {
+        var base = arrOff + 1 + i * 2;
+        pairs.push({ token: addr(b, base), spender: addr(b, base + 1) });
+      }
+      out.actions.push(act('txr.a_lockdown',
+        'Revokes {n} Permit2 allowance(s). Each pair below is set to none. No tokens move with this call.',
+        { n: n, pairs: pairs }));
+    },
     '0xa22cb465': function (b, out) { // setApprovalForAll(address,bool)
       var on = uint(b, 1) !== 0n;
       out.actions.push(act(on ? 'txr.a_forall_on' : 'txr.a_forall_off',

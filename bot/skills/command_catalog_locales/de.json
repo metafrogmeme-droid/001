@@ -149,6 +149,7 @@
     "gates": "Bestanden/Nicht-bestanden-Telemetrie pro Gate",
     "flags": "Opt-in-Flags für den Tiefen-Audit",
     "shadow": "kontrafaktisches Schattenbuch",
+    "srb": "Schatten-Erstattungssignale — ein öffentliches Signal, nichts wird gezahlt",
     "audit": "nächtlicher Selbst-Audit-Bericht",
     "parity": "Parität Live ↔ Backtest",
     "duplicates": "doppelt gebuchte Schließungen in den Büchern des Betreibers",

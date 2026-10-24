@@ -7,16 +7,19 @@
  * from the database) still gets the page, with the banner
  * "Admin preview. Not public."
  *
- * The function is flagOn. `enabled` is the name the RWA gate uses, and a
- * second module-level function of that name is not how this one is read.
+ * The door is flag_on_for (lib/admin_preview.js). The public reader is
+ * flagOn. `enabled` is the name the RWA gate uses, and a second module-level
+ * function of that name is not how this one is read.
  *
- * Auth is required inside the request. Requiring it at load time exits the
- * process when JWT_SECRET is unset, and the public-route scan loads every
- * router without that variable.
+ * flag_on_for loads auth only when the request carries a credential.
+ * Requiring auth at load time exits the process when JWT_SECRET is unset,
+ * and the public-route scan loads every router without that variable.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
+
+const { flag_on_for } = require('./admin_preview');
 
 const FLAG = 'FVB_ENABLED';
 const BANNER = 'Admin preview. Not public.';
@@ -46,22 +49,22 @@ function deliver(res, decision) {
   res.type('html').send(html);
 }
 
+function decisionFor(req) {
+  return flag_on_for(req, FLAG).then(function (on) {
+    if (on !== true) return 'deny';
+    if (flagOn() === true) return 'open';
+    return 'preview';
+  }).catch(function () {
+    return 'deny';
+  });
+}
+
 function decide(req, res, onOpen) {
-  let auth;
-  try {
-    auth = require('../auth');
-  } catch (e) {
-    return res.status(404).type('text/plain').send('Not found');
-  }
-  auth.optionalAuth(req, res, function () {
-    const { isOperator } = require('./operator_view');
-    Promise.resolve(isOperator(req)).then(function (op) {
-      const decision = gate(flagOn(), !!op);
-      if (decision === 'deny') return res.status(404).type('text/plain').send('Not found');
-      return onOpen(decision);
-    }).catch(function () {
-      res.status(404).type('text/plain').send('Not found');
-    });
+  decisionFor(req).then(function (decision) {
+    if (decision === 'deny') return res.status(404).type('text/plain').send('Not found');
+    return onOpen(decision);
+  }).catch(function () {
+    if (!res.headersSent) res.status(404).type('text/plain').send('Not found');
   });
 }
 
