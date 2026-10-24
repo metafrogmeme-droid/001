@@ -77,6 +77,15 @@
     { id: 'account',   label: 'Account',   icon: 'icon-user' },
   ];
 
+  // Whether /tools would be served to THIS caller. False until
+  // GET /api/nav/tools says tools === true. A missing read, a thrown
+  // read, and a catalog payload (`tools` as an array) all stay false:
+  // the link is omitted, which is not a claim that the catalog is empty.
+  let toolsOpen = false;
+  function toolsNavOpen(data) {
+    return !!(data && data.tools === true);
+  }
+
   const container = document.getElementById('viewContainer');
   let currentView = '';
   let viewTimers = [];
@@ -483,10 +492,37 @@
 
   // ── Router ─────────────────────────────────────────────────────────────
   function navHtml(active) {
+    const tools = toolsOpen === true ? `
+      <a href="/tools">
+        <svg class="icon" aria-hidden="true"><use href="#icon-sliders"></use></svg><span data-i18n="nav.tools">Tools</span>
+      </a>` : '';
     return VIEWS.map(v => `
       <a href="#${v.id}" ${v.id === active ? 'aria-current="page"' : ''}>
         <svg class="icon" aria-hidden="true"><use href="#${v.icon}"></use></svg><span data-i18n="nav.${v.id}">${v.label}</span>
-      </a>`).join('');
+      </a>` + (v.id === 'home' ? tools : '')).join('');
+  }
+  let tabbarMoreWired = false;
+  function syncTabbarMore() {
+    const bar = document.getElementById('tabbarNav');
+    const btn = document.getElementById('tabbarMore');
+    if (!bar || !btn) return;
+    const overflow = bar.scrollWidth - bar.clientWidth > 8;
+    const atEnd = bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 2;
+    btn.hidden = !(overflow && !atEnd);
+    bar.classList.toggle('tabbar--end', !overflow || atEnd);
+  }
+  function wireTabbarMore() {
+    const bar = document.getElementById('tabbarNav');
+    const btn = document.getElementById('tabbarMore');
+    if (!bar || !btn || tabbarMoreWired) return;
+    tabbarMoreWired = true;
+    btn.addEventListener('click', () => {
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const step = Math.max(128, Math.round(bar.clientWidth * 0.6));
+      bar.scrollBy({ left: step, behavior: reduce ? 'auto' : 'smooth' });
+    });
+    bar.addEventListener('scroll', syncTabbarMore, { passive: true });
+    window.addEventListener('resize', syncTabbarMore);
   }
   function renderNav(active) {
     document.getElementById('railNav').innerHTML = navHtml(active);
@@ -495,13 +531,26 @@
     // applied once at load; nav is (re)built later on every view change).
     if (window.RCI18N) { RCI18N.apply(document.getElementById('railNav'));
                          RCI18N.apply(document.getElementById('tabbarNav')); }
+    wireTabbarMore();
     // UX-4: the mobile tabbar scrolls horizontally behind a hidden scrollbar,
     // so the active tab can sit off-screen (half the product looked missing on
     // phones). Center it after paint — block:'nearest' avoids any vertical jump.
     requestAnimationFrame(() => {
       const cur = document.querySelector('#tabbarNav a[aria-current="page"]');
       if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
+      syncTabbarMore();
     });
+  }
+  // Ask the server once. The link appears only when the gate would serve
+  // /tools. A failed read leaves the link off; it does not paint a closed
+  // catalog as an empty one.
+  function loadToolsNav() {
+    fetchJSON('/api/nav/tools', { timeoutMs: 8000 }).then((r) => {
+      const open = !!(r && r.ok && !r.unreadable && toolsNavOpen(r.data));
+      if (open === toolsOpen) { syncTabbarMore(); return; }
+      toolsOpen = open;
+      if (currentView) renderNav(currentView);
+    }).catch(() => { /* omit the link; the page gate still 404s */ });
   }
   function every(ms, fn) { viewTimers.push(setInterval(fn, ms)); }
   function showView(id, opts = {}) {
@@ -10987,4 +11036,5 @@
 
   getScan().then(updateConnChip);
   showView(location.hash.slice(1) || 'home');
+  loadToolsNav();
 })();

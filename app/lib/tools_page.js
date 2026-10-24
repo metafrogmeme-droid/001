@@ -75,7 +75,7 @@ function renderPage(operator) {
   }
   const shell = fs.readFileSync(templateFile(), 'utf8');
   return shell
-    .replace('<!--STYLE-->', '<link rel="stylesheet" href="/styles.css?v=52">')
+    .replace('<!--STYLE-->', '<link rel="stylesheet" href="/styles.css?v=53">')
     .replace('<!--CARDS-->', cards);
 }
 
@@ -112,7 +112,7 @@ function render(cards) {
 <title>RUNECLAW — Tools</title>
 <link rel="canonical" href="https://www.humanoid-traders.com/tools">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/styles.css?v=52">
+<link rel="stylesheet" href="/styles.css?v=53">
 <style>
   .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
   h1 { font-family: var(--font-display); letter-spacing: .04em; }

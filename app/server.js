@@ -566,6 +566,10 @@ app.use('/v1/rwa', require('./routes/rwa_precheck'));
 // operator. The feed is percent and ratio only (routes/t2c.js).
 app.use('/api/t2c', require('./routes/t2c'));
 app.use('/api/tools', require('./routes/tools'));
+// Whether THIS caller would be served /tools. The page gate stays on
+// sendPage; the dashboard nav reads this boolean and does not decide
+// access itself. optionalAuth identifies and never refuses.
+app.use('/api/nav/tools', require('./routes/nav_tools'));
 // Recursion Breaker. Public signals while RXB_ENABLED is on. While it is
 // off, the public gets 404 and an operator can still read. routes/rxb.js.
 app.use('/v1/node', require('./routes/rxb'));

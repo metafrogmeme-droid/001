@@ -108,8 +108,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 252,
-    "sha": "981f5d10afdf7f35"
+    "v": 253,
+    "sha": "b329e88a137e6d6c"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -212,8 +212,8 @@
     "sha": "173436196745d52c"
   },
   "js/i18n-core.js": {
-    "v": 207,
-    "sha": "d9cf94442adccc0f"
+    "v": 208,
+    "sha": "beaa6984be5b8b10"
   },
   "js/icons.js": {
     "v": 6,
@@ -480,8 +480,8 @@
     "sha": "e3239d42e6c63232"
   },
   "styles.css": {
-    "v": 52,
-    "sha": "92c692a70f902786"
+    "v": 53,
+    "sha": "afd4cdbcf5dcd653"
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,

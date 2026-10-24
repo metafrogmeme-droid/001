@@ -24,7 +24,7 @@ function page() {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW — Scam or Safe?</title>
 <meta name="description" content="One decoded signing request a day. Call it safe or risky. Read only: nothing is signed, addresses are masked, amounts are hidden.">
-<link rel="stylesheet" href="/styles.css?v=52">
+<link rel="stylesheet" href="/styles.css?v=53">
 <style>
   .sos-page { display: flex; justify-content: center; }
   .sos-wrap { max-width: 720px; width: 100%; padding: 28px 16px 64px; box-sizing: border-box; }

@@ -11,7 +11,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=52">
+<link rel="stylesheet" href="/styles.css?v=53">
 </head>
 <body>
 <a class="skip-link" href="#view-root" data-i18n="dash.skip">Skip to content</a>
@@ -40,6 +40,10 @@
 </div>
 
 <nav class="tabbar" id="tabbarNav" aria-label="Dashboard sections" data-i18n-attr="aria-label:a11y.sections"></nav>
+<button type="button" class="tabbar-more" id="tabbarMore" hidden
+  aria-controls="tabbarNav" aria-label="More sections" data-i18n-attr="aria-label:a11y.tabbar_more">
+  <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
 
 <!-- Chat -->
 <button id="chatFab" class="chat-fab hidden" hidden aria-label="Open RUNECLAW chat" data-i18n-attr="aria-label:a11y.open_chat">
@@ -92,7 +96,7 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=207"></script>
+<script src="/js/i18n-core.js?v=208"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=17"></script>
@@ -155,7 +159,7 @@
 <script src="/js/calibration-chart.js?v=2" defer></script>
 <script src="/js/signal-page.js?v=2" defer></script>
 <script src="/js/plan-card-model.js?v=1" defer></script>
-<script src="/js/dashboard.js?v=252" defer></script>
+<script src="/js/dashboard.js?v=253" defer></script>
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
 <script src="/js/palette.js?v=2" defer></script>
 </body>
