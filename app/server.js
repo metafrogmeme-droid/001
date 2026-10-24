@@ -362,6 +362,9 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// Sandwich restitution stays 404 for the public while SRB_ENABLED is off.
+// Ahead of express.static so public/srb.html is not a file a crawler can open.
+app.use(require('./lib/srb_flag').pageGate);
 // Cover drafts stay 404 for the public until COVER_ADL_ENABLED or
 // COVER_STOPGAP_ENABLED is set. Ahead of express.static so
 // public/cover-adl.html, cover-stopgap.html and js/cover.js are not served
@@ -513,6 +516,8 @@ app.use('/api/botcheck', require('./routes/botcheck'));
 // Scam or Safe? Daily. The page is a document; the call is the authed router.
 // Both answer 404 unless SCAM_OR_SAFE_V0 is on.
 app.use('/api/scam-or-safe', require('./routes/scam_or_safe'));
+// Shadow restitution. Operator only. There is no public dashboard.
+app.use('/api/srb', require('./routes/srb'));
 app.use('/scam', require('./routes/scam_page'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
@@ -632,6 +637,9 @@ app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); })
 // /rxb — public signals while RXB_ENABLED is on. While it is off, 404
 // for everyone who is not an operator.
 app.get('/rxb', (req, res) => { require('./lib/rxb_page').sendRxb(req, res); });
+// /srb — shadow restitution. 404 for the public while SRB_ENABLED is off.
+// An admin still receives it, and the client paints the preview banner.
+app.get('/srb', (req, res) => { require('./lib/srb_flag').sendPage(req, res); });
 // Cover pages. 404 for the public until the matching flag. An admin can
 // preview. Not offered to customers. Licence review pending. Do not enable in production.
 app.get('/cover-adl', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'adl'); });

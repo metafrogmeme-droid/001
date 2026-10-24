@@ -54,6 +54,15 @@
     "flag": null
   },
   {
+    "id": "srb",
+    "name": "Sandwich restitution",
+    "description": "A shadow record of a same-pool front and back on Solana. Nothing is paid, and there is no public dashboard.",
+    "chains": ["solana"],
+    "route": "/srb",
+    "status": "runtime",
+    "flag": "SRB_ENABLED"
+  },
+  {
     "id": "recursion-breaker",
     "name": "Recursion Breaker",
     "description": "A look-through of collateral that is backed by itself.",

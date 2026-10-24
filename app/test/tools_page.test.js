@@ -69,6 +69,25 @@ test('the SaR card stays coming soon with the flag on or off', () => {
   assert.deepStrictEqual(catalog.presentation(panic, {}), { label: 'No web page', href: null });
 });
 
+test('the restitution card is coming soon with no date until its flag is on', () => {
+  const tool = catalog.loadCatalog().find((t) => t.id === 'srb');
+  assert.equal(tool.chains.includes('solana'), true);
+  assert.deepStrictEqual(catalog.presentation(tool, {}), { label: 'Coming soon', href: null });
+  assert.deepStrictEqual(
+    catalog.presentation(tool, { SRB_ENABLED: '1' }),
+    { label: 'Open', href: '/srb' },
+  );
+  const rendered = catalog.renderFile({});
+  const at = rendered.indexOf('data-tool="srb"');
+  const start = rendered.lastIndexOf('<', at);
+  const end = rendered.indexOf('</article>', at);
+  const cardHtml = rendered.slice(start, end);
+  assert.equal(cardHtml.startsWith('<article'), true);
+  assert.match(cardHtml, /Coming soon/);
+  assert.equal(cardHtml.includes('href='), false);
+  assert.equal(/\b20\d{2}\b/.test(cardHtml), false);
+});
+
 test('chips follow the bar, then extras from the modules that name them', () => {
   const tools = catalog.loadCatalog();
   const { bar, labels } = catalog.labelMap(tools);
