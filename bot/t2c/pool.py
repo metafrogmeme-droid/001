@@ -19,25 +19,37 @@ POOL_CHAINS = frozenset({FORK, MAINNET}) | TESTNETS
 class Unreadable(Exception):
     """A zero amount, a zero cap, or an address this rehearsal cannot name."""
 
+    pass
+
 
 class Paused(Exception):
     """The pause switch is on."""
+
+    pass
 
 
 class DepositCap(Exception):
     """The deposit would put the pool's assets above the hard cap."""
 
+    pass
+
 
 class NotOwner(Exception):
     """The caller is not the address the rehearsal was given."""
+
+    pass
 
 
 class ChainRefused(Exception):
     """The chain id is not the fork, a named testnet, or mainnet."""
 
+    pass
+
 
 class WithdrawalNftRefused(Exception):
     """A withdrawal NFT moves on a testnet or a fork."""
+
+    pass
 
 
 class Pool:
