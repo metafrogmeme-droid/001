@@ -140,6 +140,7 @@ revoke_live is_admin
 risk guard
 run guard
 rwa guard
+rxb is_admin
 scalp guard
 scan guard
 sell guard

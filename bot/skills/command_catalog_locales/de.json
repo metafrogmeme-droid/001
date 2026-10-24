@@ -149,6 +149,7 @@
     "cgc": "Zeitfenster der Erhaltungsbremse, Testnet, nur lesen",
     "gates": "Bestanden/Nicht-bestanden-Telemetrie pro Gate",
     "flags": "Opt-in-Flags für den Tiefen-Audit",
+    "rxb": "Rekursion-Durchsicht für den Betreiber, nur Verhältnisse",
     "shadow": "kontrafaktisches Schattenbuch",
     "srb": "Schatten-Erstattungssignale — ein öffentliches Signal, nichts wird gezahlt",
     "audit": "nächtlicher Selbst-Audit-Bericht",
