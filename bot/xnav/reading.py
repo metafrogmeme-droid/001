@@ -10,6 +10,9 @@ _FIXTURE = Path(__file__).with_name("fixtures") / "snapshot_sample.json"
 class SnapshotUnreadable(Exception):
     """The ranking file could not be read."""
 
+    # Survives docstring stripping, so this file stays parseable.
+    pass
+
 
 def load_snapshot(path: Path | None = None) -> dict:
     src = path or _FIXTURE

@@ -37,6 +37,9 @@ _REQUIRED = (
 class PlaceholdersUnreadable(Exception):
     """The placeholder file could not be read. Not a set of zeros."""
 
+    # Survives docstring stripping, so this file stays parseable.
+    pass
+
 
 def placeholders(path: Path | None = None) -> dict[str, Any]:
     src = path or _PATH
