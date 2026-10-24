@@ -145,6 +145,7 @@
     "journal": "haftalık işlem günlüğü (operatör hesabı)",
     "strategy": "aktif strateji ve rejim yönlendirmesi",
     "crossasset": "varlıklar arası korelasyon bağlamı",
+    "cgc": "koruma freninin zaman pencereleri, testnet, salt okunur",
     "gates": "kapı başına geçti/kaldı telemetrisi",
     "flags": "isteğe bağlı derin denetim bayrakları",
     "shadow": "karşı-olgusal gölge defter",
