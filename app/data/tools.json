@@ -72,6 +72,15 @@
     "flag": "RXB_ENABLED"
   },
   {
+    "id": "fair-value-bridge",
+    "name": "Fair-value bridge",
+    "description": "A session-aware risk price for one tokenized equity. Public signals, not advice.",
+    "chains": ["ethereum", "solana", "hyperliquid"],
+    "route": "/fvb",
+    "status": "runtime",
+    "flag": "FVB_ENABLED"
+  },
+  {
     "id": "kink-cap",
     "name": "Kink Cap",
     "description": "Hourly caps on the Hyperliquid USDC borrow rate. The page shows utilization and the rate. Testnet readings are synthetic.",

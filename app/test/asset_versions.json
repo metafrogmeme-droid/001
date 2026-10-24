@@ -191,6 +191,10 @@
     "v": 1,
     "sha": "be8d68160630f13d"
   },
+  "js/fvb-page.js": {
+    "v": 1,
+    "sha": "518ca067e65627b6"
+  },
   "js/guard-page.js": {
     "v": 2,
     "sha": "b260fdd6554737b0"

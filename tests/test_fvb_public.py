@@ -29,6 +29,58 @@ def test_flag_is_off_unless_explicitly_on():
     assert gate(True, False) == "open"
 
 
+def test_the_telegram_card_is_not_found_for_the_public_and_a_preview_for_an_admin(monkeypatch, tmp_path):
+    """The command asks flag_on_for. Off is Not found. An admin gets the banner."""
+    import asyncio
+    import dataclasses
+    from types import SimpleNamespace
+
+    from bot.config import CONFIG
+    from bot.skills.market_commands import MarketCommands
+
+    monkeypatch.delenv("FVB_ENABLED", raising=False)
+    new_tg = dataclasses.replace(CONFIG.telegram, admin_ids="1")
+    monkeypatch.setattr(
+        "bot.config.CONFIG", dataclasses.replace(CONFIG, telegram=new_tg))
+    # data/users.json is this checkout's store. Blank that half so the
+    # allowlist is the admin source this case drives.
+    monkeypatch.setattr("bot.admin_preview._role_admin", lambda tg, store: False)
+    board = tmp_path / "board.json"
+    board.write_text(
+        '{"available": false, "reason": "not_published"}', encoding="utf-8")
+    monkeypatch.setenv("FVB_BOARD_PATH", str(board))
+
+    class Host(MarketCommands):
+        def __init__(self):
+            self.sent: list[str] = []
+
+        async def _guard(self, update, command="", ctx=None):
+            return True
+
+        async def _send(self, update, text, reply_markup=None, edit=False):
+            self.sent.append(text)
+
+    def update(uid):
+        return SimpleNamespace(effective_user=SimpleNamespace(id=uid))
+
+    host = Host()
+    asyncio.run(host._cmd_fvb(update(2), None))
+    assert host.sent == ["Not found."]
+
+    host.sent.clear()
+    asyncio.run(host._cmd_fvb(update(1), None))
+    assert host.sent[0].startswith("Admin preview. Not public.")
+    assert "Board not published." in host.sent[0]
+    assert "$" not in host.sent[0]
+
+    monkeypatch.setenv("FVB_ENABLED", "1")
+    host.sent.clear()
+    asyncio.run(host._cmd_fvb(update(2), None))
+    assert host.sent[0] != "Not found."
+    assert "Admin preview. Not public." not in host.sent[0]
+    assert "Board not published." in host.sent[0]
+
+
 def test_flag_off_stays_closed_for_the_public_and_opens_for_an_admin():
     """The door is flag_on_for. Off is 404 for everyone who is not an admin."""
     from bot.admin_preview import flag_on_for, is_preview

@@ -1314,9 +1314,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 113 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 114 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 104 of the 113 reach the tool-less chat model and 9
+typed as the card prints them, 105 of the 114 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
