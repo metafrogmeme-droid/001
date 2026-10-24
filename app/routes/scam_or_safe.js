@@ -17,9 +17,22 @@ const express = require('express');
 const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const sos = require('../lib/scam_or_safe');
+const { flag_on_for } = require('../lib/admin_preview');
 
 const router = express.Router();
 router.use(authMiddleware);
+router.use(async (req, res, next) => {
+  try {
+    if (!(await flag_on_for(req, 'SCAM_OR_SAFE_V0'))) {
+      return res.status(404).json({ error: CLOSED });
+    }
+    // Set here, never from the body. True only while the public flag is off.
+    req.scamPreview = !sos.enabled();
+    return next();
+  } catch (e) {
+    return res.status(503).json({ error: UNREAD });
+  }
+});
 
 const pickLimit = rateLimit({ name: 'scam.pick', windowMs: 60000, max: 20, key: userKey });
 
@@ -43,7 +56,11 @@ function send(res, out) {
 router.get('/today', (req, res) => {
   try {
     const key = sos.webPlayerKey(req.user.user_id);
-    send(res, sos.offer({ now: new Date().toISOString(), player_key: key }));
+    send(res, sos.offer({
+      now: new Date().toISOString(),
+      player_key: key,
+      caller_is_admin: req.scamPreview === true,
+    }));
   } catch (err) {
     res.status(503).json({ error: UNREAD });
   }
@@ -58,6 +75,7 @@ router.post('/pick', pickLimit, (req, res) => {
       pick: body.pick,
       puzzle_id: body.puzzle_id,
       player_key: key,
+      caller_is_admin: req.scamPreview === true,
     }));
   } catch (err) {
     res.status(503).json({ error: UNREAD });
