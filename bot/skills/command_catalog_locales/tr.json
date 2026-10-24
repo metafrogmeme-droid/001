@@ -182,6 +182,7 @@
     "setgateway": "web ağ geçidi gizli anahtarını onarın",
     "setsigner": "zincir üstü imzalama anahtarını ayarlar (şifreli)",
     "yield": "atıl varlık getiri radarı (salt okunur)",
+    "hrc": "Hyperliquid USDC borçlanma faizi tavanları — kullanım ve oran, yalnızca yönetici",
     "idleyield": "kaynaklar arası en iyi oran taraması",
     "stake": "BAĞLI Bitget hesabındaki boşta duran stablecoin'leri esnek Earn'e koy — bir plan kartı, Onayla'ya kadar hiçbir şey taşınmaz",
     "unstake": "esnek Earn'ünü işlem marjına geri al — butonla onaylanır",
