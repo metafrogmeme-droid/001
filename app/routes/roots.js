@@ -20,7 +20,8 @@
  */
 const express = require('express');
 const { listRoots, rootForDay, anchorsFor, recordAnchor } = require('../lib/seal_roots');
-const { buildAnchorPlan, verifyAnchor, publicChains, chainInfo, DEFAULT_CHAIN, easStampOf, caseSensitiveTx } = require('../lib/root_anchor');
+const { buildAnchorPlan, verifyAnchor, publicChains, chainInfo, avalancheEnabled, DEFAULT_CHAIN, easStampOf, caseSensitiveTx } = require('../lib/root_anchor');
+const { flag_on_for } = require('../lib/admin_preview');
 const { authMiddleware } = require('../auth');
 const rootOts = require('../lib/root_ots');
 const ots = require('../lib/opentimestamps');
@@ -31,10 +32,42 @@ const router = express.Router();
 
 let cache = { at: 0, body: null };
 
-/** The chain a request names (`?chain=` or body.chain), Base by default; null when unknown. */
-function chainOf(req) {
+const AVALANCHE_PREVIEW_REFUSAL = {
+  error: 'Admin preview does not sign or move funds on Avalanche mainnet. The chain is listed so it can be read. A signable plan is issued only after AVALANCHE_ANCHOR_ENABLED is on for everyone.',
+  admin_preview: true,
+  chain: 'avalanche',
+};
+
+/** Public registry, plus Avalanche for an admin while the public flag is off.
+ * The admin copy is not cached: a shared cache would hand the chain to everyone. */
+async function chainsView(req) {
+  const pub = publicChains();
+  if (avalancheEnabled()) return { chains: pub, preview: false };
+  if (!(await flag_on_for(req, 'AVALANCHE_ANCHOR_ENABLED'))) return { chains: pub, preview: false };
+  const opened = publicChains(Object.assign({}, process.env, { AVALANCHE_ANCHOR_ENABLED: '1' }));
+  const extra = opened.find((c) => c.key === 'avalanche');
+  if (!extra) return { chains: pub, preview: false };
+  return {
+    chains: pub.concat([Object.assign({}, extra, { admin_preview: true, signing: false })]),
+    preview: true,
+  };
+}
+
+/** The chain a request names. Avalanche while the public flag is off is visible
+ * to an admin (`preview`) and unknown to everyone else. */
+async function chainFor(req) {
   const raw = (req.query && req.query.chain) || (req.body && req.body.chain) || DEFAULT_CHAIN;
-  return chainInfo(String(raw));
+  const key = String(raw);
+  const known = chainInfo(key);
+  if (known) return { chain: known, preview: false };
+  if (key !== 'avalanche') return { chain: null, preview: false };
+  if (!(await flag_on_for(req, 'AVALANCHE_ANCHOR_ENABLED'))) return { chain: null, preview: false };
+  const env = Object.assign({}, process.env, { AVALANCHE_ANCHOR_ENABLED: '1' });
+  return { chain: chainInfo('avalanche', env), preview: true };
+}
+
+function refuseMainnetPreview(res) {
+  return res.status(403).json(AVALANCHE_PREVIEW_REFUSAL);
 }
 
 router.get('/', async (req, res) => {
@@ -51,8 +84,10 @@ router.get('/', async (req, res) => {
         roots,
       } };
     }
-    res.set('Cache-Control', 'public, max-age=60');
-    res.json(cache.body);
+    const view = await chainsView(req);
+    const body = Object.assign({}, cache.body, { chains: view.chains });
+    res.set('Cache-Control', view.preview ? 'private, no-store' : 'public, max-age=60');
+    res.json(body);
   } catch (err) {
     console.error('Seal roots error:', err.stack || err.message);
     res.status(500).json({ error: 'Roots feed unavailable' });
@@ -62,9 +97,14 @@ router.get('/', async (req, res) => {
 // GET /api/roots/chains — the chains a root may be anchored on: id, name,
 // RPCs, explorer, native currency. What a wallet is asked to add, read from
 // the registry the verifier uses, so the two cannot name different chains.
-router.get('/chains', (req, res) => {
-  res.set('Cache-Control', 'public, max-age=300');
-  res.json({ default: DEFAULT_CHAIN, chains: publicChains() });
+router.get('/chains', async (req, res) => {
+  try {
+    const view = await chainsView(req);
+    res.set('Cache-Control', view.preview ? 'private, no-store' : 'public, max-age=300');
+    res.json({ default: DEFAULT_CHAIN, chains: view.chains });
+  } catch (e) {
+    res.status(500).json({ error: 'Chains unavailable' });
+  }
 });
 
 /** The feed's Bitcoin line for a day: null when the row could not be read. */
@@ -128,8 +168,10 @@ router.get('/ots/:day/statement', async (req, res) => {
 // never signs.
 router.get('/anchor-plan/:day', async (req, res) => {
   try {
-    const chain = chainOf(req);
-    if (!chain) return res.status(400).json({ error: 'Unknown chain' });
+    const found = await chainFor(req);
+    if (!found.chain) return res.status(400).json({ error: 'Unknown chain' });
+    if (found.preview) return refuseMainnetPreview(res);
+    const chain = found.chain;
     const row = await rootForDay(String(req.params.day || ''));
     if (!row) return res.status(404).json({ error: 'No root for that day (still open, empty, or malformed)' });
     const have = (await anchorsFor(row.day, row)).find((a) => a.chain === chain.key);
@@ -161,8 +203,9 @@ router.get('/anchor-plan/:day', async (req, res) => {
 // what the chain said, unknown included.
 router.get('/verify/:day', async (req, res) => {
   try {
-    const chain = chainOf(req);
-    if (!chain) return res.status(400).json({ error: 'Unknown chain' });
+    const found = await chainFor(req);
+    if (!found.chain) return res.status(400).json({ error: 'Unknown chain' });
+    const chain = found.chain;
     const row = await rootForDay(String(req.params.day || ''));
     if (!row) return res.status(404).json({ error: 'No root for that day' });
     const have = (await anchorsFor(row.day, row)).find((a) => a.chain === chain.key);
@@ -203,8 +246,10 @@ router.get('/quorum/:day', rateLimit({ name: 'roots.quorum', windowMs: 60000, ma
 // guess. First anchor per chain wins — immutable like the root itself.
 router.post('/anchor', authMiddleware, rateLimit({ name: 'roots.anchor', windowMs: 60000, max: 6, key: userKey }), async (req, res) => {
   try {
-    const chain = chainOf(req);
-    if (!chain) return res.status(400).json({ error: 'Unknown chain' });
+    const found = await chainFor(req);
+    if (!found.chain) return res.status(400).json({ error: 'Unknown chain' });
+    if (found.preview) return refuseMainnetPreview(res);
+    const chain = found.chain;
     const day = String((req.body || {}).day || '');
     // A hex hash is lower-cased; a Solana signature is base58, where case is
     // the value, so it is kept as given (lib/root_anchor.js caseSensitiveTx).

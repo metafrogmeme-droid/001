@@ -1174,6 +1174,14 @@ counts as unlimited.
 digest is kept in memory only. After a restart, the next message from that
 chat binds it again and a digest that came due in the meantime is sent then.
 
+`/panic <address>` is separate from the digest. It is off unless
+`PANIC_BUTTON` is `1` or `true`, and while it is off the reply is
+`not available yet`. When it is on, it lists what can still move that
+wallet, worst first, and links `https://www.humanoid-traders.com/panic`
+(or `PANIC_PAGE_URL`) where the unsigned revokes are prepared. It does not
+add the address to the watch list and it does not store the address.
+Chains are the digest's: Ethereum, Base, Avalanche C-Chain, Arbitrum.
+
 The digest itself is `bot.approval_digest.ApprovalDigest`. This process
 constructs that object and registers `/watch`, `/digest` and `/stop`. A later
 wiring into the main bot constructs the same object with a salt and its own

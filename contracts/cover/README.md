@@ -35,9 +35,9 @@ Drift and Solana are not covered.
 
 `COVER_ADL_ENABLED` and `COVER_STOPGAP_ENABLED` are off unless the value is exactly `1` or `true` (case and surrounding space ignored). An empty environment object is a clean slate: it is not the process environment.
 
-The website routes answer 404 while the matching flag is off. The pages `/cover-adl` and `/cover-stopgap` are listed in `app/test/unlinked_routes.json` so the landing page does not advertise them. `api-retry.js` is the first script on each page. The pages are `noindex` and are not in the sitemap.
+The website answers 404 to the public while the matching flag is off. An admin can preview that same hold: `flag_on_for` re-reads `users.plan` and does not trust a claim in the token. A flag that is on is public. Either way the status stays `offered: false`. The pages `/cover-adl` and `/cover-stopgap` are listed in `app/test/unlinked_routes.json` so the landing page does not advertise them. `api-retry.js` is the first script on each page. The pages are `noindex` and are not in the sitemap.
 
-The public payload, when a flag is on, is `offered: false`, `reason: licence_review_pending`, the two testnet chain names, and the hold sentence above. It carries no price, stake or amount.
+The payload is `offered: false`, `reason: licence_review_pending`, the two testnet chain names, and the hold sentence above. It carries no price, stake or amount.
 
 The server holds no key and signs nothing.
 

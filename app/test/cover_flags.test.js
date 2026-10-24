@@ -6,16 +6,33 @@
  */
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
+delete process.env.DATABASE_URL;
+delete process.env.COVER_ADL_ENABLED;
+delete process.env.COVER_STOPGAP_ENABLED;
 
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const { codeOnly } = require('./helpers/code_only');
 const flags = require('../../contracts/cover/flags.cjs');
 const page = require('../lib/cover_page');
+const preview = require('../lib/admin_preview');
+const { pool } = require('../db');
 const { STATIC_PATHS } = require('../lib/sitemap');
+
+const ADMIN_ID = 880311;
+const FREE_ID = 880312;
+pool.users.push({ id: ADMIN_ID, email: 'cover-admin@example.com', plan: 'admin', token_epoch: 0 });
+pool.users.push({ id: FREE_ID, email: 'cover-free@example.com', plan: 'free', token_epoch: 0 });
+
+function tokenFor(id, email, extra) {
+  return jwt.sign(Object.assign({ user_id: id, email, epoch: 0 }, extra || {}), process.env.JWT_SECRET);
+}
+const adminToken = tokenFor(ADMIN_ID, 'cover-admin@example.com');
+const freeToken = tokenFor(FREE_ID, 'cover-free@example.com', { plan: 'admin' });
 
 const HOLD = 'Not offered to customers. Licence review pending. Do not enable in production.';
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -28,8 +45,8 @@ function app() {
   const a = express();
   a.use(page.pageGate);
   a.use(express.static(PUBLIC));
-  a.get('/cover-adl', (req, res) => { page.sendPage(res, 'adl'); });
-  a.get('/cover-stopgap', (req, res) => { page.sendPage(res, 'stopgap'); });
+  a.get('/cover-adl', (req, res) => { page.sendPage(req, res, 'adl'); });
+  a.get('/cover-stopgap', (req, res) => { page.sendPage(req, res, 'stopgap'); });
   a.use('/api/cover', require('../routes/cover'));
   return a;
 }
@@ -41,13 +58,17 @@ async function listen() {
   const base = `http://127.0.0.1:${server.address().port}`;
   return {
     server,
-    get: (p) => fetch(base + p),
+    get: (p, token) => fetch(base + p, { headers: auth(token) }),
   };
 }
 
 function clearFlags() {
   delete process.env.COVER_ADL_ENABLED;
   delete process.env.COVER_STOPGAP_ENABLED;
+}
+
+function auth(token) {
+  return token ? { authorization: 'Bearer ' + token } : {};
 }
 
 test('the pages carry the hold, load api-retry first, and do not market an offer', () => {
@@ -84,8 +105,12 @@ test('the server mounts the gate ahead of static and registers both pages', () =
   const gateAt = serverSrc.indexOf("require('./lib/cover_page').pageGate");
   const staticAt = serverSrc.indexOf('express.static');
   assert.ok(gateAt > 0 && gateAt < staticAt, 'the gate is mounted before static');
-  assert.match(serverSrc, /app\.get\('\/cover-adl', \(req, res\) => \{ require\('\.\/lib\/cover_page'\)\.sendPage\(res, 'adl'\); \}\);/);
-  assert.match(serverSrc, /app\.get\('\/cover-stopgap', \(req, res\) => \{ require\('\.\/lib\/cover_page'\)\.sendPage\(res, 'stopgap'\); \}\);/);
+  assert.match(serverSrc, /app\.get\('\/cover-adl', \(req, res\) => \{ require\('\.\/lib\/cover_page'\)\.sendPage\(req, res, 'adl'\); \}\);/);
+  assert.match(serverSrc, /app\.get\('\/cover-stopgap', \(req, res\) => \{ require\('\.\/lib\/cover_page'\)\.sendPage\(req, res, 'stopgap'\); \}\);/);
+  const routeSrc = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'routes', 'cover.js'), 'utf8'));
+  assert.ok(routeSrc.includes('flag_on_for'));
+  const pageSrc = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'lib', 'cover_page.js'), 'utf8'));
+  assert.ok(pageSrc.includes('flag_on_for'));
   assert.match(serverSrc, /app\.use\('\/api\/cover', require\('\.\/routes\/cover'\)\)/);
   assert.ok(raw.includes(HOLD));
 });
@@ -106,7 +131,7 @@ test('a missing flag, and every value other than 1 or true, is off', () => {
   }
 });
 
-test('flags off answer 404, and a flag that is on still says the cover is not offered', async () => {
+test('flags off are 404 for the public, an admin can preview, and a flag that is on is still not an offer', async () => {
   const prevAdl = process.env.COVER_ADL_ENABLED;
   const prevStop = process.env.COVER_STOPGAP_ENABLED;
   const live = await listen();
@@ -116,12 +141,32 @@ test('flags off answer 404, and a flag that is on still says the cover is not of
       '/js/cover.js', '/api/cover/adl', '/api/cover/stopgap']) {
       const off = await live.get(p);
       assert.equal(off.status, 404, p);
+      const stranger = await live.get(p, freeToken);
+      assert.equal(stranger.status, 404, 'signed-in is not the operator: ' + p);
     }
+    const previewPage = await live.get('/cover-adl', adminToken);
+    assert.equal(previewPage.status, 200);
+    const previewHtml = await previewPage.text();
+    assert.ok(previewHtml.includes(preview.BANNER));
+    assert.ok(previewHtml.includes(HOLD));
+    assert.equal(previewPage.headers.get('cache-control'), 'private, no-store');
+    const previewApi = await live.get('/api/cover/adl', adminToken);
+    assert.equal(previewApi.status, 200);
+    assert.equal(previewApi.headers.get('cache-control'), 'private, no-store');
+    const previewBody = await previewApi.json();
+    assert.equal(previewBody.offered, false);
+    assert.equal(previewBody.notice, HOLD);
+    assert.equal(Object.hasOwn(previewBody, 'caller_is_admin'), false);
+    assert.equal(JSON.stringify(previewBody).includes(preview.BANNER), false);
+    assert.equal((await live.get('/cover-stopgap', adminToken)).status, 200);
+    assert.equal((await live.get('/js/cover.js', adminToken)).status, 200);
 
     process.env.COVER_ADL_ENABLED = '1';
     const adl = await live.get('/cover-adl');
     assert.equal(adl.status, 200);
-    assert.match(await adl.text(), /Licence review pending/);
+    const adlText = await adl.text();
+    assert.match(adlText, /Licence review pending/);
+    assert.equal(adlText.includes(preview.BANNER), false);
     const adlHtml = await live.get('/cover-adl.html');
     assert.equal(adlHtml.status, 200);
     const stop = await live.get('/cover-stopgap');

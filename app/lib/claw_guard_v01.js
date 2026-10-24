@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const FLAG = 'CLAW_GUARD_V01';
+const { flag_on_for, withBanner } = require('./admin_preview');
 
 function enabled(env) {
   const src = env || process.env;
@@ -46,4 +47,23 @@ function readGuardPage() {
   return fs.readFileSync(guardPageFile(), 'utf8');
 }
 
-module.exports = { FLAG, enabled, guardPageHtml, guardPageFile, readGuardPage };
+/**
+ * The /guard document. Flag off for this caller: the file on disk, the same
+ * document v0 serves. Flag on for everyone: that document plus the v0.1
+ * scripts. An admin while the flag is off gets the scripts and the preview
+ * banner.
+ */
+async function sendPage(req, res) {
+  try {
+    const on = await flag_on_for(req, FLAG);
+    const preview = on && !enabled();
+    res.setHeader('Cache-Control', preview ? 'private, no-store' : 'no-cache');
+    if (!on) return res.sendFile(guardPageFile());
+    const html = guardPageHtml(readGuardPage());
+    return res.type('html').send(preview ? withBanner(html) : html);
+  } catch (e) {
+    if (!res.headersSent) res.status(500).type('text/plain').send('Not found');
+  }
+}
+
+module.exports = { FLAG, enabled, guardPageHtml, guardPageFile, readGuardPage, sendPage };

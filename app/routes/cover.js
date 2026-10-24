@@ -4,33 +4,32 @@
  *
  * Not offered to customers. Licence review pending. Do not enable in production.
  *
- * With both flags off, the router answers 404 before it identifies anyone.
- * With a flag on, optionalAuth runs first and the body is still the hold:
- * offered is false, and the payload carries no price, stake or amount.
- * Nothing is signed. No key is read.
+ * The public flag off is 404, the same answer as a missing path. An admin
+ * can preview: flag_on_for re-reads users.plan and does not trust the JWT.
+ * With the flag on, the body is still the hold. The payload carries no
+ * price, stake or amount. Nothing is signed. No key is read.
  */
 
 const express = require('express');
 const { optionalAuth } = require('../auth');
+const { flag_on_for } = require('../lib/admin_preview');
 const page = require('../lib/cover_page');
 
 const router = express.Router();
 
-// Both products off is the same answer as a path this server does not have,
-// and that answer does not read the database. A flag that is on identifies
-// the caller and still does not offer the cover.
-router.use((req, res, next) => {
-  if (!page.flagOn('adl') && !page.flagOn('stopgap')) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  return next();
-});
-
 router.use(optionalAuth);
 
-function status(req, res, kind) {
-  if (!page.flagOn(kind)) return res.status(404).json({ error: 'Not found' });
-  return res.set('Cache-Control', 'no-store').json(page.publicStatus());
+async function status(req, res, kind) {
+  try {
+    const name = page.FLAG_NAME[kind];
+    if (!name || (await flag_on_for(req, name)) !== true) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    const cache = page.flagOn(kind) ? 'no-store' : 'private, no-store';
+    return res.set('Cache-Control', cache).json(page.publicStatus());
+  } catch (e) {
+    return res.status(500).json({ error: 'Not found' });
+  }
 }
 
 router.get('/adl', (req, res) => status(req, res, 'adl'));
