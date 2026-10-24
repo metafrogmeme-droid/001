@@ -155,6 +155,7 @@ signals guard
 slippage is_admin
 spot guard
 squeeze guard
+srb is_admin
 stake guard
 start access_state+rate_limit
 status guard

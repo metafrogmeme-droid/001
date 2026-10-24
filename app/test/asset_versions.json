@@ -95,6 +95,10 @@
     "v": 3,
     "sha": "74ac67a7822e9904"
   },
+  "js/cover.js": {
+    "v": 1,
+    "sha": "eeb3c8d2b008fe96"
+  },
   "js/creds-gate-model.js": {
     "v": 2,
     "sha": "062325eb3c39125a"
@@ -251,6 +255,10 @@
     "v": 6,
     "sha": "25cb3003194ae98c"
   },
+  "js/panic.js": {
+    "v": 2,
+    "sha": "47fdece4720a8b2c"
+  },
   "js/pi-arena.js": {
     "v": 8,
     "sha": "d2499e0cd3736923"
@@ -371,6 +379,10 @@
     "v": 4,
     "sha": "4321eaebf37b67a2"
   },
+  "js/srb.js": {
+    "v": 2,
+    "sha": "c86b8b376bcf180b"
+  },
   "js/strategy-scan.js": {
     "v": 3,
     "sha": "35ce25b4c87a3176"
@@ -411,6 +423,10 @@
     "v": 9,
     "sha": "01a149c27daf1a32"
   },
+  "js/tools-page.js": {
+    "v": 1,
+    "sha": "8ceaa5d7a4a6069b"
+  },
   "js/trade-confirm-model.js": {
     "v": 2,
     "sha": "6213dbcd1c04683e"
@@ -424,8 +440,8 @@
     "sha": "35084df81d560864"
   },
   "js/txray-model.js": {
-    "v": 1,
-    "sha": "b0690b36b0422b9b"
+    "v": 2,
+    "sha": "af95f319de3a95b8"
   },
   "js/venue-picker-model.js": {
     "v": 3,

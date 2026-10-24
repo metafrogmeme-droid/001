@@ -38,6 +38,11 @@ https://www.humanoid-traders.com/provable
 
 ## Public APIs (no key, no account, rate-limited)
 
+- POST /api/panic — read-only list of open approvals and 7702 delegations
+  for an address the caller pastes (Ethereum, Base, Avalanche C-Chain,
+  Arbitrum), worst first, with unsigned revoke transactions the caller's
+  own wallet signs. Off unless configured. Nothing is stored. A chain that
+  could not be read is named, never counted as empty. Human page: /panic.
 - GET /api/allowances/<chain>/<address> — read-only allowance check of
   curated tokens against well-known spenders, with revoke calldata the
   OWNER's wallet sends. Bounded and honest: approvals outside the

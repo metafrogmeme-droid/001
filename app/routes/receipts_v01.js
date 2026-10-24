@@ -14,7 +14,7 @@
 const express = require('express');
 const { optionalAuth } = require('../auth');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
-const { enabled } = require('../lib/claw_guard_v01');
+const { flag_on_for } = require('../lib/admin_preview');
 const { exportAat, AAT_DRAFT } = require('../lib/aat_export');
 
 const router = express.Router();
@@ -27,7 +27,7 @@ function formatOf(q) {
 }
 
 router.get('/:id', rateLimit({ name: 'receipts_v01_aat', windowMs: 60000, max: 30, key: ipKey }), async (req, res) => {
-  if (!enabled()) return res.status(404).json({ error: 'Not found' });
+  if (!(await flag_on_for(req, 'CLAW_GUARD_V01'))) return res.status(404).json({ error: 'Not found' });
   if (formatOf(req.query) !== 'aat') {
     return res.status(400).json({ error: 'format must be aat' });
   }

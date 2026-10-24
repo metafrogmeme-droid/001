@@ -259,7 +259,7 @@ class ApprovalReader:
                 return None, False
             return OpenApproval(
                 chain_id, name, ev.token, ev.spender, "erc721_single",
-                None, None, False, ev.updated,
+                None, None, False, ev.updated, None, ev.amount,
             ), False
         if standard != "erc20":
             return None, True
@@ -298,7 +298,7 @@ class ApprovalReader:
         supply, known = self._supply(chain_id, ev.token)
         return OpenApproval(
             chain_id, name, ev.token, ev.spender, "permit2",
-            amount, supply, known, ev.updated,
+            amount, supply, known, ev.updated, expiration,
         ), False
 
     def _standard(self, chain_id: int, token: str) -> Optional[str]:
@@ -339,6 +339,38 @@ class ApprovalReader:
         if result is None:
             return None
         return _address_from_word(result)
+
+    def delegation(self, chain_id: int, owner: str) -> tuple[str, Optional[str]]:
+        """EIP-7702 designation on this account.
+
+        ``('delegated', address)`` when the code is exactly ``0xef0100`` plus
+        a delegate. ``('none', None)`` when the account is plain, a contract,
+        or already cleared to the zero address. ``('unreadable', None)`` when
+        the code could not be read — that is not "no delegation".
+        """
+        try:
+            result = self._get(chain_id, {
+                "module": "proxy",
+                "action": "eth_getCode",
+                "address": owner,
+                "tag": "latest",
+            })
+        except RuntimeError:
+            return "unreadable", None
+        if not isinstance(result, str) or not result.startswith("0x"):
+            return "unreadable", None
+        body = result.lower().removeprefix("0x")
+        if not re.fullmatch(r"[0-9a-f]*", body):
+            return "unreadable", None
+        if body == "" or set(body) <= {"0"}:
+            return "none", None
+        # 3-byte designation + 20-byte address. Anything else is not a delegation.
+        if len(body) == 46 and body.startswith("ef0100"):
+            delegate = "0x" + body[6:]
+            if delegate == ZERO:
+                return "none", None
+            return "delegated", delegate
+        return "none", None
 
 
 def _decode(rows: list[dict], topic0: str, owner: str) -> list[_Event]:

@@ -29,6 +29,26 @@ def test_flag_is_off_unless_explicitly_on():
     assert gate(True, False) == "open"
 
 
+def test_flag_off_stays_closed_for_the_public_and_opens_for_an_admin():
+    """The door is flag_on_for. Off is 404 for everyone who is not an admin."""
+    from bot.admin_preview import flag_on_for, is_preview
+
+    assert flag_on_for("999", "FVB_ENABLED", env={}, store={}) is False
+    assert is_preview("999", "FVB_ENABLED", env={}, store={}) is False
+    assert flag_on_for(
+        "999", "FVB_ENABLED", env={"FVB_ENABLED": "1"}, store={}) is True
+    assert is_preview(
+        "999", "FVB_ENABLED", env={"FVB_ENABLED": "1"}, store={}) is False
+    admin = {"ADMIN_TELEGRAM_IDS": "1"}
+    assert flag_on_for("1", "FVB_ENABLED", env=admin, store={}) is True
+    assert is_preview("1", "FVB_ENABLED", env=admin, store={}) is True
+    assert flag_on_for("2", "FVB_ENABLED", env=admin, store={}) is False
+    assert flag_on_for(
+        "7", "FVB_ENABLED", env={}, store={"7": {"role": "admin"}}) is True
+    assert flag_on_for(
+        "7", "FVB_ENABLED", env={}, store={"7": {"role": "trader"}}) is False
+
+
 def test_public_chains_are_the_testnets_that_actually_list_the_product():
     chains = public_chains()
     names = [row["chain"] for row in chains]

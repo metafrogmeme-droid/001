@@ -28,13 +28,20 @@ const confidence = require('./duel_confidence');
 
 const PICKS = Object.freeze({ up: 'long', down: 'short', long: 'long', short: 'short' });
 
+/** Public flag, or the bot's own admin check passed as caller_is_admin.
+ * The field is never copied onto a receipt. */
+function confidenceAdmitted(input) {
+  return confidence.enabled() === true || (input != null && input.caller_is_admin === true);
+}
+
 function rules() {
   return {
     ok: true,
     horizon_hours: duel.HORIZON_HOURS,
     price_reader: 'getTickers',
     price_module: 'app/lib/tickers.js',
-    // The one reading of the flag. Off, this is false and nothing else changes.
+    // The one reading of the public flag. Off, this is false. An admin
+    // preview is offer/seal/calibration, which the bot asks per caller.
     confidence: confidence.enabled(),
   };
 }
@@ -70,7 +77,7 @@ async function readMarks(input) {
   }
 }
 
-function describe(day, now, marks) {
+function describe(day, now, marks, input) {
   const cutoff_at = cutoffFor(day);
   const round = marks ? directionRound(day, marks) : null;
   const symbol = round ? round.symbol : null;
@@ -87,7 +94,7 @@ function describe(day, now, marks) {
     unreadable: entry_price == null,
     price_reader: 'getTickers',
     price_module: 'app/lib/tickers.js',
-    confidence: confidence.enabled(),
+    confidence: confidenceAdmitted(input),
   };
 }
 
@@ -96,7 +103,7 @@ async function offer(input) {
   if (Number.isNaN(now.getTime())) return { ok: false, error: 'clock' };
   const day = duel.dayKey(now);
   const marks = await readMarks(input || {});
-  return describe(day, now, marks);
+  return describe(day, now, marks, input);
 }
 
 /**
@@ -152,7 +159,7 @@ async function sealCall(input) {
   // a call without it has always been. On: a valid rating is sealed with the
   // call; a missing one is still a call (other clients of this gate do not
   // send one); a present one that is not low, medium or high is refused.
-  if (confidence.enabled() && src.confidence != null && src.confidence !== '') {
+  if (confidenceAdmitted(src) && src.confidence != null && src.confidence !== '') {
     const level = confidence.levelOf(src.confidence);
     if (!level) return { ok: false, error: 'confidence', day, cutoff_at: cutoffFor(day) };
     facts.confidence = level;
@@ -183,7 +190,7 @@ async function sealCall(input) {
  * a price and reports the flag.
  */
 async function calibrationOf(input) {
-  if (!confidence.enabled()) return { ok: true, enabled: false };
+  if (!confidenceAdmitted(input)) return { ok: true, enabled: false };
   const src = input || {};
   const now = src.now ? new Date(src.now) : new Date();
   if (Number.isNaN(now.getTime())) return { ok: false, error: 'clock' };
