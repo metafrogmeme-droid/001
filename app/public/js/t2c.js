@@ -34,6 +34,13 @@ function render(body) {
   const requestTime = body.request_time || {};
   const daily = backtest.daily || {};
   const sanity = daily.sanity || {};
+  const consumers = body.consumers && typeof body.consumers === 'object' ? body.consumers : {};
+  const unwind = consumers.unwind && typeof consumers.unwind === 'object' ? consumers.unwind : {};
+  const observed = body.duration_observed && typeof body.duration_observed === 'object'
+    ? body.duration_observed
+    : {};
+  const assets = Array.isArray(price.assets) ? price.assets : [];
+  const weeth = assets.find((asset) => asset && asset.asset === 'weETH') || {};
   const lines = [
     row('Flag', body.flag_on ? 'on' : 'off'),
     row('P', show(price.p)),
@@ -41,6 +48,13 @@ function render(body) {
     row('Borrow rate', show(price.r_borrow)),
     row('Stake yield', show(price.y_stake) + ' (' + esc(price.y_stake_source || 'not read') + ')'),
     row('T p95, days', show(price.t_p95_days) + ' (' + esc(price.t_p95_source || 'not read') + ')'),
+    row('Recorded p50, days', show(observed.p50_days)),
+    row('Recorded p95, days', show(observed.p95_days)),
+    row('Unwind target', esc(unwind.venue || 'not read')),
+    row('Unwind is a signal', unwind.signal_only === true ? 'yes' : show(unwind.signal_only)),
+    row('weETH exit', esc(weeth.exit_route || 'not read')),
+    row('weETH exit fee, bps', show(weeth.exit_fee_bps)),
+    row('weETH restaked', weeth.restaked === false ? 'no' : show(weeth.restaked)),
     row('Haircut s', show(price.s)),
     row('Carry', show(price.carry) + ' (' + esc(price.carry_source || 'not read') + ')'),
     row('Recorded carry', show(recordedCarry.carry) + ' (' + esc(recordedCarry.carry_source || 'not read') + ')'),
