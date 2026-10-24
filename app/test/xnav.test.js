@@ -363,4 +363,6 @@ test('server.js mounts the page and the API, and the page stays unlinked', () =>
   const page = fs.readFileSync(path.join(__dirname, '..', 'public', 'xnav.html'), 'utf8');
   assert.equal(page.includes('$'), false);
   assert.equal(page.includes('xnav_quote'), false);
+  const scripts = [...page.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<script\b([^>]*)>/gi)].map((m) => m[1]);
+  assert.match(scripts[0], /src="\/js\/api-retry\.js\?v=\d+"/);
 });
