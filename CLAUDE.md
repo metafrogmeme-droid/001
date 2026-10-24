@@ -253,7 +253,7 @@ correct code to satisfy an analyser.
 | `tests/`, `app/test/` | Python and Node suites |
 | `scripts/` | preflight, ratchets, generators, deploy helpers |
 | `docs/INCOME_MAP.md` | what the product does, by capability, with citations |
-| `docs/IMPROVEMENT_PLAN_2026-09-29.md` | the current plan |
+| `docs/IMPROVEMENT_PLAN_2026-10-24.md` | the current plan (`docs/IMPROVEMENT_PLAN_2026-09-29.md` is its predecessor) |
 | `docs/lessons/` | the engineering log and its index |
 | `benchmark/` | frozen datasets, recorded results, eligibility records |
 
