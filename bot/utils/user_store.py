@@ -131,13 +131,16 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     # `costs` is the same again: /costs prints the deployment's model and
     # API spend, one ledger with no per-caller reading, and it was printing
     # the operator's bill to viewers and paper users beside their own equity.
+    # `cgc` is the conservation-brake window table. It is read-only, like
+    # `rwa`. The handler still refuses a non-admin; holding the permission
+    # is what lets the role gate reach that check.
     "trader": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
         "trade", "risk", "status", "connect", "enforcing", "rejected", "halt", "reset", "macro",
         "backtest", "walkforward", "journal", "run", "learn",
         "proposals", "optimize", "mode", "playbook",
-        "exposure", "networth", "research", "rwa", "token", "memeplan",
+        "exposure", "networth", "research", "rwa", "cgc", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
         # Idle yield: the caller's linked wallet, read-only. Telegram's
@@ -176,7 +179,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "trade", "risk", "status", "connect", "enforcing", "rejected", "macro",
         "backtest", "walkforward", "journal", "run", "learn",
         "proposals", "optimize", "playbook",
-        "exposure", "networth", "research", "rwa", "token", "memeplan",
+        "exposure", "networth", "research", "rwa", "cgc", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
         "idleyield",
@@ -186,7 +189,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "status", "connect", "risk", "enforcing",
         "portfolio", "macro", "journal", "learn",
-        "exposure", "networth", "research", "rwa", "token", "memeplan",
+        "exposure", "networth", "research", "rwa", "cgc", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
         "idleyield",
