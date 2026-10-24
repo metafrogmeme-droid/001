@@ -1,8 +1,8 @@
 """The /hrc admin card.
 
-Utilization and rate points. The 24h shock is computed for the admin packet
-and left off the card. A caller who is not an admin gets the same not-found
-answer a missing command would, not a sentence that the command exists.
+Utilization, rate points, and the 24h rate-shock loss. A caller who is not
+an admin gets the same not-found answer a missing command would, not a
+sentence that the command exists.
 """
 
 from __future__ import annotations

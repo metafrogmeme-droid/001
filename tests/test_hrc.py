@@ -489,7 +489,7 @@ def test_the_strictest_proposal_wins_and_absent_is_not_zero(tmp_path):
 
 # ── present and the command ──────────────────────────────────────────────────
 
-def test_the_dashboard_shows_rates_and_the_card_drops_the_shock():
+def test_the_dashboard_omits_dollars_and_the_admin_card_shows_the_shock():
     reading = {
         "readable": True,
         "network": "mainnet",
@@ -521,9 +521,13 @@ def test_the_dashboard_shows_rates_and_the_card_drops_the_shock():
     shock = packet["rate_shock_loss_24h"]
     assert shock is not None
     text = card_text(packet)
-    assert shock not in text
+    assert shock in text
+    assert "24h rate-shock loss" in text
     assert "$" not in text
-    assert "rate_shock" not in text
+    public = card_text(view)
+    assert shock not in public
+    assert "24h rate-shock loss" not in public
+    assert "rate_shock" not in public
     assert "Mainnet read." in text
     unread = card_text(admin_packet({"readable": False, "reason": "no_history"}))
     assert "Unreadable (no_history)." in unread
@@ -649,7 +653,8 @@ def test_the_command_is_not_found_for_anyone_else_and_previews_for_an_admin(tmp_
     assert "Admin preview. Not public." in admin.sent[0]
     assert "$" not in admin.sent[0]
     shock = format(real(Decimal(1000000)), "f")
-    assert shock not in admin.sent[0]
+    assert "24h rate-shock loss" in admin.sent[0]
+    assert shock in admin.sent[0]
 
     monkeypatch.setenv("HRC_ENABLED", "1")
     admin.sent.clear()

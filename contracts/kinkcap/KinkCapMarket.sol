@@ -3,10 +3,11 @@ pragma solidity 0.8.37;
 
 /// @title Kink Cap market
 /// @notice Fully collateralized hourly caps on Hyperliquid's USDC borrow
-///         rate. Positions are records. They move only when the immutable
-///         `transfersEnabled` flag this deployment was constructed with is
-///         true. Seller collateral sits in this contract. Nothing here
-///         supplies it into Hyperliquid lending.
+///         rate. Positions are ERC-1155 tokens of amount 1. They transfer
+///         unless this deployment was constructed with transfers off. Mint
+///         and redeem still run when transfers are off. Seller collateral
+///         sits in this contract. Nothing here supplies it into Hyperliquid
+///         lending.
 ///
 ///         Kind 0 is a cap (ceiling 100%). Kind 1 is a cap spread, the
 ///         primary series, ceiling 40% when the caller passes 0. Kind 2 is
@@ -29,6 +30,19 @@ interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
+}
+
+interface IERC1155Receiver {
+    function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes calldata data)
+        external
+        returns (bytes4);
+    function onERC1155BatchReceived(
+        address operator,
+        address from,
+        uint256[] calldata ids,
+        uint256[] calldata values,
+        bytes calldata data
+    ) external returns (bytes4);
 }
 
 contract KinkCapMarket {
@@ -213,6 +227,18 @@ contract KinkCapMarket {
         uint256 effectiveAfter
     );
     event Redeemed(uint256 indexed longId, address longHolder, address shortHolder, uint256 paid, uint256 returned_);
+    event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value);
+    event TransferBatch(
+        address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values
+    );
+    event ApprovalForAll(address indexed account, address indexed operator, bool approved);
+
+    bytes4 private constant ERC165 = 0x01ffc9a7;
+    bytes4 private constant ERC1155 = 0xd9b67a26;
+    bytes4 private constant RECEIVED = 0xf23a6e61;
+    bytes4 private constant BATCH_RECEIVED = 0xbc197c81;
+
+    mapping(address => mapping(address => bool)) public isApprovedForAll;
 
     constructor(
         address collateral,
@@ -412,6 +438,10 @@ contract KinkCapMarket {
         });
         _seriesPositions[seriesId].push(longId);
         emit Minted(seriesId, longId, longHolder, notional, need);
+        emit TransferSingle(msg.sender, address(0), longHolder, longId, 1);
+        emit TransferSingle(msg.sender, address(0), msg.sender, shortId, 1);
+        _notifyOne(address(0), longHolder, longId, 1, "");
+        _notifyOne(address(0), msg.sender, shortId, 1, "");
     }
 
     function collateralFor(
@@ -538,29 +568,116 @@ contract KinkCapMarket {
         uint256 pay = lng.claim;
         require(pay <= sht.collateral, "over");
         uint256 rest = sht.collateral - pay;
+        address longHolder = lng.holder;
+        address shortHolder = sht.holder;
+        uint256 shortId = lng.pairId;
         lng.open = false;
         sht.open = false;
         seriesCollateral[lng.seriesId] -= sht.collateral;
         seriesOwed[lng.seriesId] -= pay;
-        if (pay > 0) require(collateralToken.transfer(lng.holder, pay), "pay");
-        if (rest > 0) require(collateralToken.transfer(sht.holder, rest), "return");
-        emit Redeemed(longId, lng.holder, sht.holder, pay, rest);
+        if (pay > 0) require(collateralToken.transfer(longHolder, pay), "pay");
+        if (rest > 0) require(collateralToken.transfer(shortHolder, rest), "return");
+        emit Redeemed(longId, longHolder, shortHolder, pay, rest);
+        emit TransferSingle(msg.sender, longHolder, address(0), longId, 1);
+        emit TransferSingle(msg.sender, shortHolder, address(0), shortId, 1);
+    }
+
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == ERC165 || interfaceId == ERC1155;
+    }
+
+    function balanceOf(address account, uint256 id) public view returns (uint256) {
+        require(account != address(0), "zero");
+        if (id >= positionCount) return 0;
+        Position storage p = positions[id];
+        if (p.open && p.holder == account) return 1;
+        return 0;
+    }
+
+    function balanceOfBatch(address[] calldata accounts, uint256[] calldata ids)
+        external
+        view
+        returns (uint256[] memory balances)
+    {
+        require(accounts.length == ids.length, "length");
+        balances = new uint256[](accounts.length);
+        for (uint256 i = 0; i < accounts.length; i++) {
+            balances[i] = balanceOf(accounts[i], ids[i]);
+        }
+    }
+
+    function setApprovalForAll(address operator, bool approved) external {
+        require(operator != msg.sender, "self");
+        isApprovedForAll[msg.sender][operator] = approved;
+        emit ApprovalForAll(msg.sender, operator, approved);
     }
 
     function transferPosition(uint256 id, address to) external {
-        if (!transfersEnabled) revert TransfersDisabled();
-        Position storage p = positions[id];
-        require(p.open && p.holder == msg.sender, "holder");
-        require(to != address(0), "to");
-        p.holder = to;
+        _move(msg.sender, to, id, 1);
+        _notifyOne(msg.sender, to, id, 1, "");
     }
 
     function safeTransferFrom(address from, address to, uint256 id) external {
+        _move(from, to, id, 1);
+        _notifyOne(from, to, id, 1, "");
+    }
+
+    function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes calldata data) external {
+        _move(from, to, id, amount);
+        _notifyOne(from, to, id, amount, data);
+    }
+
+    function safeBatchTransferFrom(
+        address from,
+        address to,
+        uint256[] calldata ids,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) external {
         if (!transfersEnabled) revert TransfersDisabled();
+        require(ids.length == amounts.length, "length");
+        require(to != address(0), "to");
+        require(from == msg.sender || isApprovedForAll[from][msg.sender], "operator");
+        for (uint256 i = 0; i < ids.length; i++) {
+            require(amounts[i] == 1, "amount");
+            Position storage p = positions[ids[i]];
+            require(p.open && p.holder == from, "holder");
+            p.holder = to;
+        }
+        emit TransferBatch(msg.sender, from, to, ids, amounts);
+        _notifyBatch(from, to, ids, amounts, data);
+    }
+
+    function _move(address from, address to, uint256 id, uint256 amount) internal {
+        if (!transfersEnabled) revert TransfersDisabled();
+        require(amount == 1, "amount");
         Position storage p = positions[id];
-        require(p.open && p.holder == from && msg.sender == from, "holder");
+        require(p.open && p.holder == from, "holder");
+        require(from == msg.sender || isApprovedForAll[from][msg.sender], "operator");
         require(to != address(0), "to");
         p.holder = to;
+        emit TransferSingle(msg.sender, from, to, id, 1);
+    }
+
+    function _notifyOne(address from, address to, uint256 id, uint256 amount, bytes memory data) internal {
+        if (to.code.length == 0) return;
+        (bool ok, bytes memory ret) =
+            to.call(abi.encodeWithSelector(IERC1155Receiver.onERC1155Received.selector, msg.sender, from, id, amount, data));
+        require(ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == RECEIVED, "receiver");
+    }
+
+    function _notifyBatch(
+        address from,
+        address to,
+        uint256[] calldata ids,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) internal {
+        if (to.code.length == 0) return;
+        (bool ok, bytes memory ret) = to.call(
+            abi.encodeWithSelector(IERC1155Receiver.onERC1155BatchReceived.selector, msg.sender, from, ids, amounts, data)
+        );
+        require(ok && ret.length >= 32 && abi.decode(ret, (bytes4)) == BATCH_RECEIVED, "receiver");
     }
 
     function feedDigest(
