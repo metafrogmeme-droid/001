@@ -1,0 +1,10 @@
+{
+  "vault": "0xabababababababababababababababababababab",
+  "verifying": "0xcccccccccccccccccccccccccccccccccccccccc",
+  "xnav_bps": 4560,
+  "stress_bps": 100,
+  "ts": 1700000000,
+  "chain_id": 998,
+  "typehash": "1f5aeb222256b8e7c6bb0bfeb17eaa2d27b53f511ff517ac8bbfad00983842d1",
+  "digest": "503e96a0e4697e989d820e1f8ea2362c8e09b9683fff1cfc3bb4dd590f6a772e"
+}
