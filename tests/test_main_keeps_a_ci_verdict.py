@@ -73,6 +73,32 @@ def test_the_parallel_shadow_is_the_same_gate_and_does_not_block():
     assert "pytest-xdist" not in serial_runs
 
 
+def test_the_cgc_contract_job_stays_on_ci_and_off_the_local_plan():
+    """CGC contracts landed as their own solidity job.
+
+    The per-SHA group is workflow-wide, so this job gets the same main
+    verdict as the rest of the workflow. It is not folded into the shadow
+    and not into local preflight: a solidity suite in the local plan would
+    change the gate count, and continue-on-error would make a red contract
+    run look like the comparison job.
+    """
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import preflight
+
+    job = _job("CGC contracts (solidity)")
+    assert "concurrency" not in job
+    assert job.get("continue-on-error") is not True
+    runs = [
+        (step.get("working-directory"), str(step.get("run") or ""))
+        for step in job["steps"]
+    ]
+    assert ("contracts/cgc", "npm test") in runs
+    assert "CGC contracts (solidity)" not in preflight.LOCAL_JOBS
+    assert "CGC contracts (solidity)" in preflight.uncovered()
+    assert _SHADOW not in preflight.LOCAL_JOBS
+
+
 def test_the_shadow_is_not_a_local_preflight_gate():
     """Two full gates in every local preflight is not the comparison."""
     import sys

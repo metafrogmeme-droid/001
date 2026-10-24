@@ -715,6 +715,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/crossasset` | cross-asset correlation context |
 | `/gates` | per-gate pass/fail telemetry |
 | `/flags` | deep-audit opt-in flags |
+| `/cgc` | conservation-brake windows, testnet, read-only |
 | `/shadow` | counterfactual shadow book — /shadow ladder and /shadow bounds for what the size controls would have done |
 | `/audit` | nightly self-audit report |
 | `/parity` | live ↔ backtest parity |

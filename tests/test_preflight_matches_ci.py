@@ -155,7 +155,8 @@ def test_the_summary_names_what_it_cannot_judge():
     assert "Still only CI can judge" in SRC
     missing = preflight.uncovered()
     for job in ("Staking program (cargo)", "Secret scan (gitleaks)",
-                "Rune NFT (solidity)", "Token tooling (node)"):
+                "Rune NFT (solidity)", "CGC contracts (solidity)",
+                "Token tooling (node)"):
         assert job in missing
 
 
