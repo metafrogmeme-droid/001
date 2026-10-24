@@ -272,26 +272,26 @@ def test_the_finding_key_survives_a_line_move():
 # ---------------------------------------------------------------------------
 
 _FLAT_CLAIM = '''
-# Default OFF: nothing runs unless it is switched on.
+# Default ON: nothing waits unless it is switched off.
 if CONFIG.auto_confirm_live_enabled:
     pass
 '''
 
 _FLAT_RETRACTION = '''
-# THIS COMMENT USED TO SAY the gate is "disabled by default", which was false.
+# THIS COMMENT USED TO SAY the gate is "enabled by default", which was false.
 if CONFIG.auto_confirm_live_enabled:
     pass
 '''
 
 _FLAT_RETRACTION_WRAPPED = '''
-# THIS USED TO SAY the gate is "disabled by
+# THIS USED TO SAY the gate is "enabled by
 # default", which was false of the dataclass.
 if CONFIG.auto_confirm_live_enabled:
     pass
 '''
 
 _FLAT_LIVE_CLAIM_BESIDE_A_QUOTE = '''
-# It used to say "something else entirely". It is default OFF.
+# It used to say "something else entirely". It is default ON.
 if CONFIG.auto_confirm_live_enabled:
     pass
 '''
@@ -302,7 +302,7 @@ if CONFIG.auto_confirm_live_enabled:
 # With only one quoted span, greedy and non-greedy agree, so the fixture
 # above cannot tell them apart.
 _FLAT_CLAIM_BETWEEN_TWO_QUOTES = '''
-# It used to say "one thing". It is default OFF. It never said "the other".
+# It used to say "one thing". It is default ON. It never said "the other".
 if CONFIG.auto_confirm_live_enabled:
     pass
 '''
@@ -553,15 +553,17 @@ def test_the_live_auto_close_docstring_claims_no_default():
 
 
 def test_the_one_live_flag_override_is_the_human_in_the_loop():
-    """A fresh install runs every on/off control at its code default except
-    live auto-confirm, which it keeps OFF on purpose: the frozen benchmark
-    measures no directional edge in the analyzer's signals, so a human stays on
-    every live order. Another live override is a decision about what a fresh
-    deploy runs, and it lands here rather than in silence."""
+    """A fresh install runs every on/off control at its code default.
+
+    Live auto-confirm used to be the one live override, kept off while the
+    code default was on. The code default is now off, so `.env.example`
+    matches it. A new live override is a decision about what a fresh deploy
+    runs, and it lands here rather than in silence.
+    """
     by_env = {env: d for env, d in declared_defaults().values()}
     live = sorted(env for b in env_example_blocks() for env, _ln, val in b.run
                   if val is not None and env in by_env and val != by_env[env])
-    assert live == ["AUTO_CONFIRM_LIVE_ENABLED"], live
+    assert live == [], live
 
 
 def test_no_live_example_value_departs_from_its_code_default_unsaid():

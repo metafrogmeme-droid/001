@@ -18,8 +18,9 @@ the same direction until the last one:
      count, and not actually future.
 
   4. "Require human confirmation for any trade execution (even via MCP)."
-     `auto_confirm_live_enabled` defaults True, so a signal clearing the bar
-     places a live order with nobody pressing anything. This was the FIFTH
+     `auto_confirm_live_enabled` defaulted True when this guard was written.
+     It now defaults False. The flag can still be turned on, so the doc must
+     not promise unconditional human confirmation. This was the FIFTH
      surface carrying that claim after the homepage, the meta description, the
      JSON-LD and llms.txt.
 
@@ -142,23 +143,26 @@ def test_the_adapter_really_is_there_before_the_doc_claims_it():
 
 
 def test_the_doc_does_not_promise_human_confirmation():
-    """Fifth surface. `auto_confirm_live_enabled` defaults True."""
+    """The flag defaults off, and it can still be turned on.
+
+    An unconditional human-confirmation sentence is still false of the
+    configuration where the operator sets the flag.
+    """
     doc = _unquoted(_doc())
     hits = re.findall(r"human[- ]confirm\w*|human-in-the-loop", doc, re.IGNORECASE)
     assert hits == [], (
-        f"mcp-integration.md promises {hits[:2]} — bot/config.py defaults "
-        "auto_confirm_live_enabled to True, so a signal clearing the confidence "
-        "bar places a live order with nobody pressing anything")
+        f"mcp-integration.md promises {hits[:2]} — AUTO_CONFIRM_LIVE_ENABLED "
+        "can still be turned on, so an unconditional human-confirmation "
+        "claim is not a claim the code keeps")
 
 
 def test_the_default_really_is_auto_confirm_so_this_guard_is_not_stale():
-    """If the default ever flips, the claim becomes true and this guard should
-    be revisited rather than silently keeping a true sentence out of the doc."""
+    """The code default is off. A flip back to on fails here, and the doc
+    guard above stays because the flag can still be turned on."""
     cfg = (ROOT / "bot" / "config.py").read_text(encoding="utf-8")
-    assert re.search(r"auto_confirm_live_enabled[^\n]*_env_bool\([^\n]*True", cfg), (
-        "auto_confirm_live_enabled no longer defaults True — human confirmation "
-        "may now be accurate, and the doc guard above should be reconsidered "
-        "instead of assumed")
+    assert re.search(r"auto_confirm_live_enabled[^\n]*_env_bool\([^\n]*False", cfg), (
+        "auto_confirm_live_enabled no longer defaults False — the doc guard "
+        "above should be reconsidered rather than assumed")
 
 
 def test_the_tool_map_is_the_catalogue_row_for_row():

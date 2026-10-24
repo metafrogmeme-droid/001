@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from bot.web import web3_exec_gate as gate
+from bot.web.mainnet_guard import execution_refused
 
 # The env var holding the admin signing key. Its VALUE is never returned by any
 # function here — only its presence is ever reported.
@@ -289,7 +290,9 @@ def build_and_sign(*, network: str, to: Optional[str], value_wei: int, nonce: in
     if not net or not net.get("testnet"):
         return {"ok": False, "error": "signing is testnet-only"}
     chain_id = int(net["chain_id"])
-    if chain_id not in _TESTNET_CHAIN_IDS:
+    # The same refusal the startup guard uses, so a mainnet row that was
+    # marked testnet by mistake is still refused here.
+    if execution_refused(chain_id) is not None or chain_id not in _TESTNET_CHAIN_IDS:
         return {"ok": False, "error": "not a testnet chain"}
     # The chain's protocol intrinsic floor, from the table. A row without one
     # denies rather than assuming Ethereum's. FLOOR ONLY: clearing it does not
@@ -448,10 +451,11 @@ async def prepare_tx(*, network: str, address: str, to: Optional[str] = None,
     if not net or not net.get("testnet"):
         return {"ok": False, "error": "prepare is testnet-only"}
     try:
-        if int(net["chain_id"]) not in _TESTNET_CHAIN_IDS:
-            return {"ok": False, "error": "not a testnet chain"}
+        chain_id = int(net["chain_id"])
     except (TypeError, ValueError):
         return {"ok": False, "error": "unknown chain"}
+    if execution_refused(chain_id) is not None or chain_id not in _TESTNET_CHAIN_IDS:
+        return {"ok": False, "error": "not a testnet chain"}
     addr = str(address or "").strip()
     if not addr:
         return {"ok": False, "error": "no signer address — configure the signing key"}
@@ -527,10 +531,11 @@ async def broadcast(raw_hex: str, rpc_url: str, chain_id: int) -> dict:
     Returns ``{ok, tx_hash}`` or ``{ok: False, error}``. Never leaks secrets: the
     raw tx and RPC belong to the caller, and any failure returns a generic error."""
     try:
-        if int(chain_id) not in _TESTNET_CHAIN_IDS:
-            return {"ok": False, "error": "broadcast refused: not a testnet chain"}
+        cid = int(chain_id)
     except (TypeError, ValueError):
         return {"ok": False, "error": "broadcast refused: unknown chain"}
+    if execution_refused(cid) is not None or cid not in _TESTNET_CHAIN_IDS:
+        return {"ok": False, "error": "broadcast refused: not a testnet chain"}
     if not rpc_url:
         return {"ok": False, "error": "no testnet RPC configured — signed only, not sent"}
     try:
