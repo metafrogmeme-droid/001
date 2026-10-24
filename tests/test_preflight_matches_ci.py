@@ -156,7 +156,8 @@ def test_the_summary_names_what_it_cannot_judge():
     missing = preflight.uncovered()
     for job in ("Staking program (cargo)", "Secret scan (gitleaks)",
                 "Rune NFT (solidity)", "CGC contracts (solidity)",
-                "Kink Cap contracts (solidity)", "Token tooling (node)"):
+                "Kink Cap contracts (solidity)", "FVB contracts (solidity)",
+                "Token tooling (node)"):
         assert job in missing
 
 

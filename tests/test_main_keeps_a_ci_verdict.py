@@ -105,8 +105,33 @@ test_a_contract_job_stays_on_ci_and_off_the_local_plan = pytest.mark.parametrize
     [
         ("CGC contracts (solidity)", "contracts/cgc"),
         ("Kink Cap contracts (solidity)", "contracts/kinkcap"),
+        ("FVB contracts (solidity)", "contracts/fvb"),
     ],
 )(test_a_contract_job_stays_on_ci_and_off_the_local_plan)
+
+
+def test_the_fvb_solana_consumer_stays_on_the_staking_job():
+    """The host cargo test is a step of the staking job, which local
+    preflight does not run. Putting it in the local plan would require a
+    Solana toolchain on every preflight, and running it from the repo root
+    rewrites a lockfile the Solana toolchain cannot read.
+    """
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import preflight
+
+    job = _job("Staking program (cargo)")
+    assert "Staking program (cargo)" not in preflight.LOCAL_JOBS
+    assert "Staking program (cargo)" in preflight.uncovered()
+    match = [
+        step for step in job["steps"]
+        if step.get("name") == "Tests — fair-value bridge solana consumer (host)"
+    ]
+    assert len(match) == 1
+    assert match[0].get("working-directory") == "contracts/fvb/solana"
+    assert match[0].get("run") == "cargo test"
+    dirs = [wd for _, _cmd, wd in preflight.steps(fast=False)]
+    assert "contracts/fvb/solana" not in dirs
 
 
 def test_the_shadow_is_not_a_local_preflight_gate():
