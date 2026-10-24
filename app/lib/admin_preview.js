@@ -127,3 +127,10 @@ function withBanner(html) {
 module.exports = {
   BANNER, READERS, publicOn, hasCredential, identify, flag_on_for, previewFlags, bannerHtml, withBanner,
 };
+
+// --- XNAV begin ---
+// Lazy: xnav_flag requires this module, so the reader cannot be a top-level require.
+READERS.XNAV_ENABLED = function (env) {
+  return require('./xnav_flag').flagOn(env) === true;
+};
+// --- XNAV end ---
