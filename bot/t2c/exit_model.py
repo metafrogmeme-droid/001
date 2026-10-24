@@ -17,6 +17,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from bot.t2c.chain_guard import LOCAL_FORK, assert_may_move_funds
+from bot.t2c.consumers import unwind_target
 from bot.t2c.numbers import as_decimal, json_num
 
 WSTETH = "wsteth"
@@ -433,6 +434,7 @@ def fork_demo() -> dict:
         "lp_fee_eth": json_num(as_decimal(ledger.get("lp_fee_eth"))),
         "steth_out": json_num(as_decimal(steth_out)),
         "cycle": exit_cycle(),
+        "unwind": unwind_target(),
     }
 
 

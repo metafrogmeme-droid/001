@@ -9,26 +9,56 @@ from bot.t2c.backtest import july_window
 from bot.t2c.borrow import borrow_rate
 from bot.t2c.chain_series import daily_report
 from bot.t2c.churn import cap_queue_scenario, churn_eth_per_epoch, confirmed_churn
-from bot.t2c.config import haircut_config, t_eigen_days, t_p95_days, weeth_restaked
+from bot.t2c.config import haircut_config, observed_duration, t_eigen_days, t_p95_days, weeth_restaked
 from bot.t2c.consumers import admin_consumer_context, public_consumers
 from bot.t2c.coordinator import cap_json, propose_cap_down
 from bot.t2c.duration import duration_percentiles, smooth_samples
-from bot.t2c.etherfi import WEETH, interpret_limit, recorded_etherfi
+from bot.t2c.etherfi import WEETH, cheapest_weeth_exit, interpret_limit, recorded_etherfi
 from bot.t2c.flag import t2c_flag_on
 from bot.t2c.mainnet_config import admin_pool_status, public_pool_status
 from bot.t2c.numbers import as_decimal, json_num
 from bot.t2c.packet import build_packet, haircut_for
-from bot.t2c.price import carry_term, duration_price, slash_haircut, stake_yield
+from bot.t2c.price import apply_exit_fee, carry_term, duration_price, slash_haircut, stake_yield
 from bot.t2c.rxb import attempt_sign, sentinel_submit
 from bot.t2c.snapshots import recorded_carry, recorded_request_times
+
+
+def _weeth_exit(measured: Mapping[str, object]) -> dict:
+    keys = ("weeth_instant_eth", "weeth_steth_limit_eth", "weeth_steth_fee_bps")
+    if any(key in measured for key in keys):
+        return cheapest_weeth_exit(
+            measured.get("weeth_instant_eth"),
+            measured.get("weeth_steth_limit_eth"),
+            measured.get("weeth_steth_fee_bps"),
+        )
+    snap = recorded_etherfi()
+    route = cheapest_weeth_exit(
+        snap["eth"]["instant_eth"],
+        snap["steth"]["limit_eth"],
+        snap["steth"]["issuer_fee_bps"],
+    )
+    if route["route"] is not None:
+        route["source"] = "recorded_snapshot"
+    return route
+
+
+def _apply_weeth_exit(asset: dict, route: dict) -> None:
+    asset["restaked"] = False
+    asset["exit_route"] = route["route"]
+    asset["exit_fee_bps"] = json_num(as_decimal(route["fee_bps"]))
+    asset["exit_source"] = route["source"]
+    if route["route"] != "steth_then_lido_queue":
+        asset["p"] = None
+        return
+    asset["p"] = json_num(apply_exit_fee(as_decimal(asset["p"]), route["fee_bps"]))
 
 
 def _choose(estimated: object, configured: Decimal | None, source: str) -> tuple[Decimal | None, str]:
     reading = as_decimal(estimated)
     if reading is not None:
         return reading, "estimated"
-    if configured is not None and source == "config":
-        return configured, "config"
+    if configured is not None and source in ("config", "fallback"):
+        return configured, source
     if source == "unreadable":
         return None, "unreadable"
     return None, "absent"
@@ -58,6 +88,9 @@ def _asset_price(
         "carry_source": term["source"],
         "s": json_num(s),
         "p": json_num(price),
+        "exit_route": None,
+        "exit_fee_bps": None,
+        "exit_source": None,
     }
 
 
@@ -67,8 +100,9 @@ def assemble_reading(
 ) -> dict:
     """The signal. Live inputs are whatever the caller measured; nothing here fetches.
 
-    An omitted input is unread. It is not filled from the July window or from
-    the dated ether.fi snapshot.
+    An omitted rate or exchange rate is unread. It is not filled from the July
+    window. The weETH exit route uses the dated ether.fi snapshot only when the
+    caller did not pass one, and that route is labelled as a snapshot.
     """
     src = os.environ if env is None else env
     measured = inputs if inputs is not None else {}
@@ -101,6 +135,7 @@ def assemble_reading(
         _asset_price("rsETH", True, measured.get("er_rseth"), r_borrow,
                      measured.get("y_rseth"), t_p95, eigen, hair),
     ]
+    _apply_weeth_exit(assets[1], _weeth_exit(measured))
     headline = assets[0]
     request_time = recorded_request_times()
     packets = []
@@ -146,6 +181,7 @@ def assemble_reading(
             "smoothed": json_num(smoothed["value"]),
             "smooth_source": smoothed["source"],
         },
+        "duration_observed": observed_duration(),
         "churn": confirmed_churn(),
         "churn_eth_per_epoch": json_num(live_churn),
         "observation": {
@@ -214,6 +250,7 @@ def public_payload(built: dict) -> dict:
             "assets": built["assets"],
         },
         "duration": built["duration"],
+        "duration_observed": built["duration_observed"],
         "churn": {
             "status": built["churn"]["status"],
             "confirmed_as_of": built["churn"]["confirmed_as_of"],
