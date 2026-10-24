@@ -27,6 +27,16 @@
 # re-reads Base and refuses any hash whose calldata is not this day's root,
 # whoever submits it.
 #
+# --broadcast IS OPERATOR-ONLY. Run it on the owner's machine, never from
+# the server. bot.main and api_bridge set RUNECLAW_SERVER=1 before they do
+# anything else; a child of the server inherits it and this script then
+# refuses to sign. It also refuses when a server signing key is already in
+# the environment (WEB3_SIGNER_PRIVATE_KEY, HYPERLIQUID_PRIVATE_KEY,
+# SAR_ORACLE_SIGNING_KEY, HRC_FEED_SIGNER_KEY): those belong to the server,
+# and this script must not read them and must not treat them as the key.
+# Export ETH_PRIVATE_KEY in an operator shell. This script never sources
+# .env or web.env.
+#
 # USAGE
 #
 #   scripts/anchor_roots.sh --list                  which days are unanchored
@@ -181,7 +191,18 @@ else:
 
 # ── opt-in: sign and send from this machine ─────────────────────────────────
 cmd_broadcast() {
-  local day="$1" data tx from
+  local day="$1" data tx from leaked
+  # Operator-only. The server never runs this, and a server environment is
+  # recognisable: the entry points set RUNECLAW_SERVER, and the server's own
+  # signing keys are a different set from the operator's ETH_PRIVATE_KEY.
+  if [ "${RUNECLAW_SERVER:-}" = "1" ]; then
+    die "--broadcast is operator-only and is refused when RUNECLAW_SERVER=1. The server never signs on mainnet."
+  fi
+  for leaked in WEB3_SIGNER_PRIVATE_KEY HYPERLIQUID_PRIVATE_KEY SAR_ORACLE_SIGNING_KEY HRC_FEED_SIGNER_KEY; do
+    if [ -n "${!leaked:-}" ]; then
+      die "--broadcast refuses to run while ${leaked} is set. That key belongs to the server environment. Export ETH_PRIVATE_KEY in an operator shell that does not source the server env. This script never reads .env or web.env."
+    fi
+  done
   need_token
   command -v cast >/dev/null 2>&1 \
     || die "--broadcast needs foundry's \`cast\`. Install it, or use --plan and your own wallet."
@@ -302,6 +323,6 @@ case "${1:-}" in
   --broadcast) [ $# -eq 2 ] || die "usage: --broadcast <YYYY-MM-DD>"; cmd_broadcast "$2" ;;
   --tool-plan)   cmd_tool_plan ;;
   --tool-verify) cmd_tool_verify ;;
-  -h|--help|"") sed -n '2,48p' "$0"; exit 0 ;;
+  -h|--help|"") sed -n '2,/^set -uo pipefail$/p' "$0" | sed '$d'; exit 0 ;;
   *) die "unknown argument '$1'. Nothing was done." ;;
 esac

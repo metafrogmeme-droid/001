@@ -125,19 +125,18 @@ def _manual():
 def test_the_defect_is_reachable_at_the_dataclass_defaults():
     """Not an exotic configuration: it is what an absent `.env` key gives.
 
-    `.env.example` ships the safe pair (1.0 / false) and
-    `test_human_confirmation_claim_is_qualified.py` rests on that, correctly.
-    But the dataclass defaults are what an operator gets for a key they did
-    not write -- and they are also what this same file recommends for the
-    admin auto-trade policy, "set 0.85 AND enable live auto-confirm".
+    `.env.example` ships the threshold at 1.0 and the live flag false.
+    The live flag's code default is now the same false. The threshold's
+    code default is still 0.85, so the auto-confirm loop RUNS, and the
+    live suppression fires until the operator sets the flag.
     """
     assert CONFIG.auto_confirm_threshold == 0.85, (
         "AUTO_CONFIRM_THRESHOLD's default; if this moves, the comment over "
         "the gate in engine.py moves with it")
     assert auto_confirm_is_disabled(CONFIG.auto_confirm_threshold) is False, (
         "at the dataclass default the auto-confirm loop RUNS")
-    assert CONFIG.auto_confirm_live_enabled is True, (
-        "so the SUPPRESSED_LIVE branch does not fire either")
+    assert CONFIG.auto_confirm_live_enabled is False, (
+        "so the SUPPRESSED_LIVE branch fires at the default")
 
 
 def test_a_manual_ticket_clears_the_threshold_which_is_why_a_reading_is_needed():
@@ -459,8 +458,8 @@ def test_the_gate_comment_names_the_defaults_the_flags_have():
     # how the mutation reverting this comment survived the first round.
     assert "defaults to 0.85" in block, (
         "the comment names the threshold's real default")
-    assert "defaults to True" in block, (
-        "and that AUTO_CONFIRM_LIVE_ENABLED's default does not suppress")
+    assert "defaults to False" in block, (
+        "and that AUTO_CONFIRM_LIVE_ENABLED's default suppresses live")
 
 
 def test_the_chat_door_rule_still_says_it_places_nothing():

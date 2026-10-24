@@ -2761,12 +2761,12 @@ class AppConfig:
     # below; set that to 0 (or threshold to 1.0) to restore manual confirmation.
     auto_confirm_threshold: float = _env_float("AUTO_CONFIRM_THRESHOLD", 0.85)
     # Allow auto-confirm to place LIVE (real-money) orders with no human press.
-    # OPERATOR-ACTIVATED default ON. Set AUTO_CONFIRM_LIVE_ENABLED=0 to require a
-    # human tap for every live trade (the fail-closed posture). This is the
-    # second line: an order with no human press is placed only when an
-    # eligibility record for the running strategy also exists
-    # (bot/core/live_eligibility.py), and none ships.
-    auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", True)
+    # Default OFF. Set AUTO_CONFIRM_LIVE_ENABLED=true only when an eligibility
+    # record for the running strategy also exists
+    # (bot/core/live_eligibility.py), and none ships. An order with no human
+    # press is placed only when this flag is on and that record says the
+    # strategy survives.
+    auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", False)
     # Gate auto-confirm on CALIBRATED confidence (OPERATOR-ACTIVATED default ON).
     # When ON AND a fitted confidence calibrator exists, the auto-confirm threshold
     # is tested against min(raw, calibrated) confidence — so a real-money auto-trade
