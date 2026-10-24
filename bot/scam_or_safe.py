@@ -5,8 +5,10 @@ The seal is the website gate (``sos-offer`` / ``sos-seal`` on
 picks no puzzle and hashes nothing. It only decides whether the flag is on
 and how a reply is worded.
 
-``SCAM_OR_SAFE_V0`` unset is off. The bot then does not register /scam, and
-/duel is the duel it already was.
+``SCAM_OR_SAFE_V0`` unset is off for everyone who is not an admin. The bot
+registers /scam either way, so an admin can open it (bot/admin_preview.py).
+A non-admin gets ``NOT_OPEN``, and the help text omits the line. /duel is
+the duel it already was.
 
 A field that still contains a full account or a URL is withheld. The catalog
 audit is what keeps those out; this is the last check before a person sees
