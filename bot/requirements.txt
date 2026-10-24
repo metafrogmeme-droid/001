@@ -9,9 +9,9 @@ aiohttp==3.14.4
 # CA bundle shipped by ccxt, httpx, openai and anthropic. Unpinned, it never
 # reached the SCA gate (that gate reads requirements.lock only).
 # 2026.10.19 drops the withdrawn emSign roots (PYSEC-2026-4320).
-certifi>=2026.10.19
+certifi==2026.10.19
 websockets==16.0
-cryptography>=50.0.0
-Pillow>=10.3.0
+cryptography==50.0.0
+Pillow==13.0.0
 # RC-AUD-020: optional — durable JWT revocation store (token_store.py import-guards it).
-redis>=5.0.0
+redis==8.1.0
