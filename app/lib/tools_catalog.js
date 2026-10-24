@@ -129,6 +129,9 @@ function presentation(tool, env, view) {
     }
     return { label: 'Coming soon', href: null };
   }
+  // /t2c is the operator's page. The catalog never links it. The operator
+  // route is added on GET /api/tools, and only for that caller.
+  if (tool && tool.id === 't2c') return { label: 'Coming soon', href: null };
   // The fair-value card stays "Coming soon" with no date. The link is
   // drawn only after the operator check has passed. The flag does not
   // turn the label into "Open".

@@ -362,6 +362,8 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// /t2c.html would skip the operator check.
+app.use(require('./lib/t2c_flag').pageGate);
 // Fair-value bridge stays 404 for the public until FVB_ENABLED is set.
 // An operator still receives the page. Ahead of express.static so
 // public/fvb.html is not a file a crawler can open while the flag is off.
@@ -560,6 +562,10 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
+// Time-to-cash cap signal. 404 while T2C_ENABLED is off, except for the
+// operator. The feed is percent and ratio only (routes/t2c.js).
+app.use('/api/t2c', require('./routes/t2c'));
+app.use('/api/tools', require('./routes/tools'));
 // Recursion Breaker. Public signals while RXB_ENABLED is on. While it is
 // off, the public gets 404 and an operator can still read. routes/rxb.js.
 app.use('/v1/node', require('./routes/rxb'));
@@ -672,6 +678,9 @@ app.get('/cover-stopgap', (req, res) => { require('./lib/cover_page').sendPage(r
 // preview. While the flag is on, the HTML is the operator's. The public
 // card for SaR stays "Coming soon".
 app.get('/tools', (req, res) => { require('./lib/sar_oracle_flag').sendPage(req, res); });
+// /t2c is the operator's signal page and answers 404 for everyone else,
+// flag on or off (lib/t2c_flag.js).
+app.get('/t2c', (req, res) => { require('./lib/t2c_flag').sendT2C(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.

@@ -149,6 +149,7 @@
     "cgc": "janelas do freio de conservação, testnet, somente leitura",
     "gates": "telemetria de aprovado/reprovado por gate",
     "flags": "flags de auditoria profunda opt-in",
+    "t2c": "teto e sinal de LTV da duração de saída do wstETH",
     "rxb": "leitura de recursão para o operador, só razões",
     "shadow": "livro sombra contrafactual",
     "srb": "sinais de restituição em sombra — um sinal público, nada é pago",

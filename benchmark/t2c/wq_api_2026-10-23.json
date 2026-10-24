@@ -1,0 +1,39 @@
+{
+  "fetched_at": "2026-10-23T20:23:55.556333Z",
+  "source": "wq-api.lido.fi/v2/request-time/calculate",
+  "queried_at": "2026-10-23",
+  "buckets_eth": [
+    "1000",
+    "10000",
+    "100000"
+  ],
+  "payloads": {
+    "1000": {
+      "requestInfo": {
+        "finalizationIn": 230788000,
+        "finalizationAt": "2026-10-26T12:30:22.925Z",
+        "type": "validatorBalances"
+      },
+      "status": "calculated",
+      "nextCalculationAt": "2026-10-23T20:25:00.091Z"
+    },
+    "10000": {
+      "requestInfo": {
+        "finalizationIn": 230787000,
+        "finalizationAt": "2026-10-26T12:30:22.565Z",
+        "type": "validatorBalances"
+      },
+      "status": "calculated",
+      "nextCalculationAt": "2026-10-23T20:25:00.091Z"
+    },
+    "100000": {
+      "requestInfo": {
+        "finalizationIn": 835587000,
+        "finalizationAt": "2026-11-02T12:30:23.179Z",
+        "type": "validatorBalances"
+      },
+      "status": "calculated",
+      "nextCalculationAt": "2026-10-23T20:25:00.091Z"
+    }
+  }
+}

@@ -1,0 +1,380 @@
+{
+  "provenance": {
+    "source": "https://coins.llama.fi/chart",
+    "queried": "2026-10-23",
+    "ids": {
+      "eth": "coingecko:ethereum",
+      "steth": "coingecko:staked-ether",
+      "weeth": "coingecko:wrapped-eeth",
+      "wsteth": "coingecko:wrapped-steth"
+    },
+    "start": 1752105600,
+    "end_exclusive": 1754006400,
+    "period": "1d",
+    "searchWidth": 600,
+    "pair_window_seconds": 10800,
+    "note": "22 prints, not one per calendar day. Pair each ETH print with the nearest stETH, weETH and wstETH print within 10800 seconds. Do not interpolate. The first print is 6 seconds before 2025-07-10 00:00 UTC and is kept as the chart's own boundary print. July 31 has no print."
+  },
+  "series": {
+    "eth": [
+      {
+        "timestamp": 1752105594,
+        "price": "2770.88"
+      },
+      {
+        "timestamp": 1752192012,
+        "price": "2954.23"
+      },
+      {
+        "timestamp": 1752278396,
+        "price": "2958.62"
+      },
+      {
+        "timestamp": 1752364794,
+        "price": "2942.62"
+      },
+      {
+        "timestamp": 1752451194,
+        "price": "2974.93"
+      },
+      {
+        "timestamp": 1752537594,
+        "price": "3012.87"
+      },
+      {
+        "timestamp": 1752623995,
+        "price": "3136.34"
+      },
+      {
+        "timestamp": 1752710395,
+        "price": "3369.57"
+      },
+      {
+        "timestamp": 1752796797,
+        "price": "3478.48"
+      },
+      {
+        "timestamp": 1752883238,
+        "price": "3548.46"
+      },
+      {
+        "timestamp": 1752969601,
+        "price": "3594.11"
+      },
+      {
+        "timestamp": 1753055946,
+        "price": "3762.19"
+      },
+      {
+        "timestamp": 1753142395,
+        "price": "3765.31"
+      },
+      {
+        "timestamp": 1753228797,
+        "price": "3747.33"
+      },
+      {
+        "timestamp": 1753315196,
+        "price": "3629.81"
+      },
+      {
+        "timestamp": 1753401604,
+        "price": "3708.07"
+      },
+      {
+        "timestamp": 1753488003,
+        "price": "3725.69"
+      },
+      {
+        "timestamp": 1753574393,
+        "price": "3742.48"
+      },
+      {
+        "timestamp": 1753660799,
+        "price": "3871.93"
+      },
+      {
+        "timestamp": 1753747199,
+        "price": "3786.62"
+      },
+      {
+        "timestamp": 1753833604,
+        "price": "3790.62"
+      },
+      {
+        "timestamp": 1753919999,
+        "price": "3807.29"
+      }
+    ],
+    "steth": [
+      {
+        "timestamp": 1752105594,
+        "price": "2768.36"
+      },
+      {
+        "timestamp": 1752192003,
+        "price": "2950.56"
+      },
+      {
+        "timestamp": 1752278399,
+        "price": "2955.68"
+      },
+      {
+        "timestamp": 1752364794,
+        "price": "2940.99"
+      },
+      {
+        "timestamp": 1752451204,
+        "price": "2972.64"
+      },
+      {
+        "timestamp": 1752537599,
+        "price": "3011.99"
+      },
+      {
+        "timestamp": 1752624001,
+        "price": "3135.31"
+      },
+      {
+        "timestamp": 1752710389,
+        "price": "3367.02"
+      },
+      {
+        "timestamp": 1752796800,
+        "price": "3470.43"
+      },
+      {
+        "timestamp": 1752883173,
+        "price": "3539.939465769639"
+      },
+      {
+        "timestamp": 1752969588,
+        "price": "3587.3"
+      },
+      {
+        "timestamp": 1753055999,
+        "price": "3751.98"
+      },
+      {
+        "timestamp": 1753142398,
+        "price": "3750.58"
+      },
+      {
+        "timestamp": 1753228800,
+        "price": "3733.85"
+      },
+      {
+        "timestamp": 1753315199,
+        "price": "3620.75"
+      },
+      {
+        "timestamp": 1753401598,
+        "price": "3700.79"
+      },
+      {
+        "timestamp": 1753487998,
+        "price": "3722.02"
+      },
+      {
+        "timestamp": 1753574399,
+        "price": "3750.77"
+      },
+      {
+        "timestamp": 1753660804,
+        "price": "3871.92"
+      },
+      {
+        "timestamp": 1753747204,
+        "price": "3780.67"
+      },
+      {
+        "timestamp": 1753833596,
+        "price": "3788.04"
+      },
+      {
+        "timestamp": 1753919998,
+        "price": "3800.68"
+      }
+    ],
+    "weeth": [
+      {
+        "timestamp": 1752105601,
+        "price": "2968.88"
+      },
+      {
+        "timestamp": 1752191981,
+        "price": "3164"
+      },
+      {
+        "timestamp": 1752278389,
+        "price": "3169.07"
+      },
+      {
+        "timestamp": 1752364740,
+        "price": "3153.71"
+      },
+      {
+        "timestamp": 1752451136,
+        "price": "3190.43"
+      },
+      {
+        "timestamp": 1752537601,
+        "price": "3227.78"
+      },
+      {
+        "timestamp": 1752624004,
+        "price": "3365.76"
+      },
+      {
+        "timestamp": 1752710390,
+        "price": "3612.76"
+      },
+      {
+        "timestamp": 1752796804,
+        "price": "3730.55"
+      },
+      {
+        "timestamp": 1752883183,
+        "price": "3790.67"
+      },
+      {
+        "timestamp": 1752969581,
+        "price": "3852.14"
+      },
+      {
+        "timestamp": 1753056083,
+        "price": "4024.39"
+      },
+      {
+        "timestamp": 1753142399,
+        "price": "4022.31"
+      },
+      {
+        "timestamp": 1753228801,
+        "price": "4010.76"
+      },
+      {
+        "timestamp": 1753315200,
+        "price": "3881.36"
+      },
+      {
+        "timestamp": 1753401599,
+        "price": "3973"
+      },
+      {
+        "timestamp": 1753487999,
+        "price": "3991.66"
+      },
+      {
+        "timestamp": 1753574400,
+        "price": "4015.66"
+      },
+      {
+        "timestamp": 1753660804,
+        "price": "4149.74"
+      },
+      {
+        "timestamp": 1753747204,
+        "price": "4050.03"
+      },
+      {
+        "timestamp": 1753833605,
+        "price": "4064.24"
+      },
+      {
+        "timestamp": 1753919999,
+        "price": "4071.64"
+      }
+    ],
+    "wsteth": [
+      {
+        "timestamp": 1752105594,
+        "price": "3346.25"
+      },
+      {
+        "timestamp": 1752192000,
+        "price": "3565.32"
+      },
+      {
+        "timestamp": 1752278404,
+        "price": "3569.2"
+      },
+      {
+        "timestamp": 1752364794,
+        "price": "3552.46"
+      },
+      {
+        "timestamp": 1752451199,
+        "price": "3593.25"
+      },
+      {
+        "timestamp": 1752537600,
+        "price": "3637.05"
+      },
+      {
+        "timestamp": 1752623992,
+        "price": "3784.1"
+      },
+      {
+        "timestamp": 1752710390,
+        "price": "4070.11"
+      },
+      {
+        "timestamp": 1752796804,
+        "price": "4196.39"
+      },
+      {
+        "timestamp": 1752883183,
+        "price": "4271"
+      },
+      {
+        "timestamp": 1752969581,
+        "price": "4338.83"
+      },
+      {
+        "timestamp": 1753055990,
+        "price": "4532.19"
+      },
+      {
+        "timestamp": 1753142399,
+        "price": "4526.05"
+      },
+      {
+        "timestamp": 1753228802,
+        "price": "4511.68"
+      },
+      {
+        "timestamp": 1753315200,
+        "price": "4373.51"
+      },
+      {
+        "timestamp": 1753401599,
+        "price": "4473.26"
+      },
+      {
+        "timestamp": 1753488000,
+        "price": "4495.91"
+      },
+      {
+        "timestamp": 1753574400,
+        "price": "4522.57"
+      },
+      {
+        "timestamp": 1753660804,
+        "price": "4678.27"
+      },
+      {
+        "timestamp": 1753747204,
+        "price": "4571.55"
+      },
+      {
+        "timestamp": 1753833604,
+        "price": "4577.37"
+      },
+      {
+        "timestamp": 1753919999,
+        "price": "4593.28"
+      }
+    ]
+  }
+}
