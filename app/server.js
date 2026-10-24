@@ -364,6 +364,10 @@ app.use('/embed', require('./routes/embed'));
 app.use(require('./lib/rwa_flag').pageGate);
 // /t2c.html would skip the operator check.
 app.use(require('./lib/t2c_flag').pageGate);
+// Fair-value bridge stays 404 for the public until FVB_ENABLED is set.
+// An operator still receives the page. Ahead of express.static so
+// public/fvb.html is not a file a crawler can open while the flag is off.
+app.use(require('./lib/fvb_flag').pageGate);
 // Kink Cap stays 404 for anyone who is not the operator, flag on or off.
 // Ahead of express.static so public/hrc.html is not a public file.
 app.use(require('./lib/hrc_flag').pageGate);
@@ -562,6 +566,7 @@ app.use('/v1/rwa', require('./routes/rwa_precheck'));
 // operator. The feed is percent and ratio only (routes/t2c.js).
 app.use('/api/t2c', require('./routes/t2c'));
 app.use('/api/tools', require('./routes/tools'));
+app.use('/api/fvb', require('./routes/fvb'));
 // Conservation brake: admin-only status. 404 for everyone else, flag on or off.
 app.use('/api/cgc', require('./routes/cgc'));
 // Cover status. 404 for the public until the matching flag is set. An admin
@@ -647,6 +652,9 @@ app.get('/guard', (req, res) => { require('./lib/claw_guard_v01').sendPage(req, 
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); });
+// /fvb — session-aware risk price. 404 to the public while FVB_ENABLED is
+// off; an operator gets the page with the preview banner.
+app.get('/fvb', (req, res) => { require('./lib/fvb_flag').sendPage(req, res); });
 app.get('/hrc', (req, res) => { require('./lib/hrc_flag').sendPage(req, res); });
 // /cgc — conservation-brake status. Admin only. pageGate, ahead of static,
 // keeps /cgc.html and the page script from being files a non-admin can open.

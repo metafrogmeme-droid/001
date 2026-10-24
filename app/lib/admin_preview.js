@@ -51,6 +51,9 @@ const READERS = {
   SRB_ENABLED(env) {
     return require('./srb_flag').flag_on(env) === true;
   },
+  FVB_ENABLED(env) {
+    return require('./fvb_flag').flagOn(env) === true;
+  },
   COVER_ADL_ENABLED(env) {
     return require('../../contracts/cover/flags.cjs').adlOn(env) === true;
   },
