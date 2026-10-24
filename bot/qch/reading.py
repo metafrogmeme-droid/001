@@ -7,9 +7,12 @@ counts, not scores. This module does not sign.
 
 from __future__ import annotations
 
-from typing import Optional
+import json
+from pathlib import Path
+from typing import Mapping, Optional
 
 from bot.qch.config import QchConfig, load_config
+from bot.qch.flag import flag_on
 from bot.qch.graph import custody_node
 from bot.qch.policy import POLICY_METHOD, decide
 from bot.qch.sar_bind import flag_bits, timelock_sec
@@ -17,14 +20,18 @@ from bot.qch.score import (
     METHOD,
     apply_attestation,
     bucket_total,
+    is_exposed,
     multisig_factor_bps,
     qes_bps,
     reserve_gap,
     time_weighted,
     weighted_exposed,
 )
+from bot.qch.sign import signing_posture
 
 _NOT_SCANNED = ("LBTC", "tBTC")
+_ROWS = Path(__file__).resolve().parent / "fixtures" / "rows.json"
+_PUBLISH_CHAIN = 84532
 
 
 def _score_fields(qes: Optional[int], source: str, extra: dict) -> dict:
@@ -195,25 +202,66 @@ def _cases(qes: Optional[int], source: str, cfg: QchConfig, bits: Optional[dict]
     }
 
 
-def publish(env: Optional[dict] = None, snapshot: Optional[dict] = None) -> dict:
-    """The admin reading. ``env`` defaults to the placeholder config, not the process."""
-    from bot.qch.crawler import load_snapshot
+def _examples() -> Optional[list]:
+    """Classify the recorded address rows. A failed read is not an empty list."""
+    try:
+        data = json.loads(_ROWS.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    rows = data.get("rows") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return None
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            out.append({"asset": None, "type": None, "exposed": None, "reason": "row_unreadable"})
+            continue
+        asset = row.get("asset")
+        kind = row.get("type")
+        out.append({
+            "asset": asset if isinstance(asset, str) else None,
+            "type": kind if isinstance(kind, str) else None,
+            "exposed": is_exposed(row),
+            "reason": None,
+        })
+    return out
 
-    cfg = load_config({} if env is None else env)
-    loaded = snapshot if snapshot is not None else load_snapshot()["snapshot"]
+
+def _snapshot(snapshot: Optional[dict]) -> tuple[Optional[dict], Optional[str]]:
+    """The caller-supplied snapshot, or the crawler's fixture. Unreadable stays None."""
+    if snapshot is not None:
+        return snapshot, None
+    from bot.qch.crawler import crawl
+
+    crawled = crawl()
+    if crawled.get("readable") is not True or not isinstance(crawled.get("snapshot"), dict):
+        reason = crawled.get("reason")
+        return None, reason if isinstance(reason, str) else "unreadable"
+    return crawled["snapshot"], None
+
+
+def custody_reading(env: Optional[Mapping[str, str]] = None, snapshot: Optional[dict] = None) -> dict:
+    """The admin reading. ``env`` defaults to the placeholder config, not the process."""
+    source_env: Mapping[str, str] = {} if env is None else env
+    cfg = load_config(source_env)
+    posture = signing_posture(_PUBLISH_CHAIN, source_env)
+    enabled = flag_on(source_env)
+    loaded, failed = _snapshot(snapshot)
     bits = flag_bits()
     lock = timelock_sec()
     if not isinstance(loaded, dict):
         return {
             "readable": False,
-            "reason": "unreadable",
+            "reason": failed or "unreadable",
             "estimate": True,
             "label": "estimate",
             "method": METHOD,
             "data_source": "none",
             "issuers": None,
-            "signs": False,
-            "key_held": False,
+            "signs": posture.get("ok") is True,
+            "key_held": posture.get("key_read") is True,
+            "signing_reason": posture.get("reason"),
+            "enabled": enabled,
         }
     as_of = loaded.get("as_of_unix")
     if isinstance(as_of, bool) or not isinstance(as_of, int):
@@ -247,8 +295,11 @@ def publish(env: Optional[dict] = None, snapshot: Optional[dict] = None) -> dict
         "method": METHOD,
         "policy_method": POLICY_METHOD,
         "data_source": "bot/qch/fixtures/snapshot.json",
-        "signs": False,
-        "key_held": False,
+        "signs": posture.get("ok") is True,
+        "key_held": posture.get("key_read") is True,
+        "signing_reason": posture.get("reason"),
+        "enabled": enabled,
+        "examples": _examples(),
         "network": "testnet",
         "parameters": {
             "wbtc_multisig_m": cfg.wbtc_multisig_m,

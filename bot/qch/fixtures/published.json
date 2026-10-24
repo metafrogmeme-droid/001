@@ -2,7 +2,46 @@
   "as_of": "2026-10-24T18:53:00+02:00",
   "as_of_unix": 1792860780,
   "data_source": "bot/qch/fixtures/snapshot.json",
+  "enabled": false,
   "estimate": true,
+  "examples": [
+    {
+      "asset": "UBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2TR"
+    },
+    {
+      "asset": "WBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2SH"
+    },
+    {
+      "asset": "WBTC",
+      "exposed": false,
+      "reason": null,
+      "type": "P2WSH"
+    },
+    {
+      "asset": "cbBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2WPKH"
+    },
+    {
+      "asset": "cbBTC",
+      "exposed": false,
+      "reason": null,
+      "type": "P2WPKH"
+    },
+    {
+      "asset": "cbBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2PKH"
+    }
+  ],
   "issuers": [
     {
       "address_count": 1,
@@ -270,6 +309,7 @@
   "readable": true,
   "reason": null,
   "rule": "exposed = P2TR (key in the output) OR the address has at least one spent output",
+  "signing_reason": "keys_absent",
   "signs": false,
   "simulator": {
     "asset": "WBTC",

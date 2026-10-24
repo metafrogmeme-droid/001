@@ -59,8 +59,9 @@ four testnets.
 404 while the flag is off and 404 while it is on. An admin with the
 flag off gets the preview banner. The website serves
 `bot/qch/fixtures/published.json`. It does not apply environment
-overrides on a request. Republish with `python3 -m bot.qch` and replace
-that file.
+overrides on a request. Republish with `python3 -m bot.qch`, which
+reads the process environment, and replace that file. The committed
+file was produced with the placeholder environment.
 
 The fixture is a 2026-10-24 snapshot (18:53 +02:00). It keeps reserve
 totals, a handful of example rows, and the exposure rule. It is not the

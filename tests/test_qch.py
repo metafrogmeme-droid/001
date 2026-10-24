@@ -14,7 +14,7 @@ from bot.qch.crawler import crawl
 from bot.qch.flag import FLAG, flag_on
 from bot.qch.graph import custody_node
 from bot.qch.policy import decide
-from bot.qch.reading import publish
+from bot.qch.reading import custody_reading
 from bot.qch.sar_bind import flag_bits, scheme_table, timelock_sec
 from bot.qch.score import (
     apply_attestation,
@@ -89,7 +89,7 @@ def test_mainnet_does_not_read_the_signing_key():
 
 def test_the_published_snapshot_matches_the_calculator():
     disk = json.loads((FIXTURES / "published.json").read_text(encoding="utf-8"))
-    fresh = publish()
+    fresh = custody_reading()
     assert disk == fresh
     assert fresh["signs"] is False
     assert fresh["key_held"] is False
@@ -149,9 +149,9 @@ def test_an_unset_threshold_keeps_full_weight_and_a_partial_one_withholds():
     assert configured["factor_bps"] == 6666
     lower = qes_bps(weighted_exposed(buckets, configured["factor_bps"]), total)
     assert lower is not None and lower < full
-    discounted = publish({"QCH_WBTC_MULTISIG_M": "2", "QCH_WBTC_MULTISIG_N": "3"})
+    discounted = custody_reading({"QCH_WBTC_MULTISIG_M": "2", "QCH_WBTC_MULTISIG_N": "3"})
     assert _issuer(discounted, "WBTC")["qes_bps"] == lower
-    withheld = publish({"QCH_WBTC_MULTISIG_M": "2"})
+    withheld = custody_reading({"QCH_WBTC_MULTISIG_M": "2"})
     assert _issuer(withheld, "WBTC")["qes_bps"] is None
     assert load_config({}).wbtc_multisig_state == "unset"
 
@@ -250,7 +250,7 @@ def test_scheme_ids_and_the_timelock_come_from_sar():
     assert bits["peg"] == 16
     assert bits["canary"] == 32
     assert timelock_sec() == 604800
-    doc = publish()
+    doc = custody_reading()
     assert doc["parameters"]["ltv_timelock_sec"] == 604800
     assert doc["parameters"]["sar_flags"]["peg"] == 16
     assert doc["simulator"]["cases"]["jump"]["action"] == "cut_supply_cap"

@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import sys
 
-from bot.qch.reading import publish
+from bot.qch.config import active_env
+from bot.qch.reading import custody_reading
 
 
 def main() -> int:
-    doc = publish()
+    doc = custody_reading(env=active_env())
     if doc.get("readable") is not True:
         sys.stderr.write("unreadable\n")
         return 2
