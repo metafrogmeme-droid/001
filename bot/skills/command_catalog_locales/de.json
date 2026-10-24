@@ -149,6 +149,7 @@
     "flags": "Opt-in-Flags für den Tiefen-Audit",
     "t2c": "Obergrenze und LTV-Signal für die wstETH-Ausstiegsdauer",
     "shadow": "kontrafaktisches Schattenbuch",
+    "srb": "Schatten-Erstattungssignale — ein öffentliches Signal, nichts wird gezahlt",
     "audit": "nächtlicher Selbst-Audit-Bericht",
     "parity": "Parität Live ↔ Backtest",
     "duplicates": "doppelt gebuchte Schließungen in den Büchern des Betreibers",

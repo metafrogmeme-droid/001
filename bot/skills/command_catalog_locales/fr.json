@@ -149,6 +149,7 @@
     "flags": "flags d'audit approfondi en opt-in",
     "t2c": "plafond et signal de LTV pour la durée de sortie du wstETH",
     "shadow": "livre fantôme contrefactuel",
+    "srb": "signaux de restitution en ombre — un signal public, rien n'est payé",
     "audit": "rapport d'auto-audit nocturne",
     "parity": "parité réel ↔ backtest",
     "duplicates": "clôtures enregistrées deux fois dans les registres de l'opérateur",

@@ -61,5 +61,14 @@
     "route": null,
     "status": "runtime",
     "flag": "T2C_ENABLED"
+  },
+  {
+    "id": "srb",
+    "name": "Sandwich restitution",
+    "description": "A shadow record of a same-pool front and back on Solana. Nothing is paid, and there is no public dashboard.",
+    "chains": ["solana"],
+    "route": "/srb",
+    "status": "runtime",
+    "flag": "SRB_ENABLED"
   }
 ]
