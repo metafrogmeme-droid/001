@@ -37,6 +37,7 @@ broadcast is_admin
 buy guard
 calibration guard
 channel is_admin
+cgc guard+is_admin
 classpf guard
 closeall is_admin
 compliance guard
