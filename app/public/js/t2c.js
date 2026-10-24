@@ -76,6 +76,7 @@ function render(body) {
     ? panel('Lido request time, recorded', bucketRows)
     : '';
   const lead = daily.lead && typeof daily.lead === 'object' ? daily.lead : {};
+  const pool = body.pool && typeof body.pool === 'object' ? body.pool : {};
   const sanityRows = [
     row('Days in the file', show(daily.days)),
     row('Curve 10k days', show(daily.curve_10k_days)),
@@ -89,11 +90,28 @@ function render(body) {
     row('Measured sale, percent', show(sanity.measured_sale_pct)),
     row('Queue cost', esc(sanity.queue_cost_status || 'not read')),
   ].join('');
+  const poolRows = [
+    row('Deployed', pool.deployed === false ? 'no' : show(pool.deployed)),
+    row('Broadcast', pool.broadcast === false ? 'no' : show(pool.broadcast)),
+    row('Server signs', pool.server_signs === false ? 'no' : show(pool.server_signs)),
+    row('Server holds a key', pool.server_holds_key === false ? 'no' : show(pool.server_holds_key)),
+    row('Users deposit from their own wallet', pool.users_deposit_from_own_wallet === true ? 'yes' : show(pool.users_deposit_from_own_wallet)),
+    row('Deposit cap', esc(String(pool.deposit_cap == null ? 'not read' : pool.deposit_cap))),
+    row('Deposit cap, wei', show(pool.deposit_cap_wei)),
+    row('LP shares', esc(String(pool.lp_shares == null ? 'not read' : pool.lp_shares))),
+    row('Withdrawal NFT', esc(String(pool.withdrawal_nft == null ? 'not read' : pool.withdrawal_nft))),
+    row('Mainnet pool', esc(String(pool.mainnet_pool == null ? 'not read' : pool.mainnet_pool))),
+    row('Owner go', pool.owner_go === true ? 'yes' : 'no'),
+    row('External audit', pool.external_audit === true ? 'yes' : 'no'),
+    row('Deploy permitted', pool.deploy_permitted === true ? 'yes' : 'no'),
+    row('Paused when deployed', pool.paused_on_deploy === true ? 'yes' : show(pool.paused_on_deploy)),
+  ].join('');
   return panel('Signal', lines.join(''))
     + '<p class="note">' + esc(backtest.reason || '') + '</p>'
     + panel('ether.fi, recorded 23 Oct 2026', recorded.join(''))
     + panel('Exit queue observation', queue.join(''))
     + bucketPanel
+    + panel('Pool', poolRows)
     + panel('Daily series, Jul 2025 to Oct 2026', sanityRows)
     + '<p class="note">' + esc(daily.reason || '') + '</p>'
     + '<p class="note">' + esc(backtest.weeth_note || '') + '</p>';

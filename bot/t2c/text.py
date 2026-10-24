@@ -27,5 +27,9 @@ def format_signal_text(reading: dict) -> str:
         "widest stETH discount bp: " + _show(backtest["widest_steth_discount_bp"])
         + " on " + _show(backtest["widest_day"]),
         "cap applied: no",
+        "pool deployed: no",
+        "server signs: no",
+        "deposit cap: " + str(public["pool"]["deposit_cap"]),
+        "mainnet pool: " + str(public["pool"]["mainnet_pool"]),
     ]
     return "\n".join(lines)
