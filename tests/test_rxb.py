@@ -16,7 +16,15 @@ import pytest
 from bot.rxb.backtest import run_backtest
 from bot.rxb.chains import MAINNET_CHAIN_IDS, signing_allowed
 from bot.rxb.flag import flag_on
-from bot.rxb.indexer import fetch_all, fetch_markets, parse_history_point
+from bot.rxb.indexer import (
+    euler_vaults_url,
+    fetch_all,
+    fetch_euler_ethereum,
+    fetch_markets,
+    parse_history_point,
+)
+from bot.rxb.machine import fresh_state, step
+from bot.rxb.metrics import GEdge, GToken, cross_venue_dms, solve_graph
 from bot.rxb.oracle_math import (
     _BITS,
     DEPTH_MIN_USD,
@@ -31,6 +39,7 @@ from bot.rxb.report import admin_text
 from bot.rxb.solver import Claim, Issuer, solve_issuers
 from bot.utils.outbound import reply_safe
 from bot.vaults.cap_coordinator import coordinate_caps
+from bot.vaults.cap_id import MIN_INCREASE_DELAY_S, cap_id_hex, collateral_id_data, onboard_vault
 from bot.vaults.sentinel import plan_cap_down
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -265,17 +274,17 @@ def test_an_absent_opinion_does_not_loosen_and_mainnet_never_sends(tmp_path):
     assert off["reason"] == "flag_off"
     assert calls == []
     unknown = plan_cap_down(chain_id=31337, current_absolute=None, current_relative=None,
-                            env={"RXB_ENABLED": "true"}, **base)
+                            env={"RXB_ENABLED": "true"}, increase_delay=MIN_INCREASE_DELAY_S, **base)
     assert unknown["reason"] == "current_unreadable"
     assert calls == []
     flat = plan_cap_down(chain_id=31337, current_absolute=0, current_relative=None,
-                         env={"RXB_ENABLED": "1"}, **base)
+                         env={"RXB_ENABLED": "1"}, increase_delay=MIN_INCREASE_DELAY_S, **base)
     assert flat["reason"] == "no_decrease"
     assert calls == []
     sent = plan_cap_down(chain_id=31337, current_absolute=100, current_relative=None,
-                         env={"RXB_ENABLED": "1"}, **base)
+                         env={"RXB_ENABLED": "1"}, increase_delay=MIN_INCREASE_DELAY_S, **base)
     assert sent["sent"] is True
-    assert calls == [[{"kind": "absolute", "cap": 0}]]
+    assert calls == [[{"kind": "absolute", "cap": 0, "id_data": "id", "cap_id": None}]]
 
 
 def test_the_flag_accepts_only_one_and_true():
@@ -288,16 +297,24 @@ def test_the_flag_accepts_only_one_and_true():
 
 def test_node_view_and_the_admin_text_keep_ratios_and_the_refusal():
     xusd = node_view("xUSD")
-    assert xusd["cbf"] == "36/53"
+    assert xusd["cbf"] == "34/265"
+    assert xusd["lts"] == "36/53"
+    assert xusd["state"] == "Fired"
     assert xusd["readable"] is True
     assert xusd["price"]["price_wad"] is None
     assert "v" not in xusd and "excess" not in xusd
     dumped = json.dumps(xusd)
     assert "$" not in dumped and '"usd"' not in dumped.lower()
     sde = node_view("sdeUSD")
-    assert sde["readable"] is False
-    assert sde["cbf"] is None
-    assert sde["reason"] == "no_lookthrough_inputs"
+    assert sde["readable"] is True
+    assert sde["cbf"] == "13600000/20923077"
+    assert sde["lts"] == "13600000/20923077"
+    assert sde["state"] == "Fired"
+    assert sde["basis"] == "published_comparison"
+    usd3 = node_view("USD3")
+    assert usd3["readable"] is False
+    assert usd3["cbf"] is None
+    assert usd3["reason"] == "no_lookthrough_inputs"
     text = admin_text("")
     assert "does not show a threshold crossing before 28 Oct 2025" in text
     assert "not an all-clear" in text
@@ -319,3 +336,215 @@ def test_node_view_and_the_admin_text_keep_ratios_and_the_refusal():
         "1e36",
     ):
         assert sentence in doc
+
+
+def test_the_adapter_scale_is_one_e36_times_the_decimal_gap():
+    assert morpho_price(WAD) == WAD * 10**18
+    assert morpho_price(WAD, 6, 18) == 10**24
+    assert morpho_price(1, 0, 36) is None
+    assert morpho_price(WAD, 37, 18) is None
+
+
+def test_inside_weights_are_cbf_and_a_missing_age_is_not_a_haircut():
+    published = solve_graph(
+        [GToken("xUSD", 530_000_000), GToken("deUSD", 104_615_385)],
+        [
+            GEdge("xUSD", None, 170_000_000, "holding", "onchain", offchain_id="external_face"),
+            GEdge("xUSD", "deUSD", 68_000_000, "holding", "onchain"),
+            GEdge("deUSD", None, 36_615_385, "holding", "onchain", offchain_id="external_face"),
+            GEdge("deUSD", "xUSD", 68_000_000, "holding", "onchain"),
+        ],
+    )
+    assert _frac(published["xUSD"]["cbf"]) == Fraction(34, 265)
+    assert _frac(published["xUSD"]["lts"]) == Fraction(36, 53)
+    assert published["xUSD"]["uf"] == "0/1"
+    unsigned = solve_graph(
+        [GToken("A", 100)],
+        [GEdge("A", None, 40, "holding", "none", offchain_id="note")],
+    )["A"]
+    assert unsigned["uf"] == "2/5"
+    assert unsigned["cbf"] == "0/1"
+    assert unsigned["lts"] == "1/1"
+    signed = solve_graph(
+        [GToken("A", 100)],
+        [GEdge("A", None, 100, "holding", "signed", offchain_id="note")],
+    )["A"]
+    assert signed["cbf"] == "0/1"
+    assert signed["lts"] is None
+    assert signed["v"] is None
+
+
+def test_one_venue_is_not_a_migration_and_a_missing_borrow_is_not_zero():
+    one = cross_venue_dms([{"borrow_now": 180, "borrow_prev": 100}])
+    assert one["readable"] is True
+    assert one["dms"] == "0/1"
+    missing = cross_venue_dms([
+        {"borrow_now": 10, "borrow_prev": None},
+        {"borrow_now": 12, "borrow_prev": 10},
+    ])
+    assert missing["readable"] is False
+    assert missing["dms"] is None
+    moved = cross_venue_dms([
+        {"borrow_now": 160, "borrow_prev": 100},
+        {"borrow_now": 160, "borrow_prev": 100},
+    ])
+    assert _frac(moved["dms"]) == Fraction(3, 5)
+
+
+def test_fire_waits_an_hour_and_recovery_waits_for_the_timelock():
+    hot = {"cbf": "34/265", "uf": "0/1", "lts": "36/53", "dms": "0/1"}
+    calm = {"cbf": "1/100", "uf": "1/100", "lts": "1/100", "dms": "1/100"}
+    alerted = step(fresh_state(), {**hot, "ts": 1_000})
+    assert alerted["state"] == "Alert"
+    assert step(alerted, {**hot, "ts": 1_000 + 1_800})["state"] == "Alert"
+    fired = step(alerted, {**hot, "ts": 1_000 + 3_600})
+    assert fired["state"] == "Fired"
+    unread = step(alerted, {"ts": 2_000, "cbf": None, "uf": None, "lts": None, "dms": None})
+    assert unread["state"] == "Alert"
+    assert unread["below_since"] is None
+    lowered = step(alerted, {**calm, "ts": 5_000})
+    assert lowered["state"] == "Alert"
+    watching = step(lowered, {**calm, "ts": 5_000 + 86_400})
+    assert watching["state"] == "Watching"
+    cleared = step(fired, {**calm, "ts": 10_000})
+    assert cleared["state"] == "Fired"
+    still = step(cleared, {**calm, "ts": 10_000 + 7 * 86_400})
+    assert still["state"] == "Fired"
+    recovered = step(cleared, {**calm, "ts": 10_000 + 7 * 86_400}, caps_reraised=True)
+    assert recovered["state"] == "Recovered"
+
+
+def test_the_schema_names_the_four_tables_and_the_check_vocabulary():
+    sql = (ROOT / "bot/rxb/schema.sql").read_text(encoding="utf-8")
+    for table in ("tokens", "edges", "markets", "scc_runs"):
+        assert f"CREATE TABLE {table}" in sql
+    for kind in ("stable", "yield", "lst", "wrapper", "credit"):
+        assert f"'{kind}'" in sql
+    for kind in ("holding", "loan", "collateral", "mint_backing"):
+        assert f"'{kind}'" in sql
+    for verif in ("onchain", "por", "zk", "signed", "none"):
+        assert f"'{verif}'" in sql
+    assert "dst_token IS NOT NULL AND offchain_id IS NULL" in sql
+
+
+def test_coverage_fires_six_days_before_the_disclosure_and_does_not_score_a_listing():
+    result = run_backtest()
+    v2 = result["v2"]
+    assert v2["readable"] is True
+    assert v2["lead_days"] == 6
+    assert v2["fired_on"] == "2025-10-29"
+    assert v2["disclosure"] == "2025-11-04"
+    assert v2["no_lookahead"] is True
+    fired = {(row["chain"], row["pair"], row["fired_on"], row["lead_days"]) for row in v2["fired"]}
+    assert ("arbitrum", "USDC/xUSD", "2025-10-29", 6) in fired
+    assert ("ethereum", "USDC/sdeUSD", "2025-10-29", 6) in fired
+    assert v2["usd3"]["covered"] is True
+    assert v2["usd3"]["history_starts"] == "2025-11-20"
+    assert v2["usd3"]["fired_on"] is None
+    assert v2["usd3"]["state"] == "Watching"
+    assert v2["euler"]["readable"] is False
+    assert v2["false_fires_per_vault_year"] is None
+    supply = v2["new_supply_over_fire_day"]
+    assert supply["arbitrum:xUSD"] == "0.000093"
+    assert supply["ethereum:sdeUSD"] == "0.325786"
+    assert supply["ethereum:deUSD"] == "0.000263"
+    text = json.dumps(result)
+    assert "$" not in text
+    assert '"usd"' not in text.lower()
+
+
+def test_onboarding_uses_the_owner_and_refuses_a_short_timelock(tmp_path):
+    token = "0x" + "e5" * 20
+    data = collateral_id_data(token)
+    assert data is not None
+    assert cap_id_hex(data) == "0xd9f9e6671459365711313800dce57d4eebe1922bbb096ae6de8605c5f17c0338"
+    curator = onboard_vault(caller_role="curator", increase_delay=MIN_INCREASE_DELAY_S, token=token)
+    assert curator["accepted"] is False
+    assert curator["reason"] == "not_owner"
+    assert curator["caller"] == "owner"
+    assert curator["grant"] == "setIsSentinel"
+    missing = onboard_vault(caller_role="owner", increase_delay=None, token=token)
+    assert missing["reason"] == "timelock_unreadable"
+    default = onboard_vault(caller_role="owner", increase_delay=0, token=token)
+    assert default["accepted"] is False
+    assert default["reason"] == "timelock_below_72h"
+    almost = onboard_vault(caller_role="owner", increase_delay=MIN_INCREASE_DELAY_S - 1, token=token)
+    assert almost["reason"] == "timelock_below_72h"
+    accepted = onboard_vault(caller_role="owner", increase_delay=MIN_INCREASE_DELAY_S, token=token)
+    assert accepted["accepted"] is True
+    assert accepted["caller"] == "owner"
+    assert accepted["id_data"] == "0x" + data.hex()
+    assert accepted["cap_id"] == cap_id_hex(data)
+    calls: list = []
+    path = str(tmp_path / "audit.jsonl")
+    base = dict(
+        vault="v", id_data=accepted["id_data"], broadcaster=calls.append, audit_path=path,
+        proposals=[{"source": "rxb", "vault": "v", "id_data": accepted["id_data"],
+                    "absolute": 0, "relative": None, "readable": True}],
+    )
+    refused = plan_cap_down(
+        chain_id=31337, current_absolute=100, current_relative=None,
+        env={"RXB_ENABLED": "1"}, increase_delay=0, **base,
+    )
+    assert refused["sent"] is False
+    assert refused["reason"] == "timelock_below_72h"
+    assert calls == []
+    sent = plan_cap_down(
+        chain_id=31337, current_absolute=100, current_relative=None,
+        env={"RXB_ENABLED": "1"}, increase_delay=MIN_INCREASE_DELAY_S, **base,
+    )
+    assert sent["sent"] is True
+    assert calls == [[{
+        "kind": "absolute", "cap": 0, "id_data": accepted["id_data"], "cap_id": accepted["cap_id"],
+    }]]
+
+
+def test_euler_ethereum_keeps_a_failed_oracle_out_of_the_sum():
+    fixture = json.loads(
+        (ROOT / "bot/rxb/fixtures/euler_ethereum_xusd_2026-10-23.json").read_text(encoding="utf-8")
+    )
+    asset = fixture["asset"]
+    seen: list[str] = []
+
+    def transport(url: str) -> dict | None:
+        seen.append(url)
+        if url == euler_vaults_url(asset):
+            return fixture["list"]
+        address = url.rsplit("/", 1)[-1]
+        return fixture["details"].get(address)
+
+    book = fetch_euler_ethereum(transport, asset=asset)
+    assert book["readable"] is True
+    assert book["chain"] == "ethereum"
+    assert book["oracle_complete"] is False
+    assert book["oracle_omitted"] == ["exUSD-1"]
+    by_symbol = {row["symbol"]: row for row in book["vaults"]}
+    assert by_symbol["exUSD-1"]["oracle_value"] is None
+    assert by_symbol["exUSD-1"]["assets"] == "4154656"
+    assert by_symbol["exUSD-2"]["oracle_value"].startswith("16100173.")
+    assert book["oracle_value"] == by_symbol["exUSD-2"]["oracle_value"]
+    assert book["quoted_supply_value"] != book["oracle_value"]
+    assert book["quoted_supply_complete"] is True
+    dead = fetch_euler_ethereum(lambda _url: None, asset=asset)
+    assert dead["readable"] is False
+    assert dead["vaults"] is None
+    assert dead["oracle_value"] is None
+    empty = fetch_euler_ethereum(
+        lambda _url: {"data": [], "meta": {"total": 0, "timestamp": "2026-10-23T00:00:00Z"}},
+        asset=asset,
+    )
+    assert empty["readable"] is True
+    assert empty["vaults"] == []
+    assert empty["oracle_value"] == "0"
+    missed: list[str] = []
+
+    def record(url: str) -> dict | None:
+        missed.append(url)
+        return None
+
+    unread = fetch_euler_ethereum(record)
+    assert unread["readable"] is False
+    assert unread["vaults"] is None
+    assert missed and asset.lower() in missed[0].lower()
+    assert "hidden" in missed[0] and "pending_review" in missed[0]
+    assert "chainId=1" in missed[0]

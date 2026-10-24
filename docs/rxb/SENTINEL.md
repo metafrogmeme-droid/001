@@ -11,15 +11,15 @@ P_mkt is a 30-minute DEX TWAP and only an upper bound. If DEX depth within 2% is
 
 Packets are signed by this deployment's own 2-of-3 signers and are valid for 1 hour.
 
-Quotes are wad (1e18 = 1.0). Morpho IOracle.price() is 1e36-scaled. Confirmed 2026-10-23 against morpho-blue IOracle.sol: the price of 1 asset of collateral quoted in 1 asset of loan token, scaled by 1e36. If both tokens are 18 decimals, 1:1 is 1e36. A wad quote is multiplied by 1e18. Signers are responsible for the decimal adjustment.
+Quotes are wad (1e18 = 1.0). Morpho IOracle.price() is 1e36-scaled. Confirmed 2026-10-23 against morpho-blue IOracle.sol: the price of 1 asset of collateral quoted in 1 asset of loan token, scaled by 1e36. If both tokens are 18 decimals, 1:1 is 1e36. A wad quote of 1.0 is scaled by 1e36 * 10^(loanDec - collDec). For 18 and 18 that is the wad multiplied by 1e18. A nonzero quote that would round to zero reverts.
 
 ## Who can grant the sentinel
 
 Only the vault owner can call setIsSentinel. The curator cannot. Each vault owner has to grant the role.
 
-decreaseAbsoluteCap(bytes idData, uint256 newAbsoluteCap) and decreaseRelativeCap(bytes idData, uint256 newRelativeCap). A curator or a sentinel can call them. There is no timelock on a decrease.
+decreaseAbsoluteCap(bytes idData, uint256 newAbsoluteCap) and decreaseRelativeCap(bytes idData, uint256 newRelativeCap). A curator or a sentinel can call them. There is no timelock on a decrease. idData is abi.encode of collateralToken and the token. The cap id is the keccak256 of that idData.
 
-Cap increases are timelocked, and the delay can be configured down to zero, so a timelock is not a safety property. This sentinel never calls an increase.
+Vault V2 cap-increase timelocks default to 0, and the delay can be configured down to zero. Onboarding refuses a vault whose cap-increase timelock is unread or under 72 hours, so a curator cannot undo a cap-down at once. Fork setup calls setIsSentinel from the owner. This sentinel never calls an increase.
 
 This process never takes a sentinel role on mainnet and never signs there. Reading mainnet data is allowed. The cap-down bot runs on a fork only.
 
@@ -35,11 +35,15 @@ Challenge bonds are 5000 USDC of the testnet mock (6 decimals), doubling after e
 
 No. The backtest does not show a threshold crossing before 28 Oct 2025. Earlier windows are unreadable, which is not an all-clear. The earliest sourced snapshot that crosses is 28 Oct 2025, on the published comparison, not on a chain read.
 
-The Morpho DAY series was pulled 2026-10-23 from https://api.morpho.org/graphql. A local professor data directory is not a source. The October series does not contain the circular book. xUSD and deUSD on that published snapshot are the first sourced crossing: xUSD fails both thresholds, deUSD fails the look-through and not the on-chain-face share, because the mutual claim is on-chain and inside one SCC.
+The Morpho DAY series was pulled 2026-10-23 from https://api.morpho.org/graphql. A local professor data directory is not a source.
 
 ## Phase 2
 
-Euler and Silo on Ethereum are phase 2 and are not indexed. Reported for this build, not measured here: Euler about 16.1 million US dollars of XUSD, Silo about 7.6 million US dollars.
+Silo on Ethereum is phase 2 and is not indexed. Euler on Ethereum is in the indexer. Hidden vaults are part of that read. An unread oracle is left out of the oracle sum, not counted as zero.
+
+## State
+
+Alert above CBF 5 percent, UF 25 percent or DMS 0.5. Fired above CBF or LTS 10 percent or UF 40 percent, on two runs 1 hour apart. Watching after 24 hours below. Recovered after 7 clear days and a curator re-raise. act() is 2-of-3, caps to zero, fork only.
 
 ## Read order
 

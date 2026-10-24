@@ -119,10 +119,31 @@ def quote_price(
     return mkt_i if mkt_i < p_back else p_back
 
 
-def morpho_price(wad_quote: int | None) -> int | None:
-    """Scale a wad quote to Morpho's 1e36 price. None stays None."""
+def morpho_price(
+    wad_quote: int | None,
+    loan_decimals: int = 18,
+    collateral_decimals: int = 18,
+) -> int | None:
+    """Scale a wad quote by ``1e36 * 10^(loanDec - collDec)`` for a 1.0 price.
+
+    18-decimal loan and collateral stay at wad * 1e18. A positive quote that
+    the decimal gap would round to zero is unreadable, not a zero price.
+    """
     if wad_quote is None:
         return None
     if isinstance(wad_quote, bool) or not isinstance(wad_quote, int) or wad_quote < 0:
         return None
-    return wad_quote * MORPHO_SCALE
+    if isinstance(loan_decimals, bool) or not isinstance(loan_decimals, int):
+        return None
+    if isinstance(collateral_decimals, bool) or not isinstance(collateral_decimals, int):
+        return None
+    if not 0 <= loan_decimals <= 36 or not 0 <= collateral_decimals <= 36:
+        return None
+    exp = 18 + loan_decimals - collateral_decimals
+    if exp >= 0:
+        return int(wad_quote * 10 ** exp)
+    div = int(10 ** (-exp))
+    scaled = wad_quote // div
+    if wad_quote != 0 and scaled == 0:
+        return None
+    return scaled

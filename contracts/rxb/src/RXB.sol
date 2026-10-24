@@ -139,15 +139,20 @@ contract RXBOracle is ForkOnly {
     error Expired();
 
     RXBSigners public immutable signers;
+    uint8 public immutable loanDecimals;
+    uint8 public immutable collateralDecimals;
     uint256 constant WAD = 1e18;
     uint256 constant HALF = 72 hours;
     uint256 constant HOUR = 3600;
     uint256 constant DEPTH_MIN = 1_000_000;
     uint256[16] internal BITS;
 
-    constructor(RXBSigners signers_) {
+    constructor(RXBSigners signers_, uint8 loanDecimals_, uint8 collateralDecimals_) {
         if (address(signers_) == address(0)) revert Unreadable();
+        if (loanDecimals_ > 36 || collateralDecimals_ > 36) revert Unreadable();
         signers = signers_;
+        loanDecimals = loanDecimals_;
+        collateralDecimals = collateralDecimals_;
         BITS[0] = 707106781186547524;
         BITS[1] = 840896415253714543;
         BITS[2] = 917004043204671231;
@@ -204,24 +209,118 @@ contract RXBOracle is ForkOnly {
         if (includeMkt && depthUsd >= DEPTH_MIN) {
             quote = pMkt < pBack ? pMkt : pBack;
         }
-        return quote * WAD;
+        return _scaled(quote);
+    }
+
+    /// 1e36 * 10^(loanDec - collDec) at a 1.0 wad quote.
+    function _scaled(uint256 quote) internal view returns (uint256) {
+        int256 exp = int256(18) + int256(uint256(loanDecimals)) - int256(uint256(collateralDecimals));
+        if (exp >= 0) return quote * (10 ** uint256(exp));
+        uint256 div = 10 ** uint256(-exp);
+        if (quote != 0 && quote / div == 0) revert Unreadable();
+        return quote / div;
     }
 }
 
 /// @notice Decrease only. The keeper sends the coordinated cap. No increase entrypoint.
+interface IVaultV2 is IVaultCaps {
+    function deallocate(address adapter, bytes calldata data, uint256 assets) external;
+}
+
+struct RxbSignal {
+    address token;
+    uint256 cbfBps;
+    uint256 ufBps;
+    uint256 ltsBps;
+    uint256 dmsBps;
+    uint256 ts;
+    bytes32 graphHash;
+}
+
 contract RXBSentinel is ForkOnly {
     error NotKeeper();
     error Increase();
+    error BadSig();
+    error Replay();
+    error Expired();
 
     address public keeper;
+    address[3] public signers;
     mapping(bytes32 => uint256) public lastAbs;
     mapping(bytes32 => bool) public seenAbs;
     mapping(bytes32 => uint256) public lastRel;
     mapping(bytes32 => bool) public seenRel;
+    mapping(bytes32 => bool) public usedSignal;
+    uint256 constant HOUR = 3600;
 
-    constructor(address keeper_) {
-        if (keeper_ == address(0)) revert NotKeeper();
+    event Fired(address indexed token, bytes32 graphHash, uint256 ts);
+    event Deallocated(address indexed vault, address indexed adapter, uint256 amount);
+
+    constructor(address keeper_, address a, address b, address c) {
+        if (keeper_ == address(0) || a == address(0) || b == address(0) || c == address(0)) revert NotKeeper();
+        if (a == b || a == c || b == c) revert BadSig();
         keeper = keeper_;
+        signers = [a, b, c];
+    }
+
+    /// 2-of-3. Zeros the Vault V2 collateral caps, then optionally deallocates.
+    function act(
+        address vault,
+        RxbSignal calldata signal,
+        bytes calldata sigA,
+        bytes calldata sigB,
+        address adapter,
+        bytes calldata deallocData,
+        uint256 idle,
+        uint256 alloc
+    ) external {
+        if (vault == address(0) || signal.token == address(0)) revert BadSig();
+        if (block.timestamp + HOUR < signal.ts || signal.ts + HOUR < block.timestamp) revert Expired();
+        bytes32 key = keccak256(abi.encode(signal.token, signal.ts, signal.graphHash));
+        if (usedSignal[key]) revert Replay();
+        bytes32 digest = _signalDigest(signal);
+        address one = _recover(digest, sigA);
+        address two = _recover(digest, sigB);
+        if (one == two || !_isSigner(one) || !_isSigner(two)) revert BadSig();
+        usedSignal[key] = true;
+        bytes memory idData = abi.encode("collateralToken", signal.token);
+        IVaultV2(vault).decreaseAbsoluteCap(idData, 0);
+        IVaultV2(vault).decreaseRelativeCap(idData, 0);
+        emit Fired(signal.token, signal.graphHash, signal.ts);
+        if (adapter != address(0)) {
+            uint256 amount = idle < alloc ? idle : alloc;
+            IVaultV2(vault).deallocate(adapter, deallocData, amount);
+            emit Deallocated(vault, adapter, amount);
+        }
+    }
+
+    function _isSigner(address who) internal view returns (bool) {
+        return who != address(0) && (who == signers[0] || who == signers[1] || who == signers[2]);
+    }
+
+    function _signalDigest(RxbSignal calldata signal) internal pure returns (bytes32) {
+        bytes32 body = keccak256(
+            abi.encode(
+                signal.token, signal.cbfBps, signal.ufBps, signal.ltsBps, signal.dmsBps, signal.ts, signal.graphHash
+            )
+        );
+        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", body));
+    }
+
+    function _recover(bytes32 digest, bytes calldata sig) internal pure returns (address) {
+        if (sig.length != 65) return address(0);
+        bytes32 r;
+        bytes32 s;
+        uint256 v;
+        assembly {
+            r := calldataload(sig.offset)
+            s := calldataload(add(sig.offset, 32))
+            v := shr(248, calldataload(add(sig.offset, 64)))
+        }
+        if (s > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) return address(0);
+        if (v < 27) v += 27;
+        if (v != 27 && v != 28) return address(0);
+        return ecrecover(digest, uint8(v), r, s);
     }
 
     function decreaseAbsolute(address vault, bytes calldata idData, uint256 newCap) external {
@@ -387,6 +486,13 @@ contract VaultStub {
     function loadRelative(bytes calldata idData, uint256 cap) external {
         if (msg.sender != owner) revert NotOwner();
         relCap[keccak256(idData)] = cap;
+    }
+
+    uint256 public lastDealloc;
+
+    function deallocate(address, bytes calldata, uint256 amount) external {
+        if (msg.sender != curator && !isSentinel[msg.sender]) revert NotSentinel();
+        lastDealloc = amount;
     }
 }
 

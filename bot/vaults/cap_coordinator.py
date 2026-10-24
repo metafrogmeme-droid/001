@@ -1,10 +1,15 @@
 """One decrease, the lowest one.
 
-CGC, RXB and T2C can all lower caps on the same vault. This groups
-proposals by ``(vault, id_data)`` and keeps the minimum absolute cap and
-the minimum relative cap. An unreadable proposal makes that key
-unreadable and nothing is sent: it is not treated as 0 and not treated as
-no cap. An absent opinion (None) is skipped and cannot loosen the min.
+RXB owns this coordinator. CGC and T2C submit proposals here; they do not
+keep a second minimum. Proposals group by ``(vault, id_data)``. The
+minimum absolute cap and the minimum relative cap win. An unreadable
+proposal makes that key unreadable and nothing is sent: it is not treated
+as 0 and not treated as no cap. An absent opinion (None) is skipped and
+cannot loosen the min.
+
+``cap_id`` is ``keccak256(id_data)`` when ``id_data`` is hex calldata.
+Anything else leaves ``cap_id`` null. Vault V2's collateral calldata is
+``abi.encode("collateralToken", token)``.
 
 The coordinator does not know the vault's current cap. Raising is the
 caller's refusal, in ``plan_cap_down``.
@@ -15,6 +20,20 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 from pathlib import Path
+
+from bot.vaults.cap_id import cap_id_hex
+
+
+def _cap_id(id_data: str) -> str | None:
+    if not id_data.startswith("0x"):
+        return None
+    try:
+        raw = bytes.fromhex(id_data[2:])
+    except ValueError:
+        return None
+    if not raw:
+        return None
+    return cap_id_hex(raw)
 
 
 def _cap(value: object) -> int | None | str:
@@ -37,13 +56,14 @@ def coordinate_caps(proposals: list[dict], audit_path: str | None) -> dict:
             continue
         groups.setdefault((vault, id_data), []).append(row)
 
-    decisions = []
+    decisions: list[dict[str, object]] = []
     for (vault, id_data), group in groups.items():
         sources = [str(p.get("source") or "") for p in group]
         if any(p.get("readable") is not True for p in group):
             decisions.append({
                 "vault": vault,
                 "id_data": id_data,
+                "cap_id": None,
                 "sources": sources,
                 "readable": False,
                 "absolute": None,
@@ -68,6 +88,7 @@ def coordinate_caps(proposals: list[dict], audit_path: str | None) -> dict:
             decisions.append({
                 "vault": vault,
                 "id_data": id_data,
+                "cap_id": None,
                 "sources": sources,
                 "readable": False,
                 "absolute": None,
@@ -78,6 +99,7 @@ def coordinate_caps(proposals: list[dict], audit_path: str | None) -> dict:
         decisions.append({
             "vault": vault,
             "id_data": id_data,
+            "cap_id": _cap_id(id_data),
             "sources": sources,
             "readable": True,
             "absolute": min(absolutes) if absolutes else None,

@@ -16,7 +16,7 @@ import json
 import sys
 
 from bot.rxb.backtest import run_backtest
-from bot.rxb.indexer import fetch_all, live_transport
+from bot.rxb.indexer import fetch_all, fetch_euler_ethereum, live_euler_get, live_transport
 from bot.rxb.reading import node_view
 from bot.rxb.report import admin_text, page_model
 
@@ -39,7 +39,10 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\n")
         return 0
     if args[0] == "index":
-        json.dump(fetch_all(live_transport), sys.stdout)
+        json.dump({
+            "morpho": fetch_all(live_transport),
+            "euler_ethereum": fetch_euler_ethereum(live_euler_get),
+        }, sys.stdout)
         sys.stdout.write("\n")
         return 0
     json.dump({"readable": False, "reason": "unknown_command"}, sys.stdout)

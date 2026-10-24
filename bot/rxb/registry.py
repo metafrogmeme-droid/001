@@ -1,8 +1,8 @@
 """Issuer addresses this build will name.
 
 Each address was taken from the Morpho assets search on 2026-10-23.
-Nothing else is invented to fill the list. Euler and Silo are phase 2
-and are not rows here.
+Nothing else is invented to fill the list. Silo is phase 2 and is not
+a row here. Euler on Ethereum is read by the indexer, not by this file.
 """
 
 from __future__ import annotations

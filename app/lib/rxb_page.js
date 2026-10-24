@@ -12,6 +12,23 @@ function esc(value) {
     .replace(/"/g, '&quot;');
 }
 
+function coverageLine(back) {
+  const v2 = back && back.v2;
+  if (!v2 || v2.readable !== true) return '';
+  const parts = [];
+  if (v2.fired_on && v2.lead_days != null && v2.disclosure) {
+    parts.push(`Coverage fired on ${v2.fired_on}, ${v2.lead_days} days before ${v2.disclosure}.`);
+  }
+  const covered = v2.usd3;
+  if (covered && covered.covered === true) {
+    const start = covered.history_starts || 'unreadable';
+    const outcome = covered.fired_on == null ? 'did not fire' : `fired on ${covered.fired_on}`;
+    parts.push(`USD3 history starts ${start} and ${outcome}.`);
+  }
+  if (v2.euler && v2.euler.readable === false) parts.push('Euler v2 was unreadable.');
+  return parts.length ? ` ${parts.join(' ')}` : '';
+}
+
 function cell(value) {
   if (value === null || value === undefined) return 'unreadable';
   return String(value);
@@ -28,13 +45,14 @@ function render(model) {
     : 'unreadable';
   const rows = nodes.map((row) => `<tr>
     <td>${esc(cell(row.token))}</td>
+    <td>${esc(cell(row.state))}</td>
     <td>${esc(cell(row.cbf))}</td>
+    <td>${esc(cell(row.lts))}</td>
     <td>${esc(cell(row.uf))}</td>
-    <td>${esc(cell(row.tripped))}</td>
     <td>${esc(cell(row.reason))}</td>
   </tr>`).join('\n');
   const crossing = back.shows_crossing_before_2025_10_28 === false && back.all_clear === false
-    ? 'No crossing is shown before 2025-10-28. The earlier windows are not an all-clear.'
+    ? `No crossing is shown before 2025-10-28. The earlier windows are not an all-clear.${coverageLine(back)}`
     : (back.readable === false
       ? 'The backtest could not be read.'
       : 'See the onboarding note for how to read this result.');
@@ -70,7 +88,7 @@ function render(model) {
   </form>
   <div class="panel">
     <table>
-      <thead><tr><th>Token</th><th>CBF</th><th>UF</th><th>Tripped</th><th>Note</th></tr></thead>
+      <thead><tr><th>Token</th><th>State</th><th>CBF</th><th>LTS</th><th>UF</th><th>Note</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>
