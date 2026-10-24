@@ -286,3 +286,11 @@ python3 scripts/preflight.py --fast
 ```
 
 The test harness deletes the runtime state files under `data/` (books, positions, risk state) before and after every test. Run it in a checkout whose `data/` holds nothing you need.
+
+### What `known-baseline` counts
+
+`scripts/ci_test_gate.py` loads `tests/known_failures.txt`. A line whose text before `#` is empty is not an entry. The gate prints that set's size as `known-baseline: N`. A failure whose node id is outside the set fails the gate. An id in the set that passes fails the gate too, and the file is edited in that same commit. The file's header says the baseline is empty: the last id in it was removed when that test started passing.
+
+That count is not 53. On the last green CI run of `main` before this note (GitHub Actions run `40107603330`, job "Lint + tests (baseline gate)", 2026-10-24) the gate printed `known-baseline: 0`, then `7 failed, 26720 passed`, and `PASS — no new failures beyond the known baseline` after the flake filter re-ran those seven. The same log contains `53%` (pytest's progress meter) and `53.6s` (`tests/test_every_candle_read_is_hygiened.py`). Neither is a baseline.
+
+The 53 written in this tree is a different baseline. `tests/unreachable_methods_baseline.txt` states that 53 public method names stay ambiguous: one call the receiver sweep cannot attribute makes the whole name unchecked. `test_the_ambiguity_the_sweep_cannot_resolve_is_stated_not_hidden` in `tests/test_no_new_unreachable_functions.py` pins that number to the sweep. The file says it uses the same two-way rule as `tests/known_failures.txt` (a new entry fails, and an entry that no longer applies fails). It is not the list `ci_test_gate.py` loads. Adding ids to `tests/known_failures.txt` does not change it, and this note does not re-count the sweep.

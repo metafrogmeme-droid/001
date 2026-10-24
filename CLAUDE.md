@@ -47,6 +47,10 @@ Do not substitute a bare `pytest`. The suite runs through
 baseline entry that starts passing is a failure. Its flake filter re-runs a
 new failure alone and forgives it if it passes. That is right for a timing
 test and wrong for a state leak; a test forgiven every run is a leak to find.
+The count it prints as `known-baseline` is the node ids in that file (a `#`
+line is not an entry). That count is not the 53 in
+`tests/unreachable_methods_baseline.txt`. What each counts is in
+`docs/gitbook/demo-scenarios.md`.
 
 ## Ratchets
 
@@ -230,9 +234,11 @@ correct code to satisfy an analyser.
 - Use `python3`, not `python`.
 - `scripts/launch_all.sh.template` is the launcher (copy it out of the repo
   before use) and `scripts/systemd/` holds the units; do not run both.
-- Reset to the repository URL, never to a remote-tracking ref:
-  `git fetch https://github.com/metafrogmeme-droid/001 main && git reset --hard FETCH_HEAD`.
-  `scripts/verify_deploy_source.sh` checks it.
+- Update from the repository URL with a fast-forward only, never from a
+  remote-tracking ref:
+  `git pull --ff-only https://github.com/metafrogmeme-droid/001 main`.
+  If the fast-forward fails, stop and ask. Then
+  `scripts/verify_deploy_source.sh` checks the checkout.
 - `scripts/verify_deploy.sh` compares the `/api/version` hashes on both deploy
   targets. Exit `0` verified, `1` a real mismatch, `3` could not be checked.
 - Bump the `?v=` cache-buster in every page that references a changed bundle.

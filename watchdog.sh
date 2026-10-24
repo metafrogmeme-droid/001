@@ -1,32 +1,39 @@
 #!/bin/bash
-# RUNECLAW Watchdog — ensures the bot stays alive
-# Install: crontab -e → */1 * * * * /home/mulerun/runeclaw/watchdog.sh >> /tmp/watchdog.log 2>&1
+# RUNECLAW Watchdog — keeps the bot and the API bridge alive.
+# Install: crontab -e →
+#   */1 * * * * /home/mulerun/runeclaw/watchdog.sh
+# The script appends to logs/watchdog.log itself. Do not add a redirect.
 #
 # NOTE ON WHERE THIS LIVES. CLAUDE.md says to keep the launcher OUTSIDE the
-# repo, because anything inside it is one `git reset --hard` away from
-# reverting — that is how ~15 consecutive deploys on 2026-08-01 kept restoring
-# a flagless launcher. This file is still in the repo for the crontab line
+# repo, because an update of the checkout overwrites anything tracked inside
+# it — that is how ~15 consecutive deploys on 2026-08-01 kept restoring a
+# flagless launcher. This file is still in the repo for the crontab line
 # above to keep working; treat it as a template to copy out, not as the
 # permanent home.
 
 set -uo pipefail   # NOT -e: this script's whole job is to react to failures.
 
 BOTDIR="$(cd "$(dirname "$0")" && pwd)"
-PIDFILE="${RUNECLAW_STATE_DIR:-$BOTDIR/data}/runeclaw.pid"
+STATEDIR="${RUNECLAW_STATE_DIR:-$BOTDIR/data}"
+BOT_PIDFILE="$STATEDIR/runeclaw.pid"
+BRIDGE_PIDFILE="$STATEDIR/api_bridge.pid"
 # Not /tmp: /tmp does not survive a reboot, and on a shared host a pre-created
 # symlink at a predictable path redirects everything this appends.
 LOGFILE="${RUNECLAW_WATCHDOG_LOG:-$BOTDIR/logs/watchdog.log}"
+BOT_LOG="$BOTDIR/logs/bot.log"
+BRIDGE_LOG="$BOTDIR/logs/api_bridge.log"
 
-# One pattern, used for BOTH the check and the kill. They used to differ —
-# detection matched `python.*bot\.main.*telegram` while the kill matched the
-# broader `python.*bot\.main` — so the watchdog SIGKILLed processes it had
-# never looked for, including a second mode or a running test.
+# One pattern per process, used for BOTH the check and the kill. They used to
+# differ — detection matched `python.*bot\.main.*telegram` while the kill
+# matched the broader `python.*bot\.main` — so the watchdog SIGKILLed
+# processes it had never looked for, including a second mode or a running test.
 BOT_PATTERN='python.*bot\.main.*telegram'
+BRIDGE_PATTERN='python.*api_bridge\.py'
 
-mkdir -p "$(dirname "$LOGFILE")" 2>/dev/null || true
+mkdir -p "$(dirname "$LOGFILE")" "$STATEDIR" 2>/dev/null || true
 cd "$BOTDIR" || exit 1
 
-log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Watchdog: $*"; }
+log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Watchdog: $*" >> "$LOGFILE"; }
 
 # Is the recorded PID a LIVE process, not a defunct one?
 #
@@ -45,70 +52,83 @@ pid_is_live() {
     [ -n "$state" ] && [ "$state" != "Z" ]
 }
 
+# pattern, pidfile. A live recorded PID counts. Otherwise the pattern.
 is_running() {
-    if [ -f "$PIDFILE" ]; then
-        pid_is_live "$(cat "$PIDFILE" 2>/dev/null)" && return 0
+    local pattern="$1" pidfile="$2"
+    if [ -f "$pidfile" ]; then
+        pid_is_live "$(cat "$pidfile" 2>/dev/null)" && return 0
     fi
-    # Fall back to the pattern only when there is no usable pidfile. `pgrep -f`
-    # can match this script's own command line when the pattern appears in it;
-    # it does not here (this is bash, and BOT_PATTERN is only ever expanded
-    # into pgrep's argv, not into the script's), but prefer the pidfile.
-    pgrep -f "$BOT_PATTERN" >/dev/null 2>&1
+    # `pgrep -f` can match this script's own command line when the pattern
+    # appears in it; it does not here (this is bash, and the pattern is only
+    # ever expanded into pgrep's argv, not into the script's).
+    pgrep -f "$pattern" >/dev/null 2>&1
 }
 
-if is_running; then
-    exit 0
-fi
-
-log "bot not running, restarting..."
-
-# SIGTERM first, and only then SIGKILL.
-#
-# logs/audit_chain.jsonl is a TAMPER-EVIDENT chain (deploy.sh:168-171): losing
-# its continuity is unrecoverable and indistinguishable from tampering, and a
-# SIGKILL mid-append is how that happens. Give the bot ten seconds to close its
-# books before forcing it.
-if pgrep -f "$BOT_PATTERN" >/dev/null 2>&1; then
-    log "a stale process matched — asking it to stop"
-    pkill -TERM -f "$BOT_PATTERN" 2>/dev/null
-    for _ in $(seq 10); do
-        pgrep -f "$BOT_PATTERN" >/dev/null 2>&1 || break
-        sleep 1
-    done
-    if pgrep -f "$BOT_PATTERN" >/dev/null 2>&1; then
-        log "it did not stop — SIGKILL"
-        pkill -9 -f "$BOT_PATTERN" 2>/dev/null
-        sleep 1
+# SIGTERM first, and only then SIGKILL. logs/audit_chain.jsonl is a
+# TAMPER-EVIDENT chain: losing its continuity is unrecoverable and
+# indistinguishable from tampering, and a SIGKILL mid-append is how that
+# happens. Give the process ten seconds to close its books before forcing it.
+stop_matching() {
+    local pattern="$1"
+    if pgrep -f "$pattern" >/dev/null 2>&1; then
+        log "a stale process matched — asking it to stop"
+        pkill -TERM -f "$pattern" 2>/dev/null
+        for _ in $(seq 10); do
+            pgrep -f "$pattern" >/dev/null 2>&1 || break
+            sleep 1
+        done
+        if pgrep -f "$pattern" >/dev/null 2>&1; then
+            log "it did not stop — SIGKILL"
+            pkill -9 -f "$pattern" 2>/dev/null
+            sleep 1
+        fi
     fi
-fi
+}
 
 # The venv interpreter, not whatever PATH resolves.
 #
-# deploy.sh:44-49 exists because the box runs 3.11 inside .venv while its
-# system python3 is still 3.10, and numpy 2.3.x is invisible to 3.10. A restart
-# on the wrong interpreter fails in a way whose error message argues for
+# deploy.sh exists because the box runs 3.11 inside .venv while its system
+# python3 is still 3.10, and numpy 2.3.x is invisible to 3.10. A restart on
+# the wrong interpreter fails in a way whose error message argues for
 # downgrading a correct pin.
 PY="python3"
 [ -x "$BOTDIR/.venv/bin/python" ] && PY="$BOTDIR/.venv/bin/python"
 
-nohup "$PY" -m bot.main --mode telegram >> "$LOGFILE" 2>&1 &
-NEW_PID=$!
-log "started PID $NEW_PID via $PY"
-
-# Gate on it having SURVIVED, not on it having started.
-#
-# `python -m bot.main` used to default to --mode cli, which finds no TTY and
-# exits ZERO — so a launcher that reported the PID it spawned reported success
-# for a process that was already gone. Starting is not running.
-if [ -x "$BOTDIR/scripts/verify_bot_alive.sh" ]; then
-    if "$BOTDIR/scripts/verify_bot_alive.sh" --pid "$NEW_PID"; then
-        log "restart verified alive"
-        echo "$NEW_PID" > "$PIDFILE" 2>/dev/null || true
-    else
-        log "RESTART FAILED — the process did not survive; see $LOGFILE"
-        exit 1
+# name, pattern, pidfile, logfile, then the interpreter arguments.
+ensure_running() {
+    local name="$1" pattern="$2" pidfile="$3" outfile="$4"
+    shift 4
+    if is_running "$pattern" "$pidfile"; then
+        return 0
     fi
-else
-    log "WARNING: scripts/verify_bot_alive.sh missing — restart NOT verified"
-    echo "$NEW_PID" > "$PIDFILE" 2>/dev/null || true
-fi
+    log "$name not running, restarting..."
+    stop_matching "$pattern"
+    mkdir -p "$(dirname "$outfile")" 2>/dev/null || true
+    nohup "$PY" "$@" >> "$outfile" 2>&1 &
+    local new_pid=$!
+    log "started $name PID $new_pid via $PY"
+    # Gate on it having SURVIVED, not on it having started.
+    #
+    # `python -m bot.main` used to default to --mode cli, which finds no TTY
+    # and exits ZERO — so a launcher that reported the PID it spawned reported
+    # success for a process that was already gone. Starting is not running.
+    if [ -x "$BOTDIR/scripts/verify_bot_alive.sh" ]; then
+        if "$BOTDIR/scripts/verify_bot_alive.sh" --pid "$new_pid"; then
+            log "$name restart verified alive"
+            echo "$new_pid" > "$pidfile" 2>/dev/null || true
+            return 0
+        fi
+        log "RESTART FAILED — $name did not survive; see $outfile"
+        return 1
+    fi
+    log "WARNING: scripts/verify_bot_alive.sh missing — $name restart NOT verified"
+    echo "$new_pid" > "$pidfile" 2>/dev/null || true
+    return 0
+}
+
+rc=0
+ensure_running bot "$BOT_PATTERN" "$BOT_PIDFILE" "$BOT_LOG" \
+    -m bot.main --mode telegram || rc=1
+ensure_running bridge "$BRIDGE_PATTERN" "$BRIDGE_PIDFILE" "$BRIDGE_LOG" \
+    api_bridge.py || rc=1
+exit "$rc"

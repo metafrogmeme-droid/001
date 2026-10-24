@@ -186,13 +186,12 @@ def test_a_planted_clean_step_is_not_accused(label):
 # THE SCA GATE'S SUBJECT IS NOT THE FILE ANYTHING INSTALLS, and that is fine
 # only while one contains the other.
 #
-# Driven: `pip-audit -r requirements.lock` (18 packages) is the audit;
-# `bot/requirements.txt` (13) is what the Dockerfile and Makefile install;
-# `requirements-ci.txt` (28) is what CI installs. Nothing installs the lock at
-# all -- its own header used to say "use it for production" and to name an
-# update command running `pip install -r requirements.txt`, a file that does
-# not exist at that path. The header is corrected; this is the invariant that
-# keeps the correction true.
+# Driven: `pip-audit -r requirements.lock` is the audit. The Dockerfile
+# installs `bot/requirements.txt` (and names fastapi and uvicorn on that
+# line). `make install` installs the lock. `requirements-ci.txt` is what CI
+# installs. The lock header's regenerate command names `bot/requirements.txt`,
+# which exists. This test follows the Dockerfile, not the Makefile: the
+# image is what ships unaudited if a package is missing from the lock.
 # ---------------------------------------------------------------------------
 
 _REQ_NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")

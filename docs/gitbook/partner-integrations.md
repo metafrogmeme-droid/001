@@ -25,7 +25,9 @@ The rule engine decides each trade's direction and confidence. `LLM_DECIDES` is 
 | `alibaba` | Alibaba Cloud (Qwen) | `qwen3.6-plus` | Set `LLM_BASE_URL`; see below |
 | `grok` | xAI Grok | `grok-4.5` | |
 | `ollama` | Local Ollama | `llama3` | No key needed |
-| `runeclaw` | Self-hosted RUNECLAW model | `runeclaw-v6` | Endpoint from `RUNECLAW_LLM_BASE_URL` |
+| `runeclaw` | Self-hosted RUNECLAW model | `runeclaw-v6` when `RUNECLAW_LLM_MODEL` is unset | Endpoint from `RUNECLAW_LLM_BASE_URL` |
+
+The operator setting is `RUNECLAW_LLM_MODEL`. Copy the tag exactly as `ollama list` prints it, including case. The tag recorded for this tree is `pbdes2022/humanoid-traders:v10-8b`. `runeclaw-v6` is only the catalogue default above. `pbdes2022/HUMANOID-TRADERS` and `:v7-8b` are different strings; the server answers 404 for a tag it does not have.
 | `custom` | Any OpenAI-compatible endpoint | none | Set `LLM_BASE_URL`, `LLM_MODEL` and a non-empty `LLM_API_KEY` |
 
 Every provider except `anthropic` is called through the OpenAI SDK (`bot/llm/provider.py::create_llm_client`). A provider other than `ollama` and `runeclaw` counts as configured only when it has a key.

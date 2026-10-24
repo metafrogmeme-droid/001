@@ -438,7 +438,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 # 3. 安裝相依套件
-pip install -r bot/requirements.txt
+pip install -r requirements.lock
 
 # 4. 設定環境
 cp .env.example .env
@@ -998,7 +998,7 @@ RUNECLAW 開放協作。若你正為 Bitget AI Base Camp 開發並需要風險�
 # 60 秒內開始
 git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW && cp .env.example .env
-pip install -r bot/requirements.txt
+pip install -r requirements.lock
 python -m bot.main --mode scan
 ```
 

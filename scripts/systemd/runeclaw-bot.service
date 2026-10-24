@@ -21,10 +21,11 @@
 #   sudo systemctl enable --now runeclaw-bot
 #   scripts/systemd/runeclaw-status.sh      # NOT `systemctl status` alone — see README
 #
-# Adjust User=, WorkingDirectory= and the ExecStart interpreter if the bot does
-# not run as `mulerun` out of ~/runeclaw. If a virtualenv is in use, point
-# ExecStart at <venv>/bin/python — a wrong path fails loudly at start, which is
-# the good failure.
+# Adjust User=, WorkingDirectory= and the ExecStart path if the bot does not
+# run as `mulerun` out of ~/runeclaw. ExecStart is <repo>/.venv/bin/python.
+# /usr/bin/python3 on this host is 3.10 and cannot import the locked numpy.
+# A wrong path fails loudly at start, which is the good failure.
+# Production also runs these as user units; see scripts/systemd/README.md.
 
 [Unit]
 Description=RUNECLAW bot (Telegram + engine + gateway :8080)
@@ -60,11 +61,13 @@ WorkingDirectory=/home/mulerun/runeclaw
 # quotes and a live position sat unprotected.
 ExecStartPre=/home/mulerun/runeclaw/deploy.sh
 
-# python3, NOT python — the box has no `python`, as scripts/verify_bot_alive.sh
-# records. `--mode telegram` is explicit: the default was once `cli`, which
-# finds no TTY and EXITS ZERO, and a supervisor faithfully restarting a process
-# that exits zero forever is a crashloop wearing a green light.
-ExecStart=/usr/bin/python3 -m bot.main --mode telegram
+# The repo venv, not /usr/bin/python3. The host's system python3 is 3.10.
+# This project requires 3.11 (numpy 2.3.x declares requires-python >=3.11),
+# which is <repo>/.venv/bin/python. A missing interpreter fails at start.
+# `--mode telegram` is explicit: the default was once `cli`, which finds no
+# TTY and EXITS ZERO, and a supervisor faithfully restarting a process that
+# exits zero forever is a crashloop wearing a green light.
+ExecStart=/home/mulerun/runeclaw/.venv/bin/python -m bot.main --mode telegram
 
 # Alive is not the same as serving. A process bound to the wrong interface or
 # stuck importing satisfies `kill -0` and answers nothing — the website then

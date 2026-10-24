@@ -23,10 +23,9 @@ help: ## Show all available targets
 	@echo ""
 
 # -- Setup -------------------------------------------------------------------
-install: ## Install all Python deps (bot + api_bridge)
+install: ## Install all Python deps from requirements.lock (bot + api_bridge)
 	$(PYTHON) -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
-	$(PYTHON) -m pip install -r bot/requirements.txt
-	$(PYTHON) -m pip install "fastapi>=0.115" "uvicorn[standard]>=0.30"
+	$(PYTHON) -m pip install -r requirements.lock
 
 # -- Code quality ------------------------------------------------------------
 lint: ## ruff + mypy
@@ -71,9 +70,8 @@ deploy: ## Build image + start all services (bot, api_bridge, redis, nginx)
 		$(COMPOSE) up -d --build --wait
 
 health: ## Check API bridge health endpoint
-	@curl -sf \
-		-H "Authorization: Bearer $$(grep DASHBOARD_TOKEN .env | cut -d= -f2)" \
-		$(API_URL)/health \
+	@awk -F= '/^DASHBOARD_TOKEN=/{print "Authorization: Bearer " substr($$0, index($$0, "=")+1); exit}' .env \
+		| curl -sf --header @- $(API_URL)/health \
 		| python3 -m json.tool \
 		|| echo "API not reachable at $(API_URL)"
 

@@ -204,19 +204,24 @@ def test_the_bot_mode_flag_is_explicit(code: dict[Path, str]) -> None:
 
 
 def test_no_unit_invokes_a_bare_python(code: dict[Path, str]) -> None:
-    """The box has no `python`, as scripts/verify_bot_alive.sh records.
+    """The host `/usr/bin/python3` is 3.10. The lock needs 3.11.
 
-    A unit whose ExecStart cannot resolve fails at start, and Restart=always
-    then retries that failure every 15 seconds indefinitely.
+    numpy 2.3.x declares `requires-python >=3.11`, so a unit that starts on
+    the system interpreter cannot import what `requirements.lock` pins. The
+    interpreter is `<repo>/.venv/bin/python`. A unit whose ExecStart cannot
+    resolve fails at start, and Restart=always then retries that failure
+    every 15 seconds indefinitely. A path that merely ends in `python3` is
+    not that venv.
     """
     for u in UNITS:
         m = re.search(r"^ExecStart=(\S+)", code[u], re.M)
         assert m, f"{u.name} has no ExecStart"
         interp = m.group(1)
-        assert not interp.endswith("/python"), (
-            f"{u.name} runs `{interp}`; the box has no bare `python` — use "
-            "python3 or an explicit venv interpreter"
+        assert interp.endswith("/.venv/bin/python"), (
+            f"{u.name} runs `{interp}`; the host python3 is 3.10. ExecStart "
+            "must be <repo>/.venv/bin/python"
         )
+        assert "/usr/bin/python3" not in interp
         assert interp.startswith("/"), (
             f"{u.name} runs `{interp}`; systemd requires an absolute ExecStart"
         )
