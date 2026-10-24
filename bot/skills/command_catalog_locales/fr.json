@@ -145,6 +145,7 @@
     "journal": "journal de trading hebdomadaire (compte de l'opérateur)",
     "strategy": "stratégie active et routage par régime",
     "crossasset": "contexte de corrélation inter-actifs",
+    "cgc": "fenêtres du frein de conservation, testnet, lecture seule",
     "gates": "télémétrie réussite/échec par gate",
     "flags": "flags d'audit approfondi en opt-in",
     "rxb": "lecture de récursion pour l'opérateur, ratios seulement",

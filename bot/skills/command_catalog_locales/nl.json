@@ -145,6 +145,7 @@
     "journal": "wekelijks tradejournaal (operatoraccount)",
     "strategy": "actieve strategie en regime-routing",
     "crossasset": "correlatiecontext over activa heen",
+    "cgc": "vensters van de conserveringsrem, testnet, alleen lezen",
     "gates": "geslaagd/gefaald-telemetrie per gate",
     "flags": "opt-in-flags voor diepe audit",
     "rxb": "recursie-doorkijk voor de beheerder, alleen verhoudingen",
