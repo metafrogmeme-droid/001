@@ -101,10 +101,13 @@ function labelMap(tools) {
 function presentation(tool, env, view) {
   const src = env || process.env;
   // No public SaR dashboard. The operator, and only the operator, gets a
-  // link to the admin feed once the flag is on. Everyone else stays
+  // link to the admin feed once the flag is on. An admin preview passes
+  // view.preview while the public flag is still off. Everyone else stays
   // "Coming soon", including an operator while the flag is off.
   if (tool && tool.id === 'sar-oracle') {
-    if (view && view.operator === true && flagOn('SAR_ORACLE_ENABLED', src)) {
+    const admin = view && view.operator === true;
+    const preview = view && view.preview === true;
+    if (admin && (flagOn('SAR_ORACLE_ENABLED', src) || preview)) {
       return { label: 'Admin view', href: '/api/sar-oracle/admin/packets' };
     }
     return { label: 'Coming soon', href: null };

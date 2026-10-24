@@ -522,11 +522,14 @@ RULES: list[Rule] = [
                            # that returns dollar amounts. GET
                            # /api/sar-oracle/admin/adoption is the operator's
                            # too, and it returns no dollar amount. No account.
-                           # 404 while the flag is off, before the operator
-                           # check and before the rate limit. IP rate limit.
-                           # Signs only on Base Sepolia. The key is never in
-                           # the repo. The test asserts no write route and
-                           # that the public JSON has no dollar-shaped key.
+                           # The public path is 404 while the flag is off,
+                           # before any operator check and before the rate
+                           # limit. The two admin paths, while the flag is
+                           # off, use flag_on_for and 404 everyone else
+                           # before the rate limit. IP rate limit. Signs
+                           # only on Base Sepolia. The key is never in the
+                           # repo. The test asserts no write route and that
+                           # the public JSON has no dollar-shaped key.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public

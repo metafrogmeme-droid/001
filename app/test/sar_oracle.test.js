@@ -463,6 +463,7 @@ test('SaR public feed', { concurrency: false }, async (t) => {
     assert.match(String(page.body), /Admin view/);
     assert.equal(String(page.body).includes('_usd_'), false);
     assert.equal(String(page.body).includes('$'), false);
+    assert.equal(String(page.body).includes('Admin preview. Not public.'), false);
     assert.equal(String(denied.body).includes('/api/sar-oracle/admin/packets'), false);
     const server = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
     const at = server.indexOf("require('./lib/sar/indexer').start()");
