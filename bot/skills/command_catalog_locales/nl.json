@@ -179,6 +179,7 @@
     "setgateway": "het webgateway-geheim herstellen",
     "setsigner": "stelt de on-chain ondertekeningssleutel in (versleuteld)",
     "yield": "yield-radar voor inactieve activa (alleen-lezen)",
+    "hrc": "plafonds op de USDC-leenrente van Hyperliquid — benutting en rente, alleen voor de beheerder",
     "idleyield": "scan van het beste tarief over alle bronnen",
     "stake": "ongebruikte stables van JOUW gekoppelde Bitget-account in flexibel Earn zetten — een plankaart, niets verplaatst tot Bevestigen",
     "unstake": "je flexibele Earn terughalen naar de handelsmarge — met een knop bevestigd",

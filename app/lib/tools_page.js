@@ -21,8 +21,11 @@ function templateFile() {
 function loadCatalog() {
   try {
     const payload = JSON.parse(fs.readFileSync(catalogFile(), 'utf8'));
-    if (!payload || !Array.isArray(payload.tools)) return { readable: false, reason: 'unreadable' };
-    return { readable: true, tools: payload.tools };
+    const tools = Array.isArray(payload) ? payload : (payload && payload.tools);
+    if (!Array.isArray(tools)) return { readable: false, reason: 'unreadable' };
+    const card = tools.find((tool) => tool && tool.id === 'kink-cap');
+    if (!card) return { readable: false, reason: 'unreadable' };
+    return { readable: true, tools: [card] };
   } catch (err) {
     return { readable: false, reason: 'unreadable' };
   }
