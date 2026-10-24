@@ -27,6 +27,7 @@
  * chain is read by the server, never by the page.
  */
 const express = require('express');
+const { previewFlags, withBanner } = require('../lib/admin_preview');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 
 const router = express.Router();
@@ -55,10 +56,10 @@ const SCRIPTS = [
   '/js/doge-app.js?v=3',
 ];
 
-function page() {
+function page(preview = false) {
   const head = HEAD_SCRIPTS.map((s) => `<script src="${s}"></script>`).join('\n');
   const scripts = SCRIPTS.map((s) => `<script src="${s}" defer></script>`).join('\n');
-  return `<!doctype html>
+  const html = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -81,11 +82,21 @@ ${head}
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}
 </body></html>`;
+  return preview ? withBanner(html) : html;
 }
 
-router.get('/', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(page());
+router.get('/', async (req, res) => {
+  try {
+    const flags = await previewFlags(req);
+    if (flags.length) res.setHeader('Cache-Control', 'private, no-store');
+    else res.setHeader('Cache-Control', 'no-cache');
+    res.type('html').send(page(flags.length > 0));
+  } catch (e) {
+    if (!res.headersSent) {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(page());
+    }
+  }
 });
 
 module.exports = router;

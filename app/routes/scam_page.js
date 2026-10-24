@@ -12,6 +12,7 @@
 
 const express = require('express');
 const sos = require('../lib/scam_or_safe');
+const { flag_on_for, withBanner } = require('../lib/admin_preview');
 
 const router = express.Router();
 
@@ -43,13 +44,19 @@ function page() {
 </html>`;
 }
 
-router.get('/', (req, res) => {
-  if (!sos.enabled()) {
-    res.status(404).type('text/plain').send('This game is not open.');
-    return;
+router.get('/', async (req, res) => {
+  try {
+    const on = await flag_on_for(req, 'SCAM_OR_SAFE_V0');
+    if (!on) {
+      res.status(404).type('text/plain').send('This game is not open.');
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    const html = page();
+    res.type('html').send(sos.enabled() ? html : withBanner(html));
+  } catch (e) {
+    if (!res.headersSent) res.status(503).type('text/plain').send('This game is not open.');
   }
-  res.setHeader('Cache-Control', 'no-store');
-  res.type('html').send(page());
 });
 
 module.exports = router;

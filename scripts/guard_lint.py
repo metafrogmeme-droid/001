@@ -474,7 +474,8 @@ RULES: list[Rule] = [
                            # routes/memeclaw.js, counted under the mixed-module
                            # rule below, route by route.
             "scam_page",   # /scam — ONE HTML document for Scam or Safe? Daily.
-                           # 404 unless SCAM_OR_SAFE_V0 is on. The call is
+                           # 404 unless SCAM_OR_SAFE_V0 is on for this caller
+                           # (an admin may preview it; lib/admin_preview.js). The call is
                            # POST /api/scam-or-safe/pick, which carries
                            # authMiddleware in routes/scam_or_safe.js. Requiring
                            # a session to fetch the page would require one to
@@ -514,6 +515,21 @@ RULES: list[Rule] = [
                            # rate limited by IP inside the router, nothing
                            # signed, sent or stored about who asked; an account
                            # would add a login in front of a public fact.
+            "sar_oracle",  # GET /api/sar-oracle/packets is public when
+                           # SAR_ORACLE_ENABLED is on and carries ratios and
+                           # scores only. GET /api/sar-oracle/admin/packets is
+                           # the operator's, via isOperator, and the only route
+                           # that returns dollar amounts. GET
+                           # /api/sar-oracle/admin/adoption is the operator's
+                           # too, and it returns no dollar amount. No account.
+                           # The public path is 404 while the flag is off,
+                           # before any operator check and before the rate
+                           # limit. The two admin paths, while the flag is
+                           # off, use flag_on_for and 404 everyone else
+                           # before the rate limit. IP rate limit. Signs
+                           # only on Base Sepolia. The key is never in the
+                           # repo. The test asserts no write route and that
+                           # the public JSON has no dollar-shaped key.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public
@@ -571,6 +587,29 @@ RULES: list[Rule] = [
             "today", "feed", "gas", "dapps", "allowances",
             # ^ market data and read-only chain lookups: no account is in scope,
             #   the inputs are a symbol or an address the caller already has.
+            "panic",
+                           # POST /api/panic — the read-only approval lookup.
+                           # The address arrives in the body and leaves in the
+                           # response the caller is already reading. Nothing is
+                           # cached or written, and the route does not sign.
+                           # The receipt is a different module.
+            "panic_receipt",
+                           # POST /api/panic/receipt seals the tx hashes the
+                           # caller reports. It is not the read-only lookup,
+                           # so it is not exempt for that reason. It stays
+                           # public with three limits, tested in
+                           # app/test/panic_button.test.js:
+                           # 10 requests a minute per IP.
+                           # At most 40 hashes in one request.
+                           # Each hash must be 0x plus 64 hex digits.
+                           # No address is stored.
+            # it returns curated public signals from bot/botcheck/catalog.json, read-only, with no user data.
+            "botcheck",
+            "botcheck_submit",     # POST /api/botcheck/submit only, and anonymous because the page
+                                   # form stores no account and a queued name is not published.
+                                   # Five writes a minute per client IP, a 1kb body cap mounted
+                                   # before the global parser, and a numeric id is refused and
+                                   # not stored. The lookup above is a different module.
         ],
         why=("An Express route module under /api/ that never applies authMiddleware. "
              "This is the SECOND HTTP surface in this repo — 228 routes, larger than "

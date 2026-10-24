@@ -24,7 +24,8 @@ const FILE_FOR = {
   '/sentinel': 'sentinel.html', '/stress': 'stress.html', '/flight': 'flight.html',
   '/strengthmap': 'strengthmap.html', '/arena': 'arena.html', '/duel': 'duel.html',
   '/learn': 'learn.html', '/command': 'command.html', '/rune': 'rune.html',
-  '/gas': 'gas.html', '/approvals': 'approvals.html', '/provable': 'provable.html',
+  '/gas': 'gas.html', '/approvals': 'approvals.html', '/panic': 'panic.html',
+  '/provable': 'provable.html',
   '/roots': 'roots.html', '/scanner': 'scanner.html', '/guard': 'guard.html',
 };
 const read = (f) => fs.readFileSync(path.join(PUB, f), 'utf8');

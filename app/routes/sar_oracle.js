@@ -1,0 +1,164 @@
+'use strict';
+/**
+ * GET /api/sar-oracle/packets — the latest SaR Oracle reading.
+ *
+ * Public and read-only. Ratios and scores, no account, no prices and no
+ * dollar amounts. 404 while SAR_ORACLE_ENABLED is off, the same answer as
+ * a path this server does not have. Rate limited by IP. The process signs
+ * only on Base Sepolia and only when a key is configured; the key is never
+ * in this repository. There is no write route in this file. A POST here
+ * would sit inside the express-route-auth exemption, so the test asserts
+ * this file registers none.
+ *
+ * GET /api/sar-oracle/admin/packets is the operator's copy. While the
+ * flag is on, the operator check runs, then the rate limit. While the
+ * flag is off, flag_on_for may preview it for an admin. A closed flag
+ * does not call the operator test seam and does not spend a rate-limit
+ * slot on a refusal. The public path never asks who is calling.
+ *
+ * GET /api/sar-oracle/admin/adoption is the operator's alert evaluation,
+ * HIP-3 suggestion, and archive status. It is built from the public
+ * snapshot. It does not sign and it does not return a dollar amount.
+ * The same preview rule applies. A preview does not start the indexer.
+ *
+ *   200  the reading, with null where a field was not read
+ *   400  the market query is not one this feed asks about
+ *   404  the flag is off, or the admin caller is not the operator
+ *   429  the caller is over the per-IP cap
+ *   503  the reading could not be built; the body names the exception class
+ */
+
+const express = require('express');
+const { rateLimit, ipKey } = require('../lib/rate_limit');
+const { FLAG, flag_on } = require('../lib/sar_oracle_flag');
+const { flag_on_for, identify } = require('../lib/admin_preview');
+const indexer = require('../lib/sar/indexer');
+const adoption = require('../lib/sar/adoption');
+const { HL_COINS } = require('../lib/sar/chains');
+
+const router = express.Router();
+const limit = rateLimit({
+  name: 'sar.packets',
+  windowMs: 60000,
+  max: 30,
+  key: ipKey,
+  message: 'Too many requests, slow down.',
+});
+const adminLimit = rateLimit({
+  name: 'sar.admin',
+  windowMs: 60000,
+  max: 30,
+  key: ipKey,
+  message: 'Too many requests, slow down.',
+});
+const adoptLimit = rateLimit({
+  name: 'sar.adopt',
+  windowMs: 60000,
+  max: 30,
+  key: ipKey,
+  message: 'Too many requests, slow down.',
+});
+
+const MARKETS = new Set(HL_COINS);
+
+let operatorCheck = null;
+
+function setOperatorCheckForTests(fn) {
+  operatorCheck = fn;
+}
+
+function checkOperator(req) {
+  if (operatorCheck) return operatorCheck(req);
+  return require('../lib/operator_view').isOperator(req);
+}
+
+/**
+ * Flag on: the injected operator check, so a test can count it.
+ * Flag off: flag_on_for, which reads the real plan and does not touch
+ * that seam. A refusal here is 404 before either rate limiter.
+ */
+async function adminOpen(req) {
+  if (flag_on()) {
+    if (!operatorCheck) await identify(req);
+    return { ok: (await checkOperator(req)) === true, preview: false };
+  }
+  const ok = (await flag_on_for(req, FLAG)) === true;
+  return { ok, preview: ok };
+}
+
+function marketFilter(body, asked) {
+  if (asked == null || String(asked) === '') return body;
+  return { ...body, markets: body.markets.filter((m) => m.market === String(asked)) };
+}
+
+function sendReading(res, body, preview) {
+  res.setHeader('Cache-Control', preview ? 'private, no-store' : 'no-store');
+  return res.json(body);
+}
+
+function badMarket(asked) {
+  return asked != null && String(asked) !== '' && !MARKETS.has(String(asked));
+}
+
+router.get('/packets', (req, res) => {
+  if (!flag_on()) return res.status(404).type('text/plain').send('Not found');
+  if (badMarket(req.query.market)) return res.status(400).json({ error: 'bad_market' });
+  return limit(req, res, () => {
+    try {
+      const body = indexer.snapshot(Date.now());
+      return sendReading(res, marketFilter(body, req.query.market));
+    } catch (err) {
+      return res.status(503).json({ error: 'could_not_read', exception: err && err.name ? err.name : 'Error' });
+    }
+  });
+});
+
+router.get('/admin/adoption', (req, res) => {
+  Promise.resolve()
+    .then(() => adminOpen(req))
+    .then((gate) => {
+      if (!gate || gate.ok !== true) return res.status(404).type('text/plain').send('Not found');
+      return adoptLimit(req, res, () => {
+        try {
+          const pub = indexer.snapshot(Date.now());
+          return sendReading(res, adoption.view(pub, process.env), gate.preview);
+        } catch (err) {
+          return res.status(503).json({
+            error: 'could_not_read',
+            exception: err && err.name ? err.name : 'Error',
+          });
+        }
+      });
+    })
+    .catch((err) => {
+      console.error('operator check failed:', err && err.name ? err.name : 'Error');
+      if (!res.headersSent) res.status(404).type('text/plain').send('Not found');
+    });
+});
+
+router.get('/admin/packets', (req, res) => {
+  Promise.resolve()
+    .then(() => adminOpen(req))
+    .then((gate) => {
+      if (!gate || gate.ok !== true) return res.status(404).type('text/plain').send('Not found');
+      if (badMarket(req.query.market)) return res.status(400).json({ error: 'bad_market' });
+      return adminLimit(req, res, () => {
+        try {
+          const body = indexer.operatorSnapshot(Date.now());
+          return sendReading(res, marketFilter(body, req.query.market), gate.preview);
+        } catch (err) {
+          return res.status(503).json({
+            error: 'could_not_read',
+            exception: err && err.name ? err.name : 'Error',
+          });
+        }
+      });
+    })
+    .catch((err) => {
+      console.error('operator check failed:', err && err.name ? err.name : 'Error');
+      if (!res.headersSent) res.status(404).type('text/plain').send('Not found');
+    });
+});
+
+module.exports = router;
+module.exports.setOperatorCheckForTests = setOperatorCheckForTests;

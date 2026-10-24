@@ -23,14 +23,22 @@ HEALTH ON :8082. 200 only while polling and not stopping.
 APPROVAL HYGIENE. The same process, opt-in, through ``ApprovalDigest``.
 ``/watch`` stores up to five addresses under the salted chat id, ``/digest``
 reads them now, and a weekly loop sends the same note. ``/stop`` deletes the
-addresses and the schedule. Reads only: Ethereum, Base, Avalanche C-Chain,
-Arbitrum. It signs nothing and holds no wallet key. The digest object does
-not depend on this process, so another bot can construct the same one.
+addresses and the schedule. ``/panic <address>`` is registered, and named in
+``/help``, only while ``PANIC_BUTTON`` is ``1`` or ``true``. It lists what
+can still move one wallet and links the web page; it does not store the
+address. A call that reaches the handler while the flag is off answers
+``not available yet``.
+Reads only: Ethereum, Base, Avalanche C-Chain, Arbitrum. It signs nothing
+and holds no wallet key. The digest object does not depend on this process,
+so another bot can construct the same one.
 
 What this process does not do yet, and says so: score a call, rank Arena
 Season 1, accept an Arena handle code, or fold the receipt into the day's
 public root. Anchoring stays at humanoid-traders.com/doge, from the player's
 own wallet.
+
+/botcheck is registered only when BOTCHECK_ENABLED is 1, true, yes, or on.
+It reads a public catalog and can append a review line. It stores no Telegram id.
 """
 
 from __future__ import annotations
@@ -47,14 +55,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
+from bot import admin_preview
 from bot import scam_or_safe as scam
 from bot.approval_digest import ApprovalDigest
 from bot.approval_hygiene import DIGEST_HELP, command_argument
 from bot.approval_reader import ApprovalReader, ExploitDirectory
 from bot.approval_watch_store import ApprovalWatchStore
+from bot.botcheck import flag_on as botcheck_on
+from bot.botcheck import reply_for as botcheck_reply
 from bot.daily_duel_gate import DuelGate, GateDown
 from bot.daily_duel_store import CallStore, PayloadRefused, payload_carries_id, player_key
 from bot.duel_bot import EXIT_NOT_CONFIGURED, RateLimit, _clean_secret
+from bot.panic_button import flag_on as panic_on
+from bot.panic_button import on_panic
 
 log = logging.getLogger("runeclaw.daily_duel_bot")
 
@@ -149,9 +162,39 @@ def load_env() -> None:
     load_dotenv(dotenv_path=REPO_ROOT / ".env", override=False)
 
 
-def help_text(rules: Optional[Mapping[str, Any]]) -> str:
+def _command_lines(env: Optional[Mapping[str, str]] = None) -> str:
+    """The command list in /help. /panic is named only while its flag is on,
+    the same door that registers the handler."""
+    lines = (
+        "/duel — today's call\n/result — the latest result\n/streak — your streak and score\n"
+        "/leaderboard — Arena Season 1 standings\n/help — this note\n"
+        "/watch <address> — opt in a wallet for the weekly approval digest\n"
+        "/digest — that digest now\n"
+        "/stop — delete every watched address and the digest schedule"
+    )
+    if panic_on(env):
+        lines += (
+            "\n/panic <address> — what can still move that wallet, worst first, "
+            "with a link to prepare the revokes. Nothing is stored"
+        )
+    return lines
+
+
+def help_text(rules: Optional[Mapping[str, Any]], env: Optional[Mapping[str, str]] = None, *,
+              confidence_on: Optional[bool] = None,
+              scam_on: Optional[bool] = None) -> str:
     """How the duel works. The cutoff and the horizon are the gate's, or the
-    sentence says they could not be read. The privacy line is always this one."""
+    sentence says they could not be read. The privacy line is always this one.
+
+    `confidence_on` and `scam_on` default to the public flag, which is what a
+    caller with no user sees. An admin preview passes True for that person only.
+    The /panic line is included only when PANIC_BUTTON is on.
+    The /botcheck paragraph is included only when BOTCHECK_ENABLED is on.
+    """
+    if confidence_on is None:
+        confidence_on = bool(rules and rules.get("confidence") is True)
+    if scam_on is None:
+        scam_on = scam.flag_on()
     if rules and rules.get("cutoff_at") and "horizon_hours" in rules:
         when = (
             f"Calls for a duel day close at {rules['cutoff_at']} — the moment the "
@@ -166,7 +209,7 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         when,
         "Your call is sealed before the move and cannot be changed. /duel asks you to confirm before it seals.",
     ]
-    if rules and rules.get("confidence") is True:
+    if confidence_on:
         parts.append(
             "You also say how sure you are: low, medium or high. "
             "That rating is sealed with the call. It is your own rating."
@@ -175,15 +218,26 @@ def help_text(rules: Optional[Mapping[str, Any]]) -> str:
         COMING_ROOT,
         PRIVACY,
         COMING_HANDLE,
-        "/duel — today's call\n/result — the latest result\n/streak — your streak and score\n"
-        "/leaderboard — Arena Season 1 standings\n/help — this note\n"
-        "/watch <address> — opt in a wallet for the weekly approval digest\n"
-        "/digest — that digest now\n"
-        "/stop — delete every watched address and the digest schedule",
+        _command_lines(env),
         DIGEST_HELP,
-        "Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.",
-    ] + ([scam.SCAM_HELP] if scam.flag_on() else []))
+    ])
+    if botcheck_on(env):
+        parts.append(
+            "/botcheck <name> — public signals for one bot name. "
+            "Unknown stays unknown. "
+            "/botcheck submit <name> queues a name and does not publish it."
+        )
+    parts.append("Scoring a call and the Season 1 board are coming soon. A missing score is not a zero.")
+    if scam_on:
+        parts.append(scam.SCAM_HELP)
     return "\n\n".join(parts)
+
+
+def _noted(text: str, preview: bool) -> str:
+    """The preview sentence, once, in front of a reply that is on for an admin only."""
+    if not preview or str(text).startswith(admin_preview.BANNER):
+        return text
+    return admin_preview.BANNER + "\n\n" + text
 
 
 def _word(pick: str) -> str:
@@ -519,11 +573,21 @@ class DailyDuelBot:
         """Remember where to deliver a digest. Not written to the store."""
         self.digest.bind(self._chat(update))
 
+    def _scam_on(self, update) -> bool:
+        return admin_preview.flag_on_for(self._tg_id(update), "SCAM_OR_SAFE_V0")
+
+    def _scam_preview(self, update) -> bool:
+        return admin_preview.is_preview(self._tg_id(update), "SCAM_OR_SAFE_V0")
+
+    def _confidence_preview(self, update) -> bool:
+        return admin_preview.is_preview(self._tg_id(update), "DUEL_CONFIDENCE_ENABLED")
+
     async def cmd_start(self, update, context) -> None:
         if await self._limited(update):
             return
-        await self._reply(update, WELCOME)
-        if scam.flag_on():
+        preview = self._scam_preview(update) or self._confidence_preview(update)
+        await self._reply(update, _noted(WELCOME, preview))
+        if self._scam_on(update):
             await self._reply(update, scam.SCAM_WELCOME)
 
     async def cmd_help(self, update, context) -> None:
@@ -534,7 +598,17 @@ class DailyDuelBot:
             rules = await asyncio.to_thread(self.gate.rules)
         except GateDown:
             rules = None
-        await self._reply(update, help_text(rules))
+        # A failed read of the gate stays off, including for an admin: the
+        # sentence would describe a rating the seal cannot make.
+        if rules is None:
+            confidence_on = False
+            confidence_preview = False
+        else:
+            confidence_preview = self._confidence_preview(update)
+            confidence_on = rules.get("confidence") is True or confidence_preview
+        scam_preview = self._scam_preview(update)
+        text = help_text(rules, confidence_on=confidence_on, scam_on=self._scam_on(update))
+        await self._reply(update, _noted(text, confidence_preview or scam_preview))
 
     async def cmd_leaderboard(self, update, context) -> None:
         if await self._limited(update):
@@ -557,22 +631,28 @@ class DailyDuelBot:
         text = streak_text(reading)
         # The rating is off unless the gate says so. A failed read of the
         # flag is off: no extra sentence, and no invented rate.
-        if text != STREAK_UNREAD and await self._confidence_on():
+        if text != STREAK_UNREAD and await self._confidence_on(update):
             payloads = await asyncio.to_thread(self.store.payloads, key)
             cal = None
             try:
-                cal = await asyncio.to_thread(self.gate.calibration, payloads, self._now())
+                cal = await asyncio.to_thread(
+                    self.gate.calibration, payloads, self._now(),
+                    caller_is_admin=self._confidence_preview(update))
             except GateDown:
                 cal = None
             text = text + "\n" + calibration_text(cal)
-        await self._reply(update, text)
+        await self._reply(update, _noted(text, self._confidence_preview(update)))
 
-    async def _confidence_on(self) -> bool:
+    async def _confidence_on(self, update) -> bool:
         try:
             rules = await asyncio.to_thread(self.gate.rules)
         except GateDown:
             return False
-        return bool(rules and rules.get("confidence") is True)
+        if rules and rules.get("confidence") is True:
+            return True
+        if not rules:
+            return False
+        return self._confidence_preview(update)
 
     async def cmd_result(self, update, context) -> None:
         if await self._limited(update):
@@ -583,8 +663,9 @@ class DailyDuelBot:
             row = await asyncio.to_thread(self.store.latest, key)
         await self._reply(update, result_text(row, self._now()))
 
-    async def _offer(self):
-        return await asyncio.to_thread(self.gate.offer, self._now())
+    async def _offer(self, update=None):
+        preview = bool(update is not None and self._confidence_preview(update))
+        return await asyncio.to_thread(self.gate.offer, self._now(), caller_is_admin=preview)
 
     async def cmd_watch(self, update, context) -> None:
         if await self._limited(update):
@@ -603,6 +684,16 @@ class DailyDuelBot:
             return
         await self._reply(update, await self.digest.on_stop(self._chat(update)))
 
+    async def cmd_panic(self, update, context) -> None:
+        if await self._limited(update):
+            return
+        raw = command_argument(getattr(getattr(update, "effective_message", None), "text", "") or "")
+        texts = await asyncio.to_thread(
+            on_panic, raw, reader=self.reader, exploits=self.exploits, now_iso=self._now(),
+        )
+        for text in texts:
+            await self._reply(update, text)
+
     async def dispatch_due(self, send) -> int:
         return await self.digest.dispatch_due(send)
 
@@ -617,7 +708,7 @@ class DailyDuelBot:
             await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
             return
         try:
-            offer = await self._offer()
+            offer = await self._offer(update)
         except GateDown:
             await self._reply(update, "The duel could not be read just now, so nothing was sealed.")
             return
@@ -629,7 +720,7 @@ class DailyDuelBot:
         markup = None
         if offer.get("callable") and offer.get("symbol") and offer.get("entry_price") is not None:
             markup = self.ask_markup(str(offer["symbol"]))
-        await self._reply(update, text, markup)
+        await self._reply(update, _noted(text, self._confidence_preview(update)), markup)
 
     async def on_callback(self, update, context) -> None:
         query = getattr(update, "callback_query", None)
@@ -662,7 +753,7 @@ class DailyDuelBot:
             await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
             return
         try:
-            offer = await self._offer()
+            offer = await self._offer(update)
         except GateDown:
             await self._reply(update, "The duel could not be read just now, so nothing was sealed.")
             return
@@ -676,11 +767,12 @@ class DailyDuelBot:
                               and offer.get("entry_price") is not None else None)
             return
         if offer.get("confidence") is True and confidence not in _RATINGS:
-            await self._reply(update, confidence_text(pick, offer), self.confidence_markup(pick, symbol))
+            await self._reply(update, _noted(confidence_text(pick, offer), self._confidence_preview(update)),
+                              self.confidence_markup(pick, symbol))
             return
         if offer.get("confidence") is not True:
             confidence = None
-        await self._reply(update, confirm_text(pick, offer, confidence),
+        await self._reply(update, _noted(confirm_text(pick, offer, confidence), self._confidence_preview(update)),
                           self.confirm_markup(pick, symbol, confidence))
 
     async def _seal(self, update, pick: str, symbol: str, confidence: Optional[str] = None) -> None:
@@ -690,7 +782,7 @@ class DailyDuelBot:
             await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
             return
         try:
-            offer = await self._offer()
+            offer = await self._offer(update)
         except GateDown:
             await self._reply(update, "The duel could not be read just now, so nothing was sealed.")
             return
@@ -702,6 +794,8 @@ class DailyDuelBot:
             facts: dict[str, Any] = {"now": self._now(), "pick": pick, "symbol": symbol}
             if offer.get("confidence") is True and confidence in _RATINGS:
                 facts["confidence"] = confidence
+            if self._confidence_preview(update):
+                facts["caller_is_admin"] = True
             receipt = await asyncio.to_thread(self.gate.seal, facts)
         except GateDown:
             await self._reply(update, "The seal could not be made, so nothing was recorded.")
@@ -748,8 +842,8 @@ class DailyDuelBot:
     async def cmd_scam(self, update, context) -> None:
         if await self._limited(update):
             return
-        if not scam.flag_on():
-            await self._reply(update, "Scam or Safe is not open. Nothing was sealed.")
+        if not self._scam_on(update):
+            await self._reply(update, scam.NOT_OPEN)
             return
         await self._show_scam(update)
 
@@ -759,7 +853,8 @@ class DailyDuelBot:
             await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
             return
         try:
-            offer = await asyncio.to_thread(self.gate.sos_offer, self._now(), key)
+            offer = await asyncio.to_thread(
+                self.gate.sos_offer, self._now(), key, caller_is_admin=self._scam_preview(update))
         except GateDown:
             await self._reply(update, "Today's request could not be read, so nothing was sealed.")
             return
@@ -767,7 +862,7 @@ class DailyDuelBot:
             await self._reply(update, scam.refused_text(offer if isinstance(offer, dict) else {}))
             return
         if offer.get("sealed"):
-            await self._reply(update, scam.reveal_text(offer))
+            await self._reply(update, _noted(scam.reveal_text(offer), self._scam_preview(update)))
             return
         raw_puzzle = offer.get("puzzle")
         puzzle = raw_puzzle if isinstance(raw_puzzle, dict) else {}
@@ -775,7 +870,7 @@ class DailyDuelBot:
         markup = self.markup([
             [("Safe", f"sos:ask:safe:{pid}"), ("Risky", f"sos:ask:risky:{pid}")],
         ]) if pid else None
-        await self._reply(update, scam.offer_text(offer), markup)
+        await self._reply(update, _noted(scam.offer_text(offer), self._scam_preview(update)), markup)
 
     async def on_sos(self, update, context) -> None:
         query = getattr(update, "callback_query", None)
@@ -785,8 +880,8 @@ class DailyDuelBot:
             await query.answer()
         except Exception as exc:
             log.debug("callback answer failed: %s", type(exc).__name__)
-        if not scam.flag_on():
-            await self._reply(update, "Scam or Safe is not open. Nothing was sealed.")
+        if not self._scam_on(update):
+            await self._reply(update, scam.NOT_OPEN)
             return
         parsed = scam.parse_callback(str(getattr(query, "data", "") or ""))
         if parsed is None or await self._limited(update):
@@ -807,7 +902,8 @@ class DailyDuelBot:
             await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
             return
         try:
-            offer = await asyncio.to_thread(self.gate.sos_offer, self._now(), key)
+            offer = await asyncio.to_thread(
+                self.gate.sos_offer, self._now(), key, caller_is_admin=self._scam_preview(update))
         except GateDown:
             await self._reply(update, "Today's request could not be read, so nothing was sealed.")
             return
@@ -822,7 +918,7 @@ class DailyDuelBot:
         if puzzle.get("id") != puzzle_id:
             await self._show_scam(update)
             return
-        await self._reply(update, scam.confirm_text(pick, offer), self.markup([
+        await self._reply(update, _noted(scam.confirm_text(pick, offer), self._scam_preview(update)), self.markup([
             [(f"Seal {pick}", f"sos:seal:{pick}:{puzzle_id}")],
             [("Back", "sos:back")],
         ]))
@@ -834,9 +930,12 @@ class DailyDuelBot:
             await self._reply(update, "I could not tell who is asking, so nothing was sealed.")
             return
         try:
-            receipt = await asyncio.to_thread(self.gate.sos_seal, {
+            facts: dict[str, Any] = {
                 "now": self._now(), "pick": pick, "player_key": key, "puzzle_id": puzzle_id,
-            })
+            }
+            if self._scam_preview(update):
+                facts["caller_is_admin"] = True
+            receipt = await asyncio.to_thread(self.gate.sos_seal, facts)
         except GateDown:
             await self._reply(update, "The seal could not be made, so nothing was recorded.")
             return
@@ -848,7 +947,7 @@ class DailyDuelBot:
             await self._reply(update, "The call was not sealed: the receipt would have carried your id. "
                                       "Nothing was recorded.")
             return
-        await self._reply(update, scam.reveal_text(receipt))
+        await self._reply(update, _noted(scam.reveal_text(receipt), self._scam_preview(update)))
 
     async def on_any_update(self, update, context) -> None:
         self.state["updates"] = int(self.state.get("updates", 0)) + 1
@@ -870,6 +969,18 @@ class DailyDuelBot:
         except Exception as exc:
             log.warning("approval digest catch-up failed: %s", type(exc).__name__)
 
+    async def cmd_botcheck(self, update, context) -> None:
+        """Public signals for one name. Registered only when the flag is on."""
+        if not botcheck_on():
+            return
+        who = self._key(update) or "anon"
+        if not self.commands.admit("bc:" + who):
+            await self._reply(update, "Slow down a little — try again in a minute.")
+            return
+        msg = getattr(update, "effective_message", None) or getattr(update, "message", None)
+        raw = getattr(msg, "text", "") if msg is not None else ""
+        await self._reply(update, botcheck_reply(command_argument(raw or "")))
+
     COMMANDS = (
         ("start", "cmd_start"), ("help", "cmd_help"), ("duel", "cmd_duel"),
         ("result", "cmd_result"), ("streak", "cmd_streak"), ("leaderboard", "cmd_leaderboard"),
@@ -883,11 +994,18 @@ class DailyDuelBot:
         app.add_handler(TypeHandler(Update, self.on_any_update), group=-1)
         for name, attr in self.COMMANDS:
             app.add_handler(CommandHandler(name, getattr(self, attr)))
+        if botcheck_on():
+            app.add_handler(CommandHandler("botcheck", self.cmd_botcheck))
         app.add_handler(CallbackQueryHandler(self.on_callback, pattern=r"^dd:"))
-        # Off by default. /duel and its dd: callbacks stay as they are.
-        if scam.flag_on():
-            app.add_handler(CommandHandler("scam", self.cmd_scam))
-            app.add_handler(CallbackQueryHandler(self.on_sos, pattern=r"^sos:"))
+        # Off unless PANIC_BUTTON is 1 or true. The handler still answers
+        # "not available yet" if something calls it while the flag is off.
+        if panic_on():
+            app.add_handler(CommandHandler("panic", self.cmd_panic))
+        # Registered even while the public flag is off, so an admin can open
+        # it. cmd_scam and on_sos answer NOT_OPEN to everyone else, and the
+        # help text omits the line. /duel and its dd: callbacks stay as they are.
+        app.add_handler(CommandHandler("scam", self.cmd_scam))
+        app.add_handler(CallbackQueryHandler(self.on_sos, pattern=r"^sos:"))
         return app
 
 
