@@ -15,6 +15,7 @@ from bot.t2c.coordinator import cap_json, propose_cap_down
 from bot.t2c.duration import duration_percentiles, smooth_samples
 from bot.t2c.etherfi import WEETH, interpret_limit, recorded_etherfi
 from bot.t2c.flag import t2c_flag_on
+from bot.t2c.mainnet_config import admin_pool_status, public_pool_status
 from bot.t2c.numbers import as_decimal, json_num
 from bot.t2c.packet import build_packet, haircut_for
 from bot.t2c.price import carry_term, duration_price, slash_haircut, stake_yield
@@ -181,6 +182,8 @@ def assemble_reading(
             "formula_bps": "clamp(10 + 40*U^2, 5, 100)",
             "intake": "2/100 of pool ETH per block",
         },
+        "pool": public_pool_status(src),
+        "pool_admin": admin_pool_status(src),
     }
     return {"public": public_payload(built), "admin": admin_payload(built)}
 
@@ -247,10 +250,12 @@ def public_payload(built: dict) -> dict:
             "daily": built["daily"],
         },
         "fee": built["fee"],
+        "pool": built["pool"],
     }
 
 
 def admin_payload(built: dict) -> dict:
     payload = public_payload(built)
     payload["research"] = admin_consumer_context()
+    payload["pool"] = built["pool_admin"]
     return payload
