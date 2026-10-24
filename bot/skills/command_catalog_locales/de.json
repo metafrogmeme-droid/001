@@ -88,6 +88,7 @@
     "fundingscan": "annualisiertes Funding, mehrere Handelsplätze",
     "arb": "Paper-Tracker für Funding-Arbitrage",
     "rwa": "Radar für tokenisierte Real-World-Assets",
+    "fvb": "sitzungsabhängiger Risikopreis für eine tokenisierte Aktie — öffentliche Signale, keine Beratung",
     "etf": "Zuflüsse der US-Spot-Krypto-ETFs diese Woche, als Bild, nur lesend",
     "spot": "Spot-Paare über alle Börsen und die Spot/Perp-Basis, nur lesend",
     "nft": "NFT-Kollektionen nach echtem 7-Tage-Volumen, Floor und Volumen, nur lesend",

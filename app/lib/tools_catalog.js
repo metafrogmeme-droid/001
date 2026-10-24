@@ -63,6 +63,7 @@ function flagOn(name, env) {
   if (name === 'RWA_PRECHECK_ENABLED') return require('./rwa_flag').enabled(env);
   if (name === 'HRC_ENABLED') return require('./hrc_flag').flag_on(env);
   if (name === 'SRB_ENABLED') return require('./srb_flag').flag_on(env);
+  if (name === 'FVB_ENABLED') return require('./fvb_flag').flagOn(env);
   return false;
 }
 
@@ -113,6 +114,13 @@ function presentation(tool, env, view) {
       return { label: 'Admin view', href: '/api/sar-oracle/admin/packets' };
     }
     return { label: 'Coming soon', href: null };
+  }
+  // The fair-value card stays "Coming soon" with no date. The link is
+  // drawn only after the operator check has passed. The flag does not
+  // turn the label into "Open".
+  if (tool && tool.id === 'fair-value-bridge') {
+    const operator = view && view.operator === true;
+    return { label: 'Coming soon', href: operator ? '/fvb' : null };
   }
   const named = typeof tool.flag === 'string' && tool.flag.length > 0;
   if (named && !flagOn(tool.flag, src)) {

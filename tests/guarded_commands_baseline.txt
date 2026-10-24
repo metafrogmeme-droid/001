@@ -58,6 +58,7 @@ _cmd_forcescan admin
 _cmd_fullscan scan
 _cmd_funding status
 _cmd_fundingscan status
+_cmd_fvb fvb
 _cmd_golive admin
 _cmd_halt halt
 _cmd_health status
