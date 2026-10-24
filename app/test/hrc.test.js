@@ -5,7 +5,8 @@
  * The flag accepts only "1" and "true". An operator can read the page and
  * the rate points while it is off, and the page says so. A signed-in
  * stranger and an anonymous caller get 404, including when the flag is on.
- * The shock is a dollar amount and it is not on the dashboard or the page.
+ * The shock is a dollar amount. It stays off the dashboard payload and the
+ * HTML. The operator script paints it from /api/hrc/shock.
  */
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -110,17 +111,18 @@ test('the curve matches the pinned checkpoints and derives the crossover', () =>
   assert.equal(none.rate, null);
 });
 
-test('the page source has no dollars and does not ask for the shock', () => {
+test('the page source has no dollar sign, and the script asks the admin shock route', () => {
   assert.equal(PAGE.includes('$'), false);
   assert.equal(PAGE_JS.includes('$'), false);
   assert.equal(PAGE.includes('cap spread'), true);
   assert.equal(PAGE.includes('40%'), true);
   assert.equal(PAGE.includes('rate_shock'), false);
-  assert.equal(PAGE_JS.includes('rate_shock'), false);
+  assert.match(PAGE_JS, /\/api\/hrc\/shock/);
+  assert.match(PAGE_JS, /rate_shock_loss_24h/);
   assert.equal(PAGE.includes('data-i18n'), false);
   assert.match(PAGE, /styles\.css\?v=52/);
   assert.match(PAGE, /src="\/js\/api-retry\.js\?v=3"/);
-  assert.match(PAGE, /src="\/js\/hrc\.js\?v=2"/);
+  assert.match(PAGE, /src="\/js\/hrc\.js\?v=3"/);
   assert.ok(PAGE.indexOf('/js/api-retry.js') < PAGE.indexOf('/js/hrc.js'));
   assert.equal((PAGE.match(/<script\b/g) || []).length, 2);
   assert.match(PAGE_JS, /AbortSignal\.timeout\(/);
@@ -336,6 +338,24 @@ test('paint writes the series and the ceiling, and a missing one stays unreadabl
   assert.equal(rows.Ceiling, '0.40');
   assert.equal(rows.scenario_a, 'unreadable');
   assert.equal(JSON.stringify(rows).includes('$'), false);
+  assert.equal(Object.hasOwn(rows, '24h rate-shock loss (USD)'), false);
+
+  const shocked = mount({
+    readable: true,
+    network: 'mainnet',
+    source: 'precompile',
+    utilization: '0.85',
+    borrow_apy: '0.2875',
+    rate_shock_loss_24h: '1438.3561643835616438356',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const loss = rowsOf(shocked);
+  assert.equal(loss['24h rate-shock loss (USD)'], '1438.3561643835616438356');
+  assert.equal(JSON.stringify(loss).includes('$'), false);
+
+  const unreadLoss = mount({ readable: true, rate_shock_loss_24h: null });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(rowsOf(unreadLoss)['24h rate-shock loss (USD)'], 'unreadable');
 
   const missing = mount({ readable: true, kind: null, ceiling: '' });
   await new Promise((resolve) => setImmediate(resolve));

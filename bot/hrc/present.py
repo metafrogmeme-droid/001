@@ -1,9 +1,9 @@
 """The admin view: utilization and rate points.
 
-Dollars stay out of this view. ``rate_shock_loss_24h`` is added by
-``admin_packet`` and dropped by ``card_text``. A missing number is omitted
-on the dashboard and printed as unreadable on the card. A measured zero
-stays zero.
+The public dashboard omits dollar amounts. ``rate_shock_loss_24h`` is added
+by ``admin_packet``, and ``card_text`` prints it only when that key is
+present. A missing number is omitted on the dashboard and printed as
+unreadable on the card. A measured zero stays zero.
 """
 
 from __future__ import annotations
@@ -268,7 +268,7 @@ def _line(label: str, value) -> str:
 
 
 def card_text(packet: dict) -> str:
-    """The telegram card. The shock field is not read."""
+    """The telegram card. The shock line is present only on an admin packet."""
     lines = []
     if isinstance(packet, dict) and packet.get("preview") is True:
         lines.append("Admin preview. Not public.")
@@ -310,4 +310,6 @@ def card_text(packet: dict) -> str:
             lines.append(
                 f"{name}: utilization {row.get('utilization')} borrow {row.get('borrow_apy')}"
             )
+    if isinstance(packet, dict) and "rate_shock_loss_24h" in packet:
+        lines.append(_line("24h rate-shock loss", packet.get("rate_shock_loss_24h")))
     return "\n".join(lines)
