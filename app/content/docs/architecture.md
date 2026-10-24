@@ -91,7 +91,7 @@ The circuit breaker trips on a daily-loss breach, a drawdown breach, or `MAX_CON
 
 Approved ideas wait in a pending queue and appear as cards with buttons: **Take it**, **Limit** and **Skip** on an idea card, **Confirm** and **Cancel** on a `/trade` card. The website offers the same confirm. Ideas expire after `PENDING_IDEA_TTL` seconds (default 300).
 
-This is the human-in-the-loop step, and it holds unless the operator turns on auto-confirm. Auto-confirm confirms the engine's own ideas, on the operator account, when their confidence reaches `AUTO_CONFIRM_THRESHOLD` (code default 0.85; `.env.example` sets 1.0, which turns it off). In live mode an order with no human tap also needs `AUTO_CONFIRM_LIVE_ENABLED` (code default on; `.env.example` sets `false`) and an eligibility record for the running strategy under `benchmark/eligibility/`, and none ships. A person's own idea or `/trade` ticket is never auto-confirmed.
+This is the human-in-the-loop step, and it holds unless the operator turns on auto-confirm. Auto-confirm confirms the engine's own ideas, on the operator account, when their confidence reaches `AUTO_CONFIRM_THRESHOLD` (code default 0.85; `.env.example` sets 1.0, which turns it off). In live mode an order with no human tap also needs `AUTO_CONFIRM_LIVE_ENABLED` (code default off; `.env.example` sets `false`) and an eligibility record for the running strategy under `benchmark/eligibility/`, and none ships. A person's own idea or `/trade` ticket is never auto-confirmed.
 
 On confirmation:
 1. The current price is read again. An analysed market-order idea whose price has moved more than 2% from its entry is refused; in Telegram the bot then re-analyzes it and offers a fresh card.

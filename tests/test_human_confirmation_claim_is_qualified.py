@@ -5,7 +5,9 @@ RC-2026-021. Six public surfaces stated an UNCONDITIONAL guarantee —
     "all trade executions require explicit human confirmation; the AI agent
      cannot autonomously place orders"                        (SECURITY.md)
 
-— while `auto_confirm_live_enabled` defaults True in `bot/config.py`. The repo
+— while `auto_confirm_live_enabled` defaulted True in `bot/config.py`.
+The code default is now False. The flag can still be turned on, so an
+unconditional claim is still false. The repo
 already had this guard, applied to exactly ONE of the surfaces
 (`tests/test_mcp_doc_matches_the_code.py`), which is an admission of the
 defect rather than a fix for it.
@@ -129,7 +131,8 @@ def test_an_absolute_quantifier_is_qualified_in_its_own_sentence(rel):
 
     This is the rule the original finding was actually about: not that the
     guarantee is mentioned, but that it was stated WITHOUT EXCEPTION while
-    `auto_confirm_live_enabled` defaults True.
+    `auto_confirm_live_enabled` defaulted True. It now defaults False, and the
+    flag can still be turned on.
     """
     bad = [
         sent for block in _blocks((ROOT / rel).read_text(encoding="utf-8"))
@@ -186,15 +189,19 @@ class TestTheMachineReadableCard:
 
 
 class TestTheGuardIsNotStale:
-    """If the code default ever flips, this whole file should be revisited."""
+    """The code default is off. A flip back to on should revisit this file."""
 
     def test_the_code_default_really_is_auto_confirm_on(self):
+        """The code default is off. The qualifiers stay: the flag can be turned on.
+
+        A flip back to on fails here rather than leaving the qualifiers
+        explaining a default they no longer match.
+        """
         cfg = (ROOT / "bot" / "config.py").read_text(encoding="utf-8")
         assert re.search(
-            r"auto_confirm_live_enabled[^\n]*_env_bool\([^\n]*True", cfg), (
-            "auto_confirm_live_enabled no longer defaults True — the "
-            "unconditional claim may now be accurate, and these qualifiers "
-            "should be reconsidered rather than assumed"
+            r"auto_confirm_live_enabled[^\n]*_env_bool\([^\n]*False", cfg), (
+            "auto_confirm_live_enabled no longer defaults False — these "
+            "qualifiers should be reconsidered rather than assumed"
         )
 
     def test_the_shipped_env_really_does_turn_it_off(self):
@@ -206,3 +213,5 @@ class TestTheGuardIsNotStale:
         env = (ROOT / ".env.example").read_text(encoding="utf-8")
         assert re.search(r"^AUTO_CONFIRM_LIVE_ENABLED=false\s*$", env, re.M)
         assert re.search(r"^AUTO_CONFIRM_THRESHOLD=1\.0\s*$", env, re.M)
+        assert "AUTO_CONFIRM_LIVE_ENABLED=true" not in env
+        assert "AUTO_CONFIRM_LIVE_ENABLED=True" not in env

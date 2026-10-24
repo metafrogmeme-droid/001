@@ -58,7 +58,7 @@ An idea card from `/analyze` carries three buttons: **Take it**, **Limit** and *
 - Volume spikes measured against each symbol's own recent scans (more than 2x its average 24h turnover)
 - The regime the analysis read, which also scales position size
 - A structured idea with explicit entry, stop and target levels
-- An inline keyboard for human confirmation: a person's `/analyze` idea waits for their tap. The engine's own scan ideas can be confirmed without a tap when the operator enables auto-confirm: `AUTO_CONFIRM_THRESHOLD` below 1.0, and for live orders `AUTO_CONFIRM_LIVE_ENABLED` plus an eligibility record for the running strategy (none ships). The code defaults are a 0.85 threshold with `AUTO_CONFIRM_LIVE_ENABLED` on; the shipped `.env.example` sets 1.0 and false.
+- An inline keyboard for human confirmation: a person's `/analyze` idea waits for their tap. The engine's own scan ideas can be confirmed without a tap when the operator enables auto-confirm: `AUTO_CONFIRM_THRESHOLD` below 1.0, and for live orders `AUTO_CONFIRM_LIVE_ENABLED` plus an eligibility record for the running strategy (none ships). The code defaults are a 0.85 threshold with `AUTO_CONFIRM_LIVE_ENABLED` off; the shipped `.env.example` sets the threshold to 1.0 and leaves the live flag false.
 
 ---
 

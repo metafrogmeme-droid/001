@@ -363,7 +363,7 @@ compliance-friendly patterns:
 - **Human-in-the-loop by default.** A live order with no human tap is placed only when
   `AUTO_CONFIRM_LIVE_ENABLED` is on and an eligibility record for the running strategy exists
   (`benchmark/eligibility/<strategy_hash>.json`; none ships). The code default of
-  `AUTO_CONFIRM_LIVE_ENABLED` is on, and the shipped `.env.example` sets it to `false`.
+  `AUTO_CONFIRM_LIVE_ENABLED` is off, and the shipped `.env.example` sets it to `false`.
 - **Rate limiting.** Telegram commands are rate-limited per user.
 - **Fail-closed defaults.** The system starts in paper mode with live trading off.
 

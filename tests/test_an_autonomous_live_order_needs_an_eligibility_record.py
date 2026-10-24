@@ -2,7 +2,7 @@
 
 A non-human live confirm (the tick's auto-confirm, the ``/forcescan`` loop,
 a skill dispatch) was minted the compliance Lock-5 token whenever
-``AUTO_CONFIRM_LIVE_ENABLED`` was on, and that flag ships ON in the code. The
+``AUTO_CONFIRM_LIVE_ENABLED`` was on. The flag defaults off in the code. The
 ``/forcescan`` loop never read the tick's suppression, so the mint was its
 only barrier. Nothing in code asked for evidence that the running strategy
 works before it placed real orders on its own.

@@ -43,9 +43,9 @@ const ROUTES = [
     title: 'RUNECLAW — the AI trading engine you can talk to',
     description:
       // "human-confirmed" WAS HERE, AND IT IS THE CLAIM facts.ts DOCUMENTS
-      // AS FALSE: bot/config.py:2188-2190 defaults auto_confirm_live_enabled
-      // to True, so a signal clearing 0.85 places a real-money order with
-      // nobody pressing anything. PR #129 removed the phrase from the visible
+      // AS FALSE. The live auto-confirm flag can still be turned on, so an
+      // unconditional human-confirmation claim is still not one the code
+      // keeps. PR #129 removed the phrase from the visible
       // page and missed the metadata — the surface with the WIDEST reach,
       // since a meta description is what a search result and a link preview
       // show. Ask which OTHER surface makes the same claim.

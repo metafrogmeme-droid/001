@@ -1,16 +1,39 @@
 # Working on RUNECLAW
 
 RUNECLAW is a trading bot (`bot/`, Python: Telegram bot, engine, risk gate,
-live executor) and a website (`app/`, Express + static pages). Real money moves
-through `bot/core/engine.py` and `bot/core/live_executor.py`. This file is the
-short guide. The full incident history it was distilled from, every chapter
-this file used to hold, is `docs/lessons/ENGINEERING_LOG.md`, indexed by
-`docs/lessons/INDEX.md`.
+live executor) and a website (`app/`, Express + static pages).
+`bot/core/engine.py` and `bot/core/live_executor.py` are the order path.
+`LIVE_ADMIN_ONLY` defaults on, so a confirm by anyone who is not an operator
+is paper. Auto-confirm of live orders defaults off. An autonomous live order
+also needs an eligibility record, and none ships. The server does not sign
+or broadcast on a mainnet chain id. This file is the short guide. The full
+incident history it was distilled from, every chapter this file used to hold,
+is `docs/lessons/ENGINEERING_LOG.md`, indexed by `docs/lessons/INDEX.md`.
 
 **Before you change a subsystem, search `docs/lessons/INDEX.md` for it and
 read the chapters it points at.** Most defects in this repo were fixed once
 already somewhere nearby. Where a code comment or test says "CLAUDE.md
 records …", the chapter is in the log.
+
+## Standing rules
+
+- Testnet-only and admin-only, behind flags that are off by default. An admin
+  preview uses `flag_on_for` in `app/lib/admin_preview.js`.
+- On mainnet the server never holds keys and never signs.
+  `bot/web/mainnet_guard.py` refuses startup when
+  `WEB3_LIVE_EXEC_ALLOW_MAINNET` is set, when `ETH_PRIVATE_KEY` is set, when
+  `HYPERLIQUID_PRIVATE_KEY` is set without `HYPERLIQUID_TESTNET`, or when a
+  signing key is combined with a mainnet chain id. `scripts/anchor_roots.sh`
+  `--broadcast` is operator-only: the server never runs it, it refuses
+  `RUNECLAW_SERVER=1`, and it never reads keys from the server environment.
+- A new `/api` route needs `authMiddleware` or `optionalAuth` from `app/auth.js`.
+- No force-push and no rebase. Merge main instead.
+- The unreachable-methods ambiguity count stays at 53
+  (`tests/unreachable_methods_baseline.txt`). Never weaken a test or a guard
+  to get green.
+- Bot tokens and secrets never go in git or in chats.
+- Mainnet parts may be built. They are not deployed until there is a cap, a
+  pause, a fork rehearsal, an external audit, and the owner's go.
 
 ## Before you push, run the preflight
 
@@ -78,8 +101,11 @@ named exceptions, each with a reason, and are two-way: a new site fails, and a
 listed site that no longer exists fails. Never widen a baseline to get green;
 fix the site or record it with a reason a reviewer can check.
 
-`tests/test_claude_md_accuracy.py` reads numbers out of
-`docs/lessons/ENGINEERING_LOG.md` and compares them with the code.
+`tests/test_claude_md_accuracy.py` checks `docs/lessons/ENGINEERING_LOG.md`
+against the code. The source-scan census paragraph does not restate a live
+integer: `test_the_source_scan_counts_it_quotes_are_the_ones_a_walk_returns`
+asserts the walk's shape (which files, `code_only`, tokenize, and the words
+"not restated here").
 `docs/INCOME_MAP.md` cites code by symbol, never by line
 (`path::Qualname`, or `path::Qualname#"marker"` for one line inside it), and
 `python3 scripts/cite.py --check docs/INCOME_MAP.md` fails on an anchor that
@@ -216,15 +242,15 @@ correct code to satisfy an analyser.
 
 ## Deploying and verifying
 
-- There are **two processes**: `python3 -m bot.main --mode telegram` (bot,
-  engine, gateway on :8080) and `api_bridge.py` (uvicorn on :8000). A deploy
-  that starts one and reports success is not a deploy. An optional third,
-  `python3 -m bot.duel_bot` (the Daily Duel's own Telegram bot, health on
-  :8081), runs only where `DUEL_BOT_TOKEN` is set; it builds no engine and
-  touches none of the bot's state. An optional fourth,
-  `python3 -m bot.daily_duel_bot` (anonymous Daily Duel, health on :8082),
-  runs only where `DAILY_DUEL_BOT_TOKEN` is set; it builds no engine, does
-  not sign, and stores a salted hash rather than a Telegram id.
+- There are **four entry points**. Two always run: `python3 -m bot.main
+  --mode telegram` (bot, engine, gateway on :8080) and `api_bridge.py`
+  (uvicorn on :8000). A deploy that starts one of those and reports success
+  is not a deploy. Two are optional: `python3 -m bot.duel_bot` (the Daily
+  Duel's own Telegram bot, health on :8081) runs only where `DUEL_BOT_TOKEN`
+  is set, and `python3 -m bot.daily_duel_bot` (anonymous Daily Duel, health
+  on :8082) runs only where `DAILY_DUEL_BOT_TOKEN` is set. The optional bots
+  build no engine and do not sign. The anonymous one stores a salted hash
+  rather than a Telegram id.
 - There are **two websites** and one web container: `humanoid-traders.com`
   and Memeclaw's own domain (`MEMECLAW_HOSTS`, `app/lib/memeclaw_host.js`).
   One publish of `app/` updates both. Their settings go in
@@ -270,6 +296,6 @@ regenerate the index), not here. This file stays under 25,000 bytes;
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, triage, caps, deploy checks
-- `scripts/launch_all.sh.template` — both processes, both ports, the optional duel bot
+- `scripts/launch_all.sh.template` — the four entry points (two always-on, two optional)
 - `scripts/systemd/README.md` — supervising the processes
 - `scripts/cloudflared/` — named-tunnel procedure for the bot gateway

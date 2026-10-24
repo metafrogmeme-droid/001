@@ -135,4 +135,4 @@ None of these places an order on its own: a Jupiter swap is signed by the user i
    Jupiter (unsigned swaps) · DexScreener (meme radar) · Solana RPC (read-only balances, $RCLAW tier gate)
 ```
 
-Every trade idea, whatever the model provider, passes the same pre-trade risk gate. Trades need a human confirm unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`), which is off in the shipped `.env.example` and on in the code default when no `.env` sets it. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.
+Every trade idea, whatever the model provider, passes the same pre-trade risk gate. Trades need a human confirm unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`), the live flag off in the code and in the shipped `.env.example`, the threshold `0.85` in the code and `1.0` in the example. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.

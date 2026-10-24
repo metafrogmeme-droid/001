@@ -224,10 +224,10 @@ test('every published figure carries a source', () => {
 /**
  * THE FIX WAS APPLIED TO THE PAGE AND MISSED EVERY MACHINE-READABLE COPY.
  *
- * `facts.ts` documents "human-confirmed" as false against
- * `bot/config.py:2188-2190` — `auto_confirm_live_enabled` defaults to True, so
- * a signal clearing the 0.85 bar places a real-money order with nobody
- * pressing anything. PR #129 removed the phrase from the visible homepage.
+ * `facts.ts` documents "human-confirmed" as false. The live auto-confirm
+ * flag can still be turned on, so an unconditional human-confirmation
+ * claim is still not a claim the code keeps. PR #129 removed the phrase
+ * from the visible homepage.
  *
  * It survived in three places, all in `prerender.js`:
  *
@@ -255,8 +255,8 @@ test('no published surface claims a human confirms live trades', () => {
   for (const [name, text] of surfaces) {
     const hit = text.match(forbidden)
     assert.ok(!hit, `${name} claims ${JSON.stringify(hit && hit[0])} — `
-      + 'auto_confirm_live_enabled defaults True (bot/config.py:2188-2190), so a '
-      + 'live order can be placed with nobody pressing anything')
+      + 'AUTO_CONFIRM_LIVE_ENABLED can still be turned on, so an unconditional '
+      + 'human-confirmation claim is not a claim the code keeps')
   }
 })
 

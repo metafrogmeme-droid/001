@@ -197,7 +197,7 @@ Before deploying RUNECLAW, even in simulation mode:
 - [ ] `RUNECLAW_SECRETS_KEY` set
 - [ ] `SIMULATION_MODE=true` (default)
 - [ ] `LIVE_TRADING_ENABLED=false` (default)
-- [ ] `AUTO_CONFIRM_LIVE_ENABLED=false` unless you mean autonomous live orders (code default `true`; the shipped `.env.example` sets `false`)
+- [ ] `AUTO_CONFIRM_LIVE_ENABLED=false` unless you mean autonomous live orders (code default `false`; the shipped `.env.example` sets `false`)
 - [ ] `BITGET_SANDBOX=true` only with keys created in Bitget demo trading (live keys fail there with error 40099)
 - [ ] Exchange key: none needed in simulation; trade permission only when going live; never withdrawal
 - [ ] No secrets in git history (`git log --all -p | grep -i "api_key"`)
