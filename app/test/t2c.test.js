@@ -19,7 +19,8 @@ const jwt = require('jsonwebtoken');
 const { pool } = require('../db');
 const bridge = require('../lib/t2c_bridge');
 const realLoad = bridge.loadReading;
-const { flag_on, pageGate, sendT2C, sendTools } = require('../lib/t2c_flag');
+const { flag_on, pageGate, sendT2C } = require('../lib/t2c_flag');
+const catalog = require('../lib/tools_catalog');
 
 const OPERATOR = 4242;
 const STRANGER = 4243;
@@ -61,7 +62,6 @@ function app() {
   server.use(pageGate);
   server.use('/api/t2c', t2cRouter);
   server.use('/api/tools', toolsRouter);
-  server.get('/tools', (req, res) => sendTools(res));
   server.get('/t2c', (req, res) => sendT2C(req, res));
   return server;
 }
@@ -162,22 +162,33 @@ test('the page is 404 for a signed-in non-operator even with the flag on', async
 
 test('the coming-soon card has no date and no public admin link', async () => {
   const file = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'tools.json'), 'utf8'));
-  assert.equal(file[0].status, 'coming_soon');
-  assert.equal(Object.prototype.hasOwnProperty.call(file[0], 'date'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(file[0], 'href'), false);
+  const card = file.find((row) => row && row.id === 't2c');
+  assert.ok(card);
+  assert.equal(card.status, 'runtime');
+  assert.equal(Object.prototype.hasOwnProperty.call(card, 'date'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(card, 'href'), false);
+  assert.equal(card.route, null);
   assert.equal(JSON.stringify(file).includes('$'), false);
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'tools.html'), 'utf8');
   assert.equal(html.includes('/t2c'), false);
+  for (const env of [{}, { T2C_ENABLED: '1' }, { T2C_ENABLED: 'true' }, { T2C_ENABLED: 'yes' }]) {
+    assert.deepEqual(catalog.presentation(card, env), { label: 'Coming soon', href: null });
+  }
+  const rendered = catalog.renderFile({ T2C_ENABLED: '1' });
+  const at = rendered.indexOf('data-tool="t2c"');
+  const cardHtml = rendered.slice(at - 40, at + 400);
+  assert.match(cardHtml, /<article /);
+  assert.equal(cardHtml.includes('href='), false);
+  assert.match(cardHtml, /Coming soon/);
   await withServer(async (base) => {
     const anon = await call(base, 'GET', '/api/tools');
     assert.equal(anon.status, 200);
-    assert.equal(anon.json.tools[0].href, undefined);
-    assert.equal(anon.json.tools[0].status, 'coming_soon');
-    const page = await call(base, 'GET', '/tools');
-    assert.equal(page.status, 200);
-    assert.equal(page.text.includes('Coming soon') || page.text.includes('tools.js'), true);
+    const pub = anon.json.tools.find((row) => row.id === 't2c');
+    assert.equal(pub.href, undefined);
+    assert.equal(Object.prototype.hasOwnProperty.call(pub, 'date'), false);
     const op = await call(base, 'GET', '/api/tools', OP);
-    assert.equal(op.json.tools[0].href, '/t2c');
+    const admin = op.json.tools.find((row) => row.id === 't2c');
+    assert.equal(admin.href, '/t2c');
   });
 });
 

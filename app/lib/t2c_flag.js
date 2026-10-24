@@ -5,7 +5,8 @@
  * Off unless the variable is "1" or "true". "yes" stays off. Read on each
  * request. The page at /t2c is admin-only even when the flag is on; this
  * module answers 404 for everyone else, the same answer as a missing path.
- * /tools is the coming-soon list and is not a dashboard.
+ * /tools is the catalog behind SAR_ORACLE_ENABLED. This module does not
+ * serve that page.
  */
 
 const path = require('node:path');
@@ -24,15 +25,6 @@ function t2cPage() {
   return path.join(__dirname, '..', 'public', 't2c.html');
 }
 
-function toolsPage() {
-  return path.join(__dirname, '..', 'public', 'tools.html');
-}
-
-function sendTools(res) {
-  res.setHeader('Cache-Control', 'no-cache');
-  return res.sendFile(toolsPage());
-}
-
 /** /t2c. 404 unless the caller is the operator, flag on or off. */
 function sendT2C(req, res) {
   optionalAuth(req, res, () => {
@@ -48,17 +40,13 @@ function sendT2C(req, res) {
 }
 
 /**
- * Blocks the on-disk names ahead of express.static. /t2c and /tools are
- * app.get routes, so a canonical can name them. /t2c.html is never the
- * canonical: it would skip the operator check.
+ * Blocks the on-disk name ahead of express.static. /t2c is an app.get,
+ * so a canonical can name it. /t2c.html is never the canonical: it would
+ * skip the operator check. /tools.html belongs to the catalog gate.
  */
 function pageGate(req, res, next) {
-  const p = req.path;
-  if (p === '/t2c.html') return res.status(404).type('text/plain').send('Not found');
-  if (p === '/tools.html') return res.status(404).type('text/plain').send('Not found');
+  if (req.path === '/t2c.html') return res.status(404).type('text/plain').send('Not found');
   return next();
 }
 
-module.exports = {
-  FLAG, flag_on, pageGate, sendT2C, sendTools, t2cPage, toolsPage,
-};
+module.exports = { FLAG, flag_on, pageGate, sendT2C, t2cPage };
