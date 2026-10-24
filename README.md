@@ -1254,7 +1254,11 @@ On any exposure, and every 90 days:
 
 **BUSL-1.1** -- Business Source License 1.1 (source-available). See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for details.
 
-You are free to view, study, fork, and modify this code, and to run it for your own personal or internal-business purposes (including trading your own or your organization's funds) and for research and evaluation. You may **not** offer RUNECLAW, or a derivative of it, to third parties as a hosted, managed, or embedded commercial service, or otherwise use it to compete with RUNECLAW or Humanoid Traders, without a commercial license. On the Change Date (2030-07-21), each version converts to the GNU General Public License, version 2.0 or later. Commercial licensing inquiries: contact Humanoid Traders via the [Telegram community](https://t.me/+VRNgsmkR5pszZTdk).
+You may view, study, fork, and modify this code, and make non-production use of it, including reading, evaluating and testing. Any production use of the Licensed Work or any derivative of it, including personal or internal-business use and trading your own or your organization's funds, requires a separate paid commercial license from Humanoid Traders. On the Change Date (2030-07-21), each version converts to the GNU General Public License, version 2.0 or later.
+
+## Commercial licensing
+
+Production use of the Licensed Work, or of any derivative of it, is allowed only under a paid commercial license from Humanoid Traders. Contact Humanoid Traders at [info@humanoid-traders.com](mailto:info@humanoid-traders.com).
 
 ---
 
