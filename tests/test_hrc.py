@@ -507,6 +507,12 @@ def test_the_dashboard_shows_rates_and_the_card_drops_the_shock():
     assert "21500000" not in blob
     assert "50000000" not in blob
     assert view["borrow_apy"] == "0.05"
+    assert "funding_crossover" not in view
+    printed = dict(reading)
+    printed["funding_apr"] = "0.1095"
+    shown = dashboard(printed)
+    assert shown["funding_crossover"] == format(crossover_utilization(Decimal("0.1095")), "f")
+    assert shown["points_to_crossover"] != shown["funding_crossover"]
     scenario = view["replays"]["scenario_a"]
     util = Decimal(430819345) / Decimal(551760966 - 21_500_000)
     assert Decimal(scenario["utilization"]) == util
@@ -528,6 +534,67 @@ def test_the_dashboard_shows_rates_and_the_card_drops_the_shock():
     })
     assert zero["utilization"] == "0"
     assert zero["borrow_apy"] == "0.05"
+
+
+def test_series_terms_appear_only_when_the_reading_carries_them():
+    bare = dashboard({
+        "readable": True, "network": "mainnet", "synthetic": False, "source": "precompile",
+        "unit": "human", "supplied": "100", "borrowed": "50", "oracle": "1",
+    })
+    for key in ("hour_payoff_tokens", "collateral_tokens", "freeze", "can_unfreeze"):
+        assert key not in bare
+    struck = dashboard({
+        "readable": True, "network": "mainnet", "synthetic": False, "source": "precompile",
+        "unit": "human", "supplied": "100", "borrowed": "50", "oracle": "1",
+        "strike": "0.04", "rates": ["0.05", "0.05", "0.05", "0.05", "0.05", "0.05"],
+        "notional": 10_000_000, "hours": 24,
+        "previous_hour": 10, "hour": 13, "formula_ok": True, "model_ok": True,
+        "frozen_at": 10, "now_hour": 12, "good_hours": [11, 12], "guardian": True,
+    })
+    assert struck["freeze"] == "gap"
+    assert struck["can_unfreeze"] is True
+    assert int(struck["hour_payoff_tokens"]) > 0
+    assert int(struck["collateral_tokens"]) > 0
+    held = dashboard({
+        "readable": True, "network": "mainnet", "synthetic": False, "source": "precompile",
+        "unit": "human", "supplied": "100", "borrowed": "50", "oracle": "1",
+        "strike": "0.20", "rates": ["0.05", "0.05", "0.05", "0.05", "0.05", "0.05"],
+        "notional": 10_000_000, "hours": 24, "hour": 11, "formula_ok": True, "model_ok": True,
+    })
+    assert held["hour_payoff_tokens"] == "0"
+    assert "freeze" not in held
+
+
+def test_a_sample_db_stores_the_hour_and_leaves_a_missing_util_null(tmp_path):
+    mod = _collect_mod()
+    db = tmp_path / "samples.sqlite"
+    reading = {
+        "readable": True,
+        "source": "info_api",
+        "supplied": "100",
+        "borrowed": "50",
+        "formula_rate": Decimal("0.05"),
+        "ts_utc": "2026-10-23T20:00:00Z",
+    }
+    assert mod.persist_sample({"HRC_SAMPLE_DB": str(db)}, reading) is True
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT util, borrow_rate, total_supplied FROM reserve_samples"
+    ).fetchone()
+    assert row[0] is None
+    assert row[1] == "0.05"
+    assert row[2] == "100"
+    quoted = dict(reading)
+    quoted["premium"] = None
+    assert mod.persist_sample({
+        "HRC_SAMPLE_DB": str(db),
+        "HRC_QUOTE_SERIES": "1",
+        "HRC_QUOTE_SIDE": "sell",
+        "HRC_QUOTE_NOTIONAL": "10",
+    }, quoted) is True
+    premium = conn.execute("SELECT premium FROM quotes").fetchone()
+    assert premium == (None,)
+    assert mod.persist_sample({}, reading) is False
 
 
 def test_an_unreadable_quote_is_not_a_zero_premium():
@@ -703,6 +770,12 @@ def test_the_hourly_replay_and_the_corewriter_record_stay_off_the_settlement_pat
     assert encoded is not None and encoded[:4] == bytes([1, 0, 0, 15])
     assert encode_action(0, 0, 0) is None
     record = load_record()
+    spec = importlib.util.spec_from_file_location(
+        "hrc_replay_under_test", ROOT / "scripts" / "hrc_replay.py")
+    replay_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(replay_mod)
+    assert replay_mod.record_encodes(record) is True
+    assert replay_mod.record_encodes({"depended_on": True}) is False
     assert record["depended_on"] is False
     assert record["chain_id"] == 998
     assert record["supply"]["eth_call"] == "success"

@@ -19,6 +19,8 @@ import os
 from decimal import Decimal
 from typing import Optional
 
+from bot.utils.atomic_write import atomic_write_json
+
 # CGC is the earlier source. Batch 3 is built in this order. The minimum
 # of the proposals ignores order.
 BATCH_3 = ("RXB", "HRC", "T2C")
@@ -27,6 +29,8 @@ SOURCES = ("CGC",) + BATCH_3
 
 class CapRefused(Exception):
     """The lowering was not applied. Callers report the class, not the text."""
+
+    pass
 
 
 def empty_book() -> dict:
@@ -158,7 +162,8 @@ def save_book(path: str, book: dict) -> None:
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(_encode({"proposals": book.get("proposals", {}), "log": book.get("log", [])}), handle)
-    os.replace(tmp, path)
+    atomic_write_json(
+        path,
+        _encode({"proposals": book.get("proposals", {}), "log": book.get("log", [])}),
+        separators=(", ", ": "),
+    )

@@ -117,6 +117,10 @@ class OpenApproval:
     total_supply: Optional[int]
     supply_known: bool
     last_updated: Optional[int]
+    # Permit2's expiry, when the reader confirmed one. Absent is not "never".
+    expiration: Optional[int] = None
+    # ERC-721 single-token id. An allowance amount is never stored here.
+    nft_id: Optional[int] = None
 
 
 @dataclass(frozen=True)

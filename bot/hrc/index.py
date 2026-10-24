@@ -48,6 +48,8 @@ _FIELDS = (
 class CalibrationRefused(Exception):
     """A reading that must not move the curve. The class is the public text."""
 
+    pass
+
 
 def decode_precompile(data: bytes) -> Optional[dict]:
     """Eight uint64 words, or None when the return is not that layout.

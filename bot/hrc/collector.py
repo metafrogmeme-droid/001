@@ -25,6 +25,7 @@ from bot.hrc.model import (
     quoted_rate_matches,
     utilization_of,
 )
+from bot.utils.atomic_write import atomic_write_json
 
 INFO_URL = {
     "mainnet": "https://api.hyperliquid.xyz/info",
@@ -314,10 +315,7 @@ def store_history(path: str, reading: dict) -> None:
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(_encode(reading), handle)
-    os.replace(tmp, path)
+    atomic_write_json(path, _encode(reading), separators=(", ", ": "))
 
 
 def load_history(path: Optional[str]) -> dict:

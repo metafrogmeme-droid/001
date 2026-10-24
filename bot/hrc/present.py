@@ -21,7 +21,12 @@ from bot.hrc.model import (
     RAW_PER_TOKEN,
     baseline_crossover,
     borrow_apy,
+    can_unfreeze,
     cap_hit_pays,
+    collateral_for,
+    crossover_utilization,
+    freeze_reason,
+    hour_payoff,
     points_below,
     rate_shock_loss_24h,
     replay_withdrawal,
@@ -137,6 +142,9 @@ def dashboard(reading: dict) -> dict:
     _put(out, "points_to_kink", points_below(KINK, util))
     cross = baseline_crossover()
     _put(out, "points_to_crossover", points_below(cross, util) if cross is not None else None)
+    # A live funding print is a different reading from the 11.6% baseline.
+    # Missing stays off the card. It is not filled in from the baseline.
+    _put(out, "funding_crossover", crossover_utilization(_dec(reading.get("funding_apr"))))
     human = _human_borrows(reading)
     if human is not None:
         _put(out, "borrow_cap_ratio", human / BORROW_CAP_HUMAN)
@@ -152,11 +160,51 @@ def dashboard(reading: dict) -> dict:
     mean = trailing_mean(rates) if rates is not None else None
     _put(out, "trailing_mean", mean)
     strike = _dec(reading.get("strike"))
+    out.update(_series_terms(reading, mean, strike))
     quote = quote_for(empty_book(), "usdc", mean, strike, 24, None, None, None)
     _put(out, "premium", quote.get("premium") if isinstance(quote.get("premium"), Decimal) else None)
     coll = quote.get("collateral_fraction")
     _put(out, "collateral_fraction", coll if isinstance(coll, Decimal) else None)
     out["replays"] = _replays(supplied_i, borrowed_i, unit)
+    return out
+
+
+def _series_terms(reading: dict, mean: Optional[Decimal], strike: Optional[Decimal]) -> dict:
+    """Payoff, collateral, and freeze, when the reading actually carries them.
+
+    A missing notional, hour, or freeze window is left out. It is not stored
+    as a payoff of zero or as a freeze that did not happen.
+    """
+    out: dict = {}
+    notional = reading.get("notional")
+    hours = reading.get("hours")
+    pay = hour_payoff(notional if type(notional) is int else None, mean, strike)
+    if type(pay) is int:
+        out["hour_payoff_tokens"] = str(pay)
+    coll = collateral_for(
+        notional if type(notional) is int else None,
+        strike,
+        hours if type(hours) is int else None,
+    )
+    if type(coll) is int:
+        out["collateral_tokens"] = str(coll)
+    previous = reading.get("previous_hour")
+    hour = reading.get("hour")
+    formula_ok = reading.get("formula_ok")
+    model_ok = reading.get("model_ok")
+    reason = freeze_reason(
+        previous if type(previous) is int else None,
+        hour if type(hour) is int else None,
+        formula_ok if isinstance(formula_ok, bool) else None,
+        model_ok if isinstance(model_ok, bool) else None,
+    )
+    if isinstance(reason, str):
+        out["freeze"] = reason
+    frozen_at = reading.get("frozen_at")
+    now = reading.get("now_hour")
+    good = reading.get("good_hours")
+    if type(frozen_at) is int and type(now) is int and isinstance(good, (list, tuple)):
+        out["can_unfreeze"] = can_unfreeze(frozen_at, now, good, reading.get("guardian") is True)
     return out
 
 
