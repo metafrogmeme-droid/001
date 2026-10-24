@@ -48,6 +48,12 @@ const READERS = {
   SRB_ENABLED(env) {
     return require('./srb_flag').flag_on(env) === true;
   },
+  COVER_ADL_ENABLED(env) {
+    return require('../../contracts/cover/flags.cjs').adlOn(env) === true;
+  },
+  COVER_STOPGAP_ENABLED(env) {
+    return require('../../contracts/cover/flags.cjs').stopGapOn(env) === true;
+  },
 };
 
 function publicOn(flag, env = process.env) {
