@@ -327,12 +327,27 @@ app.use(require('./lib/api_cors').cors());
 // /api/chat a larger parser — it runs first for that path, so the global 1mb
 // parser below skips the already-parsed body; every other route stays at 1mb.
 app.use('/api/chat', express.json({ limit: '7mb' }));
+// Panic Button posts one address or a short list of hashes. Its cap has to
+// run before the 1mb parser, or that parser accepts the body and the cap
+// never sees it.
+const panicApi = require('./routes/panic');
+const panicReceipt = require('./routes/panic_receipt');
+app.use('/api/panic', panicApi.capBody);
 // The review-queue write is a name and a short note. This parser runs first
 // for /api/botcheck/submit, so the global parser below skips a body it
 // already parsed, and a payload over 1kb never reaches the handler.
 app.use('/api/botcheck/submit', express.json({ limit: '1kb' }));
 app.use('/api/botcheck/submit', require('./routes/botcheck_submit').rejectOversized);
 app.use(express.json({ limit: '1mb' })); // Cap payload size
+// Panic Button is off unless PANIC_BUTTON is 1 or true. The static file
+// would otherwise answer /panic.html with the full page while the flag is off.
+app.use((req, res, next) => {
+  if (req.path !== '/panic' && req.path !== '/panic.html') return next();
+  const panic = require('./lib/panic_flag');
+  if (panic.enabled()) return next();
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(panic.unavailableHtml());
+});
 // Embeddable surfaces — mounted AHEAD of express.static because they serve
 // their own HTML and, uniquely in this app, their own frame policy. The global
 // middleware above has already set `X-Frame-Options: DENY` and
@@ -347,6 +362,9 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// SaR Oracle and /tools stay 404 until SAR_ORACLE_ENABLED is set. Ahead
+// of express.static so public/tools.html is not served while the flag is off.
+app.use(require('./lib/sar_oracle_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -503,6 +521,12 @@ app.use('/api/risk', require('./routes/risk'));
 app.use('/api/roots', require('./routes/roots'));
 app.use('/api/memeclaw', require('./routes/memeclaw'));
 app.use('/api/allowances', require('./routes/allowances'));
+// Panic Button: ranked approvals and unsigned revokes. Off unless PANIC_BUTTON
+// is 1 or true (routes/panic.js). Does not sign or broadcast.
+// The receipt is mounted first. It seals tx hashes and is not the lookup;
+// its limits live in routes/panic_receipt.js.
+app.use('/api/panic/receipt', panicReceipt);
+app.use('/api/panic', panicApi);
 // Claw Guard: a verdict on a transaction or a signature before signing it.
 // Public; a signed-in caller's verdict is sealed (routes/guard.js).
 // v0.1 (a lookalike warning, an audit-trail export) is a separate router
@@ -513,6 +537,9 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
+// SaR Oracle readings. Public ratios while the flag is on. Dollar amounts
+// stay on the operator route inside the router. 404 while the flag is off.
+app.use('/api/sar-oracle', require('./routes/sar_oracle'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -589,6 +616,9 @@ app.get('/guard', (req, res) => { require('./lib/claw_guard_v01').sendPage(req, 
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); });
+// /tools — the catalog. 404 until SAR_ORACLE_ENABLED. While the flag is
+// on, the HTML is the operator's. The card for SaR stays "Coming soon".
+app.get('/tools', (req, res) => { require('./lib/sar_oracle_flag').sendPage(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.
@@ -603,6 +633,9 @@ app.get('/rune', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res
 app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'gas.html')); });
 // /approvals — the Allowance X-ray (read-only; revoke plans the caller sends).
 app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'approvals.html')); });
+// /panic — worst-first approvals and unsigned revokes. The flag gate above
+// answers "not available yet" until PANIC_BUTTON is 1 or true.
+app.get('/panic', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'panic.html')); });
 // Risk Scanner: read-only checks of what a visitor is about to trust (a bridge app's verifiers).
 app.get('/scanner', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'scanner.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
@@ -1172,4 +1205,14 @@ async function migrateWithRetry() {
   // recorded anchor that no longer checks out, a Bitcoin proof stuck or never
   // sent, a day short of its quorum. Served on /diagz.
   require('./lib/anchor_watch').startAnchorWatch();
+
+  // SaR Oracle poll. The module does not start on require. The flag is
+  // read here, once, the same way the page reads it per request.
+  if (require('./lib/sar_oracle_flag').flag_on()) {
+    try {
+      require('./lib/sar/indexer').start();
+    } catch (err) {
+      console.error('SaR Oracle start:', err && err.name ? err.name : 'Error');
+    }
+  }
 })();

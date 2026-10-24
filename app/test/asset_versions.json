@@ -251,6 +251,10 @@
     "v": 6,
     "sha": "25cb3003194ae98c"
   },
+  "js/panic.js": {
+    "v": 2,
+    "sha": "47fdece4720a8b2c"
+  },
   "js/pi-arena.js": {
     "v": 8,
     "sha": "d2499e0cd3736923"
@@ -411,6 +415,10 @@
     "v": 9,
     "sha": "01a149c27daf1a32"
   },
+  "js/tools-page.js": {
+    "v": 1,
+    "sha": "8ceaa5d7a4a6069b"
+  },
   "js/trade-confirm-model.js": {
     "v": 2,
     "sha": "6213dbcd1c04683e"
@@ -424,8 +432,8 @@
     "sha": "35084df81d560864"
   },
   "js/txray-model.js": {
-    "v": 1,
-    "sha": "b0690b36b0422b9b"
+    "v": 2,
+    "sha": "af95f319de3a95b8"
   },
   "js/venue-picker-model.js": {
     "v": 3,

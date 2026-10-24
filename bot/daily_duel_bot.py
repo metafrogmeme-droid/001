@@ -23,9 +23,14 @@ HEALTH ON :8082. 200 only while polling and not stopping.
 APPROVAL HYGIENE. The same process, opt-in, through ``ApprovalDigest``.
 ``/watch`` stores up to five addresses under the salted chat id, ``/digest``
 reads them now, and a weekly loop sends the same note. ``/stop`` deletes the
-addresses and the schedule. Reads only: Ethereum, Base, Avalanche C-Chain,
-Arbitrum. It signs nothing and holds no wallet key. The digest object does
-not depend on this process, so another bot can construct the same one.
+addresses and the schedule. ``/panic <address>`` is registered, and named in
+``/help``, only while ``PANIC_BUTTON`` is ``1`` or ``true``. It lists what
+can still move one wallet and links the web page; it does not store the
+address. A call that reaches the handler while the flag is off answers
+``not available yet``.
+Reads only: Ethereum, Base, Avalanche C-Chain, Arbitrum. It signs nothing
+and holds no wallet key. The digest object does not depend on this process,
+so another bot can construct the same one.
 
 What this process does not do yet, and says so: score a call, rank Arena
 Season 1, accept an Arena handle code, or fold the receipt into the day's
@@ -56,11 +61,13 @@ from bot.approval_digest import ApprovalDigest
 from bot.approval_hygiene import DIGEST_HELP, command_argument
 from bot.approval_reader import ApprovalReader, ExploitDirectory
 from bot.approval_watch_store import ApprovalWatchStore
-from bot.botcheck import flag_on
+from bot.botcheck import flag_on as botcheck_on
 from bot.botcheck import reply_for as botcheck_reply
 from bot.daily_duel_gate import DuelGate, GateDown
 from bot.daily_duel_store import CallStore, PayloadRefused, payload_carries_id, player_key
 from bot.duel_bot import EXIT_NOT_CONFIGURED, RateLimit, _clean_secret
+from bot.panic_button import flag_on as panic_on
+from bot.panic_button import on_panic
 
 log = logging.getLogger("runeclaw.daily_duel_bot")
 
@@ -155,6 +162,24 @@ def load_env() -> None:
     load_dotenv(dotenv_path=REPO_ROOT / ".env", override=False)
 
 
+def _command_lines(env: Optional[Mapping[str, str]] = None) -> str:
+    """The command list in /help. /panic is named only while its flag is on,
+    the same door that registers the handler."""
+    lines = (
+        "/duel — today's call\n/result — the latest result\n/streak — your streak and score\n"
+        "/leaderboard — Arena Season 1 standings\n/help — this note\n"
+        "/watch <address> — opt in a wallet for the weekly approval digest\n"
+        "/digest — that digest now\n"
+        "/stop — delete every watched address and the digest schedule"
+    )
+    if panic_on(env):
+        lines += (
+            "\n/panic <address> — what can still move that wallet, worst first, "
+            "with a link to prepare the revokes. Nothing is stored"
+        )
+    return lines
+
+
 def help_text(rules: Optional[Mapping[str, Any]], env: Optional[Mapping[str, str]] = None, *,
               confidence_on: Optional[bool] = None,
               scam_on: Optional[bool] = None) -> str:
@@ -163,6 +188,7 @@ def help_text(rules: Optional[Mapping[str, Any]], env: Optional[Mapping[str, str
 
     `confidence_on` and `scam_on` default to the public flag, which is what a
     caller with no user sees. An admin preview passes True for that person only.
+    The /panic line is included only when PANIC_BUTTON is on.
     The /botcheck paragraph is included only when BOTCHECK_ENABLED is on.
     """
     if confidence_on is None:
@@ -192,14 +218,10 @@ def help_text(rules: Optional[Mapping[str, Any]], env: Optional[Mapping[str, str
         COMING_ROOT,
         PRIVACY,
         COMING_HANDLE,
-        "/duel — today's call\n/result — the latest result\n/streak — your streak and score\n"
-        "/leaderboard — Arena Season 1 standings\n/help — this note\n"
-        "/watch <address> — opt in a wallet for the weekly approval digest\n"
-        "/digest — that digest now\n"
-        "/stop — delete every watched address and the digest schedule",
+        _command_lines(env),
         DIGEST_HELP,
     ])
-    if flag_on(env):
+    if botcheck_on(env):
         parts.append(
             "/botcheck <name> — public signals for one bot name. "
             "Unknown stays unknown. "
@@ -662,6 +684,16 @@ class DailyDuelBot:
             return
         await self._reply(update, await self.digest.on_stop(self._chat(update)))
 
+    async def cmd_panic(self, update, context) -> None:
+        if await self._limited(update):
+            return
+        raw = command_argument(getattr(getattr(update, "effective_message", None), "text", "") or "")
+        texts = await asyncio.to_thread(
+            on_panic, raw, reader=self.reader, exploits=self.exploits, now_iso=self._now(),
+        )
+        for text in texts:
+            await self._reply(update, text)
+
     async def dispatch_due(self, send) -> int:
         return await self.digest.dispatch_due(send)
 
@@ -939,7 +971,7 @@ class DailyDuelBot:
 
     async def cmd_botcheck(self, update, context) -> None:
         """Public signals for one name. Registered only when the flag is on."""
-        if not flag_on():
+        if not botcheck_on():
             return
         who = self._key(update) or "anon"
         if not self.commands.admit("bc:" + who):
@@ -962,9 +994,13 @@ class DailyDuelBot:
         app.add_handler(TypeHandler(Update, self.on_any_update), group=-1)
         for name, attr in self.COMMANDS:
             app.add_handler(CommandHandler(name, getattr(self, attr)))
-        if flag_on():
+        if botcheck_on():
             app.add_handler(CommandHandler("botcheck", self.cmd_botcheck))
         app.add_handler(CallbackQueryHandler(self.on_callback, pattern=r"^dd:"))
+        # Off unless PANIC_BUTTON is 1 or true. The handler still answers
+        # "not available yet" if something calls it while the flag is off.
+        if panic_on():
+            app.add_handler(CommandHandler("panic", self.cmd_panic))
         # Registered even while the public flag is off, so an admin can open
         # it. cmd_scam and on_sos answer NOT_OPEN to everyone else, and the
         # help text omits the line. /duel and its dd: callbacks stay as they are.
