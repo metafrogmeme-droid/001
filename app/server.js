@@ -362,6 +362,12 @@ app.use('/embed', require('./routes/embed'));
 // RWA pre-check stays 404 until RWA_PRECHECK_ENABLED is set. This is ahead
 // of express.static so public/rwa.html is not served while the API is off.
 app.use(require('./lib/rwa_flag').pageGate);
+// Cover drafts stay 404 for the public until COVER_ADL_ENABLED or
+// COVER_STOPGAP_ENABLED is set. Ahead of express.static so
+// public/cover-adl.html, cover-stopgap.html and js/cover.js are not served
+// while the flags are off. An admin can preview. Not offered to customers.
+// Licence review pending. Do not enable in production.
+app.use(require('./lib/cover_page').pageGate);
 // SaR Oracle and /tools stay 404 until SAR_ORACLE_ENABLED is set, except
 // an admin preview. Ahead of express.static so public/tools.html is not
 // served while the flag is off for this caller.
@@ -538,6 +544,10 @@ app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
 // RWA_PRECHECK_ENABLED is set (routes/rwa_precheck.js).
 app.use('/v1/rwa', require('./routes/rwa_precheck'));
+// Cover status. 404 for the public until the matching flag is set. An admin
+// can preview the hold. Even then the body says the product is not offered.
+// Not offered to customers. Licence review pending. Do not enable in production.
+app.use('/api/cover', require('./routes/cover'));
 // SaR Oracle readings. Public ratios while the flag is on. Dollar amounts
 // stay on the operator route inside the router. 404 while the flag is off.
 app.use('/api/sar-oracle', require('./routes/sar_oracle'));
@@ -617,6 +627,10 @@ app.get('/guard', (req, res) => { require('./lib/claw_guard_v01').sendPage(req, 
 // API gives. pageGate, ahead of static, keeps /rwa.html and the page script
 // from being files a crawler can open while that flag is off.
 app.get('/rwa', (req, res) => { require('./lib/rwa_flag').sendPage(req, res); });
+// Cover pages. 404 for the public until the matching flag. An admin can
+// preview. Not offered to customers. Licence review pending. Do not enable in production.
+app.get('/cover-adl', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'adl'); });
+app.get('/cover-stopgap', (req, res) => { require('./lib/cover_page').sendPage(req, res, 'stopgap'); });
 // /tools — the catalog. 404 until SAR_ORACLE_ENABLED, except an admin
 // preview. While the flag is on, the HTML is the operator's. The public
 // card for SaR stays "Coming soon".
