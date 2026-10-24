@@ -121,6 +121,12 @@ class Outcome(NamedTuple):
 #: this line is the price CLAUDE.md names for a new JOB: a job added to ci.yml
 #: and not to this tuple runs in CI while `--list` reports it under "NOT
 #: covered locally", which is the honest half of the design.
+#:
+#: The parallel shadow is left out on purpose. It runs the same suite again
+#: under pytest-xdist, continue-on-error, so a week of CI can compare it with
+#: the serial gate. Putting it in this tuple would make every local preflight
+#: pay for two full gates, and the serial gate is the one a local run can
+#: compare with CI.
 LOCAL_JOBS = ("Lint + tests (baseline gate)", "Web app (express)",
               "Marketing site (vite)", "Anchor workspace (node)",
               "RXB contracts (solidity)")

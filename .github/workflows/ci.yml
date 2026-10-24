@@ -6,9 +6,44 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# EVERY PUSH TO MAIN KEEPS ITS RUN.
+#
+# The group used to be `ci-${{ github.ref }}` with cancel-in-progress on, for
+# every ref. A merge that landed while the previous main run was still going
+# cancelled that run, and the commit never received a verdict of its own.
+# Turning cancel-in-progress off is not enough on its own: a newer run queued
+# in the same group still cancels the one that is only pending, so the
+# commits in between the one that is running and the latest one still get no
+# verdict. Main therefore does not share a group across SHAs. A pull-request
+# ref still does, and a new push there replaces the run of a tree that nobody
+# will merge.
+#
+# MERGE QUEUE IS NOT AVAILABLE ON THIS REPOSITORY. GitHub offers a merge
+# queue on a public repository owned by an organization, and on a private
+# repository owned by an organization on GitHub Enterprise Cloud (docs:
+# "Managing a merge queue", read 2026-10-24). This repository's owner is a
+# user account, so the setting is not on the plan. Checked the same day: the
+# owner type is User, and the repository has no rulesets. If the repository
+# is later moved to an organization, an admin enables the queue like this:
+#
+#   1. Add `merge_group:` under `on:` in this file, beside `pull_request:`.
+#      A queue does not run a workflow that does not list that event, and the
+#      required check then never reports.
+#   2. On `main`, a branch protection rule or a ruleset that requires the
+#      status check "Lint + tests (baseline gate)". Do not require
+#      "Tests (parallel shadow, non-blocking)" — that job is a comparison,
+#      and it is allowed to fail.
+#   3. Enable "Require merge queue" on that rule. Set the merge method and
+#      the build concurrency. The queue tests each pull request against the
+#      latest main, on a temporary `gh-readonly-queue/main/...` ref, before
+#      the commit lands.
+#
+# The per-SHA group below stays either way. A merge queue gives the pre-merge
+# check a verdict. It does not stop the push workflow on main from cancelling
+# an older main SHA's run, which is the hole this block closes.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: "ci-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.sha) || '' }}"
+  cancel-in-progress: "${{ github.ref != 'refs/heads/main' }}"
 
 # WITHOUT THIS BLOCK THE TOKEN'S SCOPE IS DECIDED IN A WEB FORM. A workflow that
 # declares no `permissions:` hands every job whatever the repository's *Workflow
@@ -263,6 +298,45 @@ jobs:
       - name: SCA — dependency vulnerability audit (pip-audit)
         if: always()
         run: pip-audit -r requirements.lock
+
+  # THE SERIAL GATE ABOVE IS THE REQUIRED CHECK. This job runs the same
+  # baseline gate under pytest-xdist so the two durations can be compared.
+  # It is continue-on-error: a red shadow does not fail the workflow and must
+  # not be added to a ruleset. Flake re-runs stay serial inside the gate.
+  # `loadfile` keeps one module on one worker. Each worker gets its own state
+  # root (tests/conftest.py, only when PYTEST_XDIST_WORKER is set) so
+  # import-time init_db() does not lock one shared sqlite file and abort
+  # collection before a test runs. A duration of that abort is not a
+  # measurement of the suite. A failure that remains is still allowed: this
+  # job is a comparison, not a second verdict.
+  test-parallel:
+    name: Tests (parallel shadow, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          # Same pinned pip as the serial job, then the lockfile-shaped CI
+          # set, then pytest-xdist. xdist is not in requirements-ci.txt: the
+          # serial gate must keep the environment the baseline was recorded
+          # against. 3.8.0 requires pytest>=7 and Python>=3.9; CI pins pytest
+          # 8.3.5 on 3.11.
+          python -m pip install --no-cache-dir "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          pip install -r requirements-ci.txt
+          pip install "pytest-xdist==3.8.0"
+
+      - name: Tests — parallel shadow of the baseline gate
+        run: python3 scripts/ci_test_gate.py --parallel
 
   staking:
     name: Staking program (cargo)

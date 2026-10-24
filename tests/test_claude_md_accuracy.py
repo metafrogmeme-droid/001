@@ -962,135 +962,100 @@ def test_the_line_number_ratchet_sees_what_it_exists_to_refuse():
 
 
 
-def _source_scan_adoption() -> tuple[int, int, int]:
-    """(importers, private tokenize copies, copies whose file imports it anyway).
-
-    DERIVED, never restated — the rule this file already applies to the
-    catalogue's 91/79/12. The three counts CLAUDE.md's source-scanning section
-    quotes are read back out of the prose and compared to this walk, because a
-    number in prose is the part that rots first: the paragraph said "47 test
-    files" and named ONE remaining private copy, and on the day this was
-    written the tree held 199 and 18.
-
-    A copy is a function named like the shared one that TOKENIZES for itself.
-    An earlier draft also required that it not mention `source_scan` in its own
-    body; the mutation round showed no such function exists, so that clause was
-    a claim about a check rather than a check. BOTH spellings count: four of the
-    eighteen use the bytes-based `tokenize.tokenize` rather than
-    `tokenize.generate_tokens`, and the first draft of this walk knew only the
-    second and answered 14 — a guard one spelling short of the thing it counts,
-    which is `_SLASH_COMMAND` stopping at the underscore in a new place. Asking
-    whether the FILE mentions `source_scan` is a different wrong question and
-    answers 11: eight files import `handler_sources` from it and still carry
-    their own stripper, which is the sharpest half of the finding.
-    """
-    import ast
-
-    names = {"code_only", "_code_only", "strip_comments", "_strip_comments"}
-    importers: set[str] = set()
-    copies: list[str] = []
-    both = 0
-    for path in sorted(list((ROOT / "tests").rglob("*.py"))
-                       + list((ROOT / "scripts").rglob("*.py"))):
-        if path.name == "source_scan.py":
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:                      # pragma: no cover - parse gate covers it
-            continue
-        imports_it = any(
-            isinstance(n, ast.ImportFrom) and (n.module or "").endswith("source_scan")
-            for n in ast.walk(tree))
-        if imports_it:
-            importers.add(str(path))
-        owns = [n for n in ast.walk(tree)
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and n.name in names
-                and ("tokenize.generate_tokens" in ast.unparse(n)
-                     or "tokenize.tokenize" in ast.unparse(n))]
-        copies.extend(f"{path}:{n.lineno}" for n in owns)
-        if owns and imports_it:
-            both += 1
-    return len(importers), len(copies), both
-
-
 def test_the_source_scan_counts_it_quotes_are_the_ones_a_walk_returns():
-    """"as 199 test files already do" / "The backlog is 18" / "8 of those".
+    """The live counts are the walk's. The paragraph names that walk.
 
-    All three are read out of the prose, so a drift fails HERE rather than
-    teaching the next reader that the backlog is smaller than it is.
+    It used to quote the integers ("as 199 test files already do", then
+    whatever the tree held the day of the last edit) and this test failed
+    until the log was edited to match. The integer was a proxy for the walk.
+    The walk's rules — which directories, which file is skipped, which
+    spellings, which statement counts as an import — are what the paragraph
+    now states, and a new test file must not have to edit them.
+
+    The planted trees that make a weakened walk fail live in
+    ``tests/test_source_scan_census.py``. This test is the prose side: the
+    paragraph still describes that walk, the historical basis is still the
+    basis, and the live integer is not back in the sentence.
     """
-    importers, copies, both = _source_scan_adoption()
+    from tests.source_scan_census import source_scan_adoption
+
+    adoption = source_scan_adoption()
+    # A walk that returns nothing is not the walk. Both arms: importers exist
+    # and private copies exist, on the real tree, not only on a fixture.
+    assert adoption.importers, "the walk found no importers"
+    assert adoption.copies, "the walk found no private copies"
+    assert any(s.startswith("tests/test_preflight_matches_ci.py:") for s in adoption.copies), (
+        "the file the paragraph names is no longer a private copy, or the walk "
+        "stopped being able to see it")
+    assert "tests/test_preflight_matches_ci.py" not in adoption.importers, (
+        "that file defines its own stripper and does not import the module; "
+        "counting it as an importer means the walk changed question")
+    assert not any("test_black_swan_is_reached.py" in s for s in adoption.copies), (
+        "the hand-written scanner does not tokenize; counting it means the "
+        "walk dropped the tokenize requirement")
+
     section = DOC[DOC.index("## Writing tests that scan source"):
                   DOC.index("Prefer exercising a property over matching text")]
+    flat = re.sub(r"\s+", " ", section)
+    for phrase in (
+        "tests/source_scan_census.py",
+        "`tests/`",
+        "`scripts/`",
+        "`source_scan.py`",
+        "ends with `source_scan`",
+        "`code_only`",
+        "`_code_only`",
+        "`strip_comments`",
+        "`_strip_comments`",
+        "`tokenize.generate_tokens`",
+        "`tokenize.tokenize`",
+        "[source-scan]",
+        "not restated here",
+        "tests/test_preflight_matches_ci.py",
+        "held 18",
+    ):
+        assert phrase in flat, phrase
+    assert not re.search(r"as \d+ test files already do", flat), (
+        "the live importer count is back in the paragraph; it belongs on the "
+        "[source-scan] line the gate prints")
+    assert not re.search(r"The backlog is \d+", flat)
 
-    assert f"as {importers} test files already do" in section, importers
-    assert f"The backlog is {copies}," in section, copies
-    assert f"{copies} files\ndefine their own" in section, copies
-    assert f"**{both} of those already have the module open**" in section, both
-
-
-def _source_scanning_files() -> tuple[int, int]:
-    """(files reaching for source text, all test files) -- the prose's own rule.
-
-    It is a FLOOR and the paragraph says so: a hand-rolled
-    `Path("bot/x.py").read_text()` is a source scan this rule cannot see. A
-    wider proxy (any `read_text` beside a production path literal) answers 470
-    on the same tree, so the two rules disagree by seventy -- which is why the
-    number travels with the rule that produced it rather than alone, the same
-    reason the walk above counts BOTH tokenize spellings.
-    """
-    import ast as _ast
-
-    def _uses(path) -> bool:
-        """Imports or CALLS one of the three readers -- not merely names one.
-
-        The first draft matched the token anywhere in the file's text, so a
-        DOCSTRING mentioning `code_only` counted as reaching for source, and
-        the very next slice added such a file and moved the number. "Strip
-        comments first" is this chapter's own opening advice; an AST is that
-        advice done properly, since a docstring is a string token `code_only`
-        itself would not blank.
-        """
-        try:
-            tree = _ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            return False
-        for n in _ast.walk(tree):
-            if isinstance(n, _ast.ImportFrom) and "source_scan" in (n.module or ""):
-                return True
-            if isinstance(n, _ast.Import):
-                if any("source_scan" in a.name for a in n.names):
-                    return True
-            if isinstance(n, _ast.Call):
-                f = n.func
-                if isinstance(f, _ast.Name) and f.id in ("code_only", "_code_only"):
-                    return True
-                if isinstance(f, _ast.Attribute) and f.attr in (
-                        "code_only", "_code_only", "getsource"):
-                    return True
-        return False
-
-    files = sorted((ROOT / "tests").rglob("test_*.py"))
-    return sum(1 for p in files if _uses(p)), len(files)
+    gate = (ROOT / "scripts" / "ci_test_gate.py").read_text(encoding="utf-8")
+    assert "format_census" in gate, (
+        "the log says the gate prints the count, and the gate does not call it")
 
 
 def test_the_do_not_convert_wholesale_count_is_the_one_a_walk_returns():
     """"47 of 532" was the SAME 47, seven hundred lines down, on another question.
 
-    The importer sentence said 47 and this one said 47, and only one of them
-    could have been measured -- which is how the first came to be wrong. Both
-    are derived now.
+    The live ``reach of total`` is the walk, printed by the gate, not a second
+    integer in this paragraph. The stale figure stays quoted so a reader who
+    remembers it lands on the correction. The walk is still required to be a
+    floor: some test files reach, and not every test file does.
     """
-    reach, total = _source_scanning_files()
+    from tests.source_scan_census import source_scanning_files
+
+    scanning = source_scanning_files()
+    assert scanning.reach, "the walk found no file reaching for source"
+    assert scanning.reach < scanning.files, (
+        "every test file reached, so the floor the paragraph describes is no "
+        "longer a floor — or the walk started counting files that do not reach")
+    assert "tests/test_preflight_matches_ci.py" in scanning.reach
+    assert "tests/test_drawdown_limit_label.py" in scanning.reach
+
     section = DOC[DOC.index("**Do not convert wholesale"):]
     section = section[:section.index("Rank candidates by what a wrong claim")]
 
-    assert f"**{reach} of {total}**" in section, (reach, total)
-    assert f"{reach} is a FLOOR" in section, reach
+    assert "is a FLOOR" in section
+    assert "read_text()" in section
+    assert "never a mention" in section
+    assert "getsource" in section
+    assert "[source-scan]" in section
     assert '*"47 of 532 test files' in section, (
         "the stale figure is quoted as the thing being corrected, so a reader "
         "who remembers it lands on the correction rather than on silence")
+    assert not re.search(r"\*\*\d+ of \d+\*\*", section), (
+        "the live reach/total is back in bold in the paragraph")
 
 
 def test_the_fifth_false_failure_names_its_own_referent():
