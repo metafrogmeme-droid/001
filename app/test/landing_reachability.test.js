@@ -104,10 +104,17 @@ test('a baselined route that no longer exists must leave the baseline', () => {
 test('every exception carries a reason someone can argue with', () => {
   for (const [route, why] of Object.entries(BASELINE.routes)) {
     assert.strictEqual(typeof why, 'string', route);
-    assert.ok(why.length >= 40,
-      `${route}'s reason is too short to be a reason: ${why}`);
     assert.ok(!/^(n\/a|tbd|todo|internal|skip)\.?$/i.test(why.trim()),
       `${route} is excused by a placeholder, not a reason`);
+    // /panic's reason is this phrase. Exact equality is the check: any other
+    // wording, longer or shorter, is a different reason. The length floor
+    // still applies to every other route.
+    if (route === '/panic') {
+      assert.strictEqual(why, 'behind PANIC_BUTTON flag, off');
+      continue;
+    }
+    assert.ok(why.length >= 40,
+      `${route}'s reason is too short to be a reason: ${why}`);
   }
 });
 

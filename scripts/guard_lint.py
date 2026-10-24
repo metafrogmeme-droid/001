@@ -514,6 +514,16 @@ RULES: list[Rule] = [
                            # rate limited by IP inside the router, nothing
                            # signed, sent or stored about who asked; an account
                            # would add a login in front of a public fact.
+            "sar_oracle",  # GET /api/sar-oracle/packets is public when
+                           # SAR_ORACLE_ENABLED is on and carries ratios and
+                           # scores only. GET /api/sar-oracle/admin/packets is
+                           # the operator's, via isOperator, and the only route
+                           # that returns dollar amounts. No account. 404 while
+                           # the flag is off, before the operator check and
+                           # before the rate limit. IP rate limit. Signs only
+                           # on Base Sepolia. The key is never in the repo.
+                           # The test asserts no write route and that the
+                           # public JSON has no dollar-shaped key.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public
@@ -571,6 +581,22 @@ RULES: list[Rule] = [
             "today", "feed", "gas", "dapps", "allowances",
             # ^ market data and read-only chain lookups: no account is in scope,
             #   the inputs are a symbol or an address the caller already has.
+            "panic",
+                           # POST /api/panic — the read-only approval lookup.
+                           # The address arrives in the body and leaves in the
+                           # response the caller is already reading. Nothing is
+                           # cached or written, and the route does not sign.
+                           # The receipt is a different module.
+            "panic_receipt",
+                           # POST /api/panic/receipt seals the tx hashes the
+                           # caller reports. It is not the read-only lookup,
+                           # so it is not exempt for that reason. It stays
+                           # public with three limits, tested in
+                           # app/test/panic_button.test.js:
+                           # 10 requests a minute per IP.
+                           # At most 40 hashes in one request.
+                           # Each hash must be 0x plus 64 hex digits.
+                           # No address is stored.
             # it returns curated public signals from bot/botcheck/catalog.json, read-only, with no user data.
             "botcheck",
             "botcheck_submit",     # POST /api/botcheck/submit only, and anonymous because the page
