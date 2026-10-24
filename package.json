@@ -24,6 +24,7 @@
   "overrides": {
     "js-yaml": "^4.3.2",
     "brace-expansion": "2.1.7",
-    "toml": "5.0.1"
+    "toml": "5.0.1",
+    "serialize-javascript": "7.1.3"
   }
 }
