@@ -84,7 +84,7 @@ Structured Audit Log
 - **X / Twitter:** [@RUNECLAW_AI](https://x.com/RUNECLAW_AI)
 - **Team:** Patrick Baur (Lead Developer) & Daan (Co-Founder & Strategy)
 - **Began as:** an entry to the Bitget AI Base Camp · Hackathon S1
-- **License:** BUSL-1.1 (Business Source License; source-available)
+- **License:** BUSL-1.1 (Business Source License; source-available). Non-production use such as reading, evaluating and testing is allowed. Any production use requires a separate paid commercial license from Humanoid Traders. Contact info@humanoid-traders.com.
 
 > **DISCLAIMER:** RUNECLAW began as an entry to the Bitget AI Base Camp · Hackathon S1 and is
 > early-stage software. It trades live with small positions, and **no independent third-party

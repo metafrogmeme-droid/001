@@ -1010,7 +1010,11 @@ python -m bot.main --mode scan
 
 **BUSL-1.1** —— Business Source License 1.1（原始碼可取得）。詳見 [LICENSE](./LICENSE) 與 [NOTICE](./NOTICE)。
 
-你可以自由檢視、研究、fork 並修改本程式碼，並可為自身個人或內部業務用途運行（包含交易你自己或組織的資金）以及研究與評估。未取得商業授權前，你**不得**將 RUNECLAW 或其衍生作品以託管、代管或嵌入式商業服務提供給第三方，亦不得用以與 RUNECLAW 或 Humanoid Traders 競爭。到達轉換日期（2030-07-21）時，各版本將轉為 GNU General Public License, version 2.0 或更新版本。商業授權洽詢：透過 [Telegram 社群](https://t.me/+VRNgsmkR5pszZTdk)聯絡 Humanoid Traders。
+你可以檢視、研究、fork 並修改本程式碼，並可作非生產用途，包含閱讀、評估與測試。Licensed Work 或其任何衍生作品的任何生產用途，包含個人或內部業務用途，以及交易你自己或你組織的資金，均須另行向 Humanoid Traders 取得付費商業授權。到達轉換日期（2030-07-21）時，各版本將轉為 GNU General Public License, version 2.0 或更新版本。
+
+## 商業授權
+
+生產用途僅可在取得 Humanoid Traders 的付費商業授權後進行。請聯絡 Humanoid Traders：info@humanoid-traders.com。
 
 ---
 

@@ -24,11 +24,14 @@ LICENSE
 
 This program is licensed under the Business Source License 1.1 (BUSL-1.1). You
 may copy, modify, create derivative works of, redistribute, and make
-non-production use of the Licensed Work, and you may make the production use
-permitted by the Additional Use Grant in the LICENSE file. The Licensed Work is
-provided "AS IS", without warranty of any kind. On the Change Date stated in the
-LICENSE (2030-07-21), each version converts to the GNU General Public License,
-version 2.0 or later.
+non-production use of the Licensed Work, such as reading, evaluating and
+testing. The Additional Use Grant is None. Any production use of the Licensed
+Work or any derivative of it, including personal or internal-business use and
+trading your own or your organization's funds, requires a separate paid
+commercial license from Humanoid Traders. The Licensed Work is provided "AS
+IS", without warranty of any kind. On the Change Date stated in the LICENSE
+(2030-07-21), each version converts to the GNU General Public License, version
+2.0 or later.
 
 See the LICENSE file in the repository root for the full terms.
 
@@ -36,24 +39,22 @@ See the LICENSE file in the repository root for the full terms.
 WHAT THIS MEANS
 ================================================================================
 
-You are free to:
+You may:
   - View, study, and learn from the source code
   - Fork and modify the code
-  - Run it for your own personal or internal-business purposes (including
-    trading your own or your organization's funds) and for research/evaluation
+  - Make non-production use of it, including reading, evaluating and testing
   - Distribute modified versions under this same license
 
-Under these conditions:
+Production use is only under a paid commercial license:
+  - Any production use of the Licensed Work or any derivative of it, including
+    personal or internal-business use and trading your own or your
+    organization's funds, requires a separate paid commercial license from
+    Humanoid Traders
   - You MUST keep this notice and the Business Source License intact and
     conspicuously displayed on every copy
-  - You MAY NOT provide the Licensed Work, or any derivative of it, to third
-    parties as a hosted, managed, or embedded commercial service, nor otherwise
-    use it to compete with RUNECLAW or Humanoid Traders, without a separate
-    commercial license
   - On the Change Date (2030-07-21) each version converts to GPL v2.0-or-later
 
-Commercial licensing inquiries: contact Humanoid Traders via the project
-repository or Telegram community (https://t.me/+VRNgsmkR5pszZTdk).
+Commercial licensing: contact Humanoid Traders at info@humanoid-traders.com.
 
 ================================================================================
 THIRD-PARTY COMPONENTS
