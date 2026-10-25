@@ -18,6 +18,7 @@ const TREATMENTS = new Set([
   'rescale_positions', 'settle_close', 'funding_payment', 'post_only', 'reduce_only',
   'halt', 'pause_all', 'block_repay', 'block_add_collateral', 'oracle_frozen',
   'oracle_regime_switch', 'balance_rebase', 'display_only_multiplier',
+  'session_hours', 'cancel_resting',
 ]);
 
 const ALERT_TYPES = ['event_window', 'regime_switch', 'lockout', 'conflict'];
@@ -229,6 +230,38 @@ function displayInput(input) {
       amsterdam: ams,
     };
   }
+  if (input.kind === 'seasonal_wall') {
+    if (!Number.isInteger(input.offset_minutes) || !Array.isArray(input.readings) || input.readings.length < 1) {
+      return { readable: false, utc: null, amsterdam: null };
+    }
+    const readings = [];
+    for (const row of input.readings) {
+      const utc = localToUtcClock(row.clock, input.offset_minutes);
+      if (!utc || !row.season) return { readable: false, utc: null, amsterdam: null };
+      const ams = amsterdamForUtcClock(utc.clock);
+      if (!ams.readable) return { readable: false, utc: null, amsterdam: null };
+      readings.push({
+        season: row.season,
+        stated: row.stated || null,
+        wall_clock: row.clock,
+        offset_label: input.zone_label || null,
+        weekday: input.weekday || null,
+        utc_clock: utc.clock,
+        day_shift: utc.day_shift,
+        amsterdam: ams,
+      });
+    }
+    return {
+      readable: true,
+      known: false,
+      kind: 'seasonal_wall',
+      utc: null,
+      amsterdam: null,
+      stated: input.stated || null,
+      readings,
+      approximate: false,
+    };
+  }
   if (input.kind === 'offset_clock') {
     const primary = localToUtcClock(input.clock, input.offset_minutes);
     const primaryAnchor = primary && shiftDayAnchor(input.day_anchor, primary.day_shift);
@@ -276,6 +309,7 @@ function displayInput(input) {
       utc: null,
       amsterdam: null,
       minutes: Number.isInteger(input.minutes) ? input.minutes : null,
+      approximate: input.approximate === true,
       older_than_minutes: Number.isInteger(input.older_than_minutes) ? input.older_than_minutes : null,
       seconds_before_anchor: Number.isInteger(input.seconds_before_anchor) ? input.seconds_before_anchor : null,
       anchor: input.anchor || null,
@@ -310,8 +344,9 @@ function instantMs(value) {
  * conflict is a gap wider than tolerance between the two best ranks that
  * carry an instant (the rank-1 versus rank-2 case when both are present).
  * resolved_value is the best rank's instant, or null when the only rank is 4
- * and the conventions do not agree. delta_s is null when fewer than two
- * instants were compared.
+ * and the conventions do not agree. Two claims of one higher rank that state
+ * the same rule and carry no instant are confirmed, with no resolved instant.
+ * delta_s is null when fewer than two instants were compared.
  */
 function resolveField(claims, toleranceSeconds) {
   const rows = (claims || []).filter((c) => c && Number.isInteger(c.rank));
@@ -371,6 +406,16 @@ function resolveField(claims, toleranceSeconds) {
     status = 'single_source';
     resolved_value = timed[0].utc;
     delta_s = null;
+  } else if (
+    timed.length === 0
+    && rows.length >= 2
+    && ranks.length === 1
+    && ranks[0] !== 4
+    && new Set(rows.map((c) => c.stated || null)).size === 1
+  ) {
+    status = 'confirmed';
+    resolved_value = null;
+    delta_s = null;
   } else {
     status = ranks[0] === 4 ? 'provisional' : 'single_source';
   }
@@ -423,6 +468,7 @@ function claimView(raw) {
     day_anchor: shown.day_anchor || null,
     amsterdam: shown.amsterdam,
     normalizations: shown.normalizations || null,
+    readings: shown.readings || null,
     selected: null,
     network: raw.network == null ? null : raw.network,
     network_note: raw.network_note ? labelText(raw.network_note) : null,
