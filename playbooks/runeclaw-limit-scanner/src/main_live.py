@@ -11,7 +11,7 @@ from typing import Any
 
 from getagent import runtime
 
-from . import execution, features, risk, scoring
+from . import clock, execution, features, risk, scoring
 
 _GATE = "BTCUSDT"
 
@@ -119,6 +119,10 @@ def build_decision(cfg: dict, mgmt: dict) -> dict:
         "data_health": {"BTC": _field_health(btc),
                         **{s.symbol: _field_health(s.features) for s in scored[:3]}},
         "run_id": runtime.run_id,
+        "subaccount_confirmed": mgmt.get("subaccount_confirmed"),
+        "subaccount_exists": mgmt.get("subaccount_exists"),
+        "total_value": mgmt.get("total_value"),
+        "subaccount_reason": mgmt.get("subaccount_reason"),
     }
 
     def watch(symbol: str, reason: str, extra_metrics: dict = None) -> dict:
@@ -133,6 +137,8 @@ def build_decision(cfg: dict, mgmt: dict) -> dict:
 
     top_symbol = scored[0].symbol if scored else _GATE
 
+    if circuit == "unconfirmed" or not mgmt.get("subaccount_confirmed"):
+        return watch(top_symbol, "subaccount_unconfirmed")
     if circuit in ("paused", "tripped"):
         return watch(top_symbol, "circuit_" + str(circuit))
     if direction == "none":
@@ -142,25 +148,48 @@ def build_decision(cfg: dict, mgmt: dict) -> dict:
     if not qualified:
         return watch(top_symbol, "no_setup_at_or_above_min_score")
 
+    blocked = clock.blackout_reason(cfg)
+    if blocked:
+        return watch(top_symbol, blocked)
+
     best = qualified[0]
-    plan = risk.build_plan(best.features, cfg, reg.size_factor, side=direction)
+    open_risk = mgmt.get("open_risk_usdt")
+    if open_risk is None and mgmt.get("subaccount_confirmed"):
+        return watch(best.symbol, "open_risk_unread")
+    plan = risk.build_plan(best.features, cfg, reg.size_factor, side=direction,
+                           open_risk=0.0 if open_risk is None else open_risk)
     if plan is None or not plan.sizing_ok:
         return watch(best.symbol, "sizing_failed", {"tradable_candidates": len(qualified)})
 
-    # Pre-placement staleness skip (v0.1.17): if the limit entry is already more
-    # than limit_chase_pct from current price, it is not a fillable pullback -- in
-    # a fast move VWAP lags and the entry lands far from market, so it would just
-    # rest dead and clog a slot. Stand aside (WATCH) instead of placing it. Uses
-    # the price already fetched for this candidate; no pending-order query needed,
-    # so it is immune to the management-layer parse bug. The chase-guard remains a
-    # backstop for orders that drift stale AFTER a fillable placement.
-    chase_pct = float(cfg.get("limit_chase_pct", "3.0")) / 100.0
+    # A resting limit may sit up to stale_limit_pct from the last trade. That
+    # distance is how far a pullback is allowed to wait. It is not a chase:
+    # moving the limit toward the market is capped at the smaller of 0.25%
+    # and half an ATR, and a move that would reach the best opposite price
+    # is cancelled.
+    stale_pct = float(cfg.get("stale_limit_pct", "3.0")) / 100.0
     cur = best.features.last
-    if chase_pct > 0 and cur and cur > 0 and plan.entry and plan.entry > 0:
+    if cur and cur > 0 and plan.entry and plan.entry > 0:
         gap = ((plan.entry - cur) / plan.entry) if plan.side == "short" else ((cur - plan.entry) / plan.entry)
-        if gap > chase_pct:
+        if gap <= 0:
+            return watch(best.symbol, "would_cross", {"tradable_candidates": len(qualified)})
+        if stale_pct > 0 and gap > stale_pct:
             return watch(best.symbol, "entry_too_far_{:.1f}pct".format(gap * 100.0),
                          {"tradable_candidates": len(qualified)})
+
+    # The contract SDK cannot send post-only. quote_entry moves the limit
+    # toward the market only inside the chase room, and refuses a price that
+    # would cross the best opposite or sit inside the one-tick maker line.
+    book = execution.read_top_of_book(best.symbol)
+    quoted, maker_why = execution.quote_entry(
+        plan.side, plan.entry, book.get("bid"), book.get("ask"), book.get("tick"),
+        atr=plan.atr, last=cur, configured_pct=cfg.get("limit_chase_pct", "0.25"))
+    if quoted is None:
+        return watch(best.symbol, maker_why, {"tradable_candidates": len(qualified)})
+    if quoted != plan.entry:
+        shifted = risk.with_entry(plan, quoted)
+        if shifted is None:
+            return watch(best.symbol, "would_cross", {"tradable_candidates": len(qualified)})
+        plan = shifted
 
     metrics = dict(base_metrics)
     metrics.update({
@@ -202,6 +231,7 @@ def build_decision(cfg: dict, mgmt: dict) -> dict:
             "side": plan.side, "entry": plan.entry, "sl_price": plan.sl_price,
             "tp1": plan.tp1, "tp2": plan.tp2,
             "margin_usdt": plan.margin_usdt, "notional_usdt": plan.notional_usdt,
+            "risk_usdt": plan.risk_usdt, "atr": plan.atr, "last": cur,
         },
     }
 
@@ -236,6 +266,15 @@ def run() -> None:
 
     def _execute():
         captured["called"] = True
+        # Cancels, closes and stop moves live only inside this callback.
+        try:
+            execution.apply_management(cfg, mgmt)
+        except Exception as exc:
+            mgmt["mgmt_error"] = type(exc).__name__
+        if decision.get("action") not in ("long", "short"):
+            res = {"placed": False, "reason": "not_an_entry"}
+            captured.update(res)
+            return res
         try:
             res = execution.open_if_allowed(decision, cfg, mgmt) or {}
         except Exception as exc:
@@ -285,16 +324,22 @@ def run() -> None:
         tail = "shp." + pshape
     else:
         tail = rshort
-    dbg = ("DBG-f{f}{em}-own{own}-pT{pt}-oP{op}-act{a}-c{c}p{p}-{t}"
-           .format(f=int(follow), em=emc, own=own, pt=pT, op=oP, a=acts,
-                   c=int(called), p=pcode, t=tail))[:63]
+    # A diagnostic is a watch on the decision's own symbol. A `close` here
+    # would replace the entry as the run's primary signal. The text stays in
+    # the meta, not in the symbol.
+    note = ("f{f}{em}-own{own}-pT{pt}-oP{op}-act{a}-c{c}p{p}-{t}"
+            .format(f=int(follow), em=emc, own=own, pt=pT, op=oP, a=acts,
+                    c=int(called), p=pcode, t=tail))[:80]
+    public_mgmt = {k: v for k, v in mgmt.items() if not str(k).startswith("_")}
     runtime.emit_signal(
-        action="close", symbol=dbg, confidence=0.222,
-        metrics={"dbg": dbg, "follow": follow, "exec_mode": exec_mode,
+        action="watch", symbol=str(decision.get("symbol") or _GATE), confidence=0.0,
+        metrics={"diag": note, "follow": follow, "exec_mode": exec_mode,
                  "open_count": own, "pending_total": pT, "owned_pending": oP,
-                 "mgmt_actions": mgmt.get("actions", []), "mgmt_error": merr,
-                 "called": called, "placed": placed, "reason": full_reason[:120]},
-        meta={"dbg": dbg, "mgmt": _sanitize(mgmt)},
+                 "mgmt_actions": public_mgmt.get("actions", []), "mgmt_error": merr,
+                 "called": called, "placed": placed, "reason": full_reason[:120],
+                 "subaccount_confirmed": public_mgmt.get("subaccount_confirmed"),
+                 "subaccount_reason": public_mgmt.get("subaccount_reason")},
+        meta={"diag": note, "mgmt": _sanitize(public_mgmt)},
     )
 
 

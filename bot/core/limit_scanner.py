@@ -12,8 +12,11 @@ same rules. One pass:
 2. **The score.** Every other symbol is scored for that side, out of 100:
    momentum 25 (24h change relative to the leader, ranked across the symbols
    that read one), VWAP position 20, 24h range position 20, order-book
-   balance 20, and quote volume 15 (ranked). A dimension that could not be
-   read adds nothing and is named. The playbook gave an unread dimension
+   balance 20, and quote volume 15 (a percentile across the class, so one
+   busy name does not take the whole score). A dimension that could not be
+   read adds nothing and is named. When the order book is that dimension,
+   the other 80 points are scaled onto 100, so the same 70 is the same
+   fraction of what was read. The playbook gave an unread dimension
    mid-scale points (12.5 momentum, 10 VWAP, 8 order book, 7.5 volume), so a
    symbol could clear the bar on points nobody measured.
 3. **The skips.** Extended beyond the VWAP cap on the entry side, quote
@@ -102,6 +105,25 @@ class ScannerParams:
     # scanner's own; the house risk gate's apply either way.
     max_concurrent: Optional[int] = None
     max_correlated_alts: Optional[int] = None
+    # Quote volume is a percentile across the class. ``minmax`` is the old
+    # rank, kept so a measurement can show what it did. It is not the default.
+    volume_rank: str = "percentile"
+    # An unread order book is not given points. The other four weights are
+    # scaled onto 100 so the same 70 is the same fraction of what was read.
+    # Off, the raw sum is the bar (the old card: 70 of 80, which only the
+    # volume leader could clear).
+    scale_unread_book: bool = True
+    # Adverse-selection studies. Each is off unless a preset turns it on.
+    imbalance_filter: bool = False
+    neutral_on_tie: bool = False
+    vol_entry_offset: float = 0.0
+    reclaim_fill: bool = False
+    cancel_adverse_bp: float = 0.0
+    # Tokenized equities stay out unless a preset opts in. Their book on
+    # Bitget's v2 feed is a failed read for the R-prefix names, and a missing
+    # book is a fifth of the score. Opting in still skips a name whose book
+    # was not read.
+    include_equities: bool = False
 
     def stop_floor(self, symbol: str) -> float:
         """The tier floor for ``symbol``'s stop distance, as a fraction."""
@@ -132,7 +154,9 @@ _COUNT_KEYS = ("max_concurrent", "max_correlated_alts")
 #: Every preset key the scanner reads: the one list for `params_from_preset`,
 #: the runner's ``--scanner-config`` and the card's gate block.
 SCANNER_KEYS: tuple[str, ...] = _NUMBER_KEYS + _COUNT_KEYS + (
-    "atr_period", "leader", "allow_short", "stop_floor_pct", "step_locks", "classes")
+    "atr_period", "leader", "allow_short", "stop_floor_pct", "step_locks", "classes",
+    "volume_rank", "scale_unread_book", "imbalance_filter", "neutral_on_tie",
+    "vol_entry_offset", "reclaim_fill", "cancel_adverse_bp", "include_equities")
 
 
 @dataclass(frozen=True)
@@ -242,6 +266,27 @@ def params_from_preset(cfg: dict) -> Optional[ScannerParams]:
         if not isinstance(cfg["allow_short"], bool):
             return None
         kw["allow_short"] = cfg["allow_short"]
+    for key in ("scale_unread_book", "imbalance_filter", "neutral_on_tie", "reclaim_fill",
+                "include_equities"):
+        if key not in cfg:
+            continue
+        if not isinstance(cfg[key], bool):
+            return None
+        kw[key] = cfg[key]
+    if "volume_rank" in cfg:
+        if cfg["volume_rank"] not in ("percentile", "minmax"):
+            return None
+        kw["volume_rank"] = cfg["volume_rank"]
+    for key in ("vol_entry_offset", "cancel_adverse_bp"):
+        if key not in cfg:
+            continue
+        raw = cfg[key]
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        val = float(raw)
+        if not (val == val and 0 <= val < float("inf")):
+            return None
+        kw[key] = val
     if "stop_floor_pct" in cfg:
         floors = cfg["stop_floor_pct"]
         if not isinstance(floors, dict):
@@ -278,10 +323,14 @@ def params_from_preset(cfg: dict) -> Optional[ScannerParams]:
 
 #: What the frozen bars cannot carry, said on the card beside its figures.
 BACKTEST_READS = (
-    "The frozen 1h bars carry no order book, funding or taker flow, so the backtest "
-    "scores out of the remaining 80 points with the same 70 to act, skips nothing "
-    "for a wall or for funding, and reads each leader's side from its day and VWAP alone. "
-    "Its limit rests from the bar after the one it was decided at.")
+    "The frozen 1h bars carry no order book, funding or taker flow. An unread "
+    "order book is not given points: the other four dimensions, 80 in all, are "
+    "scaled onto 100 so the same 70 is the same fraction of what was read as a "
+    "live pass that saw the book. Quote volume is a percentile across the class, "
+    "so one busy market does not take the whole volume score. The backtest skips "
+    "nothing for a wall or for funding, and reads each leader's side from its day "
+    "and VWAP alone. Its limit rests from the bar after the one it was decided at. "
+    "The figures published on the card were measured before this scale.")
 
 
 def _pct(v: float) -> str:
@@ -401,6 +450,10 @@ class Snapshot:
     ask_volume: Optional[float] = None
     funding_bps: Optional[float] = None
     taker_ratio: Optional[float] = None
+    # Best prices. None is unread. A limit at or through the opposite price
+    # is a taker; the pullback refuses it when these were read.
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
 
 
 #: Closed 1h bars one snapshot is read from: the day (25), the ATR span and
@@ -453,7 +506,8 @@ def snapshot_from_bars(symbol: str, rows: Sequence[Sequence[Any]],
     return Snapshot(symbol=symbol, last=last, vwap=vwap, high=high, low=low,
                     change_pct=change, quote_volume=quote, atr=atr,
                     bid_volume=live.get("bid_volume"), ask_volume=live.get("ask_volume"),
-                    funding_bps=live.get("funding_bps"), taker_ratio=live.get("taker_ratio"))
+                    funding_bps=live.get("funding_bps"), taker_ratio=live.get("taker_ratio"),
+                    bid_price=live.get("bid_price"), ask_price=live.get("ask_price"))
 
 
 # ── the leader's regime ─────────────────────────────────────────────────────
@@ -489,6 +543,9 @@ def leader_regime(leader: Snapshot, params: ScannerParams) -> Regime:
         return Regime(LONG, 1.0, long_votes, True, "the leader is constructive")
     if params.allow_short and short_votes >= 2:
         return Regime(SHORT, 1.0, short_votes, True, "the leader is weak")
+    # A one-vote tie used to break toward long. That bias is off unless asked.
+    if params.neutral_on_tie and long_votes == short_votes:
+        return Regime(None, 0.0, long_votes, True, "the leader is mixed")
     if long_votes == 1 and long_votes >= short_votes:
         return Regime(LONG, 0.5, long_votes, True, "the leader is partly constructive")
     if params.allow_short and short_votes == 1:
@@ -507,6 +564,58 @@ class Scored:
     points: float
     dims: Mapping[str, Optional[float]]
     skip: str
+
+
+def _is_tokenized_equity(symbol: str) -> bool:
+    """True for a Bitget stock perp (``AAPLON/USDT``, ``RAAPL/USDT``).
+
+    The list is ``US_STOCK_SYMBOLS``. A leading R is not enough: RENDER is
+    not an equity.
+    """
+    from bot.core.stock_trading import is_stock_symbol
+    raw = str(symbol or "").upper().replace(" ", "")
+    base = _base(raw)
+    candidates = {raw, f"{base}/USDT"}
+    if raw.endswith("USDT") and "/" not in raw:
+        candidates.add(raw[:-4] + "/USDT")
+    return any(is_stock_symbol(c) for c in candidates)
+
+
+def _percentile(value: Optional[float], values: Sequence[float]) -> Optional[float]:
+    """Where ``value`` sits in ``values``, 0 at the minimum and 1 at the maximum.
+
+    The count of readings strictly below, over one less than the count. A
+    single reading, or every reading equal, ranks nothing: there is no
+    spread to place it on. One very large reading then leaves the next
+    name in the middle of the class, not at zero.
+    """
+    if value is None:
+        return None
+    xs = [v for v in values if v is not None]
+    if len(xs) < 2:
+        return None
+    if max(xs) <= min(xs):
+        return None
+    below = sum(1 for v in xs if v < value)
+    return below / (len(xs) - 1)
+
+
+def bar_score(points: float, dims: Mapping[str, Optional[float]], *,
+              scale_unread_book: bool = True) -> float:
+    """The score the minimum is compared with.
+
+    ``points`` is the raw sum. Dimensions that were not read are absent
+    from that sum. When the order book is the one that was not read, and
+    scaling is on, those points are a fraction of 80 and the bar is 70 of
+    100, so the fraction is rewritten onto 100. Other unread dimensions
+    stay in the 80 as zeros: one readable dimension does not become 100.
+    """
+    if not scale_unread_book or dims.get("orderbook") is not None:
+        return points
+    denom = sum(WEIGHTS.values()) - WEIGHTS["orderbook"]
+    if denom <= 0:
+        return points
+    return points / denom * 100.0
 
 
 def _rank(value: Optional[float], lo: Optional[float], hi: Optional[float]) -> Optional[float]:
@@ -569,11 +678,28 @@ def score_universe(snaps: Sequence[Snapshot], leader: Snapshot, side: str,
             dims["orderbook"] = WEIGHTS["orderbook"] * frac
             if 1.0 / favour_ratio >= params.bidask_wall_ratio:
                 skip = skip or "an opposing order-book wall"
-        rv = _rank(s.quote_volume, vol_lo, vol_hi)
+        if params.volume_rank == "minmax":
+            rv = _rank(s.quote_volume, vol_lo, vol_hi)
+        else:
+            rv = _percentile(s.quote_volume, vols)
         if rv is not None:
             dims["volume"] = WEIGHTS["volume"] * rv
+        if _is_tokenized_equity(s.symbol):
+            if not params.include_equities:
+                skip = skip or "tokenized equity is excluded"
+            elif dims.get("orderbook") is None:
+                # The v2 book fails for these names. Leaving the dimension
+                # absent would scale the other 80 onto 100 and hide that a
+                # fifth of the score was not read. Zero keeps the weight.
+                dims["orderbook"] = 0.0
+                skip = skip or "the order book was not read"
         if s.quote_volume is not None and s.quote_volume < params.min_quote_volume:
             skip = skip or "quote volume below the floor"
+        if params.imbalance_filter:
+            taker = s.taker_ratio
+            opposes = taker is None or (taker <= 1.0 if is_long else taker >= 1.0)
+            if opposes:
+                skip = skip or "taker flow opposes the side or was not read"
         if s.funding_bps is not None:
             pays = s.funding_bps >= params.funding_skip_bps if is_long \
                 else s.funding_bps <= -params.funding_skip_bps
@@ -608,12 +734,22 @@ def plan_pullback(snap: Snapshot, side: str, size_factor: float,
         return None, "its VWAP, ATR or last price could not be read"
     if snap.low is None or snap.high is None:
         return None, "its 24h range could not be read"
-    offset = params.atr_limit_mult * snap.atr
+    offset = (params.atr_limit_mult + params.vol_entry_offset) * snap.atr
     if side == LONG:
-        px = min(snap.vwap - offset, snap.last)
+        px = snap.vwap - offset
+        # A buy at or above the last trade is a market buy. The 3% distance
+        # cap is how far a resting limit may sit, not permission to cross.
+        if px >= snap.last:
+            return None, "the limit would cross the market"
+        if snap.ask_price is not None and px >= snap.ask_price:
+            return None, "the limit would cross the best ask"
         structure = (px - snap.low) / px if px > snap.low else 0.0
     else:
-        px = max(snap.vwap + offset, snap.last)
+        px = snap.vwap + offset
+        if px <= snap.last:
+            return None, "the limit would cross the market"
+        if snap.bid_price is not None and px <= snap.bid_price:
+            return None, "the limit would cross the best bid"
         structure = (snap.high - px) / px if snap.high > px else 0.0
     if not px > 0:
         return None, "the limit price is not a price"
@@ -658,7 +794,8 @@ def scan_pass(snaps: Sequence[Snapshot], params: ScannerParams,
         return Pass(reg, tuple(score_universe(others, lead, LONG, params)), None, reg.reason)
     board = score_universe(others, lead, reg.side, params)
     for row in board:
-        if row.skip or row.points < params.min_score:
+        scored = bar_score(row.points, row.dims, scale_unread_book=params.scale_unread_book)
+        if row.skip or scored < params.min_score:
             break
         if _base(row.symbol) in held:
             continue

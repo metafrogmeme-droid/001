@@ -593,6 +593,9 @@ app.use('/api/sar-oracle', require('./routes/sar_oracle'));
 // The quote tool is POST /api/xnav/mcp, not the MCP catalogue.
 app.use('/api/xnav', require('./routes/xnav'));
 // --- XNAV end ---
+// Limit Entry Scanner forward shadow. Admin only, flag on or off.
+// Basis points and counts. A missing summary is not a measured zero.
+app.use('/api/limit-scanner/shadow', require('./routes/limit_scanner_shadow'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));

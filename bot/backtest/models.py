@@ -115,6 +115,14 @@ class BacktestConfig(BaseModel):
     # close-mode limit rests from the next bar, the same rule live uses. Set
     # true to restore the same-bar fill.
     same_bar_limit_fill: bool = False
+    # Resting-limit realism. All off: a touch fills, which is the historical
+    # model. Set, a fill needs a trade-through, a queue haircut, or a reclaim,
+    # and the decision reads only the bar it is handed. See limit_fill.py.
+    limit_through_bp: Optional[float] = None
+    limit_queue_p: Optional[float] = None
+    limit_queue_sure_bp: Optional[float] = None
+    limit_maker_entry: bool = False
+    limit_reclaim: bool = False
     # Auto-reset a tripped circuit breaker after this many bars (0 = never,
     # the default — breaker halts are preserved exactly like live). A
     # drawdown/streak trip normally requires MANUAL reset; in a months-long

@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 from getagent import data
 
+from .book import read_levels
+
 
 def _model_dict(obj: Any) -> dict:
     if isinstance(obj, dict):
@@ -54,6 +56,13 @@ def _to_records(obb: Any) -> list:
     return [single] if single else []
 
 
+def _first_of(row: dict, keys: tuple) -> Any:
+    for key in keys:
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+    return None
+
+
 def _f(value: Any) -> Optional[float]:
     try:
         if value is None or value == "":
@@ -78,6 +87,8 @@ class SymbolFeatures:
     quote_volume: Optional[float] = None
     bid_volume: Optional[float] = None
     ask_volume: Optional[float] = None
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
     note: str = ""
 
 
@@ -103,11 +114,52 @@ def fetch_symbol(symbol: str, exchange: str = "bitget") -> SymbolFeatures:
         quote_volume=_f(row.get("quote_volume")),
         bid_volume=_f(row.get("bid_volume")),
         ask_volume=_f(row.get("ask_volume")),
+        bid_price=_f(_first_of(row, ("bid", "best_bid", "bidPrice", "bid_price", "bidPr",
+                                     "buyOnePrice", "bid1Price"))),
+        ask_price=_f(_first_of(row, ("ask", "best_ask", "askPrice", "ask_price", "askPr",
+                                     "sellOnePrice", "ask1Price"))),
     )
     if feats.last is None or feats.high is None or feats.low is None:
         feats.ok = False
         feats.note = "missing_core_price_fields"
+        return feats
+    if feats.bid_volume is None or feats.ask_volume is None:
+        bid, ask = _resting_size(symbol, exchange)
+        if bid is not None and ask is not None:
+            feats.bid_volume = bid
+            feats.ask_volume = ask
     return feats
+
+
+def _book_payload(obb: Any) -> dict:
+    rows = _to_records(obb)
+    if rows and ("bids" in rows[-1] or "asks" in rows[-1]):
+        return rows[-1]
+    results = getattr(obb, "results", None)
+    if isinstance(results, dict):
+        return results
+    return {}
+
+
+def _resting_size(symbol: str, exchange: str) -> tuple:
+    """Bid and ask size. The v2 book is tried first; a v3-move refusal retries.
+
+    No order-book method on the data layer leaves the size unread. An equity
+    whose size stays unread is skipped by the scorer, not given the other
+    weights rescaled onto 100.
+    """
+    futures = getattr(getattr(data, "crypto", None), "futures", None)
+    fn = getattr(futures, "orderbook", None) if futures is not None else None
+    if not callable(fn):
+        return None, None
+
+    def fetch(sym: str, params=None):
+        kwargs = {"symbol": sym, "exchange": exchange}
+        if params:
+            kwargs["params"] = params
+        return _book_payload(fn(**kwargs))
+
+    return read_levels(fetch, symbol)
 
 
 def taker_buy_ratio(symbol: str, exchange: str = "bitget") -> Optional[float]:
