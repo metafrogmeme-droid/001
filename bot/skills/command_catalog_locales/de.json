@@ -153,6 +153,7 @@
     "rxb": "Rekursion-Durchsicht für den Betreiber, nur Verhältnisse",
     "shadow": "kontrafaktisches Schattenbuch",
     "srb": "Schatten-Erstattungssignale — ein öffentliches Signal, nichts wird gezahlt",
+    "quarantine": "versteckte Token und NFTs, die der Bot nicht anfasst, plus eine Warnung bei einer Doppelgaenger-Adresse",
     "audit": "nächtlicher Selbst-Audit-Bericht",
     "parity": "Parität Live ↔ Backtest",
     "duplicates": "doppelt gebuchte Schließungen in den Büchern des Betreibers",

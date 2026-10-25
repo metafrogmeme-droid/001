@@ -153,6 +153,7 @@
     "rxb": "lectura de recursión para el operador, solo razones",
     "shadow": "libro sombra contrafactual",
     "srb": "señales de restitución en sombra — una señal pública, no se paga",
+    "quarantine": "tokens y NFT ocultos que el bot no toca, y un aviso si la dirección se parece",
     "audit": "informe de autoauditoría nocturna",
     "parity": "paridad real ↔ backtest",
     "duplicates": "cierres registrados dos veces en los libros del operador",

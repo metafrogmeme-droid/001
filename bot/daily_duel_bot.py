@@ -688,8 +688,25 @@ class DailyDuelBot:
         if await self._limited(update):
             return
         raw = command_argument(getattr(getattr(update, "effective_message", None), "text", "") or "")
+        extra: dict = {}
+        try:
+            from bot.quarantine.flag import flag_on as quarantine_on
+            if quarantine_on():
+                try:
+                    from bot.quarantine.book import load_book
+                    owner = str(getattr(getattr(update, "effective_user", None), "id", "") or "")
+                    loaded = load_book(owner)
+                    if loaded.get("state") == "unreadable":
+                        extra["list_state"] = "unreadable"
+                    else:
+                        extra["hidden"] = loaded.get("contracts") or set()
+                except Exception:
+                    extra = {"list_state": "unreadable"}
+        except Exception:
+            extra = {}
         texts = await asyncio.to_thread(
             on_panic, raw, reader=self.reader, exploits=self.exploits, now_iso=self._now(),
+            **extra,
         )
         for text in texts:
             await self._reply(update, text)

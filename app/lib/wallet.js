@@ -296,7 +296,7 @@ function ethersForContracts(mod) {
 
 /** Read one chain's balances. Never throws: an unreachable RPC returns an
  * empty section flagged `error` so the multi-chain view stays honest. */
-async function readChain(chain, address, tickers) {
+async function readChain(chain, address, tickers, hidden) {
   const ethersMod = require('ethers');
   const ethers = ethersForContracts(ethersMod);
   const assets = [];
@@ -344,8 +344,22 @@ async function readChain(chain, address, tickers) {
   } catch (e) { sawError = true; note(e); }
 
   // Curated tokens — each read fails soft; a flaky token never sinks the view.
+  // A hidden contract is not read. The balance is not in the total, and the
+  // card says so. No set means the view is the one it was.
+  let hideKey = null;
+  if (hidden && typeof hidden.has === 'function') {
+    hideKey = require('./quarantine_book').contractKey;
+  }
+  let skipped = 0;
   for (const t of chain.tokens) {
     try {
+      if (hideKey) {
+        const key = hideKey(chain.chainId, t.address, '');
+        if (key && hidden.has(key)) {
+          skipped += 1;
+          continue;
+        }
+      }
       const raw = await attempt((pr) =>
         new ethers.Contract(t.address, ERC20_ABI, pr).balanceOf(address));
       const amount = readAmount(ethersMod, raw, t.decimals);
@@ -369,21 +383,28 @@ async function readChain(chain, address, tickers) {
     ...(sawError && !assets.length
       ? { error: 'rpc unreadable', ...(errorDetail ? { error_detail: errorDetail } : {}) }
       : {}),
+    ...(skipped > 0 ? { quarantine_hidden: skipped } : {}),
   };
 }
 
-async function readWallet(address) {
+async function readWallet(address, hidden) {
   let tickers = {};
   try { tickers = await fetchTickers(); } catch (e) { /* price as null below */ }
 
   const chains = await Promise.all(
-    activeChains().map(c => readChain(c, address, tickers)));
+    activeChains().map(c => readChain(c, address, tickers, hidden)));
 
   // Flattened view preserves the pre-multichain shape (each asset now also
   // carries its `chain`) — networth sums total_usd, exposure nets assets,
   // both unchanged.
   const assets = chains.flatMap(c => c.assets).sort((a, b) => (b.usd || 0) - (a.usd || 0));
   const priced = assets.filter(a => a.usd !== null);
+  let quarantineHidden = 0;
+  for (const c of chains) {
+    if (c && typeof c.quarantine_hidden === 'number' && c.quarantine_hidden > 0) {
+      quarantineHidden += c.quarantine_hidden;
+    }
+  }
   return {
     read_only: true,
     address,
@@ -393,17 +414,23 @@ async function readWallet(address) {
     total_usd: round2(priced.reduce((a, x) => a + x.usd, 0)),
     unpriced: assets.length - priced.length,
     generated_at: new Date().toISOString(),
+    ...(quarantineHidden > 0 ? { quarantine_hidden: quarantineHidden } : {}),
   };
 }
 
-async function getWalletPortfolio(address) {
+async function getWalletPortfolio(address, hidden) {
   const key = String(address || '').toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(key)) return null;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.portfolio;
-  const portfolio = await readWallet(address);
-  cache.set(key, { at: Date.now(), portfolio });
-  if (cache.size > 500) cache.delete(cache.keys().next().value);
+  // A hide list must not ride the shared cache. null is the existing path.
+  if (hidden == null) {
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.portfolio;
+  }
+  const portfolio = await readWallet(address, hidden);
+  if (hidden == null) {
+    cache.set(key, { at: Date.now(), portfolio });
+    if (cache.size > 500) cache.delete(cache.keys().next().value);
+  }
   return portfolio;
 }
 
@@ -429,7 +456,7 @@ function fmtUsd(v) {
  * escaped, and the unreadable-chains line is `<i>`, not a `<span>`: the
  * card is forwarded to Telegram's HTML parser as-is.
  */
-async function walletChatCard(userId, chainFilter) {
+async function walletChatCard(userId, chainFilter, ownerId) {
   try {
     if (chainFilter && !CHAINS.some(c => c.key === chainFilter)) {
       return {
@@ -447,7 +474,28 @@ async function walletChatCard(userId, chainFilter) {
         intent: 'wallet',
       };
     }
-    const p = await getWalletPortfolio(address);
+    let quarantineOn = false;
+    let listUnread = false;
+    let hidden = null;
+    try {
+      quarantineOn = require('./quarantine_flag').flagOn() === true;
+    } catch (e) {
+      quarantineOn = false;
+    }
+    if (quarantineOn) {
+      try {
+        const who = (ownerId == null || ownerId === '') ? String(userId) : String(ownerId);
+        const loaded = require('./quarantine_book').loadBook(who);
+        if (!loaded || loaded.state === 'unreadable' || loaded.state === 'invalid') {
+          listUnread = true;
+        } else {
+          hidden = loaded.contracts;
+        }
+      } catch (e) {
+        listUnread = true;
+      }
+    }
+    const p = await getWalletPortfolio(address, hidden);
     if (!p) return { reply_html: 'That wallet address doesn\'t look readable.', intent: 'wallet' };
     const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
 
@@ -458,7 +506,8 @@ async function walletChatCard(userId, chainFilter) {
       const scope = chainFilter
         ? `on ${esc(sections[0] ? sections[0].label : chainFilter)}` : 'across the tracked chains';
       return {
-        reply_html: `👛 <b>${short}</b> — no balances found ${scope} among the tracked assets.`,
+        reply_html: `👛 <b>${short}</b> — no balances found ${scope} among the tracked assets.`
+          + quarantineNote(quarantineOn, listUnread, sections),
         intent: 'wallet',
       };
     }
@@ -476,12 +525,31 @@ async function walletChatCard(userId, chainFilter) {
         + `<br><br>Total (priced): <b>${fmtUsd(round2(total))}</b>`
         + (p.unpriced && !chainFilter ? ` · ${p.unpriced} asset(s) unpriced` : '')
         + (unreadable.length ? `<br><i>${esc(unreadable.join(', '))} unreadable right now (RPC).</i>` : '')
-        + '<br><i>Balances read straight from the chain; RUNECLAW can never move them.</i>',
+        + '<br><i>Balances read straight from the chain; RUNECLAW can never move them.</i>'
+        + quarantineNote(quarantineOn, listUnread, sections),
       intent: 'wallet',
     };
   } catch (e) {
     return { reply_html: 'Wallet read hiccup — the RPC may be busy; try again shortly.', intent: 'wallet' };
   }
+}
+
+function quarantineNote(on, unread, sections) {
+  if (on !== true) return '';
+  if (unread === true) {
+    return '<br><i>The quarantine list could not be read, so nothing was hidden.</i>';
+  }
+  let n = 0;
+  const rows = Array.isArray(sections) ? sections : [];
+  for (const c of rows) {
+    if (c && typeof c.quarantine_hidden === 'number' && c.quarantine_hidden > 0) {
+      n += c.quarantine_hidden;
+    }
+  }
+  if (n > 0) {
+    return '<br><i>' + n + ' hidden. Not read and not in the total. This bot does not approve, transfer, or burn them.</i>';
+  }
+  return '';
 }
 
 module.exports = {

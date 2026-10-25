@@ -30,7 +30,17 @@ router.get('/portfolio', async (req, res) => {
     const solVerified = !!Number(u.sol_verified || 0);
     if (!address && !solAddress) return res.json({ address: null, linked: false });
 
-    const p = address ? await wallet.getWalletPortfolio(address) : null;
+    let hidden;
+    let quarantineList = null;
+    if (require('../lib/quarantine_flag').flagOn() === true) {
+      const loaded = require('../lib/quarantine_book').loadBook(String(uid));
+      if (!loaded || loaded.state === 'unreadable' || loaded.state === 'invalid') {
+        quarantineList = 'unreadable';
+      } else {
+        hidden = loaded.contracts;
+      }
+    }
+    const p = address ? await wallet.getWalletPortfolio(address, hidden) : null;
     if (address && !p) return res.status(400).json({ error: 'Linked wallet address unreadable' });
 
     // Solana fails soft: an RPC hiccup degrades that section, never the view.
@@ -54,6 +64,8 @@ router.get('/portfolio', async (req, res) => {
       total_usd: Math.round(((p ? p.total_usd : 0) + (sol ? sol.total_usd : 0)) * 100) / 100,
       unpriced: (p ? p.unpriced : 0) + (sol ? sol.unpriced : 0),
       generated_at: new Date().toISOString(),
+      ...(quarantineList ? { quarantine_list: quarantineList } : {}),
+      ...(p && typeof p.quarantine_hidden === 'number' ? { quarantine_hidden: p.quarantine_hidden } : {}),
     });
   } catch (err) {
     console.error('Wallet portfolio error:', err.stack || err.message);

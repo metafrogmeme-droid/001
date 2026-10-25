@@ -165,3 +165,9 @@ READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
   return require('./grounded_reputation_flag').flagOn(env) === true;
 };
 // --- Grounded Reputation end ---
+// --- QUARANTINE begin ---
+// Lazy: quarantine_flag does not require this module.
+READERS.QUARANTINE_ENABLED = function (env) {
+  return require('./quarantine_flag').flagOn(env) === true;
+};
+// --- QUARANTINE end ---

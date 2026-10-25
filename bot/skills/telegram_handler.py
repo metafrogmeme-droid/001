@@ -85,6 +85,7 @@ from bot.skills.hrc_commands import HrcCommands
 from bot.skills.llm_commands import LLMCommands
 from bot.skills.market_commands import MarketCommands
 from bot.skills.portfolio_commands import PortfolioCommands
+from bot.skills.quarantine_commands import QuarantineCommands
 from bot.skills.research_commands import ResearchCommands
 from bot.skills.scan_commands import ScanCommands
 from bot.skills.silent_fee_commands import SilentFeeCommands
@@ -1142,7 +1143,8 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
                       SilentFeeCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
-                      EngineOpsCommands, T2CCommands, SrbCommands, PortfolioCommands, ScanCommands,
+                      EngineOpsCommands, T2CCommands, SrbCommands, QuarantineCommands,
+                      PortfolioCommands, ScanCommands,
                       TradingCommands, StartCommands, AlertsMonitor, CallbackHandler):
     #: The signal-card sender start_monitor installs on the instance once the
     #: bot is running; None until then, and /latest_signal checks before it
@@ -1368,6 +1370,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("escape", self._cmd_escape),
             ("guardian", self._cmd_guardian),
             ("srb", self._cmd_srb),
+            ("quarantine", self._cmd_quarantine),
             ("approvals", self._cmd_approvals),
             ("xray", self._cmd_xray),
             # Web-parity views

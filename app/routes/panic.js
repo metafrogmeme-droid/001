@@ -109,7 +109,16 @@ router.post('/', async (req, res) => {
   if (!enabled()) return off(res);
   const address = req.body && typeof req.body.address === 'string' ? req.body.address : '';
   try {
-    const result = await runner({ address: address });
+    const payload = { address: address };
+    // A hidden approval is omitted only while quarantine is on. With the
+    // flag off the body stays the address the existing callers send.
+    if (require('../lib/quarantine_flag').flagOn() === true && req.body) {
+      if (Array.isArray(req.body.hidden)) {
+        payload.hidden = req.body.hidden.filter((x) => typeof x === 'string');
+      }
+      if (req.body.list_state === 'unreadable') payload.list_state = 'unreadable';
+    }
+    const result = await runner(payload);
     if (!result || result.available === false) return off(res);
     if (result.refused) {
       res.set('Cache-Control', 'no-store');
