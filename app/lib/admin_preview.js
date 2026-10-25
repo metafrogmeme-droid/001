@@ -128,6 +128,11 @@ module.exports = {
   BANNER, READERS, publicOn, hasCredential, identify, flag_on_for, previewFlags, bannerHtml, withBanner,
 };
 
+// QCH — appended after export so a sibling product can append its own
+// reader without editing the object literal. flagOn is the public reader.
+READERS.QCH_ENABLED = function (env) {
+  return require('./qch_flag').flagOn(env) === true;
+};
 // --- XNAV begin ---
 // Lazy: xnav_flag requires this module, so the reader cannot be a top-level require.
 READERS.XNAV_ENABLED = function (env) {

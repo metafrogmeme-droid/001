@@ -1,0 +1,65 @@
+{
+  "note": "Example rows from the 2026-10-24 reserve pull. UBTC is the one treasury address. A WBTC or cbBTC row is one address, not that issuer's reserve total.",
+  "rows": [
+    {
+      "asset": "UBTC",
+      "addr": "bc1pdwu79dady576y3fupmm82m3g7p2p9f6hgyeqy0tdg7ztxg7xrayqlkl8j9",
+      "type": "P2TR",
+      "chain_sats": 679327221065,
+      "listed_sats": 679327221065,
+      "spent_txo": 45426,
+      "funded_txo": 45994,
+      "expect_exposed": true
+    },
+    {
+      "asset": "WBTC",
+      "addr": "3PRCCQMdWwjEKy89iVdL8LouknsgygwWpL",
+      "type": "P2SH",
+      "chain_sats": 301302044052,
+      "listed_sats": 301302044052,
+      "spent_txo": 1,
+      "funded_txo": 133,
+      "expect_exposed": true
+    },
+    {
+      "asset": "WBTC",
+      "addr": "bc1qj589mwxxqppxr73q4ueyzx8pdnc3fc2fk25xzangp3ku3pt68mls78rc0m",
+      "type": "P2WSH",
+      "chain_sats": 120000000330,
+      "listed_sats": 120000000330,
+      "spent_txo": 0,
+      "funded_txo": 2,
+      "expect_exposed": false
+    },
+    {
+      "asset": "cbBTC",
+      "addr": "bc1qwfkngwsl3n2yrnttsmv3q849arwjlxzay34v7e",
+      "type": "P2WPKH",
+      "chain_sats": 1393862484416,
+      "listed_sats": 1393862484416,
+      "spent_txo": 2299,
+      "funded_txo": 2422,
+      "expect_exposed": true
+    },
+    {
+      "asset": "cbBTC",
+      "addr": "bc1q9e83uh7etgzmfrmjd389p7yjv5etsa6k3dq808",
+      "type": "P2WPKH",
+      "chain_sats": 332704142875,
+      "listed_sats": 332704142875,
+      "spent_txo": 0,
+      "funded_txo": 13,
+      "expect_exposed": false
+    },
+    {
+      "asset": "cbBTC",
+      "addr": "1HyzPvCHzwGGYAfYgSrYvSLYhTBNgmZYnp",
+      "type": "P2PKH",
+      "chain_sats": 618,
+      "listed_sats": 618,
+      "spent_txo": 1,
+      "funded_txo": 2,
+      "expect_exposed": true
+    }
+  ]
+}

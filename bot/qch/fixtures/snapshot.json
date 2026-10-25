@@ -1,0 +1,70 @@
+{
+  "as_of": "2026-10-24T18:53:00+02:00",
+  "as_of_unix": 1792860780,
+  "rule": "exposed = P2TR (key in the output) OR the address has at least one spent output",
+  "issuers": [
+    {
+      "asset": "UBTC",
+      "data_source": "mempool.space chain stats for the Unit treasury output, snapshot 2026-10-24. Wrapped outstanding on HyperCore was not in the fixture.",
+      "verif": "onchain",
+      "multisig": false,
+      "signer_scheme": "mpc_ecdsa_tss_classical",
+      "spend_path": "unverified",
+      "address_count": 1,
+      "pq_attestation": null,
+      "compared_sats": null,
+      "compared_name": "wrapped outstanding",
+      "buckets": [
+        {"type": "P2TR", "total_sats": 679327221065, "exposed_sats": 679327221065, "multisig": false}
+      ],
+      "supply_by_chain": null
+    },
+    {
+      "asset": "WBTC",
+      "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+      "verif": "por",
+      "multisig": true,
+      "signer_scheme": "classical_multisig",
+      "spend_path": null,
+      "address_count": 109,
+      "pq_attestation": null,
+      "compared_sats": 11649919079397,
+      "compared_name": "PoR circulating supply",
+      "buckets": [
+        {"type": "P2SH", "total_sats": 11426922616953, "exposed_sats": 11426922616953, "multisig": true},
+        {"type": "P2WSH", "total_sats": 224276670690, "exposed_sats": 10000007210, "multisig": true}
+      ],
+      "supply_by_chain": [
+        {"chain": "Ethereum", "sats": 11613218273262, "kind": "snapshot_count"},
+        {"chain": "Solana", "sats": 10482909825, "kind": "snapshot_count"},
+        {"chain": "Tron", "sats": 9984001999, "kind": "snapshot_count"},
+        {"chain": "BNB Chain", "sats": 0, "kind": "snapshot_count"},
+        {"chain": "Base", "sats": 498400, "kind": "snapshot_count"},
+        {"chain": "Kava", "sats": 7637869133, "kind": "snapshot_count"},
+        {"chain": "Osmosis", "sats": 8595526778, "kind": "snapshot_count"}
+      ]
+    },
+    {
+      "asset": "cbBTC",
+      "data_source": "coinbase.com/cbbtc/proof-of-reserves.json and mempool.space spent-output classification, snapshot 2026-10-24",
+      "verif": "por",
+      "multisig": false,
+      "signer_scheme": "single_sig_p2wpkh",
+      "spend_path": null,
+      "address_count": 44,
+      "pq_attestation": null,
+      "compared_sats": 9594557292965,
+      "compared_name": "PoR wrapped supply",
+      "buckets": [
+        {"type": "P2WPKH", "total_sats": 9595632249671, "exposed_sats": 3924045734009, "multisig": false},
+        {"type": "P2PKH", "total_sats": 4654, "exposed_sats": 4654, "multisig": false}
+      ],
+      "supply_by_chain": [
+        {"chain": "base", "sats": 4843234739832, "kind": "snapshot_count"},
+        {"chain": "ethereum", "sats": 4450554383076, "kind": "snapshot_count"},
+        {"chain": "solana", "sats": 293415895522, "kind": "snapshot_count"},
+        {"chain": "arbitrum", "sats": 7352274535, "kind": "snapshot_count"}
+      ]
+    }
+  ]
+}
