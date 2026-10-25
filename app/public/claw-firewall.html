@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Claw Firewall</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/claw-firewall">
+<meta name="description" content="A testnet gate on outflows, new approvals, and Permit2 or USDC v2.2 signatures. Revoke stays open. Pre-existing approvals still need a revoke.">
+<meta name="robots" content="noindex">
+<meta property="og:title" content="RUNECLAW — Claw Firewall">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="A testnet gate on outflows and signatures. Revoke stays open.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/claw-firewall">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Claw Firewall">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#080a10">
+<link rel="stylesheet" href="/styles.css?v=54">
+<style>
+  .cf-wrap { max-width: 880px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .cf-wrap h1 { font-family: var(--font-display); letter-spacing: .04em; font-size: clamp(26px, 4vw, 40px); margin: 0 0 var(--s2); }
+  .lede, .cf-note { color: var(--text-2); max-width: 68ch; line-height: 1.6; }
+  .cf-banner { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3); color: var(--text-2); }
+  .cf-muted, .cf-note { color: var(--text-3); }
+  .cf-list { margin: 0 0 var(--s4); padding-left: 1.2em; }
+  .cf-list li { margin: 0 0 var(--s2); line-height: 1.55; color: var(--text-2); }
+  label { display: block; margin: var(--s3) 0 var(--s2); color: var(--text-2); }
+  input[type="text"] { width: 100%; max-width: 42em; padding: 8px 10px; font-family: var(--font-data); background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: var(--radius); }
+  button { margin-right: var(--s2); margin-top: var(--s2); }
+  #cf-out { margin-top: var(--s4); }
+  .cf-row { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .cf-row label { display: flex; gap: 8px; align-items: flex-start; }
+  pre { white-space: pre-wrap; word-break: break-all; font-family: var(--font-data); font-size: var(--fs-xs); color: var(--text-2); }
+  a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="cf-wrap" role="main">
+  <nav class="topnav" style="display:flex;gap:var(--s3);margin-bottom:var(--s4)">
+    <a href="/">← RUNECLAW</a>
+  </nav>
+  <!--CF_BANNER-->
+  <h1>Claw Firewall</h1>
+  <p class="lede">A testnet gate for one shared module. It caps outflows, delays a new recipient or a new approval, and checks Permit2 and USDC v2.2 signatures through ERC-1271. Your wallet sends every transaction. This page does not.</p>
+  <ul class="cf-list">
+    <li>An approval that is already open is not stopped by the hook. Revoke it, or leave it in place on purpose. Revoke stays available, including while the account is frozen.</li>
+    <li>DAI, OpenZeppelin ERC20Permit and USDS call ecrecover before ERC-1271. This module does not gate those permits.</li>
+    <li>A facilitator that only accepts a plain v, r, s signature fails closed. isValidSignature does not recover one.</li>
+    <li>Someone who holds the 7702 root key bypasses the module with a direct transfer or by pointing the delegation at another contract or at the zero address.</li>
+    <li>Avalanche Fuji is an ERC-7579 smart account. It has no EIP-7702. The 7702 path is a test of whether the wallet allows delegation, on Base Sepolia, and only while the flag is on.</li>
+    <li>Installing the gate makes outstanding unused Permit2 and USDC v2.2 signatures fail until they are registered.</li>
+    <li>An unread chain is not a clean result. The scan is a best effort. The contract stores the hash you supply. It cannot prove the scan saw every approval.</li>
+    <li>A new recipient or a new approval waits 24 hours. Loosening a policy, adding an executor, or changing the vault waits 7 days. A freeze lasts at most 72 hours, and another freeze waits 7 days. The longest exit is about 11 days.</li>
+    <li>The guardian is a second device or a person you choose. It is never RUNECLAW. There is no RUNECLAW key in the contract. A rescue sends only to the vault you registered at install.</li>
+    <li>The rules on the account keep working if this site is offline. One shared module serves every account. A second account is an init, not a second deploy.</li>
+    <li>We never ask for a seed phrase or a private key. We never DM you first. This page is only at https://www.humanoid-traders.com/claw-firewall.</li>
+  </ul>
+  <label for="cf-address">Address to read</label>
+  <input id="cf-address" type="text" autocomplete="off" spellcheck="false" placeholder="0x">
+  <div>
+    <button type="button" id="cf-scan">Read approvals</button>
+  </div>
+  <p class="cf-note">Leave a row checked only when you mean to keep that approval. A checked row is left in place. That is not a judgement.</p>
+  <label for="cf-guardian">Guardian address, for the init you send yourself</label>
+  <input id="cf-guardian" type="text" autocomplete="off" spellcheck="false" placeholder="0x">
+  <label for="cf-vault">Vault address, registered at install</label>
+  <input id="cf-vault" type="text" autocomplete="off" spellcheck="false" placeholder="0x">
+  <div>
+    <button type="button" id="cf-batch">Prepare revokes</button>
+  </div>
+  <div id="cf-out" aria-live="polite"></div>
+</div>
+<script>
+(function () {
+  var out = document.getElementById('cf-out');
+  var lastItems = [];
+
+  function clear() {
+    while (out.firstChild) out.removeChild(out.firstChild);
+  }
+
+  function line(text, muted) {
+    var p = document.createElement('p');
+    p.className = muted ? 'cf-muted' : 'cf-note';
+    p.textContent = text;
+    out.appendChild(p);
+  }
+
+  function block(title, value) {
+    line(title, false);
+    var pre = document.createElement('pre');
+    pre.textContent = value;
+    out.appendChild(pre);
+  }
+
+  function readFailed(body) {
+    line(body && body.message ? body.message : 'The approval lists could not be read just now, so there is no list. This is not a clean result.', true);
+  }
+
+  document.getElementById('cf-scan').addEventListener('click', function () {
+    clear();
+    var address = document.getElementById('cf-address').value.trim();
+    fetch('/api/claw-firewall/scan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: address })
+    }).then(function (res) {
+      if (res.status === 404) {
+        line('This page is not available for this caller.', true);
+        return null;
+      }
+      return res.json().then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (got) {
+      if (!got) return;
+      var body = got.body || {};
+      if (body.banner) line(body.banner, true);
+      if (got.status !== 200 || body.read_failed === true || body.available === false) {
+        readFailed(body);
+        return;
+      }
+      if (body.message) line(body.message, true);
+      if (body.unread_chains && body.unread_chains.length) {
+        line(body.partial_line || 'An unread chain is not a clean result.', true);
+        line('Unread: ' + body.unread_chains.join(', '), true);
+      }
+      lastItems = Array.isArray(body.items) ? body.items : [];
+      if (!lastItems.length && !(body.unread_chains && body.unread_chains.length)) {
+        line('No open approval was in the lists we could read.', true);
+      }
+      lastItems.forEach(function (item, index) {
+        var row = document.createElement('div');
+        row.className = 'cf-row';
+        var label = document.createElement('label');
+        var box = document.createElement('input');
+        box.type = 'checkbox';
+        box.dataset.index = String(index);
+        var text = document.createElement('span');
+        var parts = [item.chain, item.kind, item.token, item.spender].filter(function (part) {
+          return part != null && String(part) !== '';
+        });
+        text.textContent = parts.join(' · ');
+        label.appendChild(box);
+        label.appendChild(text);
+        row.appendChild(label);
+        out.appendChild(row);
+      });
+    }).catch(function () {
+      readFailed(null);
+    });
+  });
+
+  document.getElementById('cf-batch').addEventListener('click', function () {
+    var keep = [];
+    var boxes = out.querySelectorAll('input[type="checkbox"]');
+    for (var i = 0; i < boxes.length; i++) {
+      if (!boxes[i].checked) continue;
+      var item = lastItems[Number(boxes[i].dataset.index)];
+      if (!item || item.kind === 'delegation_7702') continue;
+      keep.push(String(item.chain_id) + ':' + String(item.token || '').toLowerCase() + ':' + String(item.spender || '').toLowerCase());
+    }
+    clear();
+    line('Revoke stays available, including while the account is frozen.', true);
+    fetch('/api/claw-firewall/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        address: document.getElementById('cf-address').value.trim(),
+        keep: keep,
+        guardian: document.getElementById('cf-guardian').value.trim(),
+        vault: document.getElementById('cf-vault').value.trim()
+      })
+    }).then(function (res) {
+      if (res.status === 404) {
+        line('This page is not available for this caller.', true);
+        return null;
+      }
+      return res.json().then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (got) {
+      if (!got) return;
+      var body = got.body || {};
+      if (body.read_failed === true) {
+        readFailed(body);
+        return;
+      }
+      if (body.partial_line) line(body.partial_line, true);
+      if (body.unread_chains && body.unread_chains.length) {
+        line('Unread: ' + body.unread_chains.join(', '), true);
+      }
+      line(body.kept_line || 'Left in place. This is not a judgement.', true);
+      line('An empty batch is not a statement that every approval was revoked.', true);
+      if (body.limits && body.limits.pre_existing) line(body.limits.pre_existing, true);
+      var items = Array.isArray(body.items) ? body.items : [];
+      items.forEach(function (item) {
+        if (!item.tx) {
+          line((item.chain || '') + ' ' + (item.note || 'No transaction was prepared.'), true);
+          return;
+        }
+        if (item.tx.kind === 'authorization') {
+          line('7702 clear on chain ' + item.tx.chain_id + '. Your wallet signs the authorization. This page does not.', true);
+          return;
+        }
+        block('Revoke on chain ' + item.tx.chain_id, item.tx.data || '');
+      });
+      if (body.execute_batch && body.execute_batch.data) {
+        block(body.execute_batch.note || 'One transaction', body.execute_batch.data);
+      }
+      if (body.init && body.init.data) {
+        block(body.init.note || 'Init', body.init.data);
+      }
+    }).catch(function () {
+      readFailed(null);
+    });
+  });
+})();
+</script>
+</body>
+</html>

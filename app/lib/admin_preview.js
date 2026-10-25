@@ -165,3 +165,10 @@ READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
   return require('./grounded_reputation_flag').flagOn(env) === true;
 };
 // --- Grounded Reputation end ---
+
+// --- Claw Firewall begin ---
+// Lazy: claw_firewall_flag requires this module, so the reader cannot load at the top.
+READERS.DRAIN_FIREWALL_ENABLED = function (env) {
+  return require('./claw_firewall_flag').flagOn(env) === true;
+};
+// --- Claw Firewall end ---

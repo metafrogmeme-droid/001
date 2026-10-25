@@ -1,0 +1,17 @@
+{
+  "base-sepolia": {
+    "chain_id": 84532,
+    "rpc": "https://sepolia.base.org",
+    "allow7702": true
+  },
+  "arbitrum-sepolia": {
+    "chain_id": 421614,
+    "rpc": "https://sepolia-rollup.arbitrum.io/rpc",
+    "allow7702": false
+  },
+  "fuji": {
+    "chain_id": 43113,
+    "rpc": "https://api.avax-test.network/ext/bc/C/rpc",
+    "allow7702": false
+  }
+}
