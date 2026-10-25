@@ -56,7 +56,7 @@ const HTML_BODY = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Not found — RUNECLAW</title>
 <meta name="robots" content="noindex">
-<link rel="stylesheet" href="/styles.css?v=53">
+<link rel="stylesheet" href="/styles.css?v=54">
 </head>
 <body>
 <main style="max-width:42rem;margin:18vh auto;padding:0 1.5rem;text-align:center">

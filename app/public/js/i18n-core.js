@@ -712,6 +712,7 @@
     "a11y.read_aloud": { en: "Read replies aloud" },
     "a11y.prompts": { en: "Suggested prompts" },
     "a11y.sections": { en: "Dashboard sections" },
+    "a11y.tabbar_more": { en: "More sections" },
     "a11y.portfolio": { en: "Your live portfolio" },
     "a11y.equity_curve": { en: "Equity curve" },
     "a11y.symbol_detail": { en: "Symbol detail" },
@@ -2459,6 +2460,7 @@
     "dash.confirm": { en: "Confirm" },
     "dash.cancel_order": { en: "Cancel order" },
     "nav.home": { en: "Home" },
+    "nav.tools": { en: "Tools" },
     "nav.chat": { en: "AI Chat" },
     "nav.hub": { en: "Agent Hub" },
     "nav.markets": { en: "Markets" },
@@ -2604,7 +2606,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"b4cd51ea","zh":"a461272e","pt":"4e8ebd84","fr":"31477111","de":"6cc47845","nl":"4a731988","ja":"09a92325","ko":"7809dc43","ru":"b44822e5","tr":"134aa352","it":"712894b8","hi":"700294f0","ar":"69fa6d1c"};
+  var CHUNKS = {"es":"d59f5e41","zh":"533819b4","pt":"3a423e4b","fr":"59e6dc17","de":"26720d26","nl":"89c3bf91","ja":"561eb438","ko":"423d3ee9","ru":"9554d8cb","tr":"badf03f1","it":"8b90ff18","hi":"041a0016","ar":"f89f43bb"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
