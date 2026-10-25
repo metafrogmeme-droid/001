@@ -158,3 +158,10 @@ READERS.MARKET_CLOCK_ENABLED = function (env) {
   return require('./market_clock_flag').flagOn(env) === true;
 };
 // --- Market Clock end ---
+
+// --- Grounded Reputation begin ---
+// Lazy: grounded_reputation_flag does not require this module.
+READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
+  return require('./grounded_reputation_flag').flagOn(env) === true;
+};
+// --- Grounded Reputation end ---
