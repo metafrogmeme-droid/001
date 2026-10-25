@@ -1827,19 +1827,51 @@ class RuneClawEngine:
         # (symbol + direction + regime + pnl). Done ALWAYS (not gated by the
         # adaptive-confidence flag) so history accumulates and is ready the moment
         # an operator opts in. Cheap append; fail-open.
+        _pnl = getattr(pos, "pnl_usd", None)
+        _mode = None
         try:
-            _pnl = getattr(pos, "pnl_usd", None)
             if _pnl is not None:
+                # Asked once. A second call would ask the venue sandbox again,
+                # and the close tests count that ask.
+                _mode = decision_mode(executor, live=True)
+                _dir = getattr(pos, "direction", "")
+                if hasattr(_dir, "value"):
+                    _dir = _dir.value
                 self.learning.record_closed_outcome(
                     symbol=getattr(pos, "symbol", ""),
-                    direction=str(getattr(pos, "direction", "") or ""),
+                    direction=_dir if isinstance(_dir, str) else "",
                     pnl_result=float(_pnl),
                     market_regime=self._outcome_regime(getattr(pos, "symbol", "")),
                     trade_id=getattr(pos, "trade_id", ""),
-                    mode=decision_mode(executor, live=True),
+                    mode=_mode,
                 )
         except Exception as _lo_exc:
             logger.debug("Learning outcome record skipped: %s", _lo_exc)
+        # The scorecard record. Separate from decision memory on purpose:
+        # record_closed_outcome is what the confidence nudge trains on, and
+        # this row is not. It does not refit a learner and it does not propose.
+        try:
+            if _pnl is not None:
+                if _mode is None:
+                    _mode = decision_mode(executor, live=True)
+                _dir = getattr(pos, "direction", "")
+                if hasattr(_dir, "value"):
+                    _dir = _dir.value
+                _strategy = getattr(pos, "strategy_type", "")
+                self.learning.record_scored_outcome(
+                    symbol=getattr(pos, "symbol", "") if isinstance(
+                        getattr(pos, "symbol", ""), str) else "",
+                    direction=_dir if isinstance(_dir, str) else "",
+                    pnl_result=_pnl,
+                    strategy=_strategy if isinstance(_strategy, str) else "",
+                    market_regime=self._outcome_regime(getattr(pos, "symbol", "")),
+                    trade_id=getattr(pos, "trade_id", "") if isinstance(
+                        getattr(pos, "trade_id", ""), str) else "",
+                    mode=_mode,
+                    source="demo_outcome" if _mode == "demo" else "live_outcome",
+                )
+        except Exception as _sc_exc:
+            logger.debug("Scored outcome record skipped: %s", _sc_exc)
         # ── Trade journal (audit CRITICAL, same shape as the breakers below)
         # The journal was written from ONE place: the paper portfolio's
         # check_stops loop. In pure-live mode the paper portfolio is never
@@ -11670,6 +11702,27 @@ class RuneClawEngine:
                         self._auto_refit.note_closed_trade(getattr(self, "analyzer", None))
                 except Exception as _ar_paper_exc:
                     logger.debug("Learning auto-refit skipped (paper): %s", _ar_paper_exc)
+                # Scored even while LEARN_FROM_PAPER_CLOSES is off. That flag
+                # is the decision-memory write, which the confidence nudge
+                # trains on. This row is the strategy scorecard's record and
+                # is not that write: it does not refit a learner and it does
+                # not change an order. Practice closes never reach this point.
+                try:
+                    _pdir = c.direction.value if hasattr(c.direction, "value") else c.direction
+                    _pstrategy = getattr(c, "strategy_type", "")
+                    self.learning.record_scored_outcome(
+                        symbol=c.asset if isinstance(getattr(c, "asset", None), str) else "",
+                        direction=_pdir if isinstance(_pdir, str) else "",
+                        pnl_result=c.pnl,
+                        strategy=_pstrategy if isinstance(_pstrategy, str) else "",
+                        market_regime=self._outcome_regime(c.asset),
+                        trade_id=getattr(c, "trade_id", "") if isinstance(
+                            getattr(c, "trade_id", ""), str) else "",
+                        source="paper_outcome",
+                        mode="paper",
+                    )
+                except Exception as _ps_exc:
+                    logger.debug("Scored paper outcome skipped: %s", _ps_exc)
                 # Record time-of-day outcome
                 try:
                     from datetime import datetime as _dt

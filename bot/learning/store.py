@@ -28,6 +28,7 @@ from .models import (
     PromptVersion,
     ReflectionMemory,
     StrategyScorecard,
+    TradeOutcome,
 )
 
 logger = logging.getLogger("runeclaw.learning.store")
@@ -170,6 +171,7 @@ class LearningStore:
     - prompt_versions.json       — prompt version registry (overwrite OK)
     - model_comparison.jsonl     — model-vs-model comparisons
     - human_feedback.jsonl       — user feedback
+    - trade_outcomes.jsonl       — closed trades kept for scoring (not decision memory)
     - improvement_backlog.json   — proposed improvements (overwrite OK)
     """
 
@@ -184,6 +186,7 @@ class LearningStore:
             "prompts": self._dir / "prompt_versions.json",
             "comparison": self._dir / "model_comparison.jsonl",
             "feedback": self._dir / "human_feedback.jsonl",
+            "trade_outcome": self._dir / "trade_outcomes.jsonl",
             "backlog": self._dir / "improvement_backlog.json",
         }
         self._similar = _DecisionIndex(self._files["decision"])
@@ -365,6 +368,21 @@ class LearningStore:
     def get_feedback(self, limit: int = 50) -> list[HumanFeedback]:
         return self._read_jsonl("feedback", HumanFeedback)[-limit:]
 
+    # ── Public API: closed trades kept for scoring ────────────────
+
+    def record_trade_outcome(self, row: TradeOutcome) -> None:
+        """Append one closed trade. Not a decision row, so the nudge does not see it."""
+        self._append_jsonl("trade_outcome", row)
+
+    def get_trade_outcomes(self, *, strict: bool = False) -> list[TradeOutcome]:
+        """Every scored-outcome row. ``strict`` raises when the file will not read.
+
+        A missing file is an empty record, which is a real zero. A file that
+        is there and cannot be read is not one, and ``strict`` is how a panel
+        says so instead of printing 0.
+        """
+        return self._read_jsonl("trade_outcome", TradeOutcome, strict=strict)
+
     # ── Public API: Improvement Backlog ────────────────────────────
 
     def record_proposal(self, proposal: ImprovementProposal) -> None:
@@ -423,5 +441,6 @@ class LearningStore:
             "prompt_versions": len(self.get_prompt_versions()),
             "comparisons": len(self._read_jsonl("comparison", ModelComparison)),
             "feedback": len(self._read_jsonl("feedback", HumanFeedback)),
+            "trade_outcomes": len(self._read_jsonl("trade_outcome", TradeOutcome)),
             "proposals": len(self.get_proposals()),
         }

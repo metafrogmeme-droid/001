@@ -310,6 +310,28 @@ class ModelComparison(BaseModel):
     safety_score: float = 0.0
 
 
+class TradeOutcome(BaseModel):
+    """One closed trade kept for scoring.
+
+    This is not a decision row. Decision memory is what the confidence nudge
+    and the other learners train on, and a paper close stays out of it unless
+    ``LEARN_FROM_PAPER_CLOSES`` is on. A row here is the fact that a close
+    happened, so the strategy scorecard and the learning panel can say so.
+    Nothing that places an order reads it.
+    """
+    audit_id: str = Field(default_factory=_audit_id)
+    timestamp_utc: datetime = Field(default_factory=_utc_now)
+    closed_at: Optional[datetime] = None
+    symbol: str = ""
+    direction: str = ""
+    strategy: str = ""
+    pnl_result: Optional[float] = None
+    market_regime: str = ""
+    trade_id: str = ""
+    mode: str = "paper"  # paper | demo | live
+    source: str = "paper_outcome"
+
+
 class HumanFeedback(BaseModel):
     """User feedback record."""
     audit_id: str = Field(default_factory=_audit_id)
