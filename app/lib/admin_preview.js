@@ -152,3 +152,10 @@ READERS.HASHKEY_SEAL_ENABLED = function (env) {
   return require('./hashkey_seal_flag').flagOn(env) === true;
 };
 // --- HashKey seal end ---
+
+// --- Grounded Reputation begin ---
+// Lazy: grounded_reputation_flag does not require this module.
+READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
+  return require('./grounded_reputation_flag').flagOn(env) === true;
+};
+// --- Grounded Reputation end ---

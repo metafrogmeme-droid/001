@@ -607,6 +607,12 @@ app.use('/api/limit-scanner/shadow', require('./routes/limit_scanner_shadow'));
 // testnet only, and a preview does not sign.
 app.use('/api/hashkey-seal', require('./routes/hashkey_seal'));
 // --- HashKey seal end ---
+// --- Grounded Reputation begin ---
+// ERC-8004 payment evidence. Admin only. 404 for every caller while
+// GROUNDED_REPUTATION_ENABLED is off, and 404 for a non-operator while it
+// is on. Read-only. No key, no signature.
+app.use('/api/grounded-reputation', require('./routes/grounded_reputation'));
+// --- Grounded Reputation end ---
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
