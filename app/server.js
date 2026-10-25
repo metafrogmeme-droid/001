@@ -602,6 +602,11 @@ app.use('/api/xnav', require('./routes/xnav'));
 // Limit Entry Scanner forward shadow. Admin only, flag on or off.
 // Basis points and counts. A missing summary is not a measured zero.
 app.use('/api/limit-scanner/shadow', require('./routes/limit_scanner_shadow'));
+// --- HashKey seal begin ---
+// Seal anchor. Admin only, flag on or off. The publisher signs HashKey
+// testnet only, and a preview does not sign.
+app.use('/api/hashkey-seal', require('./routes/hashkey_seal'));
+// --- HashKey seal end ---
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));

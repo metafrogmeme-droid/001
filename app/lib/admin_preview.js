@@ -145,3 +145,10 @@ READERS.LIMIT_SCANNER_SHADOW = function (env) {
   return require('./limit_scanner_shadow_flag').flagOn(env) === true;
 };
 // --- LIMIT SCANNER SHADOW end ---
+
+// --- HashKey seal begin ---
+// Lazy: hashkey_seal_flag requires this module.
+READERS.HASHKEY_SEAL_ENABLED = function (env) {
+  return require('./hashkey_seal_flag').flagOn(env) === true;
+};
+// --- HashKey seal end ---

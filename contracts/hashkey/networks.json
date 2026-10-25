@@ -1,0 +1,19 @@
+{
+  "source": "https://docs.hskchain.net/docs/Build-on-HashKey-Chain/network-info",
+  "also": "https://docs.hskchain.net/docs/Developer-QuickStart",
+  "checked": "2026-10-25",
+  "testnet": {
+    "chain_id": 133,
+    "chain_id_hex": "0x85",
+    "rpc": "https://testnet.hsk.xyz",
+    "explorer": "https://testnet-explorer.hsk.xyz",
+    "explorer_api": "https://testnet-explorer.hsk.xyz/api"
+  },
+  "mainnet": {
+    "chain_id": 177,
+    "chain_id_hex": "0xb1",
+    "rpc": "https://mainnet.hsk.xyz",
+    "explorer": "https://hashkey.blockscout.com",
+    "explorer_api": "https://hashkey.blockscout.com/api"
+  }
+}
