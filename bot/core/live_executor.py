@@ -6855,6 +6855,11 @@ class LiveExecutor:
             exchange_pre = await self._get_exchange()
             funding_info = await exchange_pre.fetch_funding_rate(idea.asset)
             _funding_rate = read_funding_rate(funding_info)
+            try:
+                from bot.risk.funding_interval import remember_funding_payload
+                remember_funding_payload(idea.asset, funding_info)
+            except Exception:
+                pass
             if _funding_rate is None:
                 audit(trade_log,
                       f"Funding rate unreadable for {idea.asset} — the venue "
@@ -6902,7 +6907,9 @@ class LiveExecutor:
         # 8h assumption drifts in exactly one place; this audit event is even
         # named `funding_clock` after the module it was not using.
         try:
-            _secs_to_settle = seconds_to_settlement(datetime.now(UTC).timestamp())
+            from bot.risk.funding_interval import interval_seconds as _interval_seconds
+            _secs_to_settle = seconds_to_settlement(
+                datetime.now(UTC).timestamp(), _interval_seconds(idea.asset))
             _mins_until = _secs_to_settle / 60.0
             if 0 < _mins_until <= 5:
                 audit(trade_log,

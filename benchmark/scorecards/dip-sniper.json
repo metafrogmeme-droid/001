@@ -5,7 +5,7 @@
     "reset_bars": 24,
     "trips": 0
   },
-  "code_sha": "5c46595e3222b6b32320b412c8cb1ed4e0991376",
+  "code_sha": "1317fe42c19319e80014cbfc1fea2f52674b717a",
   "dataset": "majors_1h",
   "dataset_hash": "ccc3f70b7ed7cd7dae1840f63b3efcd46916caca28a8518841b4ab022a129f75",
   "engine": "runeclaw.backtest",
@@ -21,28 +21,28 @@
   },
   "honest": true,
   "measured": {
-    "calmar_ratio": -5.87,
-    "max_drawdown_pct": 2.98,
-    "profit_factor": 0.23,
-    "sharpe_ratio": -3.69,
-    "sortino_ratio": -0.66,
-    "total_return_pct": -2.98,
+    "calmar_ratio": -4.06,
+    "max_drawdown_pct": 1.17,
+    "profit_factor": 0.32,
+    "sharpe_ratio": -4.27,
+    "sortino_ratio": -0.68,
+    "total_return_pct": -0.81,
     "total_trades": 4,
     "win_rate": 0.25
   },
   "metrics": {
-    "calmar_ratio": -5.87,
-    "max_drawdown_pct": 2.98,
-    "profit_factor": 0.23,
-    "sharpe_ratio": -3.69,
-    "sortino_ratio": -0.66,
-    "total_return_pct": -2.98,
+    "calmar_ratio": -4.06,
+    "max_drawdown_pct": 1.17,
+    "profit_factor": 0.32,
+    "sharpe_ratio": -4.27,
+    "sortino_ratio": -0.68,
+    "total_return_pct": -0.81,
     "total_trades": 4,
     "win_rate": 0.25
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "dip sniper",
-  "recorded_at": "2026-10-12T06:53:17+00:00",
+  "recorded_at": "2026-10-24T18:34:33+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
@@ -54,11 +54,11 @@
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,
-      "pnl_pct": -2.63,
+      "pnl_pct": 0.1,
       "regime": "TREND_DOWN",
       "setup": "swing",
-      "signal_type": "regime_trend",
-      "volume_spike_ratio": 0.835
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 0.867
     },
     {
       "confidence": 0.75,
@@ -83,7 +83,7 @@
       "volume_spike_ratio": 1.446
     },
     {
-      "confidence": 0.71,
+      "confidence": 0.7,
       "direction": "SHORT",
       "exit_reason": "SL",
       "fills": 1,

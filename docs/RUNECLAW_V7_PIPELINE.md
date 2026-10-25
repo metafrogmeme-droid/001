@@ -1,5 +1,12 @@
 # RUNECLAW v7 — train on the RTX 5090, serve on the 8GB box
 
+The commands below create and publish `pbdes2022/HUMANOID-TRADERS:v7-8b`.
+That tag is this build. It is not the setting to copy into the bot. The one
+setting is `RUNECLAW_LLM_MODEL`, copied exactly as `ollama list` prints it,
+including case. The tag recorded for this tree is
+`pbdes2022/humanoid-traders:v10-8b` (`docs/RUNECLAW_LLM.md`). A shortened
+repo name, `:v7-8b`, or `runeclaw-v6` is a different string.
+
 The complete pipeline for the recommended configuration: **Llama 3.1 8B
 QLoRA**, fine-tuned on the ProArt (RTX 5090 Laptop, 24 GB) on a **curated**
 dataset, served **fully in VRAM** on the 8GB RTX machine (64 GB DDR). The 8B
@@ -162,7 +169,8 @@ Budget sketch (estimates; `--verbose`'s eval rate is the measurement):
 
 ```bash
 RUNECLAW_LLM_BASE_URL=http://localhost:11434/v1
-RUNECLAW_LLM_MODEL=pbdes2022/HUMANOID-TRADERS:v7-8b   # byte-for-byte from `ollama list`
+# Copy the tag exactly as `ollama list` prints it. Recorded tag for this tree:
+RUNECLAW_LLM_MODEL=pbdes2022/humanoid-traders:v10-8b
 ```
 
 Rollout, cheap tiers first (docs/RUNECLAW_LLM.md §3–4 is the full gate):

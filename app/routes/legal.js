@@ -121,7 +121,7 @@ function render(p) {
 <title>${p.title}</title>
 <meta name="description" content="${p.description}">
 <link rel="canonical" href="${p.canonical}">
-<meta name="theme-color" content="#0a0b10">
+<meta name="theme-color" content="#080a10">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/assets/${p.css}">
 </head>

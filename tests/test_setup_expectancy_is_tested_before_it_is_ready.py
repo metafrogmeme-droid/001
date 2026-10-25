@@ -155,11 +155,15 @@ def _assess(monkeypatch, samples, *, backoff=False):
     fitted = SetupExpectancy().ingest(samples)
     monkeypatch.setattr(sx, "get_setup_expectancy", lambda reload=False: fitted)
     before = CONFIG.analyzer.setup_expectancy_backoff_enabled
+    main = CONFIG.analyzer.setup_expectancy_enabled
     object.__setattr__(CONFIG.analyzer, "setup_expectancy_backoff_enabled", backoff)
+    # These readings are the card given the feature is on. It ships off.
+    object.__setattr__(CONFIG.analyzer, "setup_expectancy_enabled", True)
     try:
         return rd.assess_readiness(store=_Store(samples))
     finally:
         object.__setattr__(CONFIG.analyzer, "setup_expectancy_backoff_enabled", before)
+        object.__setattr__(CONFIG.analyzer, "setup_expectancy_enabled", main)
 
 
 def test_the_live_cards_shape_is_not_ready(monkeypatch):

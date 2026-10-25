@@ -19,6 +19,8 @@ history)" over a live record it never looked at).
 Kelly's half-Kelly ceiling read the same tracker's history: a live record
 of 20 closes at 75% gave a $0 ceiling (a no-op) on the operator engine,
 and 20 PRACTICE closes gave $130 on a live $1,000 on a per-user engine.
+With KELLY_ON_RISK_ENABLED (default on) an empty live window is a short
+record and takes the floor; the $0 no-op is that flag off.
 
 The evaluation hands the live book and the live equity in
 (`_compute_live_var`), the proxy reads the live record's per-close returns
@@ -280,6 +282,7 @@ def test_the_paper_reading_is_unchanged(tmp_path):
 
 
 def test_kelly_reads_the_live_record_in_live_mode(tmp_path):
+    object.__setattr__(bot_config.CONFIG.risk, "kelly_on_risk_enabled", True)
     eng = _engine(tmp_path)
     eng.seed_realized_window([50.0] * 15 + [-20.0] * 5)
     paper = _engine(tmp_path, name="p")
@@ -287,27 +290,75 @@ def test_kelly_reads_the_live_record_in_live_mode(tmp_path):
     live_ceiling = eng._kelly_size_usd(_idea(), 1_000.0, live_mode=True)
     assert live_ceiling > 0
     assert live_ceiling == paper._kelly_size_usd(_idea(), 1_000.0), "one arithmetic, two records"
-    assert eng._kelly_size_usd(_idea(), 1_000.0) == 0.0, "the tracker is empty: the old live reading"
+    # Not live: the window is not the record. An empty tracker is a short
+    # record, so the floor applies, and it is not the live-window size.
+    empty = eng._kelly_size_usd(_idea(), 1_000.0)
+    assert empty == pytest.approx(25.0)
+    assert empty < live_ceiling
+    object.__setattr__(bot_config.CONFIG.risk, "kelly_on_risk_enabled", False)
+    try:
+        assert eng._kelly_size_usd(_idea(), 1_000.0) == 0.0, "flag off: the old no-op"
+    finally:
+        object.__setattr__(bot_config.CONFIG.risk, "kelly_on_risk_enabled", True)
 
 
 def test_a_practice_record_does_not_size_a_live_order(tmp_path):
+    object.__setattr__(bot_config.CONFIG.risk, "kelly_on_risk_enabled", True)
     practice = PortfolioTracker(initial_balance=10_000.0)
     practice._history.extend(_closes(15, 5))
     eng = _engine(tmp_path, practice)
-    assert eng._kelly_size_usd(_idea(), 1_000.0, live_mode=True) == 0.0
+    # Live mode reads the realized window. Empty, it is a short record: the
+    # floor, not the practice book's Kelly. A strong practice record sits
+    # above the notional cap, so it does not decide the paper size.
+    live_ceiling = eng._kelly_size_usd(_idea(), 1_000.0, live_mode=True)
+    practice_ceiling = eng._kelly_size_usd(_idea(), 1_000.0)
+    assert live_ceiling == pytest.approx(25.0)
+    assert practice_ceiling > live_ceiling
     live = _live(eng, (), equity=10_000.0)
-    assert not any("half-Kelly" in step for step in live.size_path), live.size_path
+    assert any("half-Kelly" in step for step in live.size_path), live.size_path
+    assert live.position_size_usd == pytest.approx(250.0)
     paper = eng.evaluate(_idea(), atr=600.0)
-    assert any("half-Kelly" in step for step in paper.size_path), paper.size_path
+    assert paper.position_size_usd > live.position_size_usd
+    assert paper.size_basis.startswith("notional cap"), paper.size_basis
+    object.__setattr__(bot_config.CONFIG.risk, "kelly_on_risk_enabled", False)
+    try:
+        assert eng._kelly_size_usd(_idea(), 1_000.0, live_mode=True) == 0.0
+        off_live = _live(eng, (), equity=10_000.0)
+    finally:
+        object.__setattr__(bot_config.CONFIG.risk, "kelly_on_risk_enabled", True)
+    assert not any("half-Kelly" in step for step in off_live.size_path), off_live.size_path
 
 
 def test_the_gate_hands_kelly_the_mode():
     tree = ast.parse(inspect.getsource(risk_engine_mod))
-    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
-             and isinstance(n.func, ast.Attribute) and n.func.attr == "_kelly_size_usd"]
-    assert len(calls) == 1
-    args = [ast.unparse(a) for a in calls[0].args]
-    assert args == ["idea", "sizing_equity", "live_mode"], args
+
+    def calls_in(method):
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == method)
+        found = []
+
+        def walk(node, nested=False):
+            if node is not fn and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for child in ast.iter_child_nodes(node):
+                    walk(child, True)
+                return
+            if (not nested and isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "_kelly_size_usd"):
+                found.append(node)
+            for child in ast.iter_child_nodes(node):
+                walk(child, nested)
+
+        walk(fn)
+        return found
+
+    gate = calls_in("_evaluate_locked")
+    assert len(gate) == 1
+    assert [ast.unparse(a) for a in gate[0].args] == ["idea", "sizing_equity", "live_mode"]
+    # The recommended-size helper reads the tracker. It does not take a mode.
+    recommended = calls_in("get_recommended_size")
+    assert len(recommended) == 1
+    assert "live_mode" not in [ast.unparse(a) for a in recommended[0].args]
 
 
 # ── the return window ──────────────────────────────────────────────────────

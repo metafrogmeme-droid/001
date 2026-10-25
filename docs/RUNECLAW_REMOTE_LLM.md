@@ -48,7 +48,9 @@ process) applies doubly on a laptop.
 
 ```bash
 RUNECLAW_LLM_BASE_URL=https://<tunnel-hostname>/v1
-RUNECLAW_LLM_MODEL=pbdes2022/HUMANOID-TRADERS:v7-8b   # byte-for-byte from `ollama list`
+# The one model setting. Copy the tag exactly as `ollama list` prints it.
+# The tag recorded for this tree is below; a different spelling 404s.
+RUNECLAW_LLM_MODEL=pbdes2022/humanoid-traders:v10-8b
 RUNECLAW_LLM_API_KEY=<the same token>                  # vault-managed like every key
 ```
 

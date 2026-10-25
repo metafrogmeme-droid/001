@@ -104,13 +104,17 @@ class BacktestConfig(BaseModel):
     # scanner ranks a universe, and one symbol is not one.
     scanner: str = ""
     scanner_config: dict = Field(default_factory=dict)
-    # Entry fill convention (audit fix #15). "close" = fill at the same bar's
-    # close that generated the signal (legacy; optimistic — assumes you can
-    # transact at the closing print). "next_open" = queue the approved idea and
-    # fill at the NEXT bar's open (conservative; closer to live execution).
-    # Run both and compare: a large edge gap between them means the strategy's
-    # backtested edge lives in the fill assumption, not the signal.
-    fill_mode: str = "close"               # "close" | "next_open" | "live" (--as-live)
+    # Entry fill convention (audit fix #15). "next_open" (the default) queues
+    # the approved idea and fills at the NEXT bar's open. "close" fills a
+    # market order at the signal bar's close. "live" (--as-live) rests a limit
+    # from the next bar and fills a market idea at the next open. A large gap
+    # between modes means the measured edge lives in the fill, not the signal.
+    fill_mode: str = "next_open"            # "close" | "next_open" | "live" (--as-live)
+    # Close mode used to fill a limit when the SIGNAL bar's own range touched
+    # it. That touch is before the order existed. Off (the default): a
+    # close-mode limit rests from the next bar, the same rule live uses. Set
+    # true to restore the same-bar fill.
+    same_bar_limit_fill: bool = False
     # Auto-reset a tripped circuit breaker after this many bars (0 = never,
     # the default — breaker halts are preserved exactly like live). A
     # drawdown/streak trip normally requires MANUAL reset; in a months-long

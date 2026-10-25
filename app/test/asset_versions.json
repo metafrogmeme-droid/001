@@ -28,8 +28,8 @@
     "sha": "24877786b8bfe1ba"
   },
   "js/app.js": {
-    "v": 17,
-    "sha": "709de236d56f9677"
+    "v": 18,
+    "sha": "bc5e2f885209dfb1"
   },
   "js/arb-carry-model.js": {
     "v": 2,
@@ -108,8 +108,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 253,
-    "sha": "b329e88a137e6d6c"
+    "v": 255,
+    "sha": "78e68a21014f6e49"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -120,8 +120,8 @@
     "sha": "4f6c6c648d75dc55"
   },
   "js/docs-page.js": {
-    "v": 1,
-    "sha": "8aaaa6478d0e98e0"
+    "v": 2,
+    "sha": "58e1134ca00c3995"
   },
   "js/doge-app.js": {
     "v": 3,
@@ -340,8 +340,8 @@
     "sha": "6e482731fe53921c"
   },
   "js/risk-bridge.js": {
-    "v": 1,
-    "sha": "d840bd1ad479eeb0"
+    "v": 2,
+    "sha": "e7ef1b16a860b191"
   },
   "js/roots-stamp.js": {
     "v": 3,
@@ -351,21 +351,21 @@
     "v": 1,
     "sha": "dd0556a762d1785d"
   },
-  "js/rwa-precheck.js": {
-    "v": 2,
-    "sha": "3966cddf0c929c2a"
-  },
   "js/rune-card.js": {
     "v": 1,
     "sha": "a9fef181eb7c9215"
   },
-  "js/scam-or-safe.js": {
+  "js/rwa-precheck.js": {
     "v": 2,
-    "sha": "5bff2adecf965e04"
+    "sha": "3966cddf0c929c2a"
   },
   "js/sandbox.js": {
     "v": 1,
     "sha": "550cc931fed16e08"
+  },
+  "js/scam-or-safe.js": {
+    "v": 2,
+    "sha": "5bff2adecf965e04"
   },
   "js/setup-cell-reading.js": {
     "v": 3,
@@ -400,8 +400,8 @@
     "sha": "35ce25b4c87a3176"
   },
   "js/strengthmap.js": {
-    "v": 8,
-    "sha": "bdc0a2b104d65974"
+    "v": 10,
+    "sha": "f8959d03e9262d8d"
   },
   "js/stress-model.js": {
     "v": 2,
@@ -480,8 +480,8 @@
     "sha": "e3239d42e6c63232"
   },
   "styles.css": {
-    "v": 53,
-    "sha": "afd4cdbcf5dcd653"
+    "v": 54,
+    "sha": "5dc27781be0f7e56"
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,

@@ -105,7 +105,7 @@ test('a nonsense count is refused rather than rendered', () => {
 
 test('a missing venue drops that segment and keeps the rest', () => {
   const out = shipped()({ mode: 'LIVE', venues_connectable: 8 });
-  assert.equal(out, 'Live · 8 venues connectable · every trade recorded');
+  assert.equal(out, 'Live · 8 venues connectable, one at a time · every trade recorded');
 });
 
 test('every trade recorded survives — it is the claim the page is built on', () => {

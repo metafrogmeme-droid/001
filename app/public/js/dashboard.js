@@ -32,6 +32,10 @@
   // after boot. Declared here, above every use, so no caller depends on the
   // module having finished initialising. The inline English stays as the
   // never-blank fallback — a missing key degrades to English, never to blank.
+  // A sentence with no dictionary key yet. New panel-error keys have to
+  // exist in all fourteen locales; those files are not this change.
+  // renderPanel still attaches Retry for an unnamed failure.
+  const plainError = (en) => en;
   const T = (key, en) => {
     try { return (window.RCI18N && RCI18N.translate(key, RCI18N.getLang())) || en; }
     catch (e) { return en; }
@@ -356,9 +360,34 @@
   // what the other shows — the row cannot say "could not read" beside a
   // topbar still painting ENGINE LIVE from an earlier cache, or CONNECTING
   // over a read that has already failed, because one failed read told both.
+  function scanStamp(scan) {
+    return (scan && (scan.received_at || scan.timestamp)) || null;
+  }
+  // The last scan time this browser actually saw. A failed read does not
+  // clear it, and a reload within the staleness window reads it back, so the
+  // chip does not flip to UNKNOWN just because this page has no payload yet.
+  function recalledSync() {
+    if (cache.lastSync) return cache.lastSync;
+    try {
+      const t = sessionStorage.getItem('rc.lastEngineSync');
+      if (t) cache.lastSync = t;
+    } catch (_) { /* private mode */ }
+    return cache.lastSync || null;
+  }
   function adoptScanRead(r) {
     cache.scanOk = wasRead(r);
-    if (cache.scanOk && r.data?.scan) { cache.scan = r.data.scan; cache.scanAt = Date.now(); }
+    if (cache.scanOk && r.data?.scan) {
+      cache.scan = r.data.scan;
+      cache.scanAt = Date.now();
+      // Inlined, not a call out: the bookkeeping test slices this function
+      // alone and runs it. A missing sessionStorage is a private window,
+      // not a lost reading.
+      const t = cache.scan.received_at || cache.scan.timestamp;
+      if (t) {
+        cache.lastSync = t;
+        try { sessionStorage.setItem('rc.lastEngineSync', String(t)); } catch (_) { /* private mode */ }
+      }
+    }
     updateConnChip();
     return r;
   }
@@ -446,11 +475,25 @@
     // The verdict is computed by a PURE model (engine-status-model.js) so it
     // can be scenario-tested. Inline here it had no seam, which is how a
     // surface ships a claim nobody ever asserts.
-    const syncTime = cache.scan?.received_at || cache.scan?.timestamp;
+    const onScan = scanStamp(cache.scan);
+    // Only a FAILED read may borrow the last good time. A successful read
+    // that carried no timestamp is "no engine data", not a recycled clock.
+    const carried = !onScan && cache.scanOk === false ? recalledSync() : null;
+    const syncTime = onScan || carried;
     const v = (self.EngineStatusModel || {}).engineChipState;
     if (!v) return;
     const s = v(syncTime, cache.scanOk, Date.now());
-    set(s.text, s.cls, s.title);
+    let text = s.text;
+    const shown = syncTime ? new Date(syncTime) : null;
+    if (shown && !isNaN(shown.getTime())) {
+      const hh = String(shown.getUTCHours()).padStart(2, '0');
+      const mm = String(shown.getUTCMinutes()).padStart(2, '0');
+      text += ' · updated ' + hh + ':' + mm + ' UTC';
+    }
+    const title = carried
+      ? s.title + ' The time is the last scan this browser recorded.'
+      : s.title;
+    set(text, s.cls, title);
   }
   // WHICH ACCOUNT THE READER IS LOOKING AT, or that nobody could tell us —
   // ONE reading, because three renderers answered it and only this one knew
@@ -1265,7 +1308,7 @@
           <div class="d num">${dailyPart}<span class="${pnlClass(total)}">${total != null ? signed(total) + ' all-time' : ''}</span></div>
         </div>
         <div class="stat-row" style="flex:1;max-width:420px">
-          <div class="stat"><div class="k">Win rate</div><div class="v">${pf.win_rate != null ? fmt(pf.win_rate, 1) + '%' : '—'}</div></div>
+          <div class="stat"><div class="k" title="Your account’s closed trades. Not the public track record, and not the engine card.">Win rate</div><div class="v">${pf.win_rate != null ? fmt(pf.win_rate, 1) + '%' : '—'}</div></div>
           <div class="stat"><div class="k">Trades</div><div class="v">${pf.total_trades != null ? pf.total_trades : '—'}</div></div>
           <div class="stat"><div class="k">Open</div><div class="v">${(pf.open_positions || []).length}</div></div>
         </div>
@@ -1525,6 +1568,7 @@
           getUserProfile().catch(() => ({ risk_pref: null, watchlist: [], prefs: {} })),
         ]);
         const isAdmin = meR?.data?.plan === 'admin';
+        if (isAdmin) self.__rcAdmin = true;
         const scan = scanR?.data?.scan || null;
         const cb = scan?.circuit_breaker || {};
         const stance = String(cb.strategy_mode || '').toLowerCase();
@@ -3888,6 +3932,20 @@
     }
   }
 
+  // Six hours is the same window the empty state already uses. A present
+  // scan older than that is shown, and marked stale, with a UTC time.
+  // Unparseable is "freshness unknown", never a fresh stamp and never a
+  // fabricated age.
+  function deepScanFreshness(generatedAt) {
+    if (!generatedAt) return { text: 'freshness unknown — no time on this scan' };
+    const raw = String(generatedAt);
+    const d = new Date(raw.includes('T') ? raw : raw.replace(' UTC', 'Z').replace(' ', 'T'));
+    if (isNaN(d.getTime())) return { text: 'as of ' + raw + ' · freshness unknown' };
+    const utc = d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    const stale = (Date.now() - d.getTime()) > 6 * 60 * 60 * 1000;
+    return { text: (stale ? 'stale · older than 6 hours · ' : 'as of ') + utc };
+  }
+
   async function renderDeepScan() {
     container.innerHTML = viewHead('Deep Scan', 'The engine\'s per-symbol pattern read — chart & candlestick');
     container.insertAdjacentHTML('beforeend', `
@@ -3911,7 +3969,8 @@
       const scan = await getScan();
       const ds = scan && scan.deepscan;
       if (!ds || !(ds.hits || []).length) return null;
-      const hdr = `<p class="muted small mb-2">${ds.count || ds.hits.length} hits · ${esc(ds.tf || '')} · chart + candle patterns${ds.generated_at ? ' · ' + esc(ds.generated_at) : ''}</p>`;
+      const fresh = deepScanFreshness(ds.generated_at);
+      const hdr = `<p class="muted small mb-2">${ds.count || ds.hits.length} hits · ${esc(ds.tf || '')} · chart + candle patterns · ${esc(fresh.text)}</p>`;
       return hdr + dsCardsHtml(ds.hits)
         + `<p class="muted small mt-2">Patterns are observations, not signals.</p>`;
     }, { empty: { icon: 'icon-radar', text: 'No deep scan in the last 6 hours. The engine runs one every few hours, and anyone can ask for one now: say "deep scan" in AI Chat or send /deepscan in Telegram. Meanwhile, check any symbol below.' } }).then(mountDeepScanMinis);
@@ -5733,7 +5792,13 @@
     function ruleChipThreeValued(r) {
       const model = (self.EngineCardModel || {}).ruleChip;
       const c = model ? model(r) : null;
-      return c ? `<span class="chip ${c.cls}">${c.mark} ${esc(c.label)}</span>` : '';
+      if (!c) return '';
+      const tip = c.state === 'clear'
+        ? 'This rule is not stopping new trades. A green tick is not a profit reading.'
+        : c.state === 'blocked'
+          ? 'This rule is stopping new trades.'
+          : 'This rule could not be read, so it is not clear and not blocking.';
+      return `<span class="chip ${c.cls}" title="${esc(tip)}">${c.mark} ${esc(c.label)}</span>`;
     }
     renderPanel(C('ecb'), async () => {
       const cb = scan?.circuit_breaker;
@@ -5745,14 +5810,20 @@
       const cells = (self.EngineCardModel || {}).engineCardCells;
       const c = cells ? cells(cb) : null;
       if (!c) return null;
+      const bookAt = scanStamp(scan);
+      const bookWhen = bookAt && !isNaN(new Date(bookAt).getTime())
+        ? new Date(bookAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+        : null;
       return `<div class="stat-row">
-        <div class="stat"><div class="k">Engine equity</div><div class="v">${c.equity.text}</div></div>
-        <div class="stat"><div class="k">Net PnL</div><div class="v num ${c.netPnl.cls}">${c.netPnl.text}</div></div>
-        <div class="stat"><div class="k">Win rate</div><div class="v">${c.winRate.text}</div></div>
-        <div class="stat"><div class="k">Open</div><div class="v">${c.open.text}</div></div>
+        <div class="stat"><div class="k" title="Live balance of the synced engine account.">Engine equity</div><div class="v">${c.equity.text}</div></div>
+        <div class="stat"><div class="k" title="Net result on the synced engine book, in the engine’s units. A loss is shown in the loss colour.">Net PnL</div><div class="v num ${c.netPnl.cls}">${c.netPnl.text}</div></div>
+        <div class="stat"><div class="k" title="Share of closed trades on the synced engine book that made money. Not the public track record.">Win rate</div><div class="v">${c.winRate.text}</div></div>
+        <div class="stat"><div class="k" title="Positions still open on the synced engine book.">Open</div><div class="v">${c.open.text}</div></div>
       </div>
+      <p class="small mt-2" style="color:var(--text-3)">Synced engine book${bookWhen ? ' as of ' + esc(bookWhen) : ''}. This is not the public track record on the homepage. Profit factor there is gross wins divided by gross losses, over priced closes.</p>
       ${c.note ? `<div class="small mt-2" style="color:var(--text-2)">${esc(c.note)}</div>` : ''}
-      <div class="row mt-3">${(cb.rules || []).map(ruleChipThreeValued).join('')}</div>`;
+      <div class="row mt-3">${(cb.rules || []).map(ruleChipThreeValued).join('')}</div>
+      <p class="small mt-2" style="color:var(--text-3)">A green tick means that rule is not stopping new trades. It is not a profit reading. A loss beside a clear rule is still a loss.</p>`;
     }, { empty: OFFLINE });
 
     // RISK BACKSTOP — the drawdown the breaker gates on against the threshold
@@ -5989,6 +6060,7 @@
       </div>`);
 
     const me = await fetchJSON('/api/auth/me').catch(() => null);
+    if (me?.data?.plan === 'admin') self.__rcAdmin = true;
     const linked = !!me?.data?.telegram_linked;
 
     // Yield radar — OPERATOR report (real account idle balances), so the
@@ -8204,7 +8276,7 @@
       }).join('');
       return `<div class="grid-cards" style="display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${cards}</div>
         ${catalogueFoot(note)}`;
-    }, { timeoutMs: 18000, errorText: T('dd.err_agents', 'The agent catalogue is unavailable right now.') });
+    }, { timeoutMs: 18000, errorText: T('dd.err_agents', 'The agent catalogue could not be read from the bot. Retry — the lineup stays empty until the catalogue answers.') });
 
     // Live "would-take" picks for the agents this user follows. Paper-only: each
     // pick reuses the standard one-tap paper-trade prefill (data-ptrade) — the
@@ -9553,7 +9625,7 @@
       if (!m) return null;
       macroReact(m.band);
       return macroBlock(m, r.data.generated_at);
-    }, { timeoutMs: 18000, empty: { icon: 'icon-shield', text: 'Macro data is unavailable right now — check back in a moment.' } });
+    }, { timeoutMs: 18000, empty: { icon: 'icon-shield', text: 'Macro data is unavailable right now — sentiment, market structure and the engine’s BTC regime have not arrived. Retry in a moment.' }, errorText: plainError('The risk backdrop could not be read. It needs sentiment (alternative.me), market structure (CoinGecko) and the engine’s BTC regime. Retry in a moment.') });
     every(30000, updateMacroCountdowns);   // keep the event countdown ticking
   }
 
@@ -10476,6 +10548,7 @@
     // client gate is only about what to SHOW.
     fetchJSON('/api/auth/me').then((me) => {
       if (me && me.ok && me.data && me.data.plan === 'admin') {
+        self.__rcAdmin = true;
         mountPolicyAuthoring(C('author'));
         // Admin-only pre-trade review queue (read-only). Proposed on-chain
         // actions recorded before any signer slice could act on them.
@@ -10487,7 +10560,7 @@
             mustRead(r);
             if (!r.data) return null;
             return reviewQueueCard(r.data);
-          }, { timeoutMs: 16000, empty: { icon: 'icon-shield', text: 'No proposed on-chain actions yet — they queue here for review before any signer could act.' } });
+          }, { timeoutMs: 16000, empty: { icon: 'icon-shield', text: 'No proposed on-chain actions yet — they queue here for review before any signer could act.' }, errorText: plainError('The pre-trade review queue could not be read from the bot. Nothing here was signed or broadcast. Retry in a moment.') });
         }
         // Admin-only testnet live signer console (WEB3-LIVE-EXEC slice 2). Drives
         // the bot's triple-gated, testnet-only signer from the web/phone: status,
@@ -10734,7 +10807,7 @@
         let why;
         if (st === 503) why = 'The web app is not linked to the bot yet — set <code>WEB_GATEWAY_SECRET</code> (≥32 chars, same value on both) and redeploy.';
         else if (st === 502) why = 'The bot gateway is unreachable — check the bot is running and <code>BOT_GATEWAY_URL</code> points to it.';
-        else if (st === 403) why = 'The testnet signer is admin-only — sign in with the operator account.';
+        else if (st === 403) why = 'The testnet signer is admin-only. This session is already an admin, so the refusal came from the bot gateway — it is not a request to sign in again.';
         else why = 'Signer status unavailable — it requires the bot gateway and admin access.';
         box.innerHTML = `<div class="small muted">${why}</div>`;
         return;

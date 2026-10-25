@@ -93,9 +93,9 @@ class TestNextOpenFill:
             open_entries = {round(t.entry_price, 4) for t in res_open.trades}
             assert close_entries != open_entries
 
-    def test_fill_mode_default_is_close(self):
+    def test_fill_mode_default_is_next_open(self):
         from bot.backtest.models import BacktestConfig
-        assert BacktestConfig().fill_mode == "close"
+        assert BacktestConfig().fill_mode == "next_open"
 
 
 class TestRiskEngineSideCheck:

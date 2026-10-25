@@ -93,7 +93,7 @@ To arm without `LIVE_TRADING_ENABLED`, leave it `false` and send `/golive CONFIR
 - Use `/risk` and `/status` to watch exposure and the breaker
 - Use `/halt` (operator) at once if anything looks wrong
 
-**Human confirmation.** A live order needs a confirm, a tap in Telegram or on the website, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`). Both are off in the shipped `.env.example` (`false` and `1.0`) and on in the code default when no `.env` sets them (`true` and `0.85`). Even with auto-confirm on, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy (`benchmark/eligibility/<strategy_hash>.json`, read by `bot/core/live_eligibility.py`), and none ships. Auto-confirmed trades run on the operator account; a regular user's trade is never auto-confirmed. An admin can read or change the threshold at runtime with `/autoconfirm` (`/autoconfirm off` sets it to 1.0).
+**Human confirmation.** A live order needs a confirm, a tap in Telegram or on the website, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`). The live flag is off in the code and in the shipped `.env.example`. The threshold is `0.85` in the code and `1.0` in the example. Even with auto-confirm on, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy (`benchmark/eligibility/<strategy_hash>.json`, read by `bot/core/live_eligibility.py`), and none ships. Auto-confirmed trades run on the operator account; a regular user's trade is never auto-confirmed. An admin can read or change the threshold at runtime with `/autoconfirm` (`/autoconfirm off` sets it to 1.0).
 
 ---
 

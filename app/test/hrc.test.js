@@ -120,7 +120,7 @@ test('the page source has no dollar sign, and the script asks the admin shock ro
   assert.match(PAGE_JS, /\/api\/hrc\/shock/);
   assert.match(PAGE_JS, /rate_shock_loss_24h/);
   assert.equal(PAGE.includes('data-i18n'), false);
-  assert.match(PAGE, /styles\.css\?v=53/);
+  assert.match(PAGE, /styles\.css\?v=54/);
   assert.match(PAGE, /src="\/js\/api-retry\.js\?v=3"/);
   assert.match(PAGE, /src="\/js\/hrc\.js\?v=3"/);
   assert.ok(PAGE.indexOf('/js/api-retry.js') < PAGE.indexOf('/js/hrc.js'));

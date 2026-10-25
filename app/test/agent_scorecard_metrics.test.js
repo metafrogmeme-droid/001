@@ -183,11 +183,11 @@ test('Dip Sniper keeps the frozen figures, in a 3-column grid, caption outside',
   const sh = cell(parsed, 'Sharpe');
   const tr = cell(parsed, 'Trades');
 
-  assert.equal(ret.text, '-2.98%');
-  assert.equal(pf.text, '0.23');
+  assert.equal(ret.text, '-0.81%');
+  assert.equal(pf.text, '0.32');
   assert.equal(wr.text, '25%');
-  assert.equal(dd.text, '2.98%');
-  assert.equal(sh.text, '-3.69');
+  assert.equal(dd.text, '1.17%');
+  assert.equal(sh.text, '-4.27');
   assert.equal(tr.text, '4');
 
   loss(ret.cls);
@@ -342,15 +342,15 @@ function stratCell(html, key) {
 
 test('the public strategy page uses the same reading and a 3-column grid', () => {
   const html = strategyBlock(cardFrom('dip-sniper.json'));
-  assert.equal(stratCell(html, 'return').text, '-2.98%');
+  assert.equal(stratCell(html, 'return').text, '-0.81%');
   assert.equal(stratCell(html, 'return').cls, 'down');
-  assert.equal(stratCell(html, 'profit-factor').text, '0.23');
+  assert.equal(stratCell(html, 'profit-factor').text, '0.32');
   assert.equal(stratCell(html, 'profit-factor').cls, 'down');
   assert.equal(stratCell(html, 'win-rate').text, '25%');
   assert.equal(stratCell(html, 'win-rate').cls, '');
-  assert.equal(stratCell(html, 'max-dd').text, '2.98%');
+  assert.equal(stratCell(html, 'max-dd').text, '1.17%');
   assert.equal(stratCell(html, 'max-dd').cls, '');
-  assert.equal(stratCell(html, 'sharpe').text, '-3.69');
+  assert.equal(stratCell(html, 'sharpe').text, '-4.27');
   assert.equal(stratCell(html, 'sharpe').cls, 'down');
   assert.equal(stratCell(html, 'sharpe').cls, stratCell(html, 'profit-factor').cls);
   assert.equal(stratCell(html, 'trades').text, '4');
@@ -512,10 +512,10 @@ test('a card says how often its breaker tripped and the reset it modelled', () =
 });
 
 test('the frozen cards print the breaker they were recorded with', () => {
-  // Full Scan tripped twice on its window with the 24-bar reset; the four
-  // other presets never did. A drawn number, from the cards this branch ships.
+  // Full Scan tripped once on its window with the 24-bar reset. Dip Sniper
+  // did not. Both sentences are the cards this branch ships.
   assert.match(strategyBlock(cardFrom('full-scan.json')),
-    /data-breaker-trips="2">Breaker tripped 2 times, reset after 24 bars as an operator would</);
+    /data-breaker-trips="1">Breaker tripped once, reset after 24 bars as an operator would</);
   assert.match(scoreBlock(cardFrom('dip-sniper.json')), /data-breaker-trips="0">Breaker never tripped</);
 });
 

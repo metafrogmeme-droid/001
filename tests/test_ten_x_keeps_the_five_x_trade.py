@@ -128,11 +128,21 @@ class TestTheGateSizesTheSameTrade:
             ok5 = _engine(tmp_path).evaluate(_idea(6.0), atr=2.0)
             wide5 = _engine(tmp_path).evaluate(_idea(7.0), atr=2.0)
         ok10 = _engine(tmp_path).evaluate(_idea(6.0), atr=2.0)
-        wide10 = _engine(tmp_path).evaluate(_idea(7.0), atr=2.0)
+        wide_idea = _idea(7.0)
+        wide10 = _engine(tmp_path).evaluate(wide_idea, atr=2.0)
         assert _mr(ok5) == ["MARGIN_RISK: 30.0% OK (SL 6.0% × 5x) ≤ 30.0% cap"]
         assert _mr(ok10) == ["MARGIN_RISK: 60.0% OK (SL 6.0% × 10x) ≤ 60.0% cap"]
-        assert any(ln.startswith("MARGIN_RISK") for ln in wide5.checks_failed)
-        assert any(ln.startswith("MARGIN_RISK") for ln in wide10.checks_failed)
+        # A stop past the cap stays. Leverage is what moves (signal-side review
+        # 2026-10-24). The refusal returns when that flag is off.
+        assert wide_idea.stop_loss == pytest.approx(100.0 * 0.93)
+        assert any(ln.startswith("MARGIN_RISK: reduced leverage") for ln in wide5.checks_passed)
+        assert any(ln.startswith("MARGIN_RISK: reduced leverage") for ln in wide10.checks_passed)
+        object.__setattr__(CONFIG.risk, "leverage_from_stop_enabled", False)
+        try:
+            refused = _engine(tmp_path).evaluate(_idea(7.0), atr=2.0)
+        finally:
+            object.__setattr__(CONFIG.risk, "leverage_from_stop_enabled", True)
+        assert any(ln.startswith("MARGIN_RISK") for ln in refused.checks_failed)
 
     def test_a_cap_set_by_hand_is_read_at_the_venue(self, tmp_path):
         """MAX_MARGIN_RISK_PCT=30 under a 10x venue is a 3% stop: the operator
@@ -140,9 +150,19 @@ class TestTheGateSizesTheSameTrade:
         object.__setattr__(CONFIG.risk, "max_margin_risk_pct", 30.0)
         try:
             check = _engine(tmp_path).evaluate(_idea(4.0), atr=2.0)
+            # The reduced sentence names the cap as the number the new
+            # leverage fits under. The word "cap" is on the refusal line.
+            assert _mr(check) == [
+                "MARGIN_RISK: reduced leverage 10x→7x "
+                "(SL 4.0% × 7x = 28.0% ≤ 30.0%)"]
+            assert not any(ln.startswith("MARGIN_RISK") for ln in check.checks_failed)
+            object.__setattr__(CONFIG.risk, "leverage_from_stop_enabled", False)
+            refused = _engine(tmp_path).evaluate(_idea(4.0), atr=2.0)
         finally:
             object.__setattr__(CONFIG.risk, "max_margin_risk_pct", None)
-        assert any("SL 4.0% × 10x" in ln and "30.0% cap" in ln for ln in check.checks_failed), _mr(check)
+            object.__setattr__(CONFIG.risk, "leverage_from_stop_enabled", True)
+        assert any("SL 4.0% × 10x" in ln and "30.0% cap" in ln
+                   for ln in refused.checks_failed), _mr(refused)
 
 
 # ── the executor: the same order, half the margin ────────────────────────

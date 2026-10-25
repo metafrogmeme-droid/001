@@ -25,7 +25,9 @@ The rule engine decides each trade's direction and confidence. `LLM_DECIDES` is 
 | `alibaba` | Alibaba Cloud (Qwen) | `qwen3.6-plus` | Set `LLM_BASE_URL`; see below |
 | `grok` | xAI Grok | `grok-4.5` | |
 | `ollama` | Local Ollama | `llama3` | No key needed |
-| `runeclaw` | Self-hosted RUNECLAW model | `runeclaw-v6` | Endpoint from `RUNECLAW_LLM_BASE_URL` |
+| `runeclaw` | Self-hosted RUNECLAW model | `runeclaw-v6` when `RUNECLAW_LLM_MODEL` is unset | Endpoint from `RUNECLAW_LLM_BASE_URL` |
+
+The operator setting is `RUNECLAW_LLM_MODEL`. Copy the tag exactly as `ollama list` prints it, including case. The tag recorded for this tree is `pbdes2022/humanoid-traders:v10-8b`. `runeclaw-v6` is only the catalogue default above. `pbdes2022/HUMANOID-TRADERS` and `:v7-8b` are different strings; the server answers 404 for a tag it does not have.
 | `custom` | Any OpenAI-compatible endpoint | none | Set `LLM_BASE_URL`, `LLM_MODEL` and a non-empty `LLM_API_KEY` |
 
 Every provider except `anthropic` is called through the OpenAI SDK (`bot/llm/provider.py::create_llm_client`). A provider other than `ollama` and `runeclaw` counts as configured only when it has a key.
@@ -133,4 +135,4 @@ None of these places an order on its own: a Jupiter swap is signed by the user i
    Jupiter (unsigned swaps) · DexScreener (meme radar) · Solana RPC (read-only balances, $RCLAW tier gate)
 ```
 
-Every trade idea, whatever the model provider, passes the same pre-trade risk gate. Trades need a human confirm unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`), which is off in the shipped `.env.example` and on in the code default when no `.env` sets it. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.
+Every trade idea, whatever the model provider, passes the same pre-trade risk gate. Trades need a human confirm unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`), the live flag off in the code and in the shipped `.env.example`, the threshold `0.85` in the code and `1.0` in the example. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.

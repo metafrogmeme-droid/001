@@ -880,6 +880,15 @@ defaults:
     env_var: MAX_MARGIN_RISK_PCT
     description: "Leverage-aware cap: SL distance x the venue's leverage must not exceed this % of the venue's margin. Unset: 30% at the sizing leverage scaled to the venue's (60% at 10x sized at 5x), a 6% stop either way"
 
+  leverage_from_stop_enabled:
+    value: true
+    env_var: LEVERAGE_FROM_STOP_ENABLED
+    description: >
+      The stop stays where volatility and structure put it. The risk gate
+      reduces leverage so the stop still fits the margin-risk cap. Set false
+      to restore pulling the stop in, and to leave that reduction on the
+      vol-scaling flag.
+
   equity_curve_ma_period:
     value: 20
     env_var: EQUITY_CURVE_MA_PERIOD
@@ -947,8 +956,26 @@ defaults:
     value: 20
     env_var: KELLY_MIN_TRADES
     description: >
-      Minimum closed trades before Kelly sizing has an edge estimate. Below this
-      it is a no-op (fixed-fractional size is left unchanged).
+      Minimum closed trades before Kelly sizing has an edge estimate. Below
+      this, KELLY_ON_RISK_ENABLED uses kelly_floor_risk_pct instead of the
+      full budget. With that flag off, a short record is a no-op.
+
+  kelly_on_risk_enabled:
+    value: true
+    env_var: KELLY_ON_RISK_ENABLED
+    description: >
+      Half-Kelly f* is the fraction of equity lost at the stop, converted to
+      a margin the same way the fixed-fractional base is. A short record or
+      one with no positive edge uses kelly_floor_risk_pct. Set false to
+      restore equity × f* and the old "0 means leave the full size" reading.
+
+  kelly_floor_risk_pct:
+    value: 0.25
+    env_var: KELLY_FLOOR_RISK_PCT
+    description: >
+      Risk budget, percent of equity, when the record is shorter than
+      kelly_min_trades or has no positive edge. Below the swing risk budget,
+      so the size is neither the full one nor zero.
 
   correlation_sizing_enabled:
     value: true
@@ -1158,8 +1185,17 @@ defaults:
     value: 0.0005
     env_var: FUNDING_CLOCK_EXTREME_RATE
     description: >
-      Absolute 8h funding rate at/above which the rate counts as extreme
-      (0.0005 = 0.05% per interval).
+      Absolute funding rate at/above which the rate counts as extreme
+      (0.0005 = 0.05% per the symbol's own settlement interval).
+
+  funding_clock_gate_mode:
+    value: block
+    env_var: FUNDING_CLOCK_GATE_MODE
+    description: >
+      block refuses the paying side inside the pre-settlement window.
+      cost_only does not refuse; it subtracts one settlement from the
+      trade's expectancy in R. Both decisions are shadow-logged either way.
+      Any other value is read as block.
 
   equity_throttle_enabled:
     value: false
