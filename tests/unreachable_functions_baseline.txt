@@ -103,7 +103,6 @@ bot/core/smart_exits.py:risk_parity_size
 bot/core/monte_carlo.py:monte_carlo_size_adjustment
 bot/core/strategy_router.py:get_strategy_adjustments
 bot/core/strategy_router.py:strategy_summary
-bot/core/stock_trading.py:is_stock_symbol
 bot/core/divergence.py:divergence_to_confluence_votes
 bot/core/meme_swap.py:terms_expired
 bot/core/strategy_catalog.py:get_agent

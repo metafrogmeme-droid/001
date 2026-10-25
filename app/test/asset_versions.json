@@ -486,5 +486,9 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
+  },
+  "js/qch.js": {
+    "v": 1,
+    "sha": "d1fb7e8b16371d4a"
   }
 }

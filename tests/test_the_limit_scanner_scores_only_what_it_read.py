@@ -192,14 +192,24 @@ def test_a_stop_inside_the_tier_floor_is_widened_to_it(symbol, floor):
 
 def test_a_limit_is_never_placed_through_the_market_or_past_the_chase_cap():
     below = ls.plan_pullback(_snap("ADA", last=97.0, vwap=99.0, atr=1.0, low=90.0),
-                             ls.LONG, 1.0, P)[0]
-    assert below.limit_price == 97.0, "a buy limit above the market is a market buy"
+                             ls.LONG, 1.0, P)
+    assert below[0] is None and "cross" in below[1], \
+        "a buy limit at or above the market is not slid onto the last trade"
     far = ls.plan_pullback(_snap("ADA", last=110.0, vwap=105.0, atr=2.0, low=90.0),
                            ls.LONG, 1.0, P)
     assert far[0] is None and "chase cap" in far[1]
     near = ls.plan_pullback(_snap("ADA", last=106.0, vwap=105.0, atr=2.0, low=90.0),
                             ls.LONG, 1.0, P)
     assert near[0] is not None
+    # Below the last trade and still at or through the ask: a taker, not a pullback.
+    through_ask = ls.plan_pullback(
+        _snap("ADA", last=100.0, vwap=99.0, atr=1.0, low=90.0, ask_price=98.4, bid_price=98.2),
+        ls.LONG, 1.0, P)
+    assert through_ask[0] is None and "ask" in through_ask[1]
+    through_bid = ls.plan_pullback(
+        _snap("ADA", last=100.0, vwap=101.0, atr=1.0, high=110.0, bid_price=101.6, ask_price=101.8),
+        ls.SHORT, 1.0, P)
+    assert through_bid[0] is None and "bid" in through_bid[1]
 
 
 def test_a_pass_places_the_best_qualified_symbol_once():
@@ -236,13 +246,15 @@ def test_the_preset_numbers_are_read_or_refused():
 
 
 def test_the_minimum_score_is_the_bar_both_ways():
-    """A fully priceable symbol at 80 (no book read) is placed under 70 and
-    held off under 85: the bar, not the pricing, decides."""
+    """A fully priceable symbol with no book read keeps raw points of 80.
+    Those 80 are scaled onto 100, so 70 places it and a bar above 100 holds
+    it off. The raw points stay 80 either way."""
     best = _snap("ETH", change_pct=6.0, quote_volume=90e6, bid_volume=None, ask_volume=None)
     weak = _snap("ADA", change_pct=-2.0, quote_volume=20e6)
     placed = ls.scan_pass([LEADER_UP, weak, best], P)
     assert placed.plan is not None and placed.plan.points == 80.0
-    held_off = ls.scan_pass([LEADER_UP, weak, best], ls.ScannerParams(min_score=85))
+    assert ls.bar_score(placed.plan.points, {"orderbook": None}) == 100.0
+    held_off = ls.scan_pass([LEADER_UP, weak, best], ls.ScannerParams(min_score=101))
     assert held_off.plan is None
     assert held_off.reason == "no symbol at or above the minimum score"
 

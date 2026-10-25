@@ -41,6 +41,26 @@ if TYPE_CHECKING:
 PLACED = "placed a limit"
 
 
+def merge_rejections_by_gate(engines) -> dict[str, int]:
+    """Sum each symbol engine's gate counts. An empty book is ``{}``.
+
+    The portfolio compiler used to keep the first symbol's dict, which is
+    empty when that symbol was never refused, so the card printed ``{}``
+    over a book that had been refused thousands of times.
+    """
+    merged: dict[str, int] = {}
+    for eng in engines:
+        counts = getattr(eng, "_rejections_by_gate", None) or {}
+        if not isinstance(counts, dict):
+            continue
+        for gate, count in counts.items():
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                continue
+            name = str(gate)
+            merged[name] = merged.get(name, 0) + count
+    return merged
+
+
 class PortfolioBacktester:
     """Drives N single-symbol engines over one shared portfolio/risk state."""
 
@@ -270,6 +290,8 @@ class PortfolioBacktester:
         for name in ("_limits_filled", "_limits_filled_same_bar", "_limits_expired",
                      "_limits_cancelled_drift"):
             setattr(first, name, sum(getattr(e, name) for e in self._engines.values()))
+        # The card was reading the first symbol's gate counts and printing {}.
+        first._rejections_by_gate = merge_rejections_by_gate(self._engines.values())
 
         longest = max(streams.values(), key=len)
         result = first._compile_result(longest, time.time() - start_time)
@@ -375,6 +397,15 @@ class PortfolioBacktester:
             eng._preset_atr_by_idea[idea.id] = snap.atr
         eng.risk.register_pending_intent(idea)
         eng._rest_limit(idea, check, bar)
+        # Adverse-selection studies, copied onto the resting order only when
+        # the preset turned them on. Off, the order is the historical one.
+        scanner = getattr(self, "_scanner", None)
+        if scanner is not None and eng._pending_limits:
+            last = eng._pending_limits[-1]
+            if scanner.reclaim_fill:
+                last["reclaim"] = True
+            if scanner.cancel_adverse_bp > 0:
+                last["cancel_adverse_bp"] = scanner.cancel_adverse_bp
         return PLACED
 
     def _count_pass(self, outcome: str) -> None:

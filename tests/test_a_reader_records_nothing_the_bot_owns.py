@@ -153,3 +153,22 @@ def test_the_bots_per_user_engines_are_writers(data_dir, monkeypatch):
     eng = bot.risk_for("7")
     assert eng is not bot.risk
     assert eng._reader is False
+
+
+def test_a_backtest_records_no_ladder_row_and_still_saves_its_own_state(ledger):
+    """A replay is not the bot. Its ideas must not rewrite the ladder ledger.
+
+    The ledger save rewrites the whole file from this process's memory. A
+    scanner pass that reaches the gate on every bar turns that into the run.
+    The backtest keeps its own risk file; only the bot's ledger is left alone.
+    """
+    from bot.backtest.engine import BacktestEngine
+    from bot.backtest.models import BacktestConfig
+    eng = BacktestEngine(BacktestConfig(symbol="BTC/USDT", initial_balance=10_000.0))
+    try:
+        eng.risk.evaluate(_idea(), atr=2.0)
+        assert ledger.rows() == []
+        eng.risk.emergency_halt("the replay's halt")
+        assert os.path.exists(eng.risk._state_file)
+    finally:
+        eng.cleanup()

@@ -2,20 +2,23 @@
 
 Two entry points, both reached only in follow-trade mode:
 
-* ``manage_open_state(cfg)`` runs every scan before any new entry. It enforces
-  the account-equity circuit breaker (state persisted in ``.state/``), and makes
-  a best-effort pass at limit expiry, intraday time-stops, and auto-breakeven.
-  Anything it cannot confidently parse from live exchange state becomes a safe
-  no-op rather than a wrong action on real money.
-* ``open_if_allowed(decision, cfg, mgmt)`` is the ``execute_trade`` callback. It
-  applies the concurrent-position cap and correlation budget, then places a
-  side-aware limit entry with a tick-aligned stop and first target.
+* ``manage_open_state(cfg)`` reads the sub-account and the book. It does not
+  cancel, close or move a stop. It confirms ``subaccount_exists()`` and
+  ``total_value()`` and refuses the pass when either cannot be confirmed.
+* ``apply_management`` does those mutations, and only from the follow
+  callback. It touches a position or an order only when its id is one this
+  playbook stored at placement and its symbol is in the manifest.
+* ``open_if_allowed(decision, cfg, mgmt)`` places a limit only when that
+  confirmation held and the limit rests at least one tick inside the spread.
+  The contract SDK has no post-only flag. Margin is isolated when the opener
+  accepts it.
 
 Reliable controls (documented helpers / account equity): circuit breaker,
 position cap, correlation budget, duplicate-entry guard. Best-effort controls
 (depend on undocumented position/order fields, fail-safe to no-op): time-stop,
 auto-breakeven, limit expiry.
 """
+import os
 from datetime import datetime, timezone
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
@@ -23,8 +26,14 @@ from typing import Any, Optional
 
 from getagent import trade
 
-_STATE_DIR = Path("/workspace/.state")
-_STATE_FILE = _STATE_DIR / "runeclaw_scanner.json"
+from . import features
+
+
+# The sandbox persists `.state/` and nothing else. Tests may point this at a
+# scratch directory. It is a path, never an account id or a key.
+def _state_file() -> Path:
+    root = os.environ.get("RUNECLAW_PLAYBOOK_STATE_DIR", "/workspace/.state")
+    return Path(root) / "runeclaw_scanner.json"
 
 # SDK serialises order/position records to snake_case (to_dict/model_dump), so the
 # raw Bitget camelCase cTime/createTime never matched here -- a real ETH limit sat
@@ -37,10 +46,14 @@ _OPEN_TIME_KEYS = ("cTime", "ctime", "c_time", "create_time", "created_time", "c
 _ENTRY_PRICE_KEYS = ("openPriceAvg", "open_price_avg", "averageOpenPrice", "average_open_price",
                      "avgPrice", "avg_price", "openAvgPrice", "entryPrice", "open_price")
 _UPNL_KEYS = ("unrealizedPL", "unrealized_pnl", "unrealizedPnl", "upl", "uplValue")
-_SIZE_KEYS = ("total", "size", "holdSize", "available", "openDelegateSize")
 _HOLD_SIDE_KEYS = ("holdSide", "hold_side", "side")
-_EQUITY_KEYS = ("usdtEquity", "accountEquity", "totalEquity", "equity",
-                "usdt_equity", "totalAmount", "accountValue", "unifiedTotalEquity")
+# Account-equity fields. On Bitget these include unrealized PnL, so the
+# breaker must not add open PnL a second time.
+_EQUITY_INCLUSIVE = ("usdtEquity", "accountEquity", "totalEquity", "equity",
+                     "unifiedTotalEquity")
+# Wallet-style fields. Open PnL is not in the number; it has to be added,
+# and a position whose open PnL cannot be read makes the equity unreadable.
+_EQUITY_WALLET = ("totalAmount", "accountValue", "usdt_equity")
 
 
 def _to_mapping(value: Any) -> Optional[dict]:
@@ -108,33 +121,201 @@ def _result_reason(result: Any) -> str:
     return text[:48] if text else "unknown"
 
 
-def _read_state() -> dict:
+def _read_state() -> Optional[dict]:
+    """The persisted book, or None when it cannot be read.
+
+    A missing file is an empty book (nothing has been recorded yet), which
+    is a reading. A file that is there and does not parse is unreadable:
+    the caller manages nothing.
+    """
+    path = _state_file()
     try:
-        if _STATE_FILE.exists():
-            import json
+        if not path.exists():
+            return {"orders": []}
+        import json
 
-            return json.loads(_STATE_FILE.read_text(encoding="utf-8")) or {}
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        pass
-    return {}
+        return None
+    return data if isinstance(data, dict) else None
 
 
-def _write_state(state: dict) -> None:
+def _write_state(state: dict) -> bool:
+    path = _state_file()
     try:
         import json
 
-        _STATE_DIR.mkdir(parents=True, exist_ok=True)
-        _STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state), encoding="utf-8")
+        return True
     except Exception:
-        pass
+        return False
 
 
-def _account_equity() -> Optional[float]:
+def _labeled_number(value: Any, keys: tuple) -> tuple:
+    """``(number, key)`` for the first listed key that reads, else ``(None, "")``."""
+    mapping = _to_mapping(value)
+    if mapping is None:
+        return None, ""
+    for key in keys:
+        if key in mapping:
+            try:
+                return float(mapping[key]), key
+            except (TypeError, ValueError):
+                continue
+    for nested_key in ("data", "result", "list", "assets", "account"):
+        if nested_key in mapping:
+            found, name = _labeled_number(mapping[nested_key], keys)
+            if found is not None:
+                return found, name
+    return None, ""
+
+
+def _account_equity() -> dict:
+    """The breaker equity, and whether that number already includes open PnL.
+
+    An inclusive field is used as-is. A wallet field does not include open
+    PnL; the caller adds it, and refuses if it cannot. No field is unreadable,
+    not zero.
+    """
+    out = {"equity": None, "includes_open_pnl": None, "field": ""}
     try:
         result = trade.account.total_value()
     except Exception:
+        return out
+    equity, field = _labeled_number(result, _EQUITY_INCLUSIVE)
+    if equity is not None and equity == equity and equity != float("inf"):
+        out.update(equity=equity, includes_open_pnl=True, field=field)
+        return out
+    wallet, field = _labeled_number(result, _EQUITY_WALLET)
+    if wallet is not None and wallet == wallet and wallet != float("inf"):
+        out.update(equity=wallet, includes_open_pnl=False, field=field)
+    return out
+
+
+def _sum_open_pnl(records: list) -> Optional[float]:
+    """Sum of unrealized PnL. One unreadable open position makes it None."""
+    total = 0.0
+    for record in records:
+        upnl = _find_number(record, _UPNL_KEYS)
+        if upnl is None:
+            return None
+        total += upnl
+    return total
+
+
+def breaker_equity(equity: Any, includes_open: Any, records: list,
+                   position_unreadable: bool) -> Optional[float]:
+    """Equity the circuit compares, with open PnL in the number.
+
+    An inclusive field already holds unrealized PnL and is not added again.
+    A wallet field does not: the open positions' PnL is added, and one
+    unreadable position makes the equity unreadable. Missing open PnL is
+    not zero, and an unreadable book is not a flat day.
+    """
+    try:
+        base = float(equity)
+    except (TypeError, ValueError):
         return None
-    return _find_number(result, _EQUITY_KEYS)
+    if base != base or base == float("inf"):
+        return None
+    if includes_open is True:
+        return base
+    if position_unreadable:
+        return None
+    upnl = _sum_open_pnl(records)
+    if upnl is None:
+        return None
+    return base + upnl
+
+
+def circuit_of(pnl: Optional[float], pause: float, stop: float) -> str:
+    """``tripped``, ``paused``, ``ok``, or ``unconfirmed`` when pnl is unread."""
+    if pnl is None:
+        return "unconfirmed"
+    if pnl <= -abs(stop):
+        return "tripped"
+    if pnl <= -abs(pause):
+        return "paused"
+    return "ok"
+
+
+# A chase toward the market. 0.25% is the ceiling. Half an ATR can only
+# make it smaller. A configured 3% does not raise it: that was enough to
+# walk a resting limit through the spread.
+_CHASE_PCT_CAP = 0.0025
+
+
+def chase_room(price: float, atr: Any, configured_pct: Any = None) -> float:
+    """How far, in price, a limit may move toward the market.
+
+    The smaller of 0.25% of ``price`` and half an ATR. A configured percent
+    can lower that, not raise it.
+    """
+    if not price > 0:
+        return 0.0
+    cap = _CHASE_PCT_CAP
+    try:
+        if configured_pct is not None:
+            cap = min(cap, float(configured_pct) / 100.0)
+    except (TypeError, ValueError):
+        cap = _CHASE_PCT_CAP
+    if cap < 0:
+        cap = 0.0
+    room = price * cap
+    try:
+        atr_f = float(atr)
+    except (TypeError, ValueError):
+        atr_f = 0.0
+    if atr_f > 0:
+        room = min(room, 0.5 * atr_f)
+    return room
+
+
+def _is_maker(side: str, px: float, bid: float, ask: float, tick: float) -> bool:
+    """One tick inside the near side, and not at the best opposite price."""
+    if side == "short":
+        return px > bid and px >= ask + tick
+    return px < ask and px <= bid - tick
+
+
+def quote_entry(side: str, entry: Any, bid: Any, ask: Any, tick: Any,
+                atr: Any = None, last: Any = None, configured_pct: Any = None) -> tuple:
+    """A maker limit, or ``(None, why)``.
+
+    The entry may move toward ``last`` by at most :func:`chase_room`. The
+    price that is sent has to stay strictly off the best opposite price
+    (the ask for a buy, the bid for a sell) and at least one tick inside
+    the near side. A move that would cross is not sent: the original price
+    is kept when that price is already a maker, and otherwise the order
+    is cancelled.
+    """
+    try:
+        px = float(entry)
+        bid_f = float(bid)
+        ask_f = float(ask)
+        tick_f = float(tick)
+    except (TypeError, ValueError):
+        return None, "book_or_tick_unread"
+    if not (px > 0 and bid_f > 0 and ask_f > 0 and tick_f > 0 and ask_f > bid_f):
+        return None, "book_or_tick_unread"
+    room = chase_room(px, atr, configured_pct)
+    side_l = "short" if str(side).lower() == "short" else "long"
+    chased = px
+    try:
+        last_f = float(last) if last is not None else None
+    except (TypeError, ValueError):
+        last_f = None
+    if last_f is not None and last_f > 0:
+        if side_l == "short" and last_f < px:
+            chased = max(px - room, last_f)
+        elif side_l == "long" and last_f > px:
+            chased = min(px + room, last_f)
+    if _is_maker(side_l, chased, bid_f, ask_f, tick_f):
+        return chased, ""
+    if chased != px and _is_maker(side_l, px, bid_f, ask_f, tick_f):
+        return px, ""
+    return None, "would_cross"
 
 
 def _now_ms() -> int:
@@ -174,34 +355,137 @@ def _extract_rows(value: Any, depth: int = 0) -> list:
     return []
 
 
-def _record_notional(record: dict) -> Optional[float]:
-    """USDT notional (qty * price) of a live order or position record."""
-    qty = _find_number(record, _SIZE_KEYS + ("qty", "baseVolume"))
-    price = _find_number(record, ("price", "orderPrice", "limitPrice", "executePrice",
-                                  "openPriceAvg", "open_price_avg", "averageOpenPrice",
-                                  "average_open_price", "avgPrice", "avg_price",
-                                  "markPrice", "mark_price"))
-    if qty is None or price is None or qty <= 0 or price <= 0:
-        return None
-    return qty * price
+_ORDER_ID_KEYS = ("orderId", "order_id", "clientOid", "client_oid",
+                  "openOrderId", "open_order_id", "entryOrderId")
 
 
-def _runeclaw_sized(record: dict, cfg: dict) -> bool:
-    """Stateless ownership: recognise RUNECLAW's own orders/positions by size.
+def _manifest_symbols(cfg: dict) -> set:
+    """Symbols this playbook is allowed to touch. An empty manifest touches nothing."""
+    raw = cfg.get("trading_symbols") if isinstance(cfg, dict) else None
+    if not isinstance(raw, (list, tuple)):
+        return set()
+    return {str(s).strip().upper() for s in raw if str(s).strip()}
 
-    The runtime does not persist ``.state/`` between scheduled runs, so we cannot
-    remember which orders we placed. RUNECLAW risk-sizes every order to at most
-    ``margin_budget * leverage``; the user's manual trades have been ~10x larger.
-    We therefore manage only records whose notional is within our own envelope
-    (cap * size_scope_mult), which can never reach the user's bigger manual trades.
+
+def _known_order_ids(state: Optional[dict]) -> set:
+    """Order ids this playbook recorded when it placed them. Unreadable state is none."""
+    if not isinstance(state, dict):
+        return set()
+    ids = set()
+    for row in state.get("orders") or []:
+        if isinstance(row, dict) and row.get("order_id") not in (None, ""):
+            ids.add(str(row["order_id"]))
+    return ids
+
+
+def _record_ids(record: dict) -> set:
+    found = set()
+    for key in _ORDER_ID_KEYS:
+        if record.get(key) not in (None, ""):
+            found.add(str(record[key]))
+    return found
+
+
+def _is_ours(record: dict, ids: set, symbols: set) -> bool:
+    """True only when the record is one of our order ids on a manifest symbol.
+
+    Notional is not ownership. A position with no order id is not ours.
     """
-    notional = _record_notional(record)
-    if notional is None or notional <= 0:
+    if not ids or not symbols:
         return False
-    leverage = max(int(cfg.get("leverage", 10)), 1)
-    budget = float(cfg.get("margin_budget", "100") or "100")
-    mult = float(cfg.get("size_scope_mult", "1.5"))
-    return notional <= budget * leverage * mult
+    symbol = _find_string(record, ("symbol",)).upper()
+    if symbol not in symbols:
+        return False
+    return bool(_record_ids(record) & ids)
+
+
+def confirm_subaccount() -> dict:
+    """Whether the runner's GetAgent sub-account can be confirmed.
+
+    Fail closed. ``subaccount_exists()`` must be true and ``total_value()``
+    must read a finite number. A throw, a false, or an unreadable value
+    refuses. The account id is not stored and not returned.
+    """
+    out = {"confirmed": False, "exists": None, "total_value": None, "reason": "subaccount_not_confirmed"}
+    try:
+        exists = trade.account.subaccount_exists()
+    except Exception as exc:
+        out["reason"] = "subaccount_exists_" + type(exc).__name__
+        return out
+    ok = _exists_true(exists)
+    out["exists"] = ok
+    if not ok:
+        out["reason"] = "subaccount_not_confirmed"
+        return out
+    equity = _account_equity()
+    if equity.get("equity") is None:
+        out["reason"] = "total_value_unread"
+        return out
+    out["total_value"] = equity["equity"]
+    out["equity_includes_open_pnl"] = equity["includes_open_pnl"]
+    out["equity_field"] = equity["field"]
+    out["confirmed"] = True
+    out["reason"] = ""
+    return out
+
+
+def _exists_true(value: Any) -> bool:
+    if value is True:
+        return True
+    mapping = _to_mapping(value) or {}
+    flag = mapping.get("exists", mapping.get("subaccount_exists"))
+    if flag is True:
+        return True
+    if isinstance(flag, str) and flag.strip().lower() in ("true", "1", "yes"):
+        return True
+    nested = mapping.get("data")
+    nested_map = _to_mapping(nested)
+    if nested_map is not None:
+        return _exists_true(nested_map)
+    return False
+
+
+def read_top_of_book(symbol: str) -> dict:
+    """Best bid, best ask and the price tick. Unread fields stay None.
+
+    Last price is not a bid. A book that only has a last price is unread.
+    """
+    feats = features.fetch_symbol(symbol)
+    tick = None
+    try:
+        rules = trade.helpers.contract_rules(symbol)
+        step = getattr(rules, "price_step", None)
+        if step not in (None, "", 0, "0"):
+            tick = float(step)
+            if not tick > 0:
+                tick = None
+    except Exception:
+        tick = None
+    return {"bid": feats.bid_price, "ask": feats.ask_price, "tick": tick}
+
+
+def rests_as_maker(side: str, entry: Any, bid: Any, ask: Any, tick: Any) -> tuple:
+    """A limit that cannot cross. Fail closed when the book or the tick is unread.
+
+    The contract SDK has no post-only flag. A long is placed only at least one
+    tick below the best bid; a short only at least one tick above the best ask.
+    """
+    try:
+        px = float(entry)
+        bid_f = float(bid)
+        ask_f = float(ask)
+        tick_f = float(tick)
+    except (TypeError, ValueError):
+        return False, "book_or_tick_unread"
+    if not (px > 0 and bid_f > 0 and ask_f > 0 and tick_f > 0):
+        return False, "book_or_tick_unread"
+    if str(side).lower() == "short":
+        if px >= ask_f + tick_f:
+            return True, ""
+        return False, "would_take"
+    if px <= bid_f - tick_f:
+        return True, ""
+    return False, "would_take"
 
 
 def _shape(value: Any, depth: int = 0) -> str:
@@ -241,26 +525,26 @@ def manage_open_state(cfg: dict) -> dict:
     soft = float(cfg.get("circuit_pause_usdt", "30"))
     hard = float(cfg.get("circuit_stop_usdt", "40"))
 
-    # --- circuit breaker via account equity persisted in .state/ ---
-    equity = _account_equity()
-    state = _read_state()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if equity is not None:
-        if state.get("date") != today or "day_start_equity" not in state:
-            state["date"] = today
-            state["day_start_equity"] = equity
-        today_pnl = equity - float(state.get("day_start_equity", equity))
-        status["today_pnl"] = round(today_pnl, 4)
-        status["controls_active"]["circuit_breaker"] = True
-        if today_pnl <= -abs(hard):
-            status["circuit"] = "tripped"
-        elif today_pnl <= -abs(soft):
-            status["circuit"] = "paused"
-        state["last_equity"] = equity
-        _write_state(state)
+    account = confirm_subaccount()
+    status["subaccount_exists"] = account["exists"]
+    status["total_value"] = account["total_value"]
+    status["subaccount_confirmed"] = account["confirmed"]
+    status["subaccount_reason"] = account["reason"]
+    if not account["confirmed"]:
+        # No order, no cancel, no close. The reason is the class name only.
+        print("limit-scanner refused: " + str(account["reason"]))
+        status["circuit"] = "unconfirmed"
+        return status
 
-    # --- live snapshot: positions + pending orders (the only source of truth;
-    # .state/ does not persist between scheduled runs) ---
+    state = _read_state()
+    if state is None:
+        status["state_readable"] = False
+        status["circuit"] = "unconfirmed"
+        print("limit-scanner refused: state_unreadable")
+        return status
+    status["state_readable"] = True
+
+    # --- live snapshot. Ownership is the ids in .state/, not the snapshot's size. ---
     try:
         positions = trade.contract.current_position()
         records = trade.helpers.contract_position_records(positions) or []
@@ -275,9 +559,15 @@ def manage_open_state(cfg: dict) -> dict:
     pending_records = _extract_rows(pending_raw) if pending_raw is not None else []
     status["pending_shape"] = _shape(pending_raw)[:40] if pending_raw is not None else "none"
 
-    # --- STATELESS ownership: scope to RUNECLAW-sized live orders/positions ---
-    owned_position_records = [r for r in records if _runeclaw_sized(r, cfg)]
-    owned_pending_records = [r for r in pending_records if _runeclaw_sized(r, cfg)]
+    # Ownership is the order id we stored when we placed, on a manifest symbol.
+    # A notional cap is not a claim. Unreadable state was already returned.
+    ids = _known_order_ids(state)
+    symbols = _manifest_symbols(cfg)
+    status["known_orders"] = len(ids)
+    owned_position_records = [r for r in records if _is_ours(r, ids, symbols)]
+    owned_pending_records = [r for r in pending_records if _is_ours(r, ids, symbols)]
+    status["_position_records"] = owned_position_records
+    status["_pending_records"] = owned_pending_records
     pos_symbols = {_find_string(r, ("symbol",)).upper()
                    for r in owned_position_records if _find_string(r, ("symbol",))}
     pend_symbols = {_find_string(r, ("symbol",)).upper()
@@ -297,19 +587,127 @@ def manage_open_state(cfg: dict) -> dict:
     status["owned_pending"] = len(owned_pending_records)
     status["ran"] = True
 
-    if status["circuit"] == "tripped":
-        _flatten_owned(cfg, owned_position_records, owned_pending_records, actions)
+    # Equity for the breaker. An inclusive field already holds open PnL.
+    # A wallet field does not: add it, and refuse when a position's PnL
+    # cannot be read. Missing open PnL is not zero.
+    status["equity_includes_open_pnl"] = account.get("equity_includes_open_pnl")
+    equity = breaker_equity(
+        account["total_value"], account.get("equity_includes_open_pnl"),
+        records, bool(status.get("position_query_error")))
+    if equity is None:
+        print("limit-scanner refused: open_pnl_unread")
+        status["circuit"] = "unconfirmed"
+        status["open_pnl_counted"] = False
         return status
+    status["total_value"] = equity
+    status["open_pnl_counted"] = True
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if state.get("date") != today or "day_start_equity" not in state:
+        state["date"] = today
+        state["day_start_equity"] = equity
+    today_pnl = equity - float(state.get("day_start_equity", equity))
+    status["today_pnl"] = round(today_pnl, 4)
+    status["controls_active"]["circuit_breaker"] = True
+    status["circuit"] = circuit_of(today_pnl, soft, hard)
+    state["last_equity"] = equity
+    open_ids = set()
+    for record in owned_position_records + owned_pending_records:
+        open_ids |= _record_ids(record)
+    status["open_risk_usdt"] = _stored_open_risk(state, open_ids)
+    _write_state(state)
 
-    _best_effort_position_controls(cfg, owned_position_records, status, actions)
-    _best_effort_limit_expiry(cfg, owned_pending_records, actions, status)
+    # Reads only. Cancels, closes and stop changes run in apply_management,
+    # which the live entry calls from inside the follow callback.
     return status
+
+
+def apply_management(cfg: dict, status: dict) -> dict:
+    """Cancel, close and move stops. Only our order ids, only manifest symbols.
+
+    Caller must be the ``emit_signal_or_follow`` callback. A sub-account that
+    was not confirmed, or a book that was not readable, is left untouched.
+    """
+    actions = status.setdefault("actions", [])
+    if not status.get("subaccount_confirmed") or status.get("state_readable") is False:
+        return status
+    state = _read_state()
+    ids = _known_order_ids(state)
+    symbols = _manifest_symbols(cfg)
+    if state is None or not ids or not symbols:
+        return status
+    positions = [r for r in (status.get("_position_records") or []) if _is_ours(r, ids, symbols)]
+    pending = [r for r in (status.get("_pending_records") or []) if _is_ours(r, ids, symbols)]
+    if status.get("circuit") == "tripped":
+        _flatten_owned(cfg, positions, pending, actions)
+        return status
+    _best_effort_position_controls(cfg, positions, status, actions)
+    _best_effort_limit_expiry(cfg, pending, actions, status)
+    return status
+
+
+def remember_order(order_id: str, symbol: str, side: str, risk_usdt: Any = None) -> bool:
+    """Record an order this playbook just placed. No id, nothing is recorded.
+
+    ``risk_usdt`` is the loss at the stop. A later pass needs it so the
+    circuit stop is the sum of open risk, not a guess.
+    """
+    if not order_id or not symbol:
+        return False
+    state = _read_state()
+    if state is None:
+        return False
+    orders = [o for o in (state.get("orders") or []) if isinstance(o, dict)]
+    row = {"order_id": str(order_id), "symbol": str(symbol).upper(), "side": str(side)}
+    if isinstance(risk_usdt, (int, float)) and not isinstance(risk_usdt, bool) and risk_usdt >= 0:
+        row["risk_usdt"] = float(risk_usdt)
+    orders.append(row)
+    state["orders"] = orders[-200:]
+    return _write_state(state)
+
+
+def _stored_open_risk(state: Optional[dict], open_ids: set) -> Optional[float]:
+    """USDT at risk on the ids still open. Unknown risk is None, not zero."""
+    if not isinstance(state, dict):
+        return None
+    if not open_ids:
+        return 0.0
+    rows = {}
+    for row in state.get("orders") or []:
+        if isinstance(row, dict) and row.get("order_id") not in (None, ""):
+            rows[str(row["order_id"])] = row
+    total = 0.0
+    for oid in open_ids:
+        row = rows.get(str(oid))
+        raw = None if row is None else row.get("risk_usdt")
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0 or raw != raw:
+            return None
+        total += float(raw)
+    return total
+
+
+def placed_order_id(result: Any) -> str:
+    """The exchange order id on a placement result, or empty when it was not there."""
+    for attr in ("order_id", "orderId"):
+        value = getattr(result, attr, None)
+        if value not in (None, ""):
+            return str(value)
+    mapping = _to_mapping(getattr(result, "raw", None)) or _to_mapping(result) or {}
+    found = _find_string(mapping, _ORDER_ID_KEYS)
+    if found:
+        return found
+    for key in ("data", "result"):
+        nested = _to_mapping(mapping.get(key)) if isinstance(mapping, dict) else None
+        if nested:
+            found = _find_string(nested, _ORDER_ID_KEYS)
+            if found:
+                return found
+    return ""
 
 
 def _flatten_owned(cfg: dict, owned_position_records: list, owned_pending_records: list,
                    actions: list) -> None:
-    """Circuit hard-stop: cancel ONLY RUNECLAW-sized resting orders + close ONLY
-    RUNECLAW-sized positions. Never touches the user's larger manual trades."""
+    """Circuit hard-stop: cancel and close only records whose order id this
+    playbook stored. A position with no stored id is left alone."""
     for rec in owned_pending_records:
         symbol = _find_string(rec, ("symbol",))
         order_id = _find_string(rec, ("orderId", "order_id", "clientOid"))
@@ -333,7 +731,6 @@ def _flatten_owned(cfg: dict, owned_position_records: list, owned_pending_record
 
 def _best_effort_position_controls(cfg: dict, records: list, status: dict, actions: list) -> None:
     max_age_h = float(cfg.get("time_stop_hours", "4"))
-    be_trigger_usdt = float(cfg.get("breakeven_trigger_usdt", "20"))
     be_trigger_pct = float(cfg.get("breakeven_pct", "2.0")) / 100.0
     now_ms = _now_ms()
 
@@ -358,7 +755,6 @@ def _best_effort_position_controls(cfg: dict, records: list, status: dict, actio
 
         # Auto-breakeven (best effort: requires entry price + current price).
         entry = _find_number(record, _ENTRY_PRICE_KEYS)
-        upnl = _find_number(record, _UPNL_KEYS)
         if entry is None or entry <= 0:
             continue
         try:
@@ -367,7 +763,9 @@ def _best_effort_position_controls(cfg: dict, records: list, status: dict, actio
             continue
         is_long = hold_side.lower() in ("long", "buy")
         move_pct = (current - entry) / entry if is_long else (entry - current) / entry
-        if move_pct >= be_trigger_pct or (upnl is not None and upnl >= be_trigger_usdt):
+        # One trigger, the percent. A dollar trigger is a different percent
+        # at every notional ($20 on 1500 is 1.33%, not the stated 2%).
+        if move_pct >= be_trigger_pct:
             _move_stop_to_breakeven(symbol, entry, actions, status)
 
 
@@ -388,14 +786,14 @@ def _move_stop_to_breakeven(symbol: str, entry: float, actions: list, status: di
 
 
 def _best_effort_limit_expiry(cfg: dict, owned_pending_records: list, actions: list, status: dict) -> None:
-    """Cancel ONLY RUNECLAW-sized stale resting limits -- either past the time
-    budget (``limit_expiry_hours``) OR left behind when price ran more than
-    ``limit_chase_pct`` past the entry in the direction the limit can never fill
-    from (a short's sell-limit sits above market and dies if price collapses; a
-    long's buy-limit sits below market and dies if price runs up). Operates only on
-    the pre-scoped RUNECLAW-sized order records. (v0.1.13/0.1.14)"""
+    """Cancel stale resting limits this playbook stored -- either past the time
+    budget (``limit_expiry_hours``) or left behind when price ran more than
+    ``stale_limit_pct`` away in the direction the limit can never fill from.
+    That distance is not a chase toward the market. Chasing uses
+    :func:`chase_room`, which cannot walk the price through the spread.
+    Operates only on the pre-scoped order records. (v0.1.13/0.1.14)"""
     max_age_h = float(cfg.get("limit_expiry_hours", "4"))
-    chase_pct = float(cfg.get("limit_chase_pct", "3.0")) / 100.0
+    chase_pct = float(cfg.get("stale_limit_pct", "3.0")) / 100.0
     now_ms = _now_ms()
     for record in owned_pending_records:
         symbol = _find_string(record, ("symbol",))
@@ -423,10 +821,9 @@ def _best_effort_limit_expiry(cfg: dict, owned_pending_records: list, actions: l
                     status["expiry_err"] = ("exc:" + _exc_brief(exc))[:36]
                     continue
 
-        # 2) Price-distance "left behind" cancel: the market has run past the
-        # entry by more than limit_chase_pct in the un-fillable direction, so the
-        # pullback this limit was waiting for is gone. Free the slot + margin; the
-        # next scan re-places at the current VWAP level if the name still qualifies.
+        # 2) Left behind: the market has run away from the limit, so the
+        # pullback it was waiting for is gone. This cancels. It does not
+        # reprice toward the market.
         if chase_pct <= 0:
             continue
         entry_price = _find_number(record, ("price", "orderPrice", "limitPrice", "executePrice"))
@@ -464,7 +861,10 @@ def open_if_allowed(decision: dict, cfg: dict, mgmt: dict) -> dict:
     if not symbol or not plan:
         return {"placed": False, "reason": "incomplete_plan"}
 
-    if mgmt.get("circuit") in ("paused", "tripped"):
+    if not mgmt.get("subaccount_confirmed"):
+        return {"placed": False, "reason": "subaccount_unconfirmed"}
+
+    if mgmt.get("circuit") in ("paused", "tripped", "unconfirmed"):
         return {"placed": False, "reason": "circuit_" + str(mgmt.get("circuit"))}
 
     open_count = int(mgmt.get("open_count", 0) or 0)
@@ -537,28 +937,59 @@ def open_if_allowed(decision: dict, cfg: dict, mgmt: dict) -> dict:
     except Exception as exc:
         return {"placed": False, "reason": "tpsl_error:" + _exc_brief(exc)}
 
+    book = read_top_of_book(symbol)
+    quoted, why = quote_entry(
+        side, entry_price, book["bid"], book["ask"], book["tick"],
+        atr=plan.get("atr"), last=plan.get("last"),
+        configured_pct=cfg.get("limit_chase_pct", "0.25"))
+    if quoted is None:
+        return {"placed": False, "reason": why, "symbol": symbol, "side": side}
+    entry_price = _align(quoted, book["tick"])
+    maker, why = rests_as_maker(side, entry_price, book["bid"], book["ask"], book["tick"])
+    if not maker:
+        return {"placed": False, "reason": why, "symbol": symbol, "side": side}
+
     opener = trade.contract.open_short_limit if side == "short" else trade.contract.open_long_limit
+    kwargs = {
+        "symbol": symbol, "qty": qty_plan.qty, "price": entry_price, "leverage": leverage,
+        "tp_trigger_price": tpsl.tp_trigger_price, "sl_trigger_price": tpsl.sl_trigger_price,
+    }
+    margin_mode = "unspecified"
     try:
-        result = opener(
-            symbol=symbol, qty=qty_plan.qty, price=entry_price, leverage=leverage,
-            tp_trigger_price=tpsl.tp_trigger_price, sl_trigger_price=tpsl.sl_trigger_price,
-        )
+        import inspect
+        accepted = inspect.signature(opener).parameters
+    except (TypeError, ValueError):
+        accepted = {}
+    if "margin_mode" in accepted:
+        kwargs["margin_mode"] = "isolated"
+        margin_mode = "isolated"
+    elif "marginMode" in accepted:
+        kwargs["marginMode"] = "isolated"
+        margin_mode = "isolated"
+    try:
+        result = opener(**kwargs)
     except Exception as exc:
         return {"placed": False, "reason": "open_raise:" + _exc_brief(exc),
                 "symbol": symbol, "side": side,
                 "qty": str(getattr(qty_plan, "qty", "")), "entry": str(entry_price)}
 
     placed = bool(trade.is_success(result))
+    order_id = placed_order_id(result) if placed else ""
+    remembered = remember_order(order_id, symbol, side, plan.get("risk_usdt")) if order_id else False
     out = {
         "placed": placed, "symbol": symbol, "side": side,
         "qty": str(getattr(qty_plan, "qty", "")), "entry": str(entry_price),
         "tp1": str(tpsl.tp_trigger_price), "sl": str(tpsl.sl_trigger_price),
+        "margin_mode": margin_mode,
+        "order_id_recorded": remembered,
     }
     if not placed:
         # Surface the exchange's own rejection so a fully-sized, fully-guarded
         # order that never rests on the book stops being a silent no-op.
         out["reason"] = "exchange_reject:" + _result_reason(result)
-    # Ownership is derived live by size each cycle (stateless), so no tagging.
+    elif not order_id:
+        # Placed, but we cannot prove it later. Do not guess by size.
+        out["reason"] = "order_id_unread"
     return out
 
 
