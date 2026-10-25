@@ -125,19 +125,24 @@ function presentation(tool, env, view) {
     const admin = view && view.operator === true;
     const preview = view && view.preview === true;
     if (admin && (flagOn('SAR_ORACLE_ENABLED', src) || preview)) {
-      return { label: 'Admin view', href: '/api/sar-oracle/admin/packets' };
+      // There is no public page for this feed. The href is the operator
+      // JSON, and the label says so.
+      return { label: 'Admin JSON API', href: '/api/sar-oracle/admin/packets' };
     }
     return { label: 'Coming soon', href: null };
   }
   // /t2c is the operator's page. The catalog never links it. The operator
   // route is added on GET /api/tools, and only for that caller.
   if (tool && tool.id === 't2c') return { label: 'Coming soon', href: null };
-  // The fair-value card stays "Coming soon" with no date. The link is
-  // drawn only after the operator check has passed. The flag does not
-  // turn the label into "Open".
+  // The fair-value card. A stranger sees "Coming soon" and no link.
+  // An operator with the flag on gets "Open". An operator while the
+  // flag is off gets the preview page, and the label says that — a
+  // "Coming soon" that is also a link was two answers at once.
   if (tool && tool.id === 'fair-value-bridge') {
     const operator = view && view.operator === true;
-    return { label: 'Coming soon', href: operator ? '/fvb' : null };
+    if (!operator) return { label: 'Coming soon', href: null };
+    if (flagOn('FVB_ENABLED', src)) return { label: 'Open', href: '/fvb' };
+    return { label: 'Admin preview', href: '/fvb' };
   }
   const named = typeof tool.flag === 'string' && tool.flag.length > 0;
   if (named && !flagOn(tool.flag, src)) {
