@@ -165,3 +165,10 @@ READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
   return require('./grounded_reputation_flag').flagOn(env) === true;
 };
 // --- Grounded Reputation end ---
+
+// --- Incident pack begin ---
+// Lazy: incident_pack_flag requires this module.
+READERS.INCIDENT_PACK_ENABLED = function (env) {
+  return require('./incident_pack_flag').flagOn(env) === true;
+};
+// --- Incident pack end ---
