@@ -33,13 +33,14 @@ the venue under a ``MAX_LEVERAGE=10`` that nothing read.
 
 THE RISK GATE IMPORTING THIS IS A NEW DIRECTION, and it is recorded rather
 than routed around. Everywhere else `bot.core` reads `bot.risk`; here
-`bot/risk/risk_engine.py` reads this module. It cannot cycle: this file
-imports nothing from the project (only `typing`), and `bot/core/__init__.py`
-is empty, so `import bot.core.leverage` pulls in nothing else — driven, both
-import orders resolve. `bot/utils/` is where this repo usually puts a leaf
-both layers read, and moving it there would churn the path of a module three
-other files already import for a dependency that cannot fire. If a cycle ever
-becomes possible, the move is the fix, not a lazy import.
+`bot/risk/risk_engine.py` reads this module. It cannot cycle: the module
+body imports nothing from the project (only `typing`), and
+`bot/core/__init__.py` is empty, so `import bot.core.leverage` pulls in
+nothing else. `sizing_leverage` then imports `bot.core.testnet_book`, which
+does not import this module. `bot/utils/` is where this repo usually puts a
+leaf both layers read, and moving it there would churn the path of a module
+three other files already import for a dependency that cannot fire. If a
+cycle ever becomes possible, the move is the fix, not a lazy import.
 """
 
 from __future__ import annotations
@@ -236,11 +237,17 @@ like the floor and the ceiling this is unreachable from a real config."""
 
 
 def sizing_leverage(cfg: Any) -> int:
-    """``SIZING_LEVERAGE`` as an int >= 1."""
+    """``SIZING_LEVERAGE`` as an int >= 1.
+
+    The configured value, then the testnet book when that profile is on
+    (2x). Live mainnet is the configured value, which ships at 5.
+    """
     try:
-        return max(1, int(getattr(cfg, "sizing_leverage", SIZING_LEVERAGE_DEFAULT)))
+        raw = max(1, int(getattr(cfg, "sizing_leverage", SIZING_LEVERAGE_DEFAULT)))
     except (TypeError, ValueError):
-        return SIZING_LEVERAGE_DEFAULT
+        raw = SIZING_LEVERAGE_DEFAULT
+    from bot.core.testnet_book import effective_sizing_leverage
+    return effective_sizing_leverage(raw)
 
 
 class LeveragePair(NamedTuple):
