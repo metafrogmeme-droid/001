@@ -1000,9 +1000,11 @@ could not reach is not a healthy one:
 | `3` | at least one check could not be performed — **not** a pass |
 
 It also catches the trap next door: `bot/llm/provider.py` defaults the RUNECLAW
-tier's model to `runeclaw-v6`, and a store without that tag answers 404 — which
-the fallback chain scores as another dead provider rather than as a name that
-does not exist.
+tier's model to `runeclaw-v6` when `RUNECLAW_LLM_MODEL` is unset, and a store
+without that tag answers 404 — which the fallback chain scores as another dead
+provider rather than as a name that does not exist. The setting to copy is the
+tag `ollama list` prints. The tag recorded for this tree is
+`pbdes2022/humanoid-traders:v10-8b` (`docs/RUNECLAW_LLM.md`).
 
 ### Requested is not granted
 

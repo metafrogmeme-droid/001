@@ -415,7 +415,12 @@
       // reason: "The news radar is unavailable right now" is worse than "your
       // account is not approved yet" when the second one is what happened.
       const named = !!(chosen && chosen.key !== 'dd.err_panel');
-      const text = named ? t(chosen.key, chosen.fallback) : errorText;
+      let text = named ? t(chosen.key, chosen.fallback) : errorText;
+      // An admin is already the operator session this product has. The
+      // operator-only sentence must not read as "sign in as someone else".
+      if (named && chosen.key === 'dd.err_operator_only' && window.__rcAdmin) {
+        text = 'This panel is operator-only, and this session is already an admin. The read was refused by the bot — it is not a request to sign in again.';
+      }
       // data-i18n on the default copy so the failure state re-translates when
       // the user switches language, and self-heals if a panel failed before
       // i18n.js finished loading. A caller-supplied errorText is already

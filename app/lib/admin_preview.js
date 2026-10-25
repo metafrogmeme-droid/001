@@ -133,3 +133,9 @@ module.exports = {
 READERS.QCH_ENABLED = function (env) {
   return require('./qch_flag').flagOn(env) === true;
 };
+// --- XNAV begin ---
+// Lazy: xnav_flag requires this module, so the reader cannot be a top-level require.
+READERS.XNAV_ENABLED = function (env) {
+  return require('./xnav_flag').flagOn(env) === true;
+};
+// --- XNAV end ---

@@ -308,7 +308,11 @@ def test_the_card_reports_applied_from_the_flags_not_from_readiness():
     _real = sx.get_setup_expectancy
     sx.get_setup_expectancy = _fake
     _before = getattr(CONFIG.analyzer, "setup_expectancy_backoff_enabled", False)
+    _main = CONFIG.analyzer.setup_expectancy_enabled
     try:
+        # The card's applied bit is the main flag AND the backoff switch.
+        # The main flag ships off; this test is about the backoff switch.
+        object.__setattr__(CONFIG.analyzer, "setup_expectancy_enabled", True)
         object.__setattr__(CONFIG.analyzer, "setup_expectancy_backoff_enabled", False)
         comp = rd.assess_readiness(store=_EmptyStore())["components"]["setup_expectancy"]
         # Not READY: this pinned READY over an EMPTY store, which is the count
@@ -328,3 +332,4 @@ def test_the_card_reports_applied_from_the_flags_not_from_readiness():
         sx.get_setup_expectancy = _real
         object.__setattr__(CONFIG.analyzer,
                            "setup_expectancy_backoff_enabled", _before)
+        object.__setattr__(CONFIG.analyzer, "setup_expectancy_enabled", _main)

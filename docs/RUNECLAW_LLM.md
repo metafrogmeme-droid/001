@@ -22,7 +22,9 @@ vllm serve meta-llama/Meta-Llama-3.1-8B-Instruct \
   --port 8000
 ```
 
-The model name the bot requests is `runeclaw-v6` (the `--lora-modules` alias).
+The alias this command registers is `runeclaw-v6`. The bot requests whatever
+`RUNECLAW_LLM_MODEL` is set to (section 2), not this alias, unless the
+server's model list prints `runeclaw-v6` and you copied that.
 Quantized serving (AWQ/GPTQ of a merged checkpoint) also works if VRAM is
 tight.
 
@@ -41,9 +43,19 @@ Then:
 ```bash
 ollama create runeclaw-v6 -f Modelfile   # FROM ./runeclaw-v6.gguf
 ollama run runeclaw-v6 "sanity check"
+# Then copy the NAME column of `ollama list` into RUNECLAW_LLM_MODEL.
+# Do not assume it is runeclaw-v6 if the list prints a different tag.
 ```
 
 ## 2. Point the bot at it
+
+One setting: `RUNECLAW_LLM_MODEL`. Copy the tag exactly as `ollama list`
+prints it, including case. The tag recorded for this tree is
+`pbdes2022/humanoid-traders:v10-8b`. A shortened repo name
+(`pbdes2022/HUMANOID-TRADERS`), an older tag (`:v7-8b`), or the unset code
+default (`runeclaw-v6`, the vLLM `--lora-modules` alias below) is a different
+string. The server answers 404, and the fallback chain scores that as a dead
+provider.
 
 Environment (`.env` on the bot host):
 
@@ -52,10 +64,14 @@ Environment (`.env` on the bot host):
 RUNECLAW_LLM_BASE_URL=http://localhost:8000/v1
 # Ollama instead:
 # RUNECLAW_LLM_BASE_URL=http://localhost:11434/v1
-RUNECLAW_LLM_MODEL=runeclaw-v6
+# Copy from `ollama list`. This is the tag pulled for this tree.
+RUNECLAW_LLM_MODEL=pbdes2022/humanoid-traders:v10-8b
 # Only if the endpoint is remote and secured:
 # RUNECLAW_LLM_API_KEY=...   (vault-managed — survives .env wipes)
 ```
+
+If the server's model list prints a different tag, use that tag. Do not
+retype it from memory.
 
 No key is required for a local endpoint. If you do set a key via
 `/setllm runeclaw <key>`, it is stored encrypted in the vault like every
@@ -100,7 +116,7 @@ THESIS until it wins on evidence:
    ```bash
    LLM_SHADOW_ENABLED=true
    LLM_SHADOW_PROVIDER=runeclaw
-   LLM_SHADOW_MODEL=runeclaw-v6        # optional
+   LLM_SHADOW_MODEL=pbdes2022/humanoid-traders:v10-8b   # optional; same tag as `ollama list`
    ```
 
    Every primary thesis call now also fires the identical prompt at

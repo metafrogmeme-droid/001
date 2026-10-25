@@ -17,10 +17,11 @@ AND THE SENTENCE ASSERTED ITS OWN ``≤``. `new_margin` was computed and never
 compared, so when ``max(min_leverage, …)`` floored the reduction ABOVE the cap
 the line read ``SL 16.0% × 2x = 32.0% ≤ 30.0%`` and was filed in `passed`.
 
-Both were latent rather than live: the reduction sits behind
-`dynamic_leverage_enabled`, which defaults off and whose else-arm REFUSES the
-trade. One env var armed them — the same one that turns on ATR de-leveraging,
-which is inert because `update_atr` has no production caller.
+Both were latent rather than live: the reduction sat behind
+`dynamic_leverage_enabled`, which defaults off. `LEVERAGE_FROM_STOP_ENABLED`
+(default on, signal-side review 2026-10-24) is the other switch that may
+reduce; with both off the gate refuses. Dynamic leverage also turns on ATR
+de-leveraging, which is inert because `update_atr` has no production caller.
 
 What is driven here is the venue half and the leaf's arithmetic. The executor's
 clamp is `tests/test_leverage_cap_honored.py`; the sizing path is
@@ -528,13 +529,30 @@ class TestTheGateRecordsWhatTheExecutorReads:
             "a refused idea must carry no cap for the executor to honour"
 
     def test_the_flag_off_arm_is_unchanged(self, tmp_path, monkeypatch):
+        """Both reduction switches off. Dynamic leverage off alone is not
+        that arm: leverage-from-stop ships on and reduces."""
         self._cfg(monkeypatch, dynamic=False)
-        idea = self._idea(92.0)
-        check = self._engine(tmp_path).evaluate(idea, atr=1.0)
+        import bot.risk.risk_engine as re_mod
+        object.__setattr__(re_mod.CONFIG.risk, "leverage_from_stop_enabled", False)
+        try:
+            idea = self._idea(92.0)
+            check = self._engine(tmp_path).evaluate(idea, atr=1.0)
+        finally:
+            object.__setattr__(re_mod.CONFIG.risk, "leverage_from_stop_enabled", True)
         line = self._margin_lines(check)
         assert line and line[0] in check.checks_failed, line
         assert "reduced" not in line[0], line[0]
         assert getattr(idea, RISK_CAP_ATTR, None) is None
+
+    def test_leverage_from_the_stop_reduces_with_dynamic_leverage_off(
+            self, tmp_path, monkeypatch):
+        self._cfg(monkeypatch, dynamic=False)
+        idea = self._idea(92.0)
+        check = self._engine(tmp_path).evaluate(idea, atr=1.0)
+        line = self._margin_lines(check)
+        assert line and line[0] in check.checks_passed, line
+        assert "reduced leverage" in line[0], line[0]
+        assert getattr(idea, RISK_CAP_ATTR) == 3
 
     def test_a_stop_inside_the_cap_is_left_alone(self, tmp_path, monkeypatch):
         self._cfg(monkeypatch, dynamic=True)

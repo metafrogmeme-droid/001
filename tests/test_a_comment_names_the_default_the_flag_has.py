@@ -553,17 +553,27 @@ def test_the_live_auto_close_docstring_claims_no_default():
 
 
 def test_the_one_live_flag_override_is_the_human_in_the_loop():
-    """A fresh install runs every on/off control at its code default.
+    """A fresh install runs every on/off control at its code default except
+    the overrides named here.
 
-    Live auto-confirm used to be the one live override, kept off while the
-    code default was on. The code default is now off, so `.env.example`
-    matches it. A new live override is a decision about what a fresh deploy
-    runs, and it lands here rather than in silence.
+    Live auto-confirm used to be the one live override. The code default is
+    now off, and `.env.example` matches it, so it is no longer an override.
+
+    BITGET_SANDBOX and HYPERLIQUID_TESTNET are on in `.env.example` and off
+    in code. The code default stays off so a deployment that loses the
+    variable is not flipped into demo or testnet (that flip is the incident
+    `bot/config.py` records for Bitget). The example opts a fresh copy into
+    demo and testnet, which is the safer file to copy. Another live override
+    is a decision about what a fresh deploy runs, and it lands here rather
+    than in silence.
     """
     by_env = {env: d for env, d in declared_defaults().values()}
     live = sorted(env for b in env_example_blocks() for env, _ln, val in b.run
                   if val is not None and env in by_env and val != by_env[env])
-    assert live == [], live
+    assert live == [
+        "BITGET_SANDBOX",
+        "HYPERLIQUID_TESTNET",
+    ], live
 
 
 def test_no_live_example_value_departs_from_its_code_default_unsaid():

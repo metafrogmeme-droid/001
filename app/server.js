@@ -391,6 +391,11 @@ app.use(require('./lib/sar_oracle_flag').pageGate);
 // Ahead of express.static so public/qch.html and js/qch.js are not files
 // a non-admin can open. A non-admin is 404 with the flag off or on.
 app.use(require('./lib/qch_flag').pageGate);
+// --- XNAV begin ---
+// Exit-adjusted NAV stays 404 for anyone who is not the operator, flag on
+// or off. Ahead of express.static so public/xnav.html is not a public file.
+app.use(require('./lib/xnav_flag').pageGate);
+// --- XNAV end ---
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -585,6 +590,11 @@ app.use('/api/cover', require('./routes/cover'));
 // SaR Oracle readings. Public ratios while the flag is on. Dollar amounts
 // stay on the operator route inside the router. 404 while the flag is off.
 app.use('/api/sar-oracle', require('./routes/sar_oracle'));
+// --- XNAV begin ---
+// Exit-adjusted NAV. Admin only, flag on or off. Basis points only.
+// The quote tool is POST /api/xnav/mcp, not the MCP catalogue.
+app.use('/api/xnav', require('./routes/xnav'));
+// --- XNAV end ---
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -692,12 +702,19 @@ app.get('/t2c', (req, res) => { require('./lib/t2c_flag').sendT2C(req, res); });
 app.get('/qch', (req, res, next) => {
   require('./lib/qch_flag').sendPage(req, res).catch(next);
 });
+// --- XNAV begin ---
+app.get('/xnav', (req, res) => { require('./lib/xnav_flag').sendPage(req, res); });
+// --- XNAV end ---
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.
 // The host follows a 3xx itself (lib/navigate.js has the measurement), so the
 // alias answers a page that navigates, never a redirect.
 app.get('/study', (req, res) => { navigate(res, '/learn'); });
+// Old addresses people still open. The host follows a 3xx itself, so these
+// answer a page that navigates (lib/navigate.js), never a redirect.
+app.get('/marketplace', (req, res) => { navigate(res, '/agents'); });
+app.get('/market', (req, res) => { navigate(res, '/dashboard#markets'); });
 app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'learn.html')); });
 // /rune — the soulbound collection, public and honest about all three forge
 // states (cold / unreadable / lit) before and after deployment.

@@ -1,5 +1,10 @@
 # Full-Universe Deep Backtest
 
+**Synthetic smoke test, not evidence of an edge.** This page records one historical run
+(2026-06-27) of `run_deep_backtest_full.py` on generated prices, filled on the old same-bar
+close convention. It is kept so the pipeline's scale can be re-read. It is not a measurement
+of a live edge, and it is not the committed 500-run record.
+
 **Date:** 2026-06-27
 **Harness:** `run_deep_backtest_full.py`
 **Scope:** the entire 67-symbol scan universe (`bot/skills/scan_skill.py`) ×

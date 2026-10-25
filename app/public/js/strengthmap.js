@@ -275,10 +275,24 @@ async function loadData() {
 (async function boot() {
   $('smClose').addEventListener('click', closePanel);
   fillAxisSelects();
-  try { await loadData(); } catch (e) {
-    $('smEmpty').textContent = 'The market feed is unavailable right now. Try the app.'; return;
+  function offerRetry(message) {
+    const empty = $('smEmpty');
+    empty.textContent = message;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn--sm';
+    b.textContent = 'Retry';
+    b.addEventListener('click', () => { location.reload(); });
+    empty.append(document.createTextNode(' '), b);
   }
-  if (!state.coins.length) { $('smEmpty').textContent = 'No market data right now.'; return; }
+  try { await loadData(); } catch (e) {
+    offerRetry('The market feed is unavailable right now. Try the app.');
+    return;
+  }
+  if (!state.coins.length) {
+    offerRetry('The public market feed answered and listed no coins. Retry in a moment, or open the app for the market tables.');
+    return;
+  }
 
   let THREE, OrbitControls;
   try {

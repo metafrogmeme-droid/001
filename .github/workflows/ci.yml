@@ -1271,3 +1271,31 @@ jobs:
       - name: SCA — npm advisory ratchet
         working-directory: contracts/qch
         run: node ../../token/scripts/audit_gate.mjs .
+
+  xnav-contracts:
+    name: XNAV contracts (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: contracts/xnav/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/xnav
+        run: npm ci --no-audit --no-fund
+
+      # Compiles the oracle, the swing vault and the mandate (solc, pinned)
+      # and runs the bytecode on an in-process EVM. Hermetic: chain 998 in
+      # the tests, mainnet chain ids revert in the constructor, no deploy,
+      # no network. Admin only. XNAV_ENABLED is off by default.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/xnav
+        run: npm test
+
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/xnav
+        run: node ../../token/scripts/audit_gate.mjs .

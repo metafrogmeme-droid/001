@@ -504,6 +504,10 @@ class OrderFlowAnalyzer:
                 if rate is not None:
                     sig.funding_rate = float(rate)
                     ok.append("funding")
+                # The same payload names the settlement grid. Remember a
+                # reading; an absent interval stores nothing (not 8h).
+                from bot.risk.funding_interval import remember_funding_payload
+                remember_funding_payload(deriv_sym, funding_result)
             except Exception as exc:  # noqa: BLE001
                 sig.notes.append(f"funding processing error: {exc}")
 

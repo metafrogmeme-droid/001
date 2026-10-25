@@ -6,7 +6,7 @@ RUNECLAW proposes trades and a person confirms them, unless the operator turns o
 
 ## Why Human-in-the-Loop?
 
-RUNECLAW is designed so that the software proposes and a person decides, and a standard install works that way: the shipped `.env.example` sets `AUTO_CONFIRM_THRESHOLD=1.0` and `AUTO_CONFIRM_LIVE_ENABLED=false`, which turn auto-confirm off. The code defaults are different (`0.85` and on), so an install without those two lines has auto-confirm switched on, within the limits below.
+RUNECLAW is designed so that the software proposes and a person decides, and a standard install works that way: the shipped `.env.example` sets `AUTO_CONFIRM_THRESHOLD=1.0` and `AUTO_CONFIRM_LIVE_ENABLED=false`, which turn auto-confirm off. The threshold departs from the code default of `0.85`, so an install without that line can auto-confirm the engine's own ideas. The live flag matches the code default, which is off, so an install without that line still does not place a live order with no human press. The limits below still apply.
 
 What auto-confirm can and cannot do:
 

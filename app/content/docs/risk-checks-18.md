@@ -365,7 +365,7 @@ confirm names the check that failed.
 A confirm is a person's tap, or an autonomous confirm. An autonomous live order is placed only
 when `AUTO_CONFIRM_LIVE_ENABLED` is on and an eligibility record for the running strategy exists
 (`benchmark/eligibility/<strategy_hash>.json`; none ships). The code default of
-`AUTO_CONFIRM_LIVE_ENABLED` is on; the shipped `.env.example` sets it to `false`.
+`AUTO_CONFIRM_LIVE_ENABLED` is off; the shipped `.env.example` sets it to `false`.
 
 ---
 

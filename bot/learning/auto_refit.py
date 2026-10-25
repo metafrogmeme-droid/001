@@ -9,7 +9,7 @@ models track recent reality automatically.
 
 What a refit changes, stated rather than assumed:
   - A refit rewrites the persisted curves, and they are applied as follows.
-    `SETUP_EXPECTANCY_ENABLED` (default ON) applies the expectancy nudges the
+    `SETUP_EXPECTANCY_ENABLED` (default OFF) applies the expectancy nudges the
     next analysis uses. The calibration curve reaches an entry only behind
     `CONFIDENCE_CALIBRATION_ENABLED` (default OFF), and the auto-confirm bar
     reads it behind `AUTO_CONFIRM_USE_CALIBRATED`. Voter weights are applied only

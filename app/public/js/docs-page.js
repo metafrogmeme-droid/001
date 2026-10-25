@@ -70,8 +70,12 @@
     return '<a href="' + FOLDER + '" target="_blank" rel="noopener noreferrer">' + text('docs.on_github', ON_GITHUB) + '</a>';
   }
 
+  function retryControl() {
+    return ' <button type="button" class="btn btn--sm" data-docs-retry>Retry</button>';
+  }
+
   function tocHtml(pages, current) {
-    if (!pages) return '<p class="doc-absent">' + text('docs.toc_unread', TOC_UNREAD) + ' ' + githubLink() + '</p>';
+    if (!pages) return '<p class="doc-absent">' + text('docs.toc_unread', TOC_UNREAD) + ' ' + githubLink() + retryControl() + '</p>';
     return '<ol dir="ltr" lang="en">' + pages.map(function (p) {
       const here = p.slug === current ? ' aria-current="page"' : '';
       return '<li><a href="/docs/' + p.slug + '"' + here + '>' + esc(p.title) + '</a></li>';
@@ -106,7 +110,7 @@
     if (res && res.status === 404) {
       return '<p class="doc-absent">' + text('docs.no_page', NO_PAGE) + '</p>';
     }
-    return '<p class="doc-absent">' + text('docs.page_unread', PAGE_UNREAD) + ' ' + githubLink() + '</p>';
+    return '<p class="doc-absent">' + text('docs.page_unread', PAGE_UNREAD) + ' ' + githubLink() + retryControl() + '</p>';
   }
 
   function getJson(url) {
@@ -122,6 +126,13 @@
   }
 
   function boot(doc, loc) {
+    if (!doc.__docsRetry) {
+      doc.__docsRetry = true;
+      doc.addEventListener('click', function (e) {
+        const b = e.target && e.target.closest && e.target.closest('[data-docs-retry]');
+        if (b) boot(doc, loc);
+      });
+    }
     const tocEl = doc.getElementById('doc-toc');
     const pageEl = doc.getElementById('doc-page');
     const asked = slugFromPath(loc.pathname);

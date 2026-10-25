@@ -113,11 +113,14 @@ def test_a_stale_checkout_fails_the_gate(world):
 def test_the_failure_names_the_fix_that_cannot_go_wrong(world):
     """An operator reading this at 3am needs the command, not the theory —
     and the command must be the URL form, because the name form is what
-    failed."""
+    failed. A reset is not the command: a failed fast-forward stops."""
     _, out = _run(world["box"], "--url", str(world["up"]), guard=world["guard"])
-    assert "git reset --hard FETCH_HEAD" in out
-    assert f"git fetch {world['up']} main" in out
-    assert "origin/main" not in out.split("Reset to the URL")[-1], (
+    remedy = out.split("Fast-forward from the URL")[-1]
+    assert f"git pull --ff-only {world['up']} main" in remedy
+    assert "stop and ask" in remedy
+    assert "git reset --hard" not in remedy, (
+        "the remedy tells the operator to reset, which discards the checkout")
+    assert "origin/main" not in remedy, (
         "the remedy suggests a remote-tracking ref, which is the stale path")
 
 

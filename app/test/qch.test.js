@@ -225,7 +225,7 @@ test('the page names its controls and loads api-retry first', () => {
   assert.doesNotMatch(HTML, /aria-label=/);
   assert.doesNotMatch(HTML, /data-i18n/);
   assert.match(HTML, /role="main"/);
-  assert.match(HTML, /styles\.css\?v=52/);
+  assert.match(HTML, /styles\.css\?v=53/);
   assert.match(HTML, /rel="canonical" href="https:\/\/www\.humanoid-traders\.com\/qch"/);
   assert.equal(HTML.match(/property="og:site_name" content="([^"]*)"/)[1], 'Humanoid Traders');
   assert.match(HTML, /name="robots" content="noindex"/);

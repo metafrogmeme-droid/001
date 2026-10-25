@@ -28,7 +28,7 @@ asked for:
                               for wave-anchored stops.
 
 Everything here is pure math on plain numbers / dicts. All wiring into the
-analyzer is gated behind config flags (ELLIOTT_* — default ON, each
+analyzer is gated behind config flags (ELLIOTT_* — default off, each
 env-overridable), so importing or even calling these functions can never
 change live behaviour on its own.
 """

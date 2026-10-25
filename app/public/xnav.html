@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Exit-adjusted NAV</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/xnav">
+<meta name="description" content="Exit haircut of a Hyperliquid vault, in basis points of account value. Admin only. Not a dollar amount.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/styles.css?v=53">
+<script src="/js/api-retry.js?v=3"></script>
+<style>
+  .xnav-wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; color: var(--text-1, #e8e6e3); }
+  .xnav-wrap h1 { font-size: 1.6rem; margin: 0 0 8px; }
+  .lede, .disc { color: var(--text-2, #b7b3ad); max-width: 68ch; line-height: 1.5; }
+  .xnav-banner { border: 1px solid currentColor; padding: 8px 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,.12); font-variant-numeric: tabular-nums; }
+  th { font-size: .75rem; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2, #b7b3ad); }
+  .xnav-muted { color: var(--text-2, #b7b3ad); }
+</style>
+</head>
+<body>
+<div class="xnav-wrap">
+<!--XNAV_BANNER-->
+<h1>Exit-adjusted NAV</h1>
+<p class="lede">Haircut to leave a vault, in basis points of account value. A higher number is a larger exit haircut. It is not a profit and it is not a safety score.</p>
+<p id="xnav-status" class="xnav-muted">Reading the ranking.</p>
+<div id="xnav-out"></div>
+<p class="disc">Resting-book snapshot. No replenishment. An unreadable row is left out, not scored as zero. Admin only.</p>
+</div>
+<script>
+(function () {
+  var status = document.getElementById('xnav-status');
+  var out = document.getElementById('xnav-out');
+  function say(text) { status.textContent = text; }
+  function cell(value) {
+    if (value == null) return '<td class="xnav-muted">not published</td>';
+    return '<td>' + esc(value) + '</td>';
+  }
+  function esc(value) {
+    return String(value).replace(/[&<>"']/g, function (ch) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+    });
+  }
+  fetch('/api/xnav/rank', { credentials: 'same-origin', headers: { accept: 'application/json' } })
+    .then(function (res) {
+      if (res.status === 404) { say('Not available.'); return null; }
+      if (!res.ok) { say('The ranking could not be read.'); return null; }
+      return res.json();
+    })
+    .then(function (body) {
+      if (!body) return;
+      if (body.readable !== true || !Array.isArray(body.ranked)) {
+        say(body.reason === 'not_published' ? 'The ranking is not published.' : 'The ranking could not be read.');
+        return;
+      }
+      say(body.as_of ? ('As of ' + body.as_of) : 'Ranking.');
+      var rows = body.ranked.map(function (row) {
+        return '<tr><td>' + esc(row.name || '') + '</td><td>' + esc(row.address || '') + '</td>'
+          + cell(row.haircut_bps) + cell(row.unfilled_bps) + cell(row.stress_bps) + '</tr>';
+      }).join('');
+      var unread = body.unreadable_vaults;
+      var note = unread ? '<p class="xnav-muted">' + unread + ' vault' + (unread === 1 ? '' : 's') + ' unreadable, left out.</p>' : '';
+      out.innerHTML = note + '<table><thead><tr><th>Vault</th><th>Address</th><th>Haircut bps</th><th>Unfilled bps</th><th>Stress bps</th></tr></thead><tbody>'
+        + rows + '</tbody></table>';
+    })
+    .catch(function () { say('The ranking could not be read.'); });
+})();
+</script>
+</body>
+</html>

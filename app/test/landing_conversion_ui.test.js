@@ -36,7 +36,16 @@ test('the hero makes no claim that an admin gates live trading', () => {
 });
 
 test('the hero proof strip is stamped verified', () => {
+  // Leaderboard rows still wear a verified chip. The hero strip is the
+  // public track record: labelling it, and not painting it profit-green,
+  // is the claim. A green tick there used to sit beside a profit factor
+  // below 1.
   assert.match(html, /chip chip--up[^>]*>✓ verified/);
+  const mark = "host.innerHTML = '<span class=\"chip\"";
+  const hero = html.slice(html.indexOf(mark), html.indexOf(mark) + 900);
+  assert.match(hero, /all recorded closes/);
+  assert.match(hero, /win rate over priced closes/);
+  assert.doesNotMatch(hero, /chip--up/);
 });
 
 test('a sticky mobile CTA links to the sign-up panel', () => {

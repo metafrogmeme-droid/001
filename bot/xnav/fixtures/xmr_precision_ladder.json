@@ -1,0 +1,22 @@
+{
+  "coin": "XMR",
+  "side": "long",
+  "note": "Whether each precision's visible book covered the position, and the gap from mid to the last visible price, in basis points. Notionals are not stored.",
+  "precisions": [
+    {
+      "precision": "full",
+      "covers": false,
+      "gap_bps": 13
+    },
+    {
+      "precision": "3",
+      "covers": false,
+      "gap_bps": 322
+    },
+    {
+      "precision": "2",
+      "covers": false,
+      "gap_bps": 3223
+    }
+  ]
+}

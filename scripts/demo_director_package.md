@@ -351,7 +351,7 @@ Run through this 30 minutes before the demo:
 
 ```
 [ ] Python 3.11+ virtual environment activated
-[ ] Dependencies installed (pip install -r bot/requirements.txt)
+[ ] Dependencies installed (pip install -r requirements.lock)
 [ ] .env file exists with at minimum Bitget API keys
 [ ] CLI mode starts: python -m bot.main --mode cli
 [ ] get_portfolio returns $10,000

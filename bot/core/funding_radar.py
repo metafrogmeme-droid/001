@@ -54,6 +54,7 @@ def _get_json(url: str, post_body: Optional[dict] = None) -> Any:
 
 def fetch_bitget_funding(bases: list[str]) -> dict[str, float]:
     """{base: annualized funding %} from Bitget USDT-M. Skips failed bases."""
+    from bot.risk.funding_interval import parse_interval_hours
     out: dict[str, float] = {}
     for base in bases:
         try:
@@ -62,7 +63,10 @@ def fetch_bitget_funding(bases: list[str]) -> dict[str, float]:
                 f"?symbol={base}USDT&productType=usdt-futures")
             row = (resp.get("data") or [{}])[0]
             rate = _f(row.get("fundingRate"))
-            interval_h = _f(row.get("fundingRateInterval")) or 8.0
+            # An unreadable interval is left out, not annualised as 8h.
+            interval_h = parse_interval_hours(row.get("fundingRateInterval"))
+            if interval_h is None:
+                continue
             out[base] = rate * (_HOURS_PER_YEAR / interval_h) * 100
         except Exception as exc:
             log.debug("funding radar: bitget %s failed: %s", base, exc)
