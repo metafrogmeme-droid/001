@@ -10,7 +10,6 @@ Auditability beats black-box automation. If uncertain, fail closed.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 from .experience import ExperienceMemory
@@ -80,6 +79,18 @@ class LearningOrchestrator:
         similar-setup lookups can score against it. Closes the learning loop's
         write side. Always safe to call; cheap append."""
         return self.experience.record_closed_outcome(**kwargs)
+
+    def record_scored_outcome(self, **kwargs) -> bool:
+        """Record one close for the strategy scorecard.
+
+        This does not write decision memory. Paper closes stay out of the
+        confidence nudge unless ``LEARN_FROM_PAPER_CLOSES`` is on; that write
+        is still ``record_closed_outcome``, and the engine keeps it behind the
+        flag. A scorecard does not place an order, propose a change, or turn
+        a learner on.
+        """
+        from .trade_outcomes import record_scored_outcome
+        return record_scored_outcome(self.store, self.strategy, **kwargs)
 
     # ── Step 5: Review (post-trade reflection) ────────────────────
 
@@ -334,25 +345,11 @@ class LearningOrchestrator:
         feedback_summary = self.feedback.get_feedback_summary()
         model_accuracy = self.models.get_accuracy_summary()
 
-        # Build module_details with last_update timestamps.
-        # Use current UTC time as proxy for last_update when data exists.
-        now_iso = datetime.now(timezone.utc).isoformat()
-        module_details: dict[str, dict] = {}
-        for key, data_key in [
-            ("patterns", "decisions"),
-            ("regime", "decisions"),
-            ("indicator_weights", "decisions"),
-            ("feedback", "decisions"),
-            ("volatility", "decisions"),
-            ("correlations", "decisions"),
-            ("drawdown", "decisions"),
-            ("timing", "decisions"),
-        ]:
-            count = stats.get(data_key, 0)
-            module_details[key] = {
-                "observations": count,
-                "last_update": now_iso if count > 0 else None,
-            }
+        # The /learn card used to copy ``stats["decisions"]`` and the current
+        # time into all eight modules, so a log of rejected ideas read as eight
+        # learners at 100% updated just now. The card is `bot/learning/panel.py`
+        # and it reads each record itself. This dict is no longer that copy.
+        module_details = {"panel": "bot/learning/panel.py"}
 
         return {
             "store_stats": stats,
