@@ -122,7 +122,7 @@ from bot.risk.quality_ladder import (
 )
 from bot.utils.atomic_write import atomic_write_json
 from bot.utils.durable_io import fsync_dir
-from bot.utils.logger import audit, risk_log
+from bot.utils.logger import audit, risk_log, trade_log
 from bot.utils.models import REGIME_UNMEASURED, RiskCheck, RiskVerdict, TradeIdea
 from bot.utils.paths import state_path
 
@@ -954,7 +954,8 @@ class RiskEngine:
             self._record_trade_result_locked(pnl)
 
     def record_live_trade_result(self, pnl: float, *,
-                                 notional: Optional[float] = None) -> None:
+                                 notional: Optional[float] = None,
+                                 isolated_equity: bool = False) -> None:
         """Record a LIVE realized close into every account-level protection.
 
         ``notional`` is the close's stated notional (`position_size_basis`),
@@ -966,9 +967,22 @@ class RiskEngine:
         consecutive-loss breaker, live-performance governor, and equity
         throttle all see real outcomes — AND the daily-loss breaker gets a
         live daily-PnL accumulator to gate on (see the DAILY_LOSS check).
-        UTC-day roll resets the accumulator. Never raises."""
+        UTC-day roll resets the accumulator. Never raises.
+
+        ``isolated_equity`` still adds the close to that daily accumulator.
+        It does not move the streak, the governor window, or the return
+        window: those are the crypto book's memory. The tokenized-equity
+        bucket asks for this when it is on.
+        """
         try:
             with self._lock:
+                if isolated_equity:
+                    day = self._utc_day()
+                    if day != self._live_daily_day:
+                        self._live_daily_day = day
+                        self._live_daily_pnl = 0.0
+                    self._live_daily_pnl += float(pnl)
+                    return
                 self._record_trade_result_locked(float(pnl))
                 day = self._utc_day()
                 if day != self._live_daily_day:
@@ -3415,6 +3429,51 @@ class RiskEngine:
                 # An envelope fault must NEVER affect a trade.
                 passed.append(f"AUTHORITY: skipped (error: {_ae})")
 
+        # Tokenized-equity bucket. Off unless EQUITY_BUCKET_ENABLED on a
+        # venue testnet or a paper process; live mainnet never enters.
+        # Tighten-only: it can shrink this size and append failures. A crypto
+        # idea, and any fault before the symbol is known to be an equity,
+        # leaves the check as it was.
+        _equity_audit: Optional[dict[str, Any]] = None
+        try:
+            from bot.core.equity_bucket import apply_to_risk as _apply_equity_bucket
+            _equity_effect = _apply_equity_bucket(
+                symbol=idea.asset,
+                direction=getattr(idea.direction, "value", idea.direction),
+                position_usd=float(position_usd),
+                leverage=int(_lev_std),
+                stop_distance_pct=float(stop_distance_pct),
+                atr=None if atr is None else float(atr),
+                entry_price=float(idea.entry_price),
+                held_rows=None if _live_rows is None else list(_live_rows),
+                portfolio=None if _live_rows is not None else self._portfolio,
+                book_unread=bool(_book_unread),
+                max_open_positions=int(CONFIG.risk.max_open_positions),
+                depth_signal=self._last_of_signal,
+                now=as_of,
+            )
+        except Exception as _eq_exc:
+            _equity_effect = None
+            risk_log.debug("equity bucket skipped: %s", type(_eq_exc).__name__)
+        if _equity_effect is not None:
+            _before_eq = position_usd
+            position_usd = float(_equity_effect.position_usd)
+            if position_usd < _before_eq:
+                note_size_step(idea, _equity_effect.size_note, position_usd,
+                               before=_before_eq)
+                if _base_multiplier is not None and _before_eq > 0:
+                    _base_multiplier = _base_multiplier * (position_usd / _before_eq)
+            if _equity_effect.failed:
+                failed.extend(_equity_effect.failed)
+            elif _equity_effect.passed_line:
+                passed.append(_equity_effect.passed_line)
+            _equity_audit = _equity_effect.audit
+            audit(trade_log,
+                  f"Equity bucket {idea.asset} x{_equity_effect.multiplier:.2f}",
+                  action="equity_bucket",
+                  result="REJECTED" if _equity_effect.failed else "SIZED",
+                  data=_equity_audit)
+
         # -- Verdict --
         verdict = RiskVerdict.APPROVED if len(failed) == 0 else RiskVerdict.REJECTED
 
@@ -3510,6 +3569,10 @@ class RiskEngine:
                 _audit_data["cooldown_arm"] = _cooldown_decision.arm
                 _audit_data["cooldown_sec"] = _cooldown_decision.seconds
                 _audit_data["primary_book"] = primary_book()
+        if _equity_audit is not None:
+            _audit_data["asset_class"] = _equity_audit.get("asset_class")
+            _audit_data["equity_reasons"] = list(_equity_audit.get("reasons") or [])
+            _audit_data["equity_multiplier"] = _equity_audit.get("multiplier")
         audit(risk_log, f"Risk {verdict.value} for {idea.asset} [{len(passed)}P/{len(failed)}F]",
               action="risk_check", result=verdict.value,
               data=_audit_data)

@@ -256,7 +256,9 @@ class ConfidenceCalibrator:
         different quantity in the same field is a different curve. Such a row
         is left out and counted as ``no_blend``.
         """
+        from bot.core.equity_bucket import without_equity_bucket
         from bot.risk.quality_ladder import MEASURED_BASIS
+        decisions = without_equity_bucket(decisions)
         joined = join_outcomes(decisions)
         out: list[tuple[float, bool]] = []
         not_measured = unattributed = no_blend = 0

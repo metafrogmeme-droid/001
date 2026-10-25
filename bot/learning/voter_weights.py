@@ -225,8 +225,9 @@ class VoterWeightLearner:
         The join is `outcome_join.join_outcomes`, shared with the calibrator:
         one decision row per closed trade, so a failed attempt and the
         successful retry that opened the position are one sample, not two."""
+        from bot.core.equity_bucket import without_equity_bucket
         samples = []
-        for d, won in join_outcomes(decisions).rows:
+        for d, won in join_outcomes(without_equity_bucket(decisions)).rows:
             votes = getattr(d, "confluence_votes", None)
             if not votes:
                 continue

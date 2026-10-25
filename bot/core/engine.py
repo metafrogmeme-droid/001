@@ -954,7 +954,20 @@ class RuneClawEngine:
             DashboardPusher(self) if dashboard_pusher_configured() else None)
         # C1 fix: wire trade-close callback so portfolio closes feed risk streak tracking
         # Also sync trade events to the website dashboard
-        def _on_trade_close_composite(net_pnl: float) -> None:
+        def _on_trade_close_composite(net_pnl: float, symbol: str = "") -> None:
+            # An equity close, while the bucket is on, stays out of the crypto
+            # streak. The portfolio has already added it to the account's
+            # daily P&L, which is the daily-loss limit's paper reading.
+            try:
+                from bot.core.equity_bucket import (
+                    crypto_learning_isolated,
+                    record_bucket_close,
+                )
+                if symbol and crypto_learning_isolated(symbol):
+                    record_bucket_close(net_pnl, symbol)
+                    return
+            except Exception:
+                logger.debug("equity bucket paper close skipped")
             self.risk.record_trade_result(net_pnl)
             # Auto-sync to website dashboard
             try:
@@ -1821,6 +1834,21 @@ class RuneClawEngine:
         a live one). Absent, the row reads ``"live"`` and claims no venue.
         """
         self._invalidate_live_balance_cache()
+        _eq_iso = False
+        _eq_sym = str(getattr(pos, "symbol", "") or "")
+        _eq_record: Optional[Callable[[float, str], None]] = None
+        try:
+            from bot.core.equity_bucket import (
+                crypto_learning_isolated as _eq_isolated,
+            )
+            from bot.core.equity_bucket import (
+                record_bucket_close as _eq_record_fn,
+            )
+            _eq_iso = _eq_isolated(_eq_sym)
+            _eq_record = _eq_record_fn
+        except Exception:
+            _eq_iso = False
+            _eq_record = None
 
         # ── Close the learning loop's WRITE side ──────────────────────────
         # Record the realized outcome as a complete, queryable experience record
@@ -1829,7 +1857,7 @@ class RuneClawEngine:
         # an operator opts in. Cheap append; fail-open.
         try:
             _pnl = getattr(pos, "pnl_usd", None)
-            if _pnl is not None:
+            if _pnl is not None and not _eq_iso:
                 self.learning.record_closed_outcome(
                     symbol=getattr(pos, "symbol", ""),
                     direction=str(getattr(pos, "direction", "") or ""),
@@ -1879,10 +1907,19 @@ class RuneClawEngine:
             if _rpnl is not None:
                 # The stated notional turns the P&L into the per-close return
                 # the live VaR proxy reads; an unstated one records no return.
+                # That keyword stays the basis expression on every close. An
+                # equity close still counts toward the daily-loss accumulator
+                # and does not enter the streak or the windows; the flag is
+                # passed only when it is on, so a crypto close is the same call
+                # it was.
+                _eq_flag = {"isolated_equity": True} if _eq_iso else {}
                 self.risk_for(user_id).record_live_trade_result(
                     float(_rpnl),
-                    notional=_live_executor_mod.position_size_basis(pos)[1])
-            else:
+                    notional=_live_executor_mod.position_size_basis(pos)[1],
+                    **_eq_flag)
+                if _eq_iso and _eq_record is not None:
+                    _eq_record(float(_rpnl), _eq_sym)
+            elif not _eq_iso:
                 self.risk_for(user_id).note_unpriced_close()
         except Exception as _rr_exc:
             logger.debug("Live risk-result record skipped: %s", _rr_exc)
@@ -1902,7 +1939,7 @@ class RuneClawEngine:
         # refit. Only updates persisted learner state — never changes a decision
         # unless the learners' own application flags are on.
         try:
-            if CONFIG.analyzer.learning_auto_refit_enabled:
+            if not _eq_iso and CONFIG.analyzer.learning_auto_refit_enabled:
                 self._auto_refit.note_closed_trade(getattr(self, "analyzer", None))
         except Exception as _ar_exc:
             logger.debug("Learning auto-refit skipped: %s", _ar_exc)
@@ -1911,7 +1948,7 @@ class RuneClawEngine:
         # adverse close of all, so it must arm the cooldown too.
         close_reason = getattr(pos, "close_reason", "") or ""
         _cr = close_reason.upper()
-        if "SL" in _cr or "STOP" in _cr or "LIQUID" in _cr:
+        if not _eq_iso and ("SL" in _cr or "STOP" in _cr or "LIQUID" in _cr):
             sym_key = normalize_symbol(getattr(pos, "symbol", ""))
             if sym_key:
                 self._symbol_cooldowns[sym_key] = (
@@ -1929,7 +1966,7 @@ class RuneClawEngine:
         # a symbol hits the threshold, arms a much longer cooldown by reusing
         # _symbol_cooldowns — the SAME dict/check the post-SL cooldown above
         # uses, already wired into _analyze_signal's early pre-analysis guard.
-        if CONFIG.risk.symbol_loss_streak_enabled:
+        if not _eq_iso and CONFIG.risk.symbol_loss_streak_enabled:
             try:
                 _streak_sym = normalize_symbol(getattr(pos, "symbol", ""))
                 _streak_pnl = getattr(pos, "pnl_usd", None)
@@ -8254,6 +8291,12 @@ class RuneClawEngine:
         risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book, live_account=_executor_account(self.live_executor) if CONFIG.is_live() else "", live_unrealized_pnl=live_unreal, live_equity_source=(_bal_now.get("equity_source") if CONFIG.is_live() else None))
 
         # Log risk evaluation to scan log
+        _eq_fields: dict[str, str] = {}
+        try:
+            from bot.core.equity_bucket import trade_fields as _eq_trade_fields
+            _eq_fields = _eq_trade_fields(idea.asset)
+        except Exception:
+            _eq_fields = {}
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
               action="risk_evaluation", result=risk_check.verdict.value,
               data={
@@ -8264,6 +8307,7 @@ class RuneClawEngine:
                   "reason": risk_check.reason,
                   "position_size_usd": round(risk_check.position_size_usd, 2),
                   "atr_pct": round((atr_value / idea.entry_price) * 100, 2) if atr_value and idea.entry_price else None,
+                  **_eq_fields,
               })
 
         # Cross-asset confidence adjustment
@@ -10302,7 +10346,13 @@ class RuneClawEngine:
         _force_refusal = (self._autonomous_live_refusal()
                           if CONFIG.is_live() and not _disabled else None)
         _force_suppressed: list = []
-        for tid, tidea in list(self._pending_ideas.items()):
+        _pending_batch = list(self._pending_ideas.items())
+        try:
+            from bot.core.equity_bucket import slot_order
+            _pending_batch = slot_order(_pending_batch)
+        except Exception:
+            pass
+        for tid, tidea in _pending_batch:
             # The engine's own ideas only, as on the tick path.
             if tid not in _force_engine_ids:
                 continue
@@ -10799,10 +10849,17 @@ class RuneClawEngine:
         # here would place it under `user_id="auto"` on the operator account.
         # `_auto_confirm_suppressed` stays as the reading of the idea itself.
         engine_ids = self._engine_pending_ids()
-        return [(tid, tidea) for tid, tidea in list(self._pending_ideas.items())
-                if tid in engine_ids
-                and self._auto_confirm_gate_value(tidea) >= auto_threshold
-                and not self._auto_confirm_suppressed(tid, tidea)]
+        pairs = [(tid, tidea) for tid, tidea in list(self._pending_ideas.items())
+                 if tid in engine_ids
+                 and self._auto_confirm_gate_value(tidea) >= auto_threshold
+                 and not self._auto_confirm_suppressed(tid, tidea)]
+        # Crypto keeps the slots. Equities in the same batch are confirmed
+        # only after the crypto ideas, and only if a slot is still spare.
+        try:
+            from bot.core.equity_bucket import slot_order
+            return slot_order(pairs)
+        except Exception:
+            return pairs
 
     def _auto_confirm_suppressed(self, trade_id: str, idea) -> bool:
         """True when `idea` may not be auto-confirmed, audited by name.
