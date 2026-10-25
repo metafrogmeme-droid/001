@@ -309,11 +309,19 @@ jobs:
   # collection before a test runs. A duration of that abort is not a
   # measurement of the suite. A failure that remains is still allowed: this
   # job is a comparison, not a second verdict.
+  #
+  # The budget is 90, not the serial job's 60. Under pytest 8 this suite
+  # finished in 24 minutes. Under pytest 9 the same command was still
+  # running when the 60 minute job cap cancelled it. The gate holds
+  # pytest's output until the process exits, so that cancel left an empty
+  # log and a CANCELLED check. The workers were alive, and a local -n auto
+  # run of the same command makes progress, so this is the budget, not a
+  # skipped suite. The required serial gate stays at 60.
   test-parallel:
     name: Tests (parallel shadow, non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
