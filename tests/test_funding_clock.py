@@ -145,7 +145,7 @@ class TestWiring:
         from bot.risk.risk_engine import RiskEngine
         src = inspect.getsource(RiskEngine)
         assert "FUNDING_CLOCK" in src
-        assert "funding_clock_verdict" in src
+        assert "funding_clock_pair" in src
 
     def test_analyzer_has_cascade_veto(self):
         from bot.core import analyzer as an_mod

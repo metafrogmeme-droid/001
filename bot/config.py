@@ -651,6 +651,13 @@ class RiskLimits:
     max_margin_risk_pct: Optional[float] = (
         _env_float_bounded("MAX_MARGIN_RISK_PCT", 30.0, 0.1, 1000.0)
         if os.getenv("MAX_MARGIN_RISK_PCT", "").strip() else None)
+    # The stop stays the one volatility and structure set. Leverage is what
+    # moves, so the cap above still holds: the risk gate reduces leverage from
+    # the stop distance (`margin_risk_verdict`) instead of the analyzer pulling
+    # the stop in to fit the venue's leverage. This is not vol-scaling;
+    # DYNAMIC_LEVERAGE_ENABLED stays that switch. Set this false to restore
+    # the stop-tightening and to leave the reduction on the vol-scaling flag.
+    leverage_from_stop_enabled: bool = _env_bool("LEVERAGE_FROM_STOP_ENABLED", True)
     # Equity curve circuit breaker: if equity drops below its N-period MA, halve sizes
     equity_curve_ma_period: int = int(_env_float("EQUITY_CURVE_MA_PERIOD", 20))
     equity_curve_pause_stddev: float = _env_float("EQUITY_CURVE_PAUSE_STDDEV", 2.0)
@@ -752,10 +759,23 @@ class RiskLimits:
     # Kelly-criterion sizing (default ON; runbook stage 2, tighten-only). evaluate() also
     # derives a half-Kelly size from realized trade history and takes the SMALLER
     # of {fixed-fractional, Kelly}: Kelly can only TIGHTEN size, never grow it, and
-    # the notional/margin caps below stay authoritative. Below kelly_min_trades
-    # closed trades there is no edge estimate, so it is a no-op (size unchanged).
+    # the notional/margin caps below stay authoritative. How a short or
+    # non-positive record is read is KELLY_ON_RISK_ENABLED, declared next.
     kelly_sizing_enabled: bool = _env_bool("KELLY_SIZING_ENABLED", True)
     kelly_min_trades: int = int(_env_float_bounded("KELLY_MIN_TRADES", 20, 1, 100000))
+    # Half-Kelly f* is the fraction of equity lost if the stop is hit, so the
+    # ceiling is that risk budget turned into a margin the same way the
+    # fixed-fractional base is: margin = equity × f* / (stop × leverage). It
+    # used to cap the margin at equity × f* and to return 0 for a short or
+    # non-positive record, which the caller read as "leave the full size".
+    # A short record or f* ≤ 0 now uses kelly_floor_risk_pct instead of the
+    # full budget. Set this false to restore the old reading.
+    kelly_on_risk_enabled: bool = _env_bool("KELLY_ON_RISK_ENABLED", True)
+    # Risk budget, percent of equity, when the record is shorter than
+    # kelly_min_trades or has no positive edge. Below every strategy risk
+    # budget (swing is 2), so the size is neither the full one nor zero.
+    kelly_floor_risk_pct: float = _env_float_bounded(
+        "KELLY_FLOOR_RISK_PCT", 0.25, 0.0, 100.0)
     # Portfolio-aware correlation sizing (default ON; shrink-only). The existing
     # correlation check (_check_correlation) is a count-cap CONCENTRATION GATE:
     # it rejects once a group is full but does nothing for the trades it lets
@@ -901,16 +921,22 @@ class RiskLimits:
     equity_throttle_floor_mult: float = _env_float_bounded("EQUITY_THROTTLE_FLOOR_MULT", 0.25, 0.05, 1.0)
     # Fable-5 round 5 — funding-clock gate (default ON). Blocks an entry
     # ONLY when it would enter on the PAYING side of an extreme funding
-    # rate within the pre-settlement window (Bitget USDT perps settle
-    # 00/08/16 UTC) — the trade pays immediately and extreme funding marks
-    # crowded positioning that unwinds around the settle. Narrow by
-    # construction; fail-open on missing funding data; every block is
-    # priced by the shadow book, so /shadow answers whether it earns.
-    # Live-only in practice (backtests carry no funding stream, so the
-    # gate self-skips there).
+    # rate within the pre-settlement window. The window is the symbol's
+    # own grid (1h, 2h, 4h or 8h); a symbol with no measured interval
+    # keeps the 8h grid (00/08/16 UTC). The trade pays immediately and
+    # extreme funding marks crowded positioning that unwinds around the
+    # settle. Narrow by construction; fail-open on missing funding data;
+    # every block is priced by the shadow book, so /shadow answers whether
+    # it earns. Live-only in practice (backtests carry no funding stream,
+    # so the gate self-skips there). Mode is funding_clock_gate_mode.
     funding_clock_gate_enabled: bool = _env_bool("FUNDING_CLOCK_GATE_ENABLED", True)
     funding_clock_window_min: float = _env_float_bounded("FUNDING_CLOCK_WINDOW_MIN", 30, 5, 120)
     funding_clock_extreme_rate: float = _env_float_bounded("FUNDING_CLOCK_EXTREME_RATE", 0.0005, 0.0001, 0.01)
+    # block: the gate refuses the paying side inside the window (shipped).
+    # cost_only: that same case is not a refusal; one settlement is subtracted
+    # from the idea's expectancy in R and both decisions are logged either way.
+    # Any other value is read as block, so a typo cannot turn the gate off.
+    funding_clock_gate_mode: str = _env("FUNDING_CLOCK_GATE_MODE", "block").strip().lower()
 
 
 @dataclass(frozen=True)
@@ -1524,11 +1550,12 @@ class AnalyzerConfig:
     # blend; docs/CONFIDENCE_CALIBRATION.md measures what that does. The
     # auto-confirm bar reads the curve on its own flag, AUTO_CONFIRM_USE_CALIBRATED.
     confidence_calibration_enabled: bool = _env_bool("CONFIDENCE_CALIBRATION_ENABLED", False)
-    # Per-setup expectancy (Phase C): when ON (the default), a setup's own
-    # historical win rate (symbol + regime + direction, from completed trades)
-    # applies a small bounded nudge to confidence. When disabled it is computed
-    # in shadow-mode (logged, not applied). See bot/learning/setup_expectancy.py.
-    setup_expectancy_enabled: bool = _env_bool("SETUP_EXPECTANCY_ENABLED", True)
+    # Per-setup expectancy (Phase C). Default off (signal-side review
+    # 2026-10-24): a win rate on (symbol, regime, direction) cells, fed by
+    # paper closes, is a drift channel with no out-of-sample test. Set true
+    # to apply the nudge. While off it is still computed in shadow (logged,
+    # not applied). See bot/learning/setup_expectancy.py.
+    setup_expectancy_enabled: bool = _env_bool("SETUP_EXPECTANCY_ENABLED", False)
     # Backed-off tiers: apply a nudge learned from (regime, direction) or from
     # (direction) alone when this symbol has no record of its own. DEFAULT OFF
     # — it is a wider claim than "this setup's own track record", so it goes
@@ -1547,19 +1574,28 @@ class AnalyzerConfig:
     # Default OFF — until enabled, weights are byte-identical to hand-tuned.
     # See bot/learning/voter_weights.py and docs/VOTER_WEIGHT_LEARNING.md.
     voter_weight_learning_enabled: bool = _env_bool("VOTER_WEIGHT_LEARNING_ENABLED", False)
-    # External sentiment: when ON (default; the final runbook stage-4 item),
-    # the sentiment voter blends the live market-wide Fear & Greed index
-    # (alternative.me) as a BOUNDED contrarian adjustment (max ±0.3 on one
-    # 0.6-weight voter), cached 1h, fail-open to the price-derived read on any
-    # fetch failure. Disable to avoid the external network call.
-    external_sentiment_enabled: bool = _env_bool("EXTERNAL_SENTIMENT_ENABLED", True)
+    # External sentiment. Default off (signal-side review 2026-10-24): Fear &
+    # Greed is a daily contrarian read, and every backtest forces it off, so
+    # a live voter here was never measured. Set true to blend the
+    # alternative.me index as a bounded contrarian adjustment (max ±0.3 on
+    # one 0.6-weight voter), cached 1h, fail-open to the price-derived read.
+    external_sentiment_enabled: bool = _env_bool("EXTERNAL_SENTIMENT_ENABLED", False)
     # Funding carry-cost awareness: when ON (default; ops tip), apply a small
     # bounded confidence haircut when a trade would PAY adverse funding over
     # its expected hold (the carry-cost dimension the instantaneous funding
     # signals miss). Haircut-only: it can only ever reduce confidence, so a
     # thin edge is not silently eaten by perp funding on longer holds.
-    # See bot/core/funding.py.
+    # See bot/core/funding.py. This stays on: the cost is real.
     funding_cost_aware_enabled: bool = _env_bool("FUNDING_COST_AWARE_ENABLED", True)
+    # Contrarian funding tilt: +0.03 confidence when funding is extreme
+    # against the crowd. Default off. The preregistered contrarian-funding
+    # rule failed with the wrong sign (signal-side review 2026-10-24). The
+    # carry-cost haircut above is a different reading and stays on.
+    funding_contrarian_tilt_enabled: bool = _env_bool(
+        "FUNDING_CONTRARIAN_TILT_ENABLED", False)
+    # Direct smart-money confidence boost, on top of the confluence voter
+    # that already counts the same flow (weight 1.2). Default off.
+    smart_money_boost_enabled: bool = _env_bool("SMART_MONEY_BOOST_ENABLED", False)
     # Learning auto-refit: when ON, the three learners (calibration, voter weights,
     # setup expectancy) are re-fitted from closed-trade history every
     # LEARNING_AUTO_REFIT_INTERVAL closed trades, so they don't go stale. Refitting
@@ -1663,10 +1699,11 @@ class AnalyzerConfig:
     volume_profile_lookback: int = int(_env_float("VOLUME_PROFILE_LOOKBACK", 100))
     volume_profile_bins: int = int(_env_float("VOLUME_PROFILE_BINS", 50))
 
-    # ── Advanced Elliott Wave (bot/core/elliott.py) — now default ON at the
-    # operator's request. Each toggle stays independent and env-overridable, so
-    # any one can be turned back off (e.g. ELLIOTT_MTF_ENABLED=false) without
-    # touching the others. All fail-open; none bypasses the risk engine.
+    # ── Advanced Elliott Wave (bot/core/elliott.py). Default off
+    # (signal-side review 2026-10-24): the family has no measured per-voter
+    # edge, and the fib-target flag also moves the stop. Each toggle stays
+    # independent, so any one can be turned back on (ELLIOTT_MTF_ENABLED=true)
+    # without the others. All fail-open; none bypasses the risk engine.
     #   zigzag:      feed the EW detectors structural ATR-ZigZag pivots instead
     #                of the fixed 5-bar fractal (filters noise wiggles).
     #   wave_action: dampen the EW confluence vote by the wave's *position*
@@ -1677,14 +1714,12 @@ class AnalyzerConfig:
     #   mtf:         run wave detection on the timeframe whose degree matches the
     #                setup's strategy_type (scalp<intraday<swing<position). This
     #                one fetches extra candle timeframes per symbol — cached and
-    #                fail-open, but it raises Bitget API load; set
-    #                ELLIOTT_MTF_ENABLED=false to disable just that if scans
-    #                start hitting rate limits.
-    elliott_zigzag_enabled: bool = _env_bool("ELLIOTT_ZIGZAG_ENABLED", True)
+    #                fail-open, and it raises Bitget API load when turned on.
+    elliott_zigzag_enabled: bool = _env_bool("ELLIOTT_ZIGZAG_ENABLED", False)
     elliott_zigzag_atr_mult: float = _env_float("ELLIOTT_ZIGZAG_ATR_MULT", 1.5)
-    elliott_wave_action_enabled: bool = _env_bool("ELLIOTT_WAVE_ACTION_ENABLED", True)
-    elliott_fib_targets_enabled: bool = _env_bool("ELLIOTT_FIB_TARGETS_ENABLED", True)
-    elliott_mtf_enabled: bool = _env_bool("ELLIOTT_MTF_ENABLED", True)
+    elliott_wave_action_enabled: bool = _env_bool("ELLIOTT_WAVE_ACTION_ENABLED", False)
+    elliott_fib_targets_enabled: bool = _env_bool("ELLIOTT_FIB_TARGETS_ENABLED", False)
+    elliott_mtf_enabled: bool = _env_bool("ELLIOTT_MTF_ENABLED", False)
     #   mtf_alignment: run the wave detectors on EVERY fetched timeframe
     #                (15m/1h/4h/1d — already in memory for mtf, zero extra API
     #                calls) and add ONE bounded cross-degree agreement vote:
@@ -1693,7 +1728,7 @@ class AnalyzerConfig:
     #                (don't chase a lower-degree entry into higher-degree
     #                exhaustion). Map exposed as indicators["elliott_mtf"].
     elliott_mtf_alignment_enabled: bool = _env_bool(
-        "ELLIOTT_MTF_ALIGNMENT_ENABLED", True)
+        "ELLIOTT_MTF_ALIGNMENT_ENABLED", False)
 
     # Multi-timeframe confluence (default ON): feed the engine's already
     # fetched 4h/1d candles into MTFConfluence so the HH/HL/BOS/CHoCH
@@ -1869,17 +1904,16 @@ class AnalyzerConfig:
     # the gap is visible instead of silent.
     data_quality_penalty_enabled: bool = _env_bool("DATA_QUALITY_PENALTY_ENABLED", True)
     data_thin_penalty: float = _env_float_bounded("DATA_THIN_PENALTY", 0.05, 0.0, 0.5)
-    # Candlestick upgrades (default ON; audit fixes #13/#14):
-    #   trend context — a hammer only counts in a downtrend and a shooting star
-    #     in an uptrend (pure geometry fires constantly in the wrong context);
-    #     morning/evening stars additionally require the third candle to close
-    #     into the first candle's body.
-    #   strength vote — the candlestick confluence vote scales by pattern
-    #     strength (3-candle formations > 2-candle > single) instead of a raw
-    #     bull-vs-bear key count where a lone doji-adjacent hammer equalled
-    #     three white soldiers.
+    # Candlestick trend context (default ON; audit fix #13): a hammer only
+    # counts in a downtrend and a shooting star in an uptrend; morning/evening
+    # stars additionally require the third candle to close into the first
+    # candle's body.
     candle_trend_context_enabled: bool = _env_bool("CANDLE_TREND_CONTEXT_ENABLED", True)
-    candle_strength_vote_enabled: bool = _env_bool("CANDLE_STRENGTH_VOTE_ENABLED", True)
+    # Strength-weighted candlestick vote (audit fix #14). Default off
+    # (signal-side review 2026-10-24), with the rest of the pattern family:
+    # the vote falls back to the raw bull-vs-bear count. Set true to scale
+    # by pattern strength again.
+    candle_strength_vote_enabled: bool = _env_bool("CANDLE_STRENGTH_VOTE_ENABLED", False)
     # Candle-pattern entry veto (opt-in, default OFF). When a PULLBACK LIMIT
     # entry is about to be placed and the last closed bar prints a strong
     # reversal pattern OPPOSING the trade (bearish engulfing/shooting-star/
@@ -1899,16 +1933,12 @@ class AnalyzerConfig:
     cascade_range_atr_mult: float = _env_float_bounded("CASCADE_RANGE_ATR_MULT", 2.5, 1.5, 6.0)
     cascade_vol_mult: float = _env_float_bounded("CASCADE_VOL_MULT", 3.0, 1.5, 10.0)
     cascade_recent_bars: int = int(_env_float_bounded("CASCADE_RECENT_BARS", 3, 1, 12))
-    # All-timeframes candles (default ON): run the candlestick detector on
-    # EVERY fetched timeframe (15m/1h/4h/1d — already in memory for the
-    # Elliott/MTF work, zero extra API calls) and add ONE bounded
-    # cross-degree agreement vote (higher degrees weighted more: a 1d
-    # engulfing summarizes 24x the order flow of a 1h one). The map also
-    # feeds the entry veto: when the veto feature above is ON, a veto-grade
-    # opposing reversal on the 4h/1d last CLOSED bar also vetoes a pullback
-    # limit — the degree ABOVE the trade saying "reversal" is stronger
-    # evidence than the primary bar alone. Map: indicators["candle_mtf"].
-    candle_mtf_enabled: bool = _env_bool("CANDLE_MTF_ENABLED", True)
+    # All-timeframes candles. Default off (signal-side review 2026-10-24).
+    # Set true to run the candlestick detector on every fetched timeframe
+    # (15m/1h/4h/1d — already in memory, zero extra API calls) and add one
+    # bounded cross-degree agreement vote. The map also feeds the entry
+    # veto when that veto is itself on. Map: indicators["candle_mtf"].
+    candle_mtf_enabled: bool = _env_bool("CANDLE_MTF_ENABLED", False)
     # Voter dilution fix (default ON; audit fix #16). The five always-vote
     # voters (rsi/macd/bb/adx/volume_spike) appended a 0-vote even when their
     # input was missing or neutral-by-default, inflating the denominator and
@@ -1944,21 +1974,14 @@ class LearningConfig:
     """
     adaptive_confidence_enabled: bool = _env_bool("ADAPTIVE_CONFIDENCE_ENABLED", True)
     # Feed PAPER/sim closes into the learning loop's write side.
-    # DEFAULT ON. Fourth instance of the same stale audit annotation asserting
-    # the reverse of its own closing line — and the one that cost the most
-    # time: while chasing why calibration had 0 samples, this comment pointed
-    # at the wrong flag entirely. The real gate is
-    # LEARN_CALIBRATION_FROM_PAPER, immediately below.
-    #
-    # Without it record_closed_outcome fires only on LIVE closes, so in
-    # simulation-first operation the learners (calibration / voter weights /
-    # setup expectancy) see almost no data. When ON, each paper close
-    # also records an outcome tagged source="paper_outcome" (live stays
-    # "live_outcome"), so similar-setup lookups and calibration accumulate from
-    # the abundant paper history. The records are LABELLED so live vs paper can
-    # be weighted later; for now an opted-in operator consumes them equally.
-    # Default ON; disable to record live outcomes only.
-    learn_from_paper_closes_enabled: bool = _env_bool("LEARN_FROM_PAPER_CLOSES", True)
+    # Default off (signal-side review 2026-10-24). Paper fills are
+    # ticker-priced with no slippage, and a learner trained on them learns
+    # fills live cannot get. Set true to record each paper close tagged
+    # source="paper_outcome" (live stays "live_outcome"). While off,
+    # record_closed_outcome fires only on live closes. The separate gate
+    # LEARN_CALIBRATION_FROM_PAPER, immediately below, is what lets those
+    # paper rows train the calibration curve.
+    learn_from_paper_closes_enabled: bool = _env_bool("LEARN_FROM_PAPER_CLOSES", False)
     # Also log a DECISION row for per-user paper (practice) fills, so the
     # confidence-calibration and voter-weight learners — which JOIN a decision row
     # to the outcome by paper_trade_id — can train on paper history too (without
@@ -2808,23 +2831,19 @@ class AppConfig:
     # "spot" restores the legacy behavior: spot volume gating + spot-listing
     # requirement. The floor value above applies to whichever source is set.
     scan_volume_source: str = _env("SCAN_VOLUME_SOURCE", "futures")
-    # Per-class TradFi toggles for the all_markets scan — evidence-driven
-    # (live /classpf 2026-07-12, 292 closed trades): Commodity PF 2.30 (32
-    # trades) and Stock PF 1.23 (18) earn their slots; Pre-IPO PF 0.24 (10)
-    # on $40–100k/day books is spread-bleed and ships DISABLED. Metals and
-    # ETFs stay ON — their samples (9 / 7 trades) are too small to condemn;
-    # /classpf keeps scoring them. Explicit single-category universes
+    # Per-class TradFi toggles for the all_markets scan. The live book is
+    # the benchmarked crypto set (signal-side review 2026-10-24): commodities,
+    # stocks and ETFs ship off, with metals and pre-IPO. Set a flag true to
+    # scan that class again. Explicit single-category universes
     # (ASSET_UNIVERSE=pre_ipo etc.) bypass these — an operator asking for a
-    # class by name gets it.
-    scan_class_commodities: bool = _env_bool("SCAN_CLASS_COMMODITIES", True)
-    scan_class_stocks: bool = _env_bool("SCAN_CLASS_STOCKS", True)
-    # Metals default OFF (2026-07-14 parity evidence): 14 live trades,
-    # 14% win rate, PF 0.10, net −$33.72 — the worst class on the book by
-    # every measure (XPT/XPD were the leverage/stop incident symbols too).
-    # Commodities (PF 2.30) and Stocks (PF 1.23) keep their slots. Re-enable
-    # via SCAN_CLASS_METALS=1 if a future sample says otherwise.
+    # class by name gets it. LIVE_UNIVERSE_GATE_ENABLED still refuses a live
+    # order on a market the benchmark does not hold.
+    scan_class_commodities: bool = _env_bool("SCAN_CLASS_COMMODITIES", False)
+    scan_class_stocks: bool = _env_bool("SCAN_CLASS_STOCKS", False)
+    # Metals stay off (2026-07-14 parity evidence): 14 live trades, 14% win
+    # rate, PF 0.10. Re-enable via SCAN_CLASS_METALS=1.
     scan_class_metals: bool = _env_bool("SCAN_CLASS_METALS", False)
-    scan_class_etfs: bool = _env_bool("SCAN_CLASS_ETFS", True)
+    scan_class_etfs: bool = _env_bool("SCAN_CLASS_ETFS", False)
     scan_class_pre_ipo: bool = _env_bool("SCAN_CLASS_PRE_IPO", False)
     # Venue-native discovery: when the active trading venue is NOT Bitget,
     # also scan that venue's own catalog for markets Bitget lacks (on
@@ -2955,12 +2974,12 @@ class AppConfig:
     # halves are fixed together because either alone leaves it shut.
     interactive_scan_fresh_grace_sec: int = int(_env_float("INTERACTIVE_SCAN_FRESH_GRACE_SEC", 30))
     # All-markets slot allocation for the non-Crypto (TradFi) categories.
-    # When full-coverage is ON (default), EVERY present TradFi perp (metals,
-    # stocks, ETFs, commodities, pre-IPO) is guaranteed a scan slot — the whole
-    # curated TradFi universe (~32 symbols) is reserved before the crypto
-    # priority list fills the rest. Turn it off to fall back to the per-category
-    # minimum below. These only affect ASSET_UNIVERSE=all_markets.
-    scan_tradfi_full_coverage: bool = _env_bool("SCAN_TRADFI_FULL_COVERAGE", True)
+    # Full coverage reserves every present TradFi perp a scan slot before the
+    # crypto list fills the rest. It ships off with the TradFi class toggles
+    # (signal-side review 2026-10-24). Set it true to reserve those slots
+    # again; off, the per-category minimum below is the fallback. These only
+    # affect ASSET_UNIVERSE=all_markets.
+    scan_tradfi_full_coverage: bool = _env_bool("SCAN_TRADFI_FULL_COVERAGE", False)
     scan_min_per_category: int = int(_env_float("SCAN_MIN_PER_CATEGORY", 2))
 
     # -- Sub-configs --

@@ -122,25 +122,30 @@ def _set_config(field: str, value):
 
 
 def test_full_coverage_reserves_the_entire_tradfi_universe(monkeypatch):
-    """With scan_tradfi_full_coverage ON (default), every present TradFi perp
-    gets a slot even when the crypto priority list alone would fill the scan."""
-    assert CONFIG.scan_tradfi_full_coverage is True  # ship default
+    """With scan_tradfi_full_coverage ON, every present TradFi perp gets a
+    slot even when the crypto priority list alone would fill the scan.
+    The shipped default is off; this arm turns the flag on and hands it back."""
+    assert CONFIG.scan_tradfi_full_coverage is False
     max_total = CONFIG.top_movers_count
-    scanner = MarketScanner()
+    field, old = _set_config("scan_tradfi_full_coverage", True)
+    try:
+        scanner = MarketScanner()
 
-    pri = [f"PRI{i}/USDT" for i in range(max_total + 10)]
-    monkeypatch.setattr(ms, "_PRIORITY_SET", set(pri))
-    signals = [_mk(s, "Crypto", 0.9 - i * 0.001) for i, s in enumerate(pri)]
-    tradfi = {"Metal": 6, "Stock": 15, "ETF": 6, "Commodity": 3, "Pre-IPO": 2}
-    for cat, n in tradfi.items():
-        signals += [_mk(f"{cat[:3].upper()}{i}/USDT:USDT", cat, 0.5) for i in range(n)]
-    signals.sort(key=lambda x: abs(x.momentum_score), reverse=True)
+        pri = [f"PRI{i}/USDT" for i in range(max_total + 10)]
+        monkeypatch.setattr(ms, "_PRIORITY_SET", set(pri))
+        signals = [_mk(s, "Crypto", 0.9 - i * 0.001) for i, s in enumerate(pri)]
+        tradfi = {"Metal": 6, "Stock": 15, "ETF": 6, "Commodity": 3, "Pre-IPO": 2}
+        for cat, n in tradfi.items():
+            signals += [_mk(f"{cat[:3].upper()}{i}/USDT:USDT", cat, 0.5) for i in range(n)]
+        signals.sort(key=lambda x: abs(x.momentum_score), reverse=True)
 
-    cats = _by_cat(scanner._allocate_slots(signals))
-    for cat, n in tradfi.items():
-        assert cats.get(cat, 0) == n, (cat, cats)
-    # The rest is crypto — full TradFi universe (32) reserved, crypto gets the rest.
-    assert cats["Crypto"] == max_total - sum(tradfi.values())
+        cats = _by_cat(scanner._allocate_slots(signals))
+        for cat, n in tradfi.items():
+            assert cats.get(cat, 0) == n, (cat, cats)
+        # The rest is crypto — full TradFi universe (32) reserved, crypto gets the rest.
+        assert cats["Crypto"] == max_total - sum(tradfi.values())
+    finally:
+        object.__setattr__(CONFIG, field, old)
 
 
 def test_coverage_knob_off_falls_back_to_per_category_minimum(monkeypatch):

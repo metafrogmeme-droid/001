@@ -120,18 +120,24 @@ class TestCandleTrendContext:
 
     def test_flags_default_on(self):
         assert CONFIG.analyzer.candle_trend_context_enabled is True
-        assert CONFIG.analyzer.candle_strength_vote_enabled is True
+        # Strength weighting ships off with the pattern family. The next
+        # test turns it on to keep the weighting arm.
+        assert CONFIG.analyzer.candle_strength_vote_enabled is False
 
 
 class TestStrengthWeightedCandleVote:
     def test_three_soldiers_outvote_lone_hammer(self):
-        sig = _sig()
-        strong = {"candle_bullish_count": 1, "candle_bearish_count": 1,
-                  "candle_bullish_strength": 1.5,   # three_white_soldiers
-                  "candle_bearish_strength": 1.0}   # lone shooting_star
-        score = Analyzer._score_confluence(strong, Regime.RANGE, sig)
-        # Net-positive strength → bullish lean despite equal counts.
-        assert score > 0.5
+        object.__setattr__(CONFIG.analyzer, "candle_strength_vote_enabled", True)
+        try:
+            sig = _sig()
+            strong = {"candle_bullish_count": 1, "candle_bearish_count": 1,
+                      "candle_bullish_strength": 1.5,   # three_white_soldiers
+                      "candle_bearish_strength": 1.0}   # lone shooting_star
+            score = Analyzer._score_confluence(strong, Regime.RANGE, sig)
+            # Net-positive strength → bullish lean despite equal counts.
+            assert score > 0.5
+        finally:
+            object.__setattr__(CONFIG.analyzer, "candle_strength_vote_enabled", False)
 
 
 class TestVoterDilutionGuard:

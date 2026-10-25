@@ -200,7 +200,8 @@ async def test_funding_in_favour_is_silent(ex, audits):
 
 
 def test_an_entry_minutes_before_settlement_warns(ex, audits, monkeypatch):
-    monkeypatch.setattr(le, "seconds_to_settlement", lambda ts: 180.0)
+    monkeypatch.setattr(le, "seconds_to_settlement",
+                        lambda ts, interval_sec=None: 180.0)
     assert ex._note_settlement_clock(_idea()) is None
     w = _by_action(audits, "funding_clock")
     assert w and w[0]["result"] == "WARN"
@@ -208,13 +209,14 @@ def test_an_entry_minutes_before_settlement_warns(ex, audits, monkeypatch):
 
 
 def test_an_entry_hours_before_settlement_is_silent(ex, audits, monkeypatch):
-    monkeypatch.setattr(le, "seconds_to_settlement", lambda ts: 3600.0)
+    monkeypatch.setattr(le, "seconds_to_settlement",
+                        lambda ts, interval_sec=None: 3600.0)
     ex._note_settlement_clock(_idea())
     assert _by_action(audits, "funding_clock") == []
 
 
 def test_an_unreadable_clock_is_recorded_as_unreadable(ex, audits, monkeypatch):
-    def _boom(ts):
+    def _boom(ts, interval_sec=None):
         raise RuntimeError("clock unavailable")
     monkeypatch.setattr(le, "seconds_to_settlement", _boom)
     ex._note_settlement_clock(_idea())   # must not raise

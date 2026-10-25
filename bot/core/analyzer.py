@@ -728,6 +728,69 @@ def leverage_capped_levels(direction: Direction, entry: float, stop_loss: float,
         f"{max_sl_dist_pct*100:.2f}%)")
 
 
+def market_stop_levels(direction: Direction, entry: float, stop_loss: float,
+                       take_profit: float) -> tuple[float, float, Optional[str]]:
+    """The stop volatility and structure set, and the target beside it.
+
+    Leverage is derived from this distance at the risk gate. The old
+    tightening (`leverage_capped_levels`) runs only when
+    ``LEVERAGE_FROM_STOP_ENABLED`` is off.
+    """
+    if getattr(CONFIG.risk, "leverage_from_stop_enabled", True):
+        return stop_loss, take_profit, None
+    return leverage_capped_levels(direction, entry, stop_loss, take_profit)
+
+
+def funding_contrarian_adjustment(funding_rate, direction: Direction
+                                  ) -> tuple[float, str]:
+    """``(confidence delta, note)`` for an extreme funding print.
+
+    ``(0.0, "")`` when ``FUNDING_CONTRARIAN_TILT_ENABLED`` is off, when the
+    rate is unreadable, or when it is inside 5bp. The carry-cost haircut is
+    a different flag.
+    """
+    if not getattr(CONFIG.analyzer, "funding_contrarian_tilt_enabled", False):
+        return 0.0, ""
+    try:
+        fr = float(funding_rate)
+    except (TypeError, ValueError):
+        return 0.0, ""
+    if abs(fr) <= 0.0005:
+        return 0.0, ""
+    if fr < -0.0005 and direction == Direction.LONG:
+        return 0.03, f"Extreme negative funding ({fr:.4%}) favors LONG"
+    if fr > 0.0005 and direction == Direction.SHORT:
+        return 0.03, f"Extreme positive funding ({fr:.4%}) favors SHORT"
+    if fr < -0.0005 and direction == Direction.SHORT:
+        return -0.02, f"Extreme negative funding ({fr:.4%}) opposes SHORT"
+    if fr > 0.0005 and direction == Direction.LONG:
+        return -0.02, f"Extreme positive funding ({fr:.4%}) opposes LONG"
+    return 0.0, ""
+
+
+def smart_money_direct_adjustment(composite, direction: Direction) -> float:
+    """Confidence delta from a smart-money score, or 0 when the boost is off.
+
+    The confluence voter already counts this flow. ``SMART_MONEY_BOOST_ENABLED``
+    is the extra direct nudge, and it ships off.
+    """
+    if not getattr(CONFIG.analyzer, "smart_money_boost_enabled", False):
+        return 0.0
+    try:
+        score = float(composite)
+    except (TypeError, ValueError):
+        return 0.0
+    if abs(score) <= 0.3:
+        return 0.0
+    if direction == Direction.LONG and score > 0:
+        return 0.05 * score
+    if direction == Direction.SHORT and score < 0:
+        return 0.05 * abs(score)
+    if score != 0:
+        return -0.03 * abs(score)
+    return 0.0
+
+
 class Analyzer:
     """Produces TradeIdea objects from raw market signals.
 
@@ -1217,7 +1280,7 @@ class Analyzer:
         if chart_patterns:
             Analyzer._extract_pattern_indicators(indicators, chart_patterns)
 
-        # ── Advanced Elliott: structural ATR-ZigZag pivots (gated, default ON) ──
+        # ── Advanced Elliott: structural ATR-ZigZag pivots (gated, default off) ──
         # Replaces the fixed 5-bar fractal Elliott read with one built on
         # ATR-normalized ZigZag pivots, which filter out the noise wiggles the
         # fractal keeps. Fail-open; byte-identical when the flag is off.
@@ -1379,8 +1442,8 @@ class Analyzer:
             # — a contrarian signal independent of this symbol's price action —
             # instead of being purely price-derived (which echoes other voters).
             # Cached with a TTL inside the engine; fail-open (network error keeps
-            # the last/None value → zero external adjustment). Default ON;
-            # backtests force it off (today's sentiment is lookahead there).
+            # the last/None value → zero external adjustment). Default off;
+            # a backtest also forces it off (today's sentiment is lookahead there).
             if CONFIG.analyzer.external_sentiment_enabled:
                 try:
                     await self._sentiment.refresh_fear_greed()
@@ -1416,7 +1479,7 @@ class Analyzer:
             signal=signal,
         )
 
-        # ── Timeframe-matched Elliott (gated, default ON) ───────────────
+        # ── Timeframe-matched Elliott (gated, default off) ──────────────
         # Re-read the wave structure on the timeframe whose degree matches this
         # setup's strategy_type (scalp<intraday<swing<position), so a scalp sees
         # its lower-degree sub-wave and a swing its higher-degree wave -- rather
@@ -1428,7 +1491,7 @@ class Analyzer:
             except Exception as exc:
                 system_log.debug("Timeframe-matched Elliott skipped: %s", exc)
 
-        # ── Cross-degree Elliott alignment (gated, default ON) ──────────
+        # ── Cross-degree Elliott alignment (gated, default off) ─────────
         # Run the wave detectors across ALL fetched timeframes and expose the
         # degree-agreement map; _score_confluence adds one bounded vote from
         # it. Zero extra API calls (reuses mtf_candles). Fail-open.
@@ -1438,11 +1501,11 @@ class Analyzer:
             except Exception as exc:
                 system_log.debug("MTF Elliott alignment skipped: %s", exc)
 
-        # ── All-timeframes candlestick map (gated, default ON) ──────────
+        # ── All-timeframes candlestick map (gated, default off) ─────────
         # Candle formations on every fetched degree (a 1d engulfing outranks
         # a 15m one); one bounded agreement vote + HTF veto input. Zero
         # extra API calls (reuses mtf_candles). Fail-open.
-        if getattr(CONFIG.analyzer, "candle_mtf_enabled", False) and mtf_candles:
+        if CONFIG.analyzer.candle_mtf_enabled and mtf_candles:
             try:
                 _apply_mtf_candles(indicators, mtf_candles)
             except Exception as exc:
@@ -1825,23 +1888,14 @@ class Analyzer:
         except Exception as _of_exc:
             logger.warning("Order-flow opposition calc failed for %s: %s", signal.symbol, _of_exc)
 
-        # ── Funding Rate Arbitrage Filter ──
+        # ── Funding-contrarian tilt (default off) ──
         try:
             if order_flow is not None and hasattr(order_flow, 'funding_rate'):
-                fr = order_flow.funding_rate
-                if fr is not None and abs(fr) > 0.0005:  # extreme funding (> 0.05%)
-                    if fr < -0.0005 and direction == Direction.LONG:
-                        blended_confidence += 0.03
-                        indicators["funding_arb"] = f"Extreme negative funding ({fr:.4%}) favors LONG"
-                    elif fr > 0.0005 and direction == Direction.SHORT:
-                        blended_confidence += 0.03
-                        indicators["funding_arb"] = f"Extreme positive funding ({fr:.4%}) favors SHORT"
-                    elif fr < -0.0005 and direction == Direction.SHORT:
-                        blended_confidence -= 0.02
-                        indicators["funding_arb"] = f"Extreme negative funding ({fr:.4%}) opposes SHORT"
-                    elif fr > 0.0005 and direction == Direction.LONG:
-                        blended_confidence -= 0.02
-                        indicators["funding_arb"] = f"Extreme positive funding ({fr:.4%}) opposes LONG"
+                _tilt, _tilt_note = funding_contrarian_adjustment(
+                    order_flow.funding_rate, direction)
+                if _tilt_note:
+                    blended_confidence += _tilt
+                    indicators["funding_arb"] = _tilt_note
         except Exception as _fr_exc:
             logger.warning("Funding rate arb filter failed for %s: %s", signal.symbol, _fr_exc)
 
@@ -1860,24 +1914,14 @@ class Analyzer:
         except Exception as _fc_exc:
             logger.debug("Funding cost-aware haircut skipped for %s: %s", signal.symbol, _fc_exc)
 
-        # IMPROVEMENT #3: Smart-money direct confidence boost.
-        # When smart_money_score is strongly directional (+/-), give a small
-        # direct bonus to blended_confidence. This gives whale/institutional
-        # flow more influence beyond just the confluence voter weights.
+        # Smart-money direct confidence boost. Off unless
+        # SMART_MONEY_BOOST_ENABLED: the confluence voter already counts
+        # this flow, and the direct nudge double-counts it.
         if smart_money_score is not None:
-            _sm_val = getattr(smart_money_score, "composite_score", 0.0) or 0.0
-            if abs(_sm_val) > 0.3:
-                sm_alignment = 0.0
-                if direction == Direction.LONG and _sm_val > 0:
-                    sm_alignment = _sm_val
-                elif direction == Direction.SHORT and _sm_val < 0:
-                    sm_alignment = abs(_sm_val)
-                # Max boost: ~0.05 (at score=1.0), penalty ~0.03 for misalignment
-                if sm_alignment > 0:
-                    blended_confidence += 0.05 * sm_alignment
-                elif _sm_val != 0:
-                    # Smart money opposes direction — small penalty
-                    blended_confidence -= 0.03 * abs(_sm_val)
+            _sm_delta = smart_money_direct_adjustment(
+                getattr(smart_money_score, "composite_score", 0.0), direction)
+            if _sm_delta:
+                blended_confidence += _sm_delta
 
         # Data-quality penalty (audit fix #10): a thin (<50 bar) window lacks
         # the SMA-50 trend check, vwap_50 anchor and full fib window — the
@@ -1967,10 +2011,9 @@ class Analyzer:
         # Small, bounded, and shrunk by sample count, so it can only nudge,
         # never dominate. Fail-open.
         #
-        # SETUP_EXPECTANCY_ENABLED IS ON BY DEFAULT and this comment used to say
-        # "default OFF … applies nothing", as did the module's own docstring.
-        # Both were wrong about the live setting for as long as they existed;
-        # the nudge was inert only because no setup ever reached the threshold.
+        # SETUP_EXPECTANCY_ENABLED is off by default (signal-side review
+        # 2026-10-24). The nudge is computed and logged either way, and it
+        # is applied only when the flag is set.
         try:
             from bot.learning.setup_expectancy import get_setup_expectancy
             _exp = get_setup_expectancy()
@@ -2156,7 +2199,7 @@ class Analyzer:
             take_profit = take_profit + entry_shift
             order_type = "limit"
 
-        # ── Wave-anchored SL/TP from Elliott Fib projections (gated, default ON) ──
+        # ── Wave-anchored SL/TP from Elliott Fib projections (gated, default off) ──
         # Tighten the stop to the wave-invalidation level and extend the target
         # to the projected wave objective. Only ever reduces risk / increases
         # reward; never loosens the stop. Applied on absolute levels after the
@@ -2236,9 +2279,9 @@ class Analyzer:
         elif direction == Direction.SHORT and take_profit <= 0:
             take_profit = entry * 0.01
 
-        # ── Leverage-aware SL cap ──────────────────────────────────
-        # Prevent outsized losses when leverage is used (`leverage_capped_levels`).
-        stop_loss, take_profit, _lev_cap_line = leverage_capped_levels(
+        # The stop stays the market's. Leverage is derived from it at the
+        # risk gate; `market_stop_levels` tightens only when that flag is off.
+        stop_loss, take_profit, _lev_cap_line = market_stop_levels(
             direction, entry, stop_loss, take_profit)
         if _lev_cap_line:
             audit(trade_log, _lev_cap_line, action="leverage_sl_cap", result="TIGHTENED")
@@ -3589,7 +3632,7 @@ class Analyzer:
             votes.append(0.0)
             aw(0.4, "candlestick")
 
-        # Cross-degree candlestick vote (gated, default ON). One bounded
+        # Cross-degree candlestick vote (gated, default off). One bounded
         # vote from the all-timeframes candle map: degree agreement (15m/1h/
         # 4h/1d, higher degrees weighted more) votes its signed strength.
         # Dead-zone below |0.05| so mixed/neutral maps never vote.
@@ -3801,7 +3844,7 @@ class Analyzer:
             ("elliott_diagonal", 0.65, "ew_diagonal"),     # diagonal = reversal warning
             ("elliott_wxy", 0.55, "ew_wxy"),               # complex correction = consolidation
         ]
-        # Wave-position action multiplier (gated, default ON): scale each EW
+        # Wave-position action multiplier (gated, default off): scale each EW
         # voter's weight by where in the wave structure we are. A terminal wave
         # 5 / ending diagonal returns a <1 multiplier so it stops adding trend
         # conviction; a wave-3/4 pullback returns >1. Off → multiplier is 1.0
@@ -3863,7 +3906,7 @@ class Analyzer:
                     votes.append(0.0)
                     aw(0.3, "elliott")
 
-        # Cross-degree Elliott alignment vote (gated, default ON). One
+        # Cross-degree Elliott alignment vote (gated, default off). One
         # bounded vote from the all-timeframes wave map: agreement of nested
         # degrees (15m/1h/4h/1d, higher degrees weighted more) votes its
         # signed strength; a terminal 4h/1d structure (wave 5 / ending

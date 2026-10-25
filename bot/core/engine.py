@@ -8070,7 +8070,7 @@ class RuneClawEngine:
         # Entry pricing is unaffected — the analyzer prices off the live ticker
         # (signal.price), not the last candle.
 
-        # Timeframe-matched Elliott (gated, default ON): fetch the extra
+        # Timeframe-matched Elliott (gated, default off): fetch the extra
         # timeframes whose wave degree the analyzer may need for scalp/swing/etc,
         # so it can read the wave structure appropriate to the setup. Cached and
         # fail-open — a fetch failure just omits that timeframe (analyzer no-ops).
@@ -11638,7 +11638,7 @@ class RuneClawEngine:
                 except Exception:
                     pass
                 # Feed the paper/sim close into the learning loop's WRITE side
-                # (default ON). Live closes record via
+                # (default off). Live closes record via
                 # _on_live_position_closed — which now also journals them;
                 # for a long time that claim was made here and nowhere
                 # enforced, leaving /journal empty in pure-live mode. this lets the simulation-first

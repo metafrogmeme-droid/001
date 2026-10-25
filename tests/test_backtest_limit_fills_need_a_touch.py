@@ -19,8 +19,9 @@ that call site passed the limit price.
 
 SCOPE, from the register and re-checked here: `runner.py` forces
 `fill_mode="next_open"` under `--honest`, which the frozen benchmark and the
-marketplace scorecards use, so those were never affected. This is the DEFAULT
-path — `backtest_deep_results.json`, `/backtest`, `/walk_forward`.
+marketplace scorecards use, so those were never affected. The default path
+now rests a limit from the next bar (`same_bar_limit_fill` restores the
+signal-bar touch). `fill_mode` itself defaults to `next_open`.
 """
 
 from __future__ import annotations
@@ -99,9 +100,22 @@ def test_it_fills_on_a_LATER_bar_that_reaches_it():
     assert eng._limits_filled == 1
 
 
-def test_a_limit_the_signal_bar_reaches_fills_at_the_limit():
-    """Touched on its own bar: the price IS one the market printed."""
+def test_a_limit_the_signal_bar_reaches_rests_until_the_next_bar():
+    """The signal bar's range is not a fill. The order did not exist yet."""
     eng = _engine()
+    eng._place_entry(_idea(99.5), _risk_check(), _bar(99.0, 101.0, close=100.0))
+    assert eng.portfolio.open_positions == []
+    assert eng._limits_filled_same_bar == 0
+    assert len(eng._pending_limits) == 1
+
+
+def test_same_bar_limit_fill_restores_the_signal_bar_touch():
+    """The old close-mode optimism, behind the flag that turns it back on."""
+    from bot.backtest.engine import BacktestEngine
+    from bot.backtest.models import BacktestConfig
+    eng = BacktestEngine(BacktestConfig(
+        symbol="BTC/USDT", timeframe="1h", initial_balance=100_000.0,
+        slippage_pct=0.0, commission_pct=0.0, same_bar_limit_fill=True))
     eng._place_entry(_idea(99.5), _risk_check(), _bar(99.0, 101.0, close=100.0))
     assert _entries(eng) == [99.5]
     assert eng._limits_filled_same_bar == 1
@@ -268,6 +282,20 @@ def test_the_run_reports_how_many_entries_never_filled():
     assumption hides inside a performance figure.
     """
     eng = _engine()
+    eng._place_entry(_idea(99.5, tid="a"), _risk_check(), _bar(99.0, 101.0, close=100.0))
+    eng._place_entry(_idea(80.0, tid="b"), _risk_check(), _bar(99.0, 101.0, close=100.0))
+    # Both rest. The signal bar is not a fill on either, touched or not.
+    assert eng._limits_filled == 0
+    assert eng._limits_filled_same_bar == 0
+    assert len(eng._pending_limits) == 2
+
+
+def test_same_bar_fill_counts_the_touch_and_rests_the_miss():
+    from bot.backtest.engine import BacktestEngine
+    from bot.backtest.models import BacktestConfig
+    eng = BacktestEngine(BacktestConfig(
+        symbol="BTC/USDT", timeframe="1h", initial_balance=100_000.0,
+        slippage_pct=0.0, commission_pct=0.0, same_bar_limit_fill=True))
     eng._place_entry(_idea(99.5, tid="a"), _risk_check(), _bar(99.0, 101.0, close=100.0))
     eng._place_entry(_idea(80.0, tid="b"), _risk_check(), _bar(99.0, 101.0, close=100.0))
     assert eng._limits_filled == 1

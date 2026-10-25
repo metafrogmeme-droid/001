@@ -31,9 +31,11 @@ def _idea(conf=0.8):
     )
 
 
-def _with_kelly(enabled=True, min_trades=20):
-    new_risk = dataclasses.replace(
-        CONFIG.risk, kelly_sizing_enabled=enabled, kelly_min_trades=min_trades)
+def _with_kelly(enabled=True, min_trades=20, on_risk=None):
+    kwargs = {"kelly_sizing_enabled": enabled, "kelly_min_trades": min_trades}
+    if on_risk is not None:
+        kwargs["kelly_on_risk_enabled"] = on_risk
+    new_risk = dataclasses.replace(CONFIG.risk, **kwargs)
     return dataclasses.replace(CONFIG, risk=new_risk)
 
 
@@ -69,9 +71,18 @@ class TestDefaultOn:
 
 
 class TestKellyHelper:
-    def test_noop_without_enough_history(self):
+    def test_short_history_uses_the_floor_not_full_size(self, monkeypatch):
         eng = _engine()
         _seed_history(eng, 3, 2)  # 5 < default 20
+        from bot.risk.risk_engine import sizing_standard_now
+        lev = sizing_standard_now()
+        floor = CONFIG.risk.kelly_floor_risk_pct / 100.0
+        stop = 0.02  # idea entry 100, stop 98
+        # The suite turns the flag off; this reading is the shipped one.
+        monkeypatch.setattr(risk_engine_mod, "CONFIG", _with_kelly(True, 20, on_risk=True))
+        assert eng._kelly_size_usd(_idea(), 10_000.0) == round(
+            10_000.0 * floor / (stop * lev), 2)
+        monkeypatch.setattr(risk_engine_mod, "CONFIG", _with_kelly(True, 20, on_risk=False))
         assert eng._kelly_size_usd(_idea(), 10_000.0) == 0.0
 
     def test_positive_with_edge_and_history(self):
@@ -96,8 +107,11 @@ class TestTightenOnly:
 
     def test_noedge_kelly_does_not_zero_the_position(self, monkeypatch):
         eng = _engine()
-        # Losing history → Kelly fraction 0 → must be treated as NO-OP, not forced
-        # to zero size (the other 22 risk checks govern bad trades).
+        # A losing record is not a full-size grant and not a zero-size grant.
         _seed_history(eng, 5, 15)
-        monkeypatch.setattr(risk_engine_mod, "CONFIG", _with_kelly(True, 20))
-        assert eng.evaluate(_idea()).position_size_usd > 0.0
+        monkeypatch.setattr(risk_engine_mod, "CONFIG", _with_kelly(True, 20, on_risk=True))
+        sized = eng.evaluate(_idea()).position_size_usd
+        monkeypatch.setattr(risk_engine_mod, "CONFIG", _with_kelly(False, 20, on_risk=True))
+        full = eng.evaluate(_idea()).position_size_usd
+        assert sized > 0.0
+        assert sized < full
