@@ -702,6 +702,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/backup` | verifiable backups of critical state |
 | `/readiness` | is the learning loop validated enough to apply |
 | `/srb` | shadow restitution signals — a public signal, nothing is paid |
+| `/incidentpack` | read-only incident pack for one address and a time window, testnet, admin |
 
 ### 🚦 Engine ops (operator) — *operator only*
 

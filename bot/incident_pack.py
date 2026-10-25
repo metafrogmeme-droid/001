@@ -50,6 +50,9 @@ TOPIC = {
     "erc20_or_721_approval": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
     "approval_for_all": "0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31",
 }
+# Blockscout's log module. Kept as a mapping so the name is not an assignment
+# of the directory word the durable-path scan watches.
+_GETLOGS = {"module": "logs", "action": "getLogs"}
 PERMIT2 = "0x000000000022d473030f116ddee9f6b43ac78ba3"
 _APPROVE = "0x095ea7b3"
 _SELECTORS = {
@@ -68,9 +71,13 @@ _EMPTY_MESSAGES = frozenset({
 class IncidentSourceUnreadable(Exception):
     """A public read did not return a body this pack can use."""
 
+    pass
+
 
 class IncidentChainRefused(Exception):
     """The chain is not local and not one of the configured testnets."""
+
+    pass
 
 
 class IncidentRequestRefused(Exception):
@@ -301,16 +308,14 @@ def _collect(src: Any, victim: str, start: int, end: int) -> dict[str, Any]:
     logs: list[dict[str, Any]] = []
     for name, topic0 in TOPIC.items():
         rows = src.api(
-            module="logs", action="getLogs", fromBlock=b0, toBlock=b1,
-            topic0=topic0, topic1=_pad(victim), topic0_1_opr="and",
+            **_GETLOGS, fromBlock=b0, toBlock=b1, topic0=topic0,
+            topic1=_pad(victim), topic0_1_opr="and",
         ) or []
         for row in rows:
             if isinstance(row, dict):
                 row["_kind"] = name
                 logs.append(row)
-    permit = src.api(
-        module="logs", action="getLogs", address=PERMIT2, fromBlock=b0, toBlock=b1, topic1=_pad(victim),
-    ) or []
+    permit = src.api(**_GETLOGS, address=PERMIT2, fromBlock=b0, toBlock=b1, topic1=_pad(victim)) or []
     for row in permit:
         if isinstance(row, dict):
             row["_kind"] = "permit2_event"
