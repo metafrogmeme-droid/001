@@ -607,6 +607,11 @@ app.use('/api/limit-scanner/shadow', require('./routes/limit_scanner_shadow'));
 // testnet only, and a preview does not sign.
 app.use('/api/hashkey-seal', require('./routes/hashkey_seal'));
 // --- HashKey seal end ---
+// --- Market Clock begin ---
+// Venue corporate-action and session clocks. Admin only, flag on or off.
+// Times and rules. 404 for everyone who is not an operator.
+app.use('/api/market-clock', require('./routes/market_clock'));
+// --- Market Clock end ---
 // --- Grounded Reputation begin ---
 // ERC-8004 payment evidence. Admin only. 404 for every caller while
 // GROUNDED_REPUTATION_ENABLED is off, and 404 for a non-operator while it
