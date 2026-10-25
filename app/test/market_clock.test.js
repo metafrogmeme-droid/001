@@ -279,6 +279,22 @@ test('a conflict alerts at the earliest instant and does not pick a winner', () 
   assert.equal(one.status, 'single_source');
   assert.equal(one.delta_s, null);
 
+  const agreed = view.resolveField([
+    { rank: 2, stated: 'same rule', utc: null },
+    { rank: 2, stated: 'same rule', utc: null },
+  ], 15 * 60);
+  assert.equal(agreed.status, 'confirmed');
+  assert.equal(agreed.resolved_value, null);
+  assert.equal(agreed.delta_s, null);
+  assert.equal(agreed.alert_at_utc, null);
+
+  const unlike = view.resolveField([
+    { rank: 2, stated: 'one wording', utc: null },
+    { rank: 2, stated: 'another wording', utc: null },
+  ], 15 * 60);
+  assert.equal(unlike.status, 'single_source');
+  assert.equal(unlike.alert_at_utc, null);
+
   const halt = view.resolveField([
     { rank: 2, utc: '2026-09-28T06:35:00Z', stated: 'a' },
     { rank: 2, utc: '2026-09-28T06:50:00Z', stated: 'b' },
@@ -303,7 +319,7 @@ test('a conflict alerts at the earliest instant and does not pick a winner', () 
   assert.equal(fresh.stale_check, 'max_age_unset');
 });
 
-test('the calendar has the four alert types and no price, verdict, or Bitget row', () => {
+test('the calendar has the four alert types and no price or verdict', () => {
   const body = clockBody();
   assert.deepEqual(body.alert_types.map((a) => a.type), [
     'event_window', 'regime_switch', 'lockout', 'conflict',
@@ -311,7 +327,6 @@ test('the calendar has the four alert types and no price, verdict, or Bitget row
   assert.equal(body.ranks.find((r) => r.rank === 3).present, false);
   assert.equal(view.priceKeyFound(body, '$'), null);
   const dumped = JSON.stringify(body);
-  assert.equal(dumped.toLowerCase().includes('bitget'), false);
   assert.equal(dumped.includes('1128'), false);
   assert.equal(dumped.includes('917'), false);
   assert.equal(dumped.includes('1-for-3'), false);
@@ -334,6 +349,98 @@ test('the calendar has the four alert types and no price, verdict, or Bitget row
   const gate = body.events.find((e) => e.event_id === 'gate:2025-11-25:nflx-tqqq');
   assert.equal(gate.venue_windows[0].start_utc, null);
   assert.equal(gate.venue_windows[0].time.kind, 'calendar_date');
+});
+
+test('Bitget rToken notices are official help pages, with status and no invented clock', () => {
+  const body = clockBody();
+  const ids = [
+    'bitget:rtoken:cash-dividend',
+    'bitget:rtoken:split',
+    'bitget:rtoken:stock-dividend',
+    'bitget:rtoken:session',
+    'bitget:rtoken:session-pause',
+    'bitget:rtoken:weekend-open',
+    'bitget:rtoken:weekend-orders',
+    'bitget:perps:corporate-action',
+    'bitget:elite:copy-corporate-action',
+  ];
+  const rows = ids.map((id) => body.events.find((e) => e.event_id === id));
+  assert.equal(rows.every(Boolean), true);
+
+  const cash = rows[0];
+  assert.equal(cash.status, 'confirmed');
+  assert.equal(cash.resolved_value, null);
+  assert.equal(cash.delta_s, null);
+  assert.equal(cash.venue_windows[0].start_utc, null);
+  assert.equal(cash.claims.length, 2);
+  assert.match(cash.claims[0].source.url, /^https:\/\/www\.bitget\.com\/support\/articles\//);
+  assert.equal(cash.claims[0].source.checked_on, '2026-10-25');
+  assert.match(cash.venue_windows[0].rules.join(' '), /withholding rate is not confirmed/);
+  assert.match(cash.claims[0].also_stated, /not recorded as the rate/);
+
+  const split = rows[1];
+  assert.equal(split.status, 'confirmed');
+  assert.equal(split.venue_windows[0].start_utc, null);
+
+  const shareDiv = rows[2];
+  assert.equal(shareDiv.status, 'single_source');
+  assert.equal(shareDiv.conflict, false);
+  assert.match(shareDiv.venue_windows[0].rules.join(' '), /neither is selected/);
+
+  const session = rows[3];
+  assert.equal(session.status, 'confirmed');
+  assert.equal(session.venue_windows[0].start_utc, null);
+  assert.equal(session.venue_windows[0].treatment, 'session_hours');
+
+  const pause = rows[4];
+  assert.equal(pause.status, 'single_source');
+  assert.equal(pause.venue_windows[0].minutes, null);
+  assert.match(pause.venue_windows[0].rules.join(' '), /does not give a minute count/);
+
+  const weekend = rows[5];
+  assert.equal(weekend.status, 'single_source');
+  assert.equal(weekend.conflict, false);
+  assert.equal(weekend.resolved_value, null);
+  assert.equal(weekend.alert_at_utc, null);
+  const readings = weekend.venue_windows[0].time.readings;
+  assert.equal(readings[0].weekday, 'saturday');
+  assert.equal(readings[0].utc_clock, '00:00');
+  assert.equal(readings[0].day_shift, 0);
+  assert.equal(readings[0].amsterdam.standard.clock, '01:00');
+  assert.equal(readings[0].amsterdam.daylight.clock, '02:00');
+  assert.equal(readings[1].utc_clock, '01:00');
+  assert.equal(readings[1].day_shift, 0);
+  assert.equal(readings[1].amsterdam.standard.clock, '02:00');
+  assert.equal(readings[1].amsterdam.daylight.clock, '03:00');
+  assert.match(weekend.venue_windows[0].rules.join(' '), /single-source/);
+
+  const orders = rows[6];
+  assert.equal(orders.status, 'confirmed');
+  assert.equal(orders.venue_windows[0].orders_effect, 'cancelled');
+  assert.equal(orders.venue_windows[0].start_utc, null);
+
+  const perps = rows[7];
+  assert.equal(perps.status, 'single_source');
+  assert.equal(perps.venue_windows[0].start_utc, null);
+  assert.equal(perps.venue_windows[0].orders_effect, 'cancelled');
+  assert.equal(perps.venue_windows[1].time.minutes, 5);
+  assert.equal(perps.venue_windows[1].time.approximate, true);
+  assert.equal(perps.venue_windows[1].start_utc, null);
+  assert.equal(perps.alerts.length, 0);
+  const perpText = perps.venue_windows.map((w) => w.rules.join(' ')).join(' ');
+  assert.equal(perpText.includes('250'), false);
+  assert.match(perpText, /one third/);
+  assert.match(perpText, /five minutes before/);
+
+  const elite = rows[8];
+  assert.equal(elite.status, 'single_source');
+  assert.equal(elite.venue_windows[0].start_utc, null);
+  assert.match(elite.venue_windows[0].rules.join(' '), /spot elite/);
+
+  const dumped = JSON.stringify(rows);
+  assert.equal(/\b(buy|sell|scam|safe)\b/i.test(dumped), false);
+  assert.equal(dumped.includes('1-for-3'), false);
+  assert.equal(view.priceKeyFound({ events: rows }, '$'), null);
 });
 
 test('a symbol query returns that symbol and does not invent a clock for an unknown one', () => {

@@ -333,6 +333,9 @@ app.use('/api/chat', express.json({ limit: '7mb' }));
 const panicApi = require('./routes/panic');
 const panicReceipt = require('./routes/panic_receipt');
 app.use('/api/panic', panicApi.capBody);
+// Silent Fee Check posts one address. Mounted here, before the 1mb parser,
+// so the router's own cap is the parser that reads the body.
+app.use('/api/fees', require('./routes/silent_fee'));
 // The review-queue write is a name and a short note. This parser runs first
 // for /api/botcheck/submit, so the global parser below skips a body it
 // already parsed, and a payload over 1kb never reaches the handler.
@@ -612,6 +615,12 @@ app.use('/api/hashkey-seal', require('./routes/hashkey_seal'));
 // Times and rules. 404 for everyone who is not an operator.
 app.use('/api/market-clock', require('./routes/market_clock'));
 // --- Market Clock end ---
+// --- Grounded Reputation begin ---
+// ERC-8004 payment evidence. Admin only. 404 for every caller while
+// GROUNDED_REPUTATION_ENABLED is off, and 404 for a non-operator while it
+// is on. Read-only. No key, no signature.
+app.use('/api/grounded-reputation', require('./routes/grounded_reputation'));
+// --- Grounded Reputation end ---
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));

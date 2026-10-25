@@ -764,6 +764,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
 | `/hrc` | Hyperliquid USDC borrow-rate caps — utilization and rate, admin |
+| `/fees` | builder caps and fees paid on one Hyperliquid address, read-only |
 | `/costs` | today's model and API spend against the daily budget |
 
 <!-- END generated: telegram commands -->
