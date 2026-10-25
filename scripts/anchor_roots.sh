@@ -32,7 +32,7 @@
 # anything else; a child of the server inherits it and this script then
 # refuses to sign. It also refuses when a server signing key is already in
 # the environment (WEB3_SIGNER_PRIVATE_KEY, HYPERLIQUID_PRIVATE_KEY,
-# SAR_ORACLE_SIGNING_KEY, HRC_FEED_SIGNER_KEY): those belong to the server,
+# SAR_ORACLE_SIGNING_KEY, HRC_FEED_SIGNER_KEY, HASHKEY_SEAL_SIGNER_KEY): those belong to the server,
 # and this script must not read them and must not treat them as the key.
 # Export ETH_PRIVATE_KEY in an operator shell. This script never sources
 # .env or web.env.
@@ -198,7 +198,7 @@ cmd_broadcast() {
   if [ "${RUNECLAW_SERVER:-}" = "1" ]; then
     die "--broadcast is operator-only and is refused when RUNECLAW_SERVER=1. The server never signs on mainnet."
   fi
-  for leaked in WEB3_SIGNER_PRIVATE_KEY HYPERLIQUID_PRIVATE_KEY SAR_ORACLE_SIGNING_KEY HRC_FEED_SIGNER_KEY; do
+  for leaked in WEB3_SIGNER_PRIVATE_KEY HYPERLIQUID_PRIVATE_KEY SAR_ORACLE_SIGNING_KEY HRC_FEED_SIGNER_KEY HASHKEY_SEAL_SIGNER_KEY; do
     if [ -n "${!leaked:-}" ]; then
       die "--broadcast refuses to run while ${leaked} is set. That key belongs to the server environment. Export ETH_PRIVATE_KEY in an operator shell that does not source the server env. This script never reads .env or web.env."
     fi

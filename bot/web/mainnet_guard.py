@@ -27,6 +27,8 @@ _TESTNET_CAPABLE_KEYS = (
     "HYPERLIQUID_PRIVATE_KEY",
     "SAR_ORACLE_SIGNING_KEY",
     "HRC_FEED_SIGNER_KEY",
+    # HashKey seal publisher. Testnet chain 133 only; see _hashkey_seal_refusal.
+    "HASHKEY_SEAL_SIGNER_KEY",
 )
 
 #: ``_env_bool`` treats only these as True. ``on`` is unrecognised and falls
@@ -127,7 +129,40 @@ def startup_refusal(env: Optional[Mapping[str, str]] = None) -> Optional[str]:
                 f"{name} is mainnet chain {cid} and a signing key is set "
                 f"({signing[0]}); the server does not start"
             )
+    hashkey = _hashkey_seal_refusal(e)
+    if hashkey:
+        return hashkey
     return None
+
+
+def _hashkey_seal_refusal(env: Mapping) -> Optional[str]:
+    """The HashKey seal key is for the testnet id in networks.json and no other.
+
+    An unset chain id is not treated as a chain: the publisher asks the
+    endpoint and refuses any answer other than that testnet id before it
+    signs. A chain id that is set and is not that id refuses startup, so
+    the process does not hold the key aimed at another chain.
+    """
+    if not _nonempty(env, "HASHKEY_SEAL_SIGNER_KEY"):
+        return None
+    raw = env.get("HASHKEY_SEAL_CHAIN_ID")
+    if raw is None or str(raw).strip() == "":
+        return None
+    cid = _parse_chain_id(raw)
+    try:
+        from bot.hashkey_seal.networks import testnet_chain_id
+        expected = testnet_chain_id()
+    except Exception:
+        return (
+            "HASHKEY_SEAL_SIGNER_KEY is set and the HashKey network file "
+            "could not be read; the server does not start"
+        )
+    if cid == expected:
+        return None
+    return (
+        f"HASHKEY_SEAL_CHAIN_ID is not HashKey testnet {expected} and "
+        "HASHKEY_SEAL_SIGNER_KEY is set; the server does not sign"
+    )
 
 
 def refuse_server_start(env: Optional[Mapping[str, str]] = None) -> None:

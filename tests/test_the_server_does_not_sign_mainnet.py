@@ -268,7 +268,8 @@ def _run_broadcast(extra: dict[str, str]) -> subprocess.CompletedProcess[str]:
     env.pop("RUNECLAW_SERVER", None)
     for name in (
         "WEB3_SIGNER_PRIVATE_KEY", "HYPERLIQUID_PRIVATE_KEY",
-        "SAR_ORACLE_SIGNING_KEY", "HRC_FEED_SIGNER_KEY", "ETH_PRIVATE_KEY",
+        "SAR_ORACLE_SIGNING_KEY", "HRC_FEED_SIGNER_KEY", "HASHKEY_SEAL_SIGNER_KEY",
+        "ETH_PRIVATE_KEY",
     ):
         env.pop(name, None)
     env.update(extra)
