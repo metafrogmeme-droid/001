@@ -24,7 +24,7 @@ function page() {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW — Scam or Safe?</title>
 <meta name="description" content="One decoded signing request a day. Call it safe or risky. Read only: nothing is signed, addresses are masked, amounts are hidden.">
-<link rel="stylesheet" href="/styles.css?v=52">
+<link rel="stylesheet" href="/styles.css?v=53">
 <style>
   .sos-page { display: flex; justify-content: center; }
   .sos-wrap { max-width: 720px; width: 100%; padding: 28px 16px 64px; box-sizing: border-box; }
@@ -37,7 +37,7 @@ function page() {
 <nav class="sos-nav"><a href="/duel">Daily Duel</a><a href="/">Home</a></nav>
 <div id="scam-root"></div>
 </div></div>
-<script src="/js/app.js?v=17"></script>
+<script src="/js/app.js?v=18"></script>
 <script src="/js/api-retry.js?v=3"></script>
 <script src="/js/scam-or-safe.js?v=2" defer></script>
 </body>

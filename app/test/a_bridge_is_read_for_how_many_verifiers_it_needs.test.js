@@ -221,7 +221,11 @@ test('the page says the count, keeps amber for one or none, and never turns not-
     [200, { ...read, send: undefined }], [500, read], [0, null]]) {
     assert.deepStrictEqual(V.view(status, body), { text: UNREAD }, `${status} ${JSON.stringify(body)}`);
   }
-  assert.deepStrictEqual(V.view(400, { error: 'oapp must be a 0x address' }), { text: 'Check the chain, the address and the endpoint id.' });
+  assert.deepStrictEqual(V.view(400, { error: 'oapp must be a 0x address' }), { text: 'The app address must start with 0x and contain 40 hex characters.' });
+  assert.deepStrictEqual(V.view(400, { error: 'a chain this scanner does not read' }), { text: 'This scanner does not read that chain. Choose a chain from the menu.' });
+  assert.deepStrictEqual(V.view(400, { error: 'the remote endpoint id is not a mainnet one (30000–39999)' }), { text: 'The remote endpoint id must be a mainnet id from 30000 to 39999.' });
+  assert.deepStrictEqual(V.view(400, { error: 'the remote endpoint is this chain itself' }), { text: 'The remote endpoint is this chain itself. Pick a different chain’s endpoint id.' });
+  assert.deepStrictEqual(V.view(400, { error: '<script>' }), { text: 'That check was refused. Choose a chain from the menu, an app address that starts with 0x and has 40 hex characters, and a remote endpoint id from 30000 to 39999.' });
   assert.strictEqual(V.sideHtml('x', { verifiers_needed: '3' }, (k, en) => en), '<div class="rk-side"><h3>x</h3><p class="muted">' + UNREAD + '</p></div>',
     'a count that is not a number is not printed as one');
   // Whatever the chain answered is text, never markup; the words come through the page's translator.

@@ -700,6 +700,10 @@ app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); r
 // The host follows a 3xx itself (lib/navigate.js has the measurement), so the
 // alias answers a page that navigates, never a redirect.
 app.get('/study', (req, res) => { navigate(res, '/learn'); });
+// Old addresses people still open. The host follows a 3xx itself, so these
+// answer a page that navigates (lib/navigate.js), never a redirect.
+app.get('/marketplace', (req, res) => { navigate(res, '/agents'); });
+app.get('/market', (req, res) => { navigate(res, '/dashboard#markets'); });
 app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'learn.html')); });
 // /rune — the soulbound collection, public and honest about all three forge
 // states (cold / unreadable / lit) before and after deployment.

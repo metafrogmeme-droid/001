@@ -30,7 +30,11 @@
   /** The words, in English; the page passes T(key, english) so each is translated. */
   var EN = {
     'rk.r_unread': 'Could not be read: not a verdict either way.',
-    'rk.refused': 'Check the chain, the address and the endpoint id.',
+    'rk.refused': 'That check was refused. Choose a chain from the menu, an app address that starts with 0x and has 40 hex characters, and a remote endpoint id from 30000 to 39999.',
+    'rk.refused_chain': 'This scanner does not read that chain. Choose a chain from the menu.',
+    'rk.refused_addr': 'The app address must start with 0x and contain 40 hex characters.',
+    'rk.refused_eid': 'The remote endpoint id must be a mainnet id from 30000 to 39999.',
+    'rk.refused_self': 'The remote endpoint is this chain itself. Pick a different chain’s endpoint id.',
     'rk.r_lib': 'A library this check does not know: not read',
     'rk.r_unnamed': 'not in LayerZero’s list',
     'rk.r_none': 'No verifier has to agree',
@@ -66,13 +70,29 @@
   }
 
   /**
+   * A 400 names the input that failed when the reason is one this scanner
+   * actually returns. Anything else still says what a valid question looks
+   * like, and never forwards arbitrary server prose.
+   */
+  function refusedText(body, t) {
+    var reason = body && typeof body.error === 'string' ? body.error : '';
+    if (reason === 'a chain this scanner does not read') return t('rk.refused_chain', EN['rk.refused_chain']);
+    if (reason === 'the app address is not a 0x address' || reason === 'oapp must be a 0x address') {
+      return t('rk.refused_addr', EN['rk.refused_addr']);
+    }
+    if (reason === 'the remote endpoint id is not a mainnet one (30000–39999)') return t('rk.refused_eid', EN['rk.refused_eid']);
+    if (reason === 'the remote endpoint is this chain itself') return t('rk.refused_self', EN['rk.refused_self']);
+    return t('rk.refused', EN['rk.refused']);
+  }
+
+  /**
    * What to show for one answer: {html} for a reading, {text} otherwise.
    * `status` is the HTTP status, `body` the parsed JSON or null.
    */
   function view(status, body, t) {
     t = t || function (k, en) { return en; };
     var b = body || {};
-    if (status === 400) return { text: t('rk.refused', EN['rk.refused']) };
+    if (status === 400) return { text: refusedText(b, t) };
     if (status !== 200 || b.status !== 'read' || !b.receive || !b.send) return { text: t('rk.r_unread', EN['rk.r_unread']) };
     var readers = Array.isArray(b.readers) ? b.readers : [];
     return {
