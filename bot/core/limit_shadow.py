@@ -283,7 +283,13 @@ def _mark_to_market(resting, positions, meta, live_bar, params, spec, cfg, trade
         _book_exits(sym, fills, positions, meta, spec, trades)
 
 
-def _touch(bar, px: float, side: str) -> bool:
+def _touch(bar: Sequence[float], px: float, side: str) -> bool:
+    """Whether this bar's low (long) or high (short) reaches ``px``.
+
+    ``bar`` is ``(ts_ms, open, high, low, close, volume)``. The index is a
+    float, so the comparison is a bool. An untyped bar makes the index
+    ``Any``, and ``Any <= px`` stays ``Any``.
+    """
     if side == LONG:
         return bar[3] <= px
     return bar[2] >= px
