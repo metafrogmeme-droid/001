@@ -13,6 +13,26 @@ from typing import Optional
 
 from .features import SymbolFeatures
 
+# Bitget tokenized equities. The same names as bot.config.US_STOCK_SYMBOLS,
+# written without the slash because this playbook's symbols have none.
+# A leading "R" is not the test: RENDER and RAVE are crypto. The v2 order
+# book fails for the R-prefix names, so an unread book must not be scored.
+_EQUITY_SYMBOLS = {
+    "AAPLONUSDT", "MSFTONUSDT", "GOOGLONUSDT", "AMZNONUSDT", "METAONUSDT",
+    "NVDAONUSDT", "TSLAONUSDT", "AMDONUSDT", "QQQONUSDT", "SPYONUSDT",
+    "RAAPLUSDT", "RMSFTUSDT", "RGOOGLUSDT", "RAMZNUSDT", "RMETAUSDT",
+    "RNVDAUSDT", "RTSLAUSDT", "RAMDUSDT", "RSPYUSDT", "RQQQUSDT",
+    "RCOINUSDT", "RHOODUSDT", "RARMUSDT", "RMRVLUSDT", "RDELLUSDT",
+    "RINTCUSDT", "RNOKUSDT", "RANETUSDT",
+}
+
+
+def is_tokenized_equity(symbol: str) -> bool:
+    raw = str(symbol or "").upper().replace("/", "").replace(":", "").replace("-", "")
+    if raw.endswith("USDTUSDT"):
+        raw = raw[:-4]
+    return raw in _EQUITY_SYMBOLS
+
 
 @dataclass
 class Regime:
@@ -66,6 +86,20 @@ def regime(btc: SymbolFeatures, taker_ratio: Optional[float], cfg: dict) -> Regi
     return Regime("none", 0.0, max(long_score, short_score), detail)
 
 
+def _percentile(value, values: list):
+    """0 at the minimum and 1 at the maximum. No spread ranks nothing.
+
+    A min-max against one very busy name scored every other name near zero,
+    so only that name could clear the bar. The count of names strictly below
+    this one, over one less than the count, leaves the next name in the middle.
+    """
+    xs = [v for v in values if v is not None]
+    if value is None or len(xs) < 2 or max(xs) <= min(xs):
+        return None
+    below = sum(1 for v in xs if v < value)
+    return below / (len(xs) - 1)
+
+
 def _minmax(values: list) -> tuple:
     if not values:
         return (0.0, 0.0)
@@ -81,7 +115,7 @@ def score_universe(feats_list: list, btc: SymbolFeatures, cfg: dict, direction: 
 
     rel = {f.symbol: (f.change_pct - btc_change) for f in ok if f.change_pct is not None}
     rel_min, rel_max = _minmax(list(rel.values()))
-    vol_min, vol_max = _minmax([f.quote_volume for f in ok if f.quote_volume is not None])
+    vol_values = [f.quote_volume for f in ok if f.quote_volume is not None]
 
     min_vol = float(cfg.get("min_volume_usdt", "10000000"))
     full_ratio = float(cfg.get("bidask_full_ratio", "2.0"))
@@ -98,6 +132,12 @@ def score_universe(feats_list: list, btc: SymbolFeatures, cfg: dict, direction: 
         dims: dict = {}
         skip = False
         reason = ""
+        # Equities are off unless the config opts in. Opting in still refuses
+        # a name whose book was not read: that dimension is 20 of the score,
+        # and a failed v2 book is not a mid-scale 8.
+        if is_tokenized_equity(f.symbol) and not cfg.get("include_equities"):
+            results.append(Scored(f.symbol, side, 0.0, {"total": 0.0}, True, "equity_excluded", f))
+            continue
 
         # Momentum 0-25: long rewards strength, short rewards weakness.
         r = rel.get(f.symbol)
@@ -169,9 +209,19 @@ def score_universe(feats_list: list, btc: SymbolFeatures, cfg: dict, direction: 
             elif side == "short" and ratio >= wall_ratio:
                 skip, reason = True, "bid_wall"
         else:
-            orderbook_score = 8.0
-            dims["bidask_ratio"] = None
-            dims["orderbook_degraded"] = True
+            # An unread book is not a mid-scale 8, and the other four weights
+            # are not rescaled onto 100. Equities fail closed: the v2 book
+            # for an R-prefix name is a failed read, not a zero-information
+            # pass. Other names keep the historical degraded points only when
+            # the book was the one dimension missing; the equity path does not.
+            if is_tokenized_equity(f.symbol):
+                orderbook_score = 0.0
+                dims["bidask_ratio"] = None
+                skip, reason = True, "equity_book_unread"
+            else:
+                orderbook_score = 8.0
+                dims["bidask_ratio"] = None
+                dims["orderbook_degraded"] = True
         dims["orderbook"] = orderbook_score
 
         # Volume 0-15 (cross-sectional) + thin-liquidity disqualifier.
@@ -179,10 +229,13 @@ def score_universe(feats_list: list, btc: SymbolFeatures, cfg: dict, direction: 
         if quote_volume is not None and quote_volume < min_vol:
             skip = True
             reason = reason or "thin_volume"
-        if quote_volume is None or vol_max <= vol_min:
+        ranked = _percentile(quote_volume, vol_values)
+        if quote_volume is None or ranked is None:
+            # No spread to rank on. The playbook's unread volume points, kept:
+            # a class whose volumes are equal has not been read as a ranking.
             volume_score = 7.5
         else:
-            volume_score = 15.0 * (quote_volume - vol_min) / (vol_max - vol_min)
+            volume_score = 15.0 * ranked
         dims["volume"] = round(volume_score, 2)
         dims["quote_volume"] = quote_volume
 

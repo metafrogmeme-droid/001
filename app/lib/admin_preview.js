@@ -139,3 +139,9 @@ READERS.XNAV_ENABLED = function (env) {
   return require('./xnav_flag').flagOn(env) === true;
 };
 // --- XNAV end ---
+// --- LIMIT SCANNER SHADOW begin ---
+// Lazy: the flag module requires this file, so the reader cannot load at the top.
+READERS.LIMIT_SCANNER_SHADOW = function (env) {
+  return require('./limit_scanner_shadow_flag').flagOn(env) === true;
+};
+// --- LIMIT SCANNER SHADOW end ---

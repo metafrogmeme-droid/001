@@ -16,6 +16,7 @@ import numpy as np
 
 from bot.backtest.funding import combine as funding_combine
 from bot.backtest.funding import funding_for_position, interval_sec_for_symbol
+from bot.backtest.limit_fill import decide_resting_fill
 from bot.backtest.metrics import PF_UNDEFINED
 from bot.backtest.models import (
     BacktestBar,
@@ -140,6 +141,10 @@ class BacktestEngine:
         self._bt_state_dir = tempfile.mkdtemp(prefix="runeclaw_bt_")
         bt_state_file = os.path.join(self._bt_state_dir, "risk_state.json")
         self.risk = RiskEngine(self.portfolio, state_file=bt_state_file)
+        # The ladder ledger is the bot's record. This engine is a replay: it
+        # keeps the temp risk file above, and it does not rewrite the bot's
+        # ledger once per idea.
+        self.risk._records_ladder_ledger = False
         # C1 fix: wire trade-close callback so portfolio closes feed risk streak tracking
         self.portfolio._on_trade_close = self.risk.record_trade_result
         # Fix F: respect use_llm flag for reproducibility.
@@ -1097,14 +1102,26 @@ class BacktestEngine:
         still: list[dict] = []
         for order in self._pending_limits:
             idea, px = order["idea"], order["px"]
-            if self._limit_is_touched(bar, px, idea.direction):
+            # The historical touch, unless this run asked for the realistic
+            # model (trade-through, queue, reclaim). Off, the decision is
+            # "legacy" and the next line is the old touch.
+            _fill = decide_resting_fill(getattr(self, "config", None), order, bar)
+            if _fill == "cancel":
+                self._limits_cancelled_drift += 1
+                self.risk.clear_pending_intent(idea.id)
+                continue
+            _touched = _fill == "fill" or (
+                _fill == "legacy" and self._limit_is_touched(bar, px, idea.direction))
+            if _touched:
                 self._limits_filled += 1
                 # A resting limit that is touched fills as a MAKER at its own
                 # price: no slippage and the maker rate on the entry leg. Only
                 # the as-live model prices it so; the close-mode lifecycle
-                # keeps the run's one commission.
-                self._execute_fill(idea, order["risk_check"], px, bar,
-                                   maker=self._as_live)
+                # keeps the run's one commission. The realistic model can ask
+                # for the maker rate on its own fills without turning as-live on.
+                _maker = self._as_live or (
+                    _fill == "fill" and bool(getattr(self.config, "limit_maker_entry", False)))
+                self._execute_fill(idea, order["risk_check"], px, bar, maker=_maker)
                 continue
             if now_ts - order["placed_ts"] >= float(cfg.expire_seconds):
                 self._limits_expired += 1
