@@ -186,6 +186,7 @@
     "yield": "Yield-Radar für ungenutzte Assets (nur lesend)",
     "hrc": "Obergrenzen für den USDC-Leihzinssatz von Hyperliquid — Auslastung und Satz, nur für Admins",
     "fees": "Builder-Obergrenzen und gezahlte Gebühren einer Hyperliquid-Adresse, nur lesen",
+    "hlwatch": "Hyperliquid-Konto im Blick für Claw Watch — Agenten, Builder-Gebühren, Abhebungen und plötzliche Positionsänderungen, nur ein Hinweis, nur lesen",
     "idleyield": "Bestzins-Scan über alle Quellen",
     "stake": "ungenutzte Stables DEINES verknüpften Bitget-Kontos in flexibles Earn legen — eine Plan-Karte, nichts bewegt sich vor Bestätigen",
     "unstake": "dein flexibles Earn zurück in die Handelsmargin holen — per Button bestätigt",

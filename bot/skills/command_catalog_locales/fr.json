@@ -186,6 +186,7 @@
     "yield": "radar de rendement des actifs inactifs (lecture seule)",
     "hrc": "plafonds du taux d'emprunt USDC d'Hyperliquid — utilisation et taux, réservé à l'administrateur",
     "fees": "plafonds et frais de builder payés sur une adresse Hyperliquid, lecture seule",
+    "hlwatch": "veille du compte Hyperliquid pour Claw Watch — agents, frais de builder, retraits et changements brusques de position, avis seulement, lecture seule",
     "idleyield": "scan du meilleur taux toutes sources",
     "stake": "placer les stables inutilisés de TON compte Bitget lié en Earn flexible — une carte de plan, rien ne bouge avant Confirmer",
     "unstake": "récupérer ton Earn flexible vers la marge de trading — confirmé par bouton",
