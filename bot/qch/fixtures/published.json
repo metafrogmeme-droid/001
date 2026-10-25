@@ -1,0 +1,448 @@
+{
+  "as_of": "2026-10-24T18:53:00+02:00",
+  "as_of_unix": 1792860780,
+  "data_source": "bot/qch/fixtures/snapshot.json",
+  "enabled": false,
+  "estimate": true,
+  "examples": [
+    {
+      "asset": "UBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2TR"
+    },
+    {
+      "asset": "WBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2SH"
+    },
+    {
+      "asset": "WBTC",
+      "exposed": false,
+      "reason": null,
+      "type": "P2WSH"
+    },
+    {
+      "asset": "cbBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2WPKH"
+    },
+    {
+      "asset": "cbBTC",
+      "exposed": false,
+      "reason": null,
+      "type": "P2WPKH"
+    },
+    {
+      "asset": "cbBTC",
+      "exposed": true,
+      "reason": null,
+      "type": "P2PKH"
+    }
+  ],
+  "issuers": [
+    {
+      "address_count": 1,
+      "asset": "UBTC",
+      "data_source": "mempool.space chain stats for the Unit treasury output, snapshot 2026-10-24. Wrapped outstanding on HyperCore was not in the fixture.",
+      "estimate": true,
+      "gap": {
+        "against": "wrapped outstanding",
+        "flag": null,
+        "gap_bps": null,
+        "gap_sats": null,
+        "reason": "unread"
+      },
+      "label": "estimate",
+      "method": "QES bps = weighted_exposed_sats * 10000 // total_sats. P2TR counts as exposed because the key is in the output. Any other type counts as exposed only after a spent output. Single-key P2TR and spent P2WPKH keep weight 1. An m-of-n bucket keeps weight 1 until a threshold is configured, then weight m/n. MPC ECDSA/TSS stays classical and does not reduce the score. A fresh issuer attestation subtracts the configured reduction. One snapshot is that snapshot, not a time average.",
+      "multisig_factor": {
+        "applied": false,
+        "factor_bps": 10000,
+        "reason": "not_multisig"
+      },
+      "node": {
+        "asset": "UBTC",
+        "data_source": "mempool.space chain stats for the Unit treasury output, snapshot 2026-10-24. Wrapped outstanding on HyperCore was not in the fixture.",
+        "edge_kind": "mint_backing",
+        "estimate": true,
+        "label": "estimate",
+        "method": "QES bps = weighted_exposed_sats * 10000 // total_sats. P2TR counts as exposed because the key is in the output. Any other type counts as exposed only after a spent output. Single-key P2TR and spent P2WPKH keep weight 1. An m-of-n bucket keeps weight 1 until a threshold is configured, then weight m/n. MPC ECDSA/TSS stays classical and does not reduce the score. A fresh issuer attestation subtracts the configured reduction. One snapshot is that snapshot, not a time average.",
+        "node": "btc_custody",
+        "qes_bps": 10000,
+        "verif": "onchain"
+      },
+      "qes_bps": 10000,
+      "raw_qes_bps": 10000,
+      "reason": "no_attestation",
+      "reserve_sats": 679327221065,
+      "signer_scheme": "mpc_ecdsa_tss_classical",
+      "spend_path": "unverified",
+      "supply_by_chain": null,
+      "supply_kind": "snapshot_count",
+      "tw_averaged": false,
+      "tw_bps": 10000,
+      "tw_observations": 1,
+      "tw_reason": "single_observation",
+      "unit_deposit_basis": "UNVERIFIED placeholder. The treasury fixture address is P2TR (bc1p). A bc1q deposit example was not in the fixture and is not treated as the format.",
+      "unit_deposit_prefix": "unverified"
+    },
+    {
+      "address_count": 109,
+      "asset": "WBTC",
+      "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+      "estimate": true,
+      "gap": {
+        "against": "PoR circulating supply",
+        "flag": true,
+        "gap_bps": 1,
+        "gap_sats": 1280208246,
+        "reason": "compared"
+      },
+      "label": "estimate",
+      "method": "QES bps = weighted_exposed_sats * 10000 // total_sats. P2TR counts as exposed because the key is in the output. Any other type counts as exposed only after a spent output. Single-key P2TR and spent P2WPKH keep weight 1. An m-of-n bucket keeps weight 1 until a threshold is configured, then weight m/n. MPC ECDSA/TSS stays classical and does not reduce the score. A fresh issuer attestation subtracts the configured reduction. One snapshot is that snapshot, not a time average.",
+      "multisig_factor": {
+        "applied": false,
+        "factor_bps": 10000,
+        "reason": "unverified_threshold"
+      },
+      "node": {
+        "asset": "WBTC",
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "edge_kind": "mint_backing",
+        "estimate": true,
+        "label": "estimate",
+        "method": "QES bps = weighted_exposed_sats * 10000 // total_sats. P2TR counts as exposed because the key is in the output. Any other type counts as exposed only after a spent output. Single-key P2TR and spent P2WPKH keep weight 1. An m-of-n bucket keeps weight 1 until a threshold is configured, then weight m/n. MPC ECDSA/TSS stays classical and does not reduce the score. A fresh issuer attestation subtracts the configured reduction. One snapshot is that snapshot, not a time average.",
+        "node": "btc_custody",
+        "qes_bps": 9816,
+        "verif": "por"
+      },
+      "qes_bps": 9816,
+      "raw_qes_bps": 9816,
+      "reason": "no_attestation",
+      "reserve_sats": 11651199287643,
+      "signer_scheme": "classical_multisig",
+      "spend_path": null,
+      "supply_by_chain": [
+        {
+          "chain": "Ethereum",
+          "kind": "snapshot_count",
+          "sats": 11613218273262
+        },
+        {
+          "chain": "Solana",
+          "kind": "snapshot_count",
+          "sats": 10482909825
+        },
+        {
+          "chain": "Tron",
+          "kind": "snapshot_count",
+          "sats": 9984001999
+        },
+        {
+          "chain": "BNB Chain",
+          "kind": "snapshot_count",
+          "sats": 0
+        },
+        {
+          "chain": "Base",
+          "kind": "snapshot_count",
+          "sats": 498400
+        },
+        {
+          "chain": "Kava",
+          "kind": "snapshot_count",
+          "sats": 7637869133
+        },
+        {
+          "chain": "Osmosis",
+          "kind": "snapshot_count",
+          "sats": 8595526778
+        }
+      ],
+      "supply_kind": "snapshot_count",
+      "tw_averaged": false,
+      "tw_bps": 9816,
+      "tw_observations": 1,
+      "tw_reason": "single_observation",
+      "unit_deposit_basis": null,
+      "unit_deposit_prefix": null
+    },
+    {
+      "address_count": 44,
+      "asset": "cbBTC",
+      "data_source": "coinbase.com/cbbtc/proof-of-reserves.json and mempool.space spent-output classification, snapshot 2026-10-24",
+      "estimate": true,
+      "gap": {
+        "against": "PoR wrapped supply",
+        "flag": true,
+        "gap_bps": 1,
+        "gap_sats": 1074961360,
+        "reason": "compared"
+      },
+      "label": "estimate",
+      "method": "QES bps = weighted_exposed_sats * 10000 // total_sats. P2TR counts as exposed because the key is in the output. Any other type counts as exposed only after a spent output. Single-key P2TR and spent P2WPKH keep weight 1. An m-of-n bucket keeps weight 1 until a threshold is configured, then weight m/n. MPC ECDSA/TSS stays classical and does not reduce the score. A fresh issuer attestation subtracts the configured reduction. One snapshot is that snapshot, not a time average.",
+      "multisig_factor": {
+        "applied": false,
+        "factor_bps": 10000,
+        "reason": "not_multisig"
+      },
+      "node": {
+        "asset": "cbBTC",
+        "data_source": "coinbase.com/cbbtc/proof-of-reserves.json and mempool.space spent-output classification, snapshot 2026-10-24",
+        "edge_kind": "mint_backing",
+        "estimate": true,
+        "label": "estimate",
+        "method": "QES bps = weighted_exposed_sats * 10000 // total_sats. P2TR counts as exposed because the key is in the output. Any other type counts as exposed only after a spent output. Single-key P2TR and spent P2WPKH keep weight 1. An m-of-n bucket keeps weight 1 until a threshold is configured, then weight m/n. MPC ECDSA/TSS stays classical and does not reduce the score. A fresh issuer attestation subtracts the configured reduction. One snapshot is that snapshot, not a time average.",
+        "node": "btc_custody",
+        "qes_bps": 4089,
+        "verif": "por"
+      },
+      "qes_bps": 4089,
+      "raw_qes_bps": 4089,
+      "reason": "no_attestation",
+      "reserve_sats": 9595632254325,
+      "signer_scheme": "single_sig_p2wpkh",
+      "spend_path": null,
+      "supply_by_chain": [
+        {
+          "chain": "base",
+          "kind": "snapshot_count",
+          "sats": 4843234739832
+        },
+        {
+          "chain": "ethereum",
+          "kind": "snapshot_count",
+          "sats": 4450554383076
+        },
+        {
+          "chain": "solana",
+          "kind": "snapshot_count",
+          "sats": 293415895522
+        },
+        {
+          "chain": "arbitrum",
+          "kind": "snapshot_count",
+          "sats": 7352274535
+        }
+      ],
+      "supply_kind": "snapshot_count",
+      "tw_averaged": false,
+      "tw_bps": 4089,
+      "tw_observations": 1,
+      "tw_reason": "single_observation",
+      "unit_deposit_basis": null,
+      "unit_deposit_prefix": null
+    },
+    {
+      "asset": "LBTC",
+      "data_source": "none",
+      "estimate": true,
+      "label": "estimate",
+      "method": "UNVERIFIED. LBTC and tBTC reserves were not scanned. Absent is not zero.",
+      "node": {
+        "asset": "LBTC",
+        "data_source": "none",
+        "edge_kind": "mint_backing",
+        "estimate": true,
+        "label": "estimate",
+        "method": "UNVERIFIED. LBTC and tBTC reserves were not scanned. Absent is not zero.",
+        "node": "btc_custody",
+        "qes_bps": null,
+        "verif": "none"
+      },
+      "qes_bps": null,
+      "reason": "not_scanned",
+      "tw_bps": null
+    },
+    {
+      "asset": "tBTC",
+      "data_source": "none",
+      "estimate": true,
+      "label": "estimate",
+      "method": "UNVERIFIED. LBTC and tBTC reserves were not scanned. Absent is not zero.",
+      "node": {
+        "asset": "tBTC",
+        "data_source": "none",
+        "edge_kind": "mint_backing",
+        "estimate": true,
+        "label": "estimate",
+        "method": "UNVERIFIED. LBTC and tBTC reserves were not scanned. Absent is not zero.",
+        "node": "btc_custody",
+        "qes_bps": null,
+        "verif": "none"
+      },
+      "qes_bps": null,
+      "reason": "not_scanned",
+      "tw_bps": null
+    }
+  ],
+  "key_held": false,
+  "label": "estimate",
+  "method": "QES bps = weighted_exposed_sats * 10000 // total_sats. P2TR counts as exposed because the key is in the output. Any other type counts as exposed only after a spent output. Single-key P2TR and spent P2WPKH keep weight 1. An m-of-n bucket keeps weight 1 until a threshold is configured, then weight m/n. MPC ECDSA/TSS stays classical and does not reduce the score. A fresh issuer attestation subtracts the configured reduction. One snapshot is that snapshot, not a time average.",
+  "network": "testnet",
+  "parameters": {
+    "attestation_reduction_basis": "No attested reduction until a signed migration plan is recorded.",
+    "attestation_reduction_bps": 0,
+    "cap_cut_bps": 1000,
+    "ltv_timelock_sec": 604800,
+    "policy_deadline_state": "unset",
+    "qes_jump_basis": "Placeholder design constant, not a measured curator policy.",
+    "qes_jump_bps": 50,
+    "qes_jump_state": "placeholder",
+    "sar_flags": {
+      "canary": 32,
+      "peg": 16,
+      "source": "tools/sar-oracle/runtime/chains.js"
+    },
+    "scan_basis": "UNVERIFIED. LBTC and tBTC reserves were not scanned. Absent is not zero.",
+    "unit_deposit_basis": "UNVERIFIED placeholder. The treasury fixture address is P2TR (bc1p). A bc1q deposit example was not in the fixture and is not treated as the format.",
+    "unit_deposit_prefix": "unverified",
+    "wbtc_multisig_basis": "UNVERIFIED placeholder. The multisig threshold was not in the fixture. Unset does not apply an m-of-n discount.",
+    "wbtc_multisig_m": null,
+    "wbtc_multisig_n": null,
+    "wbtc_multisig_state": "unset"
+  },
+  "policy_method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+  "product": "QCH",
+  "readable": true,
+  "reason": null,
+  "rule": "exposed = P2TR (key in the output) OR the address has at least one spent output",
+  "signing_reason": "keys_absent",
+  "signs": false,
+  "simulator": {
+    "asset": "WBTC",
+    "cases": {
+      "canary": {
+        "action": "cut_supply_cap",
+        "cap_cut_bps": 1000,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": 9816,
+        "haircut_reason": "flag_canary",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "canary",
+          "deadline_unset"
+        ],
+        "schedule_ltv_cut": true
+      },
+      "clear": {
+        "action": "hold",
+        "cap_cut_bps": 0,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": 0,
+        "haircut_reason": "flags_clear",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "deadline_unset"
+        ],
+        "schedule_ltv_cut": false
+      },
+      "deadline": {
+        "action": "cut_supply_cap",
+        "cap_cut_bps": 1000,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": 0,
+        "haircut_reason": "flags_clear",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "deadline"
+        ],
+        "schedule_ltv_cut": true
+      },
+      "flag_peg": {
+        "action": "hold",
+        "cap_cut_bps": 0,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": 9816,
+        "haircut_reason": "flag_peg",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "deadline_unset"
+        ],
+        "schedule_ltv_cut": false
+      },
+      "flags_clear": {
+        "action": "hold",
+        "cap_cut_bps": 0,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": 0,
+        "haircut_reason": "flags_clear",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "deadline_unset"
+        ],
+        "schedule_ltv_cut": false
+      },
+      "flags_unread": {
+        "action": "hold",
+        "cap_cut_bps": 0,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": null,
+        "haircut_reason": "flags_unreadable",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "deadline_unset"
+        ],
+        "schedule_ltv_cut": false
+      },
+      "jump": {
+        "action": "cut_supply_cap",
+        "cap_cut_bps": 1000,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": 0,
+        "haircut_reason": "flags_clear",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "qes_jump",
+          "deadline_unset"
+        ],
+        "schedule_ltv_cut": true
+      },
+      "score_unread": {
+        "action": "cut_supply_cap",
+        "cap_cut_bps": 1000,
+        "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+        "estimate": true,
+        "haircut_bps": null,
+        "haircut_reason": "score_unreadable",
+        "label": "estimate",
+        "liquidate": false,
+        "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+        "reasons": [
+          "canary",
+          "jump_not_measured",
+          "deadline_unset"
+        ],
+        "schedule_ltv_cut": true
+      }
+    },
+    "data_source": "wbtc.network proof-of-reserve and mempool.space spent-output classification, snapshot 2026-10-24",
+    "estimate": true,
+    "label": "estimate",
+    "method": "Cut the supply cap and schedule an LTV cut when the canary bit is set, QES rises by more than the placeholder jump, or the deadline passes without an attestation. LTV waits out the SaR signer timelock. No action liquidates. Haircut bps equals QES when SaR flag 16 or 32 is set.",
+    "qes_bps": 9816
+  }
+}

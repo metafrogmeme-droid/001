@@ -118,7 +118,12 @@ jobs:
     # repository's, not one branch's: ~20 minutes when this comment was first
     # written, ~32 now. 60 keeps the documented ratio against a ~35-minute
     # job, which is the same backstop the 35 was meant to be.
-    timeout-minutes: 60
+    #
+    # AND AGAIN AT 60. Run 40165377427 finished the serial job in 59m28s.
+    # The shadow job on the same commit was cut at 60m with workers still
+    # alive and no test failure. 120 puts the hang backstop back above the
+    # suite. The tests stay in the gate.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -313,7 +318,9 @@ jobs:
     name: Tests (parallel shadow, non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 60
+    # Same cap as the serial job. Run 40165377427 cut this step at 60m
+    # while the workers were still alive.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -1244,6 +1251,33 @@ jobs:
             node scripts/reprint_failures.js test-output.log | tail -300
           fi
           exit $code
+
+  qch-contracts:
+    name: QCH contracts (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: contracts/qch/package-lock.json
+
+      - name: Install (locked)
+        working-directory: contracts/qch
+        run: npm ci --no-audit --no-fund
+
+      # Compiles QCHOracle and QCHSentinel (solc, pinned) and runs the
+      # bytecode on an in-process EVM. Hermetic: testnet chain ids only,
+      # no deploy, no network. The server does not sign on mainnet.
+      - name: Contract tests (compile + EVM execution)
+        working-directory: contracts/qch
+        run: npm test
+
+      - name: SCA — npm advisory ratchet
+        working-directory: contracts/qch
+        run: node ../../token/scripts/audit_gate.mjs .
 
   xnav-contracts:
     name: XNAV contracts (solidity)
