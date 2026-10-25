@@ -23,6 +23,9 @@ _KINDS = frozenset({"auto", "typed", "7702", "3009", "hl", "solana", "message", 
 class InputTooLarge(ValueError):
     """The request is longer than ``MAX_INPUT_CHARS``."""
 
+    # The docstring is the only other statement. Blanking it must leave a body.
+    pass
+
 
 def detect(obj):
     if isinstance(obj, str):
