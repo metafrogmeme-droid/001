@@ -141,6 +141,10 @@ class BacktestEngine:
         self._bt_state_dir = tempfile.mkdtemp(prefix="runeclaw_bt_")
         bt_state_file = os.path.join(self._bt_state_dir, "risk_state.json")
         self.risk = RiskEngine(self.portfolio, state_file=bt_state_file)
+        # The ladder ledger is the bot's record. This engine is a replay: it
+        # keeps the temp risk file above, and it does not rewrite the bot's
+        # ledger once per idea.
+        self.risk._records_ladder_ledger = False
         # C1 fix: wire trade-close callback so portfolio closes feed risk streak tracking
         self.portfolio._on_trade_close = self.risk.record_trade_result
         # Fix F: respect use_llm flag for reproducibility.

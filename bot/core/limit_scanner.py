@@ -329,8 +329,7 @@ BACKTEST_READS = (
     "live pass that saw the book. Quote volume is a percentile across the class, "
     "so one busy market does not take the whole volume score. The backtest skips "
     "nothing for a wall or for funding, and reads each leader's side from its day "
-    "and VWAP alone. Its limit rests from the bar after the one it was decided at. "
-    "The figures published on the card were measured before this scale.")
+    "and VWAP alone. Its limit rests from the bar after the one it was decided at.")
 
 
 def _pct(v: float) -> str:

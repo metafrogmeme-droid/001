@@ -441,6 +441,11 @@ class RiskEngine:
         self._person_halt_fn: Optional[Callable] = None
         # A READER writes nothing the bot owns (`make_reader`).
         self._reader: bool = False
+        # A backtest sizes its own book and keeps its own state file. The
+        # ladder ledger is the bot's file: recording a replay into it rewrites
+        # the bot's rows, and a book that places a limit every bar rewrites
+        # the whole file once per idea.
+        self._records_ladder_ledger: bool = True
         # Initialised BEFORE _load_state(), which may restore a persisted
         # value into it (PERSIST_LIVE_DRAWDOWN_PEAK). The first version set
         # this 20 lines below the load and silently stomped every restored
@@ -2597,7 +2602,7 @@ class RiskEngine:
             # A READER's evaluation is a second process's, sized off a COPY of
             # the state: not one of the bot's, and the save would stamp this
             # process's rows over the bot's (`make_reader`).
-            if not self._reader:
+            if not self._reader and self._records_ladder_ledger:
                 try:
                     ladder_shadow.LADDER_LEDGER.record(ladder_shadow.evaluation_row(
                         idea=idea, verdict=_ladder, size_usd=position_usd,
