@@ -152,3 +152,9 @@ READERS.HASHKEY_SEAL_ENABLED = function (env) {
   return require('./hashkey_seal_flag').flagOn(env) === true;
 };
 // --- HashKey seal end ---
+// --- Market Clock begin ---
+// Lazy: market_clock_flag requires this module.
+READERS.MARKET_CLOCK_ENABLED = function (env) {
+  return require('./market_clock_flag').flagOn(env) === true;
+};
+// --- Market Clock end ---
