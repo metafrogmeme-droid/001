@@ -22,6 +22,7 @@ from bot.drain_watch.service import (
     DrainWatch,
     forget_telegram,
     start_poll,
+    store_path,
 )
 from bot.drain_watch.store import DrainWatchStore
 from bot.drain_watch.tx import (
@@ -31,6 +32,7 @@ from bot.drain_watch.tx import (
     lockdown_data,
     unsigned_tx,
 )
+from tests.source_scan import segment_reader
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = "0x" + "11" * 20
@@ -136,6 +138,16 @@ def test_store_rejects_a_raw_id_and_forget_clears_every_table(tmp_path):
     assert store.has_seen(key, "a" * 32) is False
     assert store.hidden(key) == []
     assert store.addresses(other) == [TOKEN]
+
+
+def test_the_store_path_does_not_follow_the_working_directory(tmp_path, monkeypatch):
+    monkeypatch.delenv("DRAIN_WATCH_STORE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert store_path().is_absolute()
+    assert store_path() == ROOT / "data" / "drain_watches.sqlite"
+    chosen = tmp_path / "chosen.sqlite"
+    assert store_path({"DRAIN_WATCH_STORE": str(chosen)}) == chosen
+    assert store_path({"DRAIN_WATCH_STORE": "data/other.sqlite"}) == ROOT / "data" / "other.sqlite"
 
 
 def test_forget_telegram_does_not_create_a_file(tmp_path):
@@ -248,10 +260,11 @@ def test_an_alert_carries_the_advisory_and_the_whole_unsigned_transaction():
 def test_the_command_is_admin_gated_and_speaks_claw_watch():
     src = (ROOT / "bot/skills/drain_watch_commands.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
+    seg = segment_reader(src)
     body = ""
     for node in ast.walk(tree):
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "_cmd_clawwatch":
-            body = ast.get_source_segment(src, node) or ""
+            body = seg(node) or ""
     assert "_is_admin" in body
     assert "Not found." in (ROOT / "bot/drain_watch/copy.py").read_text(encoding="utf-8")
     assert "Claw Watch" in src or "Claw Watch" in body

@@ -30,6 +30,7 @@ from bot.drain_watch.copy import NO_CHAT
 from bot.drain_watch.flag import flag_on
 from bot.drain_watch.reader import RangeReader
 from bot.drain_watch.store import DrainWatchStore, address_cap
+from bot.utils.paths import state_path
 
 log = logging.getLogger("runeclaw.drain_watch")
 
@@ -48,11 +49,13 @@ def salt_of(env: Optional[dict] = None) -> Optional[str]:
 
 
 def store_path(env: Optional[dict] = None) -> Path:
+    """Where the HMAC store lives. A relative path is anchored at the repo,
+    so the file does not follow whoever launched the process."""
     src = env if env is not None else os.environ
     raw = str(src.get("DRAIN_WATCH_STORE") or "").strip()
     if raw:
-        return Path(raw)
-    return Path("data/drain_watches.sqlite")
+        return state_path(raw)
+    return state_path("data/drain_watches.sqlite")
 
 
 def poll_sec(env: Optional[dict] = None) -> int:

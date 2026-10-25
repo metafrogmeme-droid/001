@@ -88,6 +88,15 @@ test('the check route names optionalAuth', () => {
   assert.doesNotMatch(src, /Drain Watch/);
 });
 
+test('the page stays off the landing page while the public gets 404', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /app\.get\('\/claw-watch'/);
+  const unlinked = JSON.parse(fs.readFileSync(path.join(__dirname, 'unlinked_routes.json'), 'utf8'));
+  assert.ok(unlinked.routes['/claw-watch'].length >= 40);
+  const landing = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.equal(landing.includes('href="/claw-watch"'), false);
+});
+
 test('flag off is 404 for anonymous and for a signed-in non-admin', async () => {
   delete process.env.DRAIN_WATCH_ENABLED;
   const server = await listen(app());
