@@ -54,6 +54,7 @@ const express = require('express');
 const { previewFlags, withBanner } = require('../lib/admin_preview');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const PiI18n = require('../public/js/pi-i18n.js');
+const { isTestnetHost } = require('../lib/pi_host');
 
 const router = express.Router();
 
@@ -265,13 +266,24 @@ router.get('/', async (req, res) => {
  * /pi/validation-key.txt for this app (2026-10-17). From the environment only:
  * an unset key is a 404, never an empty 200 that reads as "verified with
  * nothing".
+ *
+ * TWO APPS, TWO KEYS. The Mainnet app keeps PI_VALIDATION_KEY. A request whose
+ * host is PI_TESTNET_HOST is the Testnet app and is answered with
+ * PI_TESTNET_VALIDATION_KEY, including when that key is unset (a 404, not the
+ * Mainnet key: one file must not verify both apps). The handler answers in
+ * place. Nothing in this server redirects that host to www.
+ *
+ * NO SHARED CACHE. Both hostnames are one path. no-store, and Vary: Host, so
+ * a cache that kept the body anyway cannot hand one app the other's key.
  */
 router.get('/validation-key.txt', validationKey);
 
 function validationKey(req, res) {
-  const key = String(process.env.PI_VALIDATION_KEY || '').trim();
+  const env = process.env;
+  const key = String((isTestnetHost(req, env) ? env.PI_TESTNET_VALIDATION_KEY : env.PI_VALIDATION_KEY) || '').trim();
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Vary', 'Host');
   if (!key) return res.status(404).type('text/plain').send('Not found');
-  res.setHeader('Cache-Control', 'no-cache');
   return res.type('text/plain').send(key);
 }
 

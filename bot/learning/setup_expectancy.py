@@ -193,8 +193,9 @@ class SetupExpectancy:
     def samples_from_decisions(decisions):
         """Extract ``(symbol, regime, direction, won, net_pnl)`` from completed
         DecisionMemory-like records (non-null ``pnl_result``)."""
+        from bot.core.equity_bucket import without_equity_bucket
         out = []
-        for d in decisions:
+        for d in without_equity_bucket(decisions):
             pnl = getattr(d, "pnl_result", None)
             if pnl is None:
                 continue

@@ -38,6 +38,19 @@ from bot.utils.paper_money import close_figures, leg_value, open_quantity
 from bot.utils.paths import state_path
 
 
+def _equity_log_fields(symbol: str) -> dict[str, str]:
+    """``asset_class=equity`` on a trade-log row while the bucket is on.
+
+    Empty for everything else, so a crypto open or close is the same row
+    it was. A fault leaves the row untagged rather than failing the fill.
+    """
+    try:
+        from bot.core.equity_bucket import trade_fields
+        return trade_fields(symbol)
+    except Exception:
+        return {}
+
+
 @dataclass
 class TrailingStopConfig:
     """Configuration for the enhanced trailing stop engine."""
@@ -236,8 +249,29 @@ class PortfolioTracker:
         audit(trade_log, f"Opened {trade.direction.value} {trade.asset}",
               action="open_position", result="EXECUTED",
               data={"trade_id": trade.trade_id, "size_usd": round(size_usd, 2),
-                    "qty": qty, "entry": idea.entry_price})
+                    "qty": qty, "entry": idea.entry_price,
+                    **_equity_log_fields(trade.asset)})
         return trade
+
+    def _notify_trade_close(self, net_pnl: float, symbol: str) -> None:
+        """Hand a close to the streak callback, with the symbol when it fits.
+
+        The historical callback is ``(pnl) -> None``. A book that wants the
+        symbol accepts it as a keyword. The cast is the seam between those
+        two shapes; a callback that has no such parameter raises TypeError
+        before its body runs and is called the old way.
+        """
+        if self._on_trade_close is None:
+            return
+        try:
+            hook = cast(Callable[..., None], self._on_trade_close)
+            try:
+                hook(net_pnl, symbol=symbol)
+            except TypeError:
+                self._on_trade_close(net_pnl)
+        except Exception as exc:
+            audit(trade_log, f"Trade close callback error: {exc}",
+                  action="trade_close_callback", result="ERROR")
 
     def close_position(self, trade_id: str, exit_price: float) -> Optional[TradeExecution]:
         """Close an existing position at the given price.
@@ -252,12 +286,11 @@ class PortfolioTracker:
 
         # C2-23: Call _on_trade_close OUTSIDE the lock to prevent deadlock.
         # Lock ordering contract: risk._lock → portfolio._lock (never reversed).
-        if net_pnl is not None and self._on_trade_close:
-            try:
-                self._on_trade_close(net_pnl)
-            except Exception as exc:
-                audit(trade_log, f"Trade close callback error: {exc}",
-                      action="trade_close_callback", result="ERROR")
+        asset = ""
+        if result is not None:
+            asset = str(getattr(result, "asset", "") or "")
+        if net_pnl is not None:
+            self._notify_trade_close(net_pnl, asset)
 
         return result
 
@@ -326,7 +359,8 @@ class PortfolioTracker:
               action="close_position", result="CLOSED",
               data={"trade_id": trade_id, "pnl": round(net_pnl, 2),
                     "gross_pnl": round(pnl, 2), "commission": round(commission, 2),
-                    "exit": exit_price, "balance": round(self.balance, 2)})
+                    "exit": exit_price, "balance": round(self.balance, 2),
+                    **_equity_log_fields(trade.asset)})
         return trade
 
     def check_stops(self, prices: dict[str, float]) -> list[TradeExecution]:
@@ -357,14 +391,14 @@ class PortfolioTracker:
             if closed:
                 self._auto_save()
 
-        # C2-23: Notify risk engine OUTSIDE the lock for each closed trade
-        if closed and self._on_trade_close:
-            for trade in closed:
-                try:
-                    self._on_trade_close(trade.pnl)
-                except Exception as exc:
-                    audit(trade_log, f"Trade close callback error: {exc}",
-                          action="trade_close_callback", result="ERROR")
+        # C2-23: Notify risk engine OUTSIDE the lock for each closed trade.
+        # The symbol goes with the P&L so an equity stop, while the bucket
+        # is on, can stay out of the crypto streak the same way a manual
+        # close does. A callback that only accepts the P&L still gets it.
+        for trade in closed:
+            if trade.pnl is None:
+                continue
+            self._notify_trade_close(float(trade.pnl), str(trade.asset or ""))
 
         return closed
 

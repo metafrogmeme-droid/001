@@ -36,6 +36,7 @@ synthetic backtester, which has no L2/tick data.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 import time
@@ -50,6 +51,7 @@ from pydantic import BaseModel, Field
 from bot.compat import UTC
 from bot.utils.logger import audit, system_log
 from bot.utils.paths import state_path
+from bot.utils.secret_shapes import scrub_secrets
 
 # ── Config (mirrors bot/config.py style; fold into AppConfig if you like) ──
 
@@ -296,6 +298,65 @@ def whale_flow_read(sig: OrderFlowSignal,
 
 # ── Engine ───────────────────────────────────────────────────────────────
 
+def order_book_moved_to_v3(exc: BaseException) -> bool:
+    """Whether this refusal is Bitget telling us the book lives on v3.
+
+    The v2 spot book (``GET /api/v2/spot/market/orderbook``) answers the
+    R-prefix tokenized equities — market id ``RFSLYUSDT``, unified
+    ``RFSLY/USDT``, base coin ``rFSLY`` — with HTTP 400 and
+
+        {"code":"40502","msg":"Please upgrade to access the V3 API."}
+
+    ccxt raises that as an exception whose message is the response body.
+    The same limit on ``/api/v3/market/orderbook?category=SPOT`` returns
+    the book (ccxt: ``params={"uta": True}``). Ordinary crypto spot and
+    the USDT-M merge-depth still answer on v2, so a timeout or a bad
+    symbol must not become a second call.
+    """
+    text = str(exc).lower()
+    if "upgrade to access the v3" in text:
+        return True
+    return "40502" in text and "v3" in text
+
+
+async def read_order_book(exchange: Any, symbol: str, limit: int) -> tuple[Any, str]:
+    """``(book, "v2"|"v3")``. Raises when neither endpoint returned a book.
+
+    A stand-in that does not accept ``params`` cannot speak v3; the
+    original refusal is re-raised so the caller still fail-closes on it.
+    """
+    try:
+        return await exchange.fetch_order_book(symbol, limit=limit), "v2"
+    except Exception as exc:
+        if not order_book_moved_to_v3(exc):
+            raise
+        try:
+            book = await exchange.fetch_order_book(
+                symbol, limit=limit, params={"uta": True})
+        except TypeError:
+            raise exc from None
+        return book, "v3"
+
+
+def audit_book_fetch_failure(symbol: str, exc: BaseException) -> None:
+    """One audit line for a book the venue did not return.
+
+    Names the symbol and the error. The message is scrubbed: a driver's
+    text can quote a request, and this line is written on every failure.
+    """
+    detail = scrub_secrets(str(exc)).replace("\n", " ").strip()
+    if len(detail) > 300:
+        detail = detail[:300]
+    audit(
+        system_log,
+        f"order book fetch failed for {symbol}: {type(exc).__name__}: {detail}",
+        action="order_book_fetch",
+        result="UNAVAILABLE",
+        data={"symbol": symbol, "error_type": type(exc).__name__},
+        level=logging.WARNING,
+    )
+
+
 class OrderFlowAnalyzer:
     """Reads order book + trades (+ optional perp funding/OI) and produces an
     OrderFlowSignal. Reuse the scanner's ccxt exchange so you share one
@@ -451,8 +512,17 @@ class OrderFlowAnalyzer:
                 pass
             return out
 
-        book_task = _timed("book", exchange.fetch_order_book(
-            symbol, limit=self.config.book_depth_levels))
+        async def _book():
+            # v2 first. Bitget's R-prefix tokenized equities refuse that
+            # endpoint and serve the book on v3; read_order_book follows
+            # that refusal and only that refusal.
+            book, source = await read_order_book(
+                exchange, symbol, self.config.book_depth_levels)
+            if source == "v3":
+                sig.notes.append("order book read from the v3 endpoint")
+            return book
+
+        book_task = _timed("book", _book())
         trades_task = _timed("trades", exchange.fetch_trades(
             symbol, limit=self.config.trades_window))
         funding_task = _timed("funding", _funding(deriv_sym))
@@ -474,6 +544,7 @@ class OrderFlowAnalyzer:
         # 1. Order book
         if isinstance(book_result, Exception):
             sig.notes.append(f"order_book unavailable: {book_result}")
+            audit_book_fetch_failure(symbol, book_result)
         else:
             try:
                 self._fill_book_metrics(sig, book_result, self.config.book_top_levels)

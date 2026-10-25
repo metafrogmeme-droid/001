@@ -15,6 +15,7 @@ skipping. The fallback paths and async send are still tested regardless: the
 """
 import asyncio
 import functools
+import inspect
 import math
 import time
 
@@ -34,6 +35,32 @@ def _candles(n: int = 60):
     return out
 
 
+def _run_after(fn, prepare):
+    """Call ``prepare``, then the test. An async test stays a coroutine function.
+
+    pytest 9 fails a test whose call returns an awaitable ("async def
+    functions are not natively supported"). A sync wrapper around an async
+    def returns that coroutine, so pytest-asyncio never collects it: it only
+    subclasses an item whose own function is a coroutine function, and
+    ``inspect.iscoroutinefunction`` does not look through ``functools.wraps``.
+    On pytest 8 the returned coroutine was discarded and the test passed
+    without running. Both decorators below have to preserve async, because
+    they stack.
+    """
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def wrapper(*a, **kw):
+            prepare()
+            return await fn(*a, **kw)
+        return wrapper
+
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        prepare()
+        return fn(*a, **kw)
+    return wrapper
+
+
 def needs_charts(fn):
     """Was `skipif(not charts_available())`. See this file's docstring.
 
@@ -41,15 +68,13 @@ def needs_charts(fn):
     old reason string said "mplfinance not installed" whichever of the three
     was actually absent, which would have sent somebody to the wrong package.
     """
-    @functools.wraps(fn)
-    def wrapper(*a, **kw):
+    def prepare():
         for mod in ("matplotlib", "mplfinance", "pandas"):
             require(mod, "bot/skills/chart_renderer.py renders with it")
         assert cr.charts_available(), (
             "all three chart libraries import, yet chart_renderer decided "
             f"charts are unavailable: {cr._IMPORT_ERROR!r}")
-        return fn(*a, **kw)
-    return wrapper
+    return _run_after(fn, prepare)
 
 
 @needs_charts
@@ -274,11 +299,9 @@ def needs_telegram(fn):
     delivery half of charting (send_photo / send_media_group) would have gone
     quiet in exactly the same way the render half did.
     """
-    @functools.wraps(fn)
-    def wrapper(*a, **kw):
+    def prepare():
         require("telegram", "chart delivery goes through python-telegram-bot")
-        return fn(*a, **kw)
-    return wrapper
+    return _run_after(fn, prepare)
 
 
 @needs_charts

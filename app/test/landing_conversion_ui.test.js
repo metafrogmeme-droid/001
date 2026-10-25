@@ -35,17 +35,24 @@ test('the hero makes no claim that an admin gates live trading', () => {
   assert.doesNotMatch(html, /operator approval/i);
 });
 
-test('the hero proof strip is stamped verified', () => {
-  // Leaderboard rows still wear a verified chip. The hero strip is the
-  // public track record: labelling it, and not painting it profit-green,
-  // is the claim. A green tick there used to sit beside a profit factor
-  // below 1.
+test('the hero proof strip names the window, how it is measured, and that the closes are recorded', () => {
+  // A green "verified" chip on the profit factor was a verdict. The record
+  // stays on the page, including a factor below 1. The window and the link
+  // say how it is measured. The strip also says these are recorded closes
+  // and that the win rate is over priced closes, so it is not a profit stamp.
+  // The board tease further down still carries its own chip: that one sits
+  // on a publish hash the visitor can re-derive.
+  const start = html.indexOf('function dayLabel(v)');
+  assert.ok(start > 0, 'the hero window is gone');
+  const strip = html.slice(start, start + 2200);
+  assert.match(strip, /how this is measured/);
+  assert.match(strip, /href="\/track"/);
+  assert.match(strip, /first_trade_at/);
+  assert.match(strip, /all recorded closes/);
+  assert.match(strip, /win rate over priced closes/);
+  assert.doesNotMatch(strip, /chip--up/);
+  assert.doesNotMatch(strip, /✓ verified/);
   assert.match(html, /chip chip--up[^>]*>✓ verified/);
-  const mark = "host.innerHTML = '<span class=\"chip\"";
-  const hero = html.slice(html.indexOf(mark), html.indexOf(mark) + 900);
-  assert.match(hero, /all recorded closes/);
-  assert.match(hero, /win rate over priced closes/);
-  assert.doesNotMatch(hero, /chip--up/);
 });
 
 test('a sticky mobile CTA links to the sign-up panel', () => {

@@ -109,7 +109,10 @@ Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn fro
 | `PI_SEASON_PRIZES` | Pi per place, e.g. `50,30,20` (at most 10 places, each at most 10000, never rising down the table) |
 | `PI_SEASON_PRIZES_MIN_TRADES` | Closed trades a name needs to place, `5` by default |
 | `PI_OAUTH_CLIENT_ID` | The OAuth Client ID for **Sign in with Pi** on the website, from the Developer Portal: this app, then **Pi Sign-In**. It is public. Without it the login page shows no Pi button. |
-| `PI_VALIDATION_KEY` | The key from the Developer Portal's **Verify App Domain** step. It is served at `/pi/validation-key.txt`, the path the portal checks for this app, and at `/validation-key.txt`; 404 when unset |
+| `PI_VALIDATION_KEY` | The Mainnet app's key from the Developer Portal's **Verify App Domain** step. It is served at `/pi/validation-key.txt`, the path the portal checks for this app, and at `/validation-key.txt`, on every host other than `PI_TESTNET_HOST`; 404 when unset |
+| `PI_TESTNET_HOST` | The Testnet app's hostname, for example `pi.humanoid-traders.com`. Unset, every host is served `PI_VALIDATION_KEY` |
+| `PI_TESTNET_VALIDATION_KEY` | That app's **Verify App Domain** key, served on both paths only when the request Host is `PI_TESTNET_HOST`. Unset, those requests are 404, not the Mainnet key |
+| `PI_TESTNET_API_KEY` | That app's server API key for payments. Used when Host is `PI_TESTNET_HOST` and this is set; otherwise payments keep `PI_NETWORK_API_KEY`. Sign-in does not use either key |
 | `PI_FRAME_ANCESTORS` | Replaces Pi's frame list (for `/pi`, `/privacy` and `/terms`) if Pi's hosts change |
 | `PI_AUTH_ORIGIN` | App Studio's backend, `https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com` by default |
 
@@ -144,3 +147,16 @@ In the Developer Portal, register `https://www.humanoid-traders.com/auth/pi/call
 |---|---|---|
 | PiVerify | The one-person-one-share check for an airdrop: Pi's KYC-based answer to whether a user is a unique, verified human, paid in Pi per check | No public integration docs found |
 | Distributed compute for SoloHost apps | Backtests run on Pi Nodes | Pi lists it as "coming soon" |
+
+## A Testnet app on its own hostname
+
+The Mainnet app stays on `www.humanoid-traders.com` with `PI_VALIDATION_KEY`. A Testnet app verifies a hostname of its own. Set `PI_TESTNET_HOST` to that hostname and `PI_TESTNET_VALIDATION_KEY` to the key **Verify App Domain** shows for the Testnet app. A request whose Host is that name, in any case and with or without a port, is answered in plain text at `/validation-key.txt` and `/pi/validation-key.txt`, and the response is not stored by a cache. Requests for that hostname are answered on it. Leave `PI_FRAME_ANCESTORS` as it is, and keep the hostname out of `MEMECLAW_HOSTS`.
+
+Payments on that hostname use `PI_TESTNET_API_KEY` when it is set, and `PI_NETWORK_API_KEY` when it is not.
+
+**Owner steps**
+
+1. In Cloudflare DNS, point the subdomain (for example `pi.humanoid-traders.com`) at the same origin as `www`. Do not add a redirect rule that sends that hostname to `www`.
+2. In the Pi Developer Portal, set the Testnet app's URL to `https://pi.humanoid-traders.com/pi`.
+3. Set `PI_TESTNET_HOST`, `PI_TESTNET_VALIDATION_KEY` and, for payments, `PI_TESTNET_API_KEY` in the website server's secret settings, then restart.
+4. Press **Verify**. The portal reads `https://pi.humanoid-traders.com/pi/validation-key.txt`.

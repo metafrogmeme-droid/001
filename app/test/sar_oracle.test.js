@@ -460,7 +460,7 @@ test('SaR public feed', { concurrency: false }, async (t) => {
     assert.equal(page.statusCode, 0);
     assert.match(String(page.body), /Coming soon/);
     assert.match(String(page.body), /href="\/api\/sar-oracle\/admin\/packets"/);
-    assert.match(String(page.body), /Admin view/);
+    assert.match(String(page.body), /Admin JSON API/);
     assert.equal(String(page.body).includes('_usd_'), false);
     assert.equal(String(page.body).includes('$'), false);
     assert.equal(String(page.body).includes('Admin preview. Not public.'), false);

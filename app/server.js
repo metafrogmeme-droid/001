@@ -620,7 +620,12 @@ app.use('/api/public/status', require('./routes/public_status'));
 // confirm a deploy actually landed instead of guessing.
 app.get('/api/version', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
-  res.json(require('./lib/version').buildInfo());
+  // mail_configured is a boolean, read from the mailer, and is not part of
+  // the memoised build stamp: it can differ per deploy without a new commit.
+  const build = require('./lib/version').buildInfo();
+  res.json(Object.assign({}, build, {
+    mail_configured: require('./lib/mailer').isConfigured(),
+  }));
 });
 app.use('/api/nft', require('./routes/nft'));
 app.use('/api/learn', require('./routes/learn'));
@@ -903,7 +908,9 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
       sha256_cert_fingerprints: [sha] },
   }]);
 });
-// Pi's domain-verification key, from PI_VALIDATION_KEY (routes/piapp.js).
+// Pi's domain-verification key (routes/piapp.js): PI_VALIDATION_KEY, or
+// PI_TESTNET_VALIDATION_KEY when Host is PI_TESTNET_HOST. Answered in place;
+// that host is not redirected to www.
 app.get('/validation-key.txt', require('./routes/piapp').validationKey);
 // Pi Sign-In's redirect URI: a page, because Pi returns the token in the URL
 // fragment, which only a script can read (routes/pi_signin_page.js).

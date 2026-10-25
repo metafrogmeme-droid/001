@@ -472,10 +472,18 @@ def checkout(planted):
 def _run(root: Path, *args: str, script: Path | None = None, **env: str):
     """The readout in a child, run as the operator runs it: the copy inside
     ``root``, from ``root``. ``script`` runs another copy with ``--root``."""
+    # COV_CORE_* and COVERAGE_* are pytest-cov's subprocess tracer. The gate
+    # always passes --cov, so they are in this process, and a child Python
+    # imports the named source (bot) at startup — before the script can set
+    # sys.dont_write_bytecode — which writes bytecode into the planted
+    # checkout. The operator's process does not carry that tracer.
+    # PYTHONDONTWRITEBYTECODE stays stripped: the script has to set the flag
+    # itself, and a child that inherited it would hide a script that forgot.
     base = {k: v for k, v in os.environ.items()
             if not k.startswith(("AUTO_CONFIRM", "MICRO_MAX", "LLM_", "PER_USER", "WEB_LIVE",
                                  "LIVE_", "PAPER_", "RUNECLAW_", "SECRETS_VAULT", "OF_",
-                                 "TRADE_MODE", "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"))}
+                                 "TRADE_MODE", "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX",
+                                 "COV_CORE_", "COVERAGE_"))}
     base.update(RUNECLAW_ENV_INHERIT="1", RUNECLAW_STATE_DIR=str(root / "data"),
                 SECRETS_VAULT_ENABLED="true", TELEGRAM_BOT_TOKEN=_SECRET,
                 BITGET_API_SECRET=_SECRET, **env)

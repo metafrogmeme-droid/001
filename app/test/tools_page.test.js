@@ -71,7 +71,7 @@ test('the SaR card stays coming soon with the flag on or off', () => {
 
 test('only an operator, with the flag on, gets the admin link', () => {
   const sar = catalog.loadCatalog().find((t) => t.id === 'sar-oracle');
-  const open = { label: 'Admin view', href: '/api/sar-oracle/admin/packets' };
+  const open = { label: 'Admin JSON API', href: '/api/sar-oracle/admin/packets' };
   assert.deepStrictEqual(
     catalog.presentation(sar, { SAR_ORACLE_ENABLED: '1' }, { operator: true }),
     open,
@@ -111,7 +111,7 @@ test('only an operator, with the flag on, gets the admin link', () => {
   const cardHtml = rendered.slice(at - 40, rendered.indexOf('data-tool="panic-button"'));
   assert.match(cardHtml, /<a /);
   assert.match(cardHtml, /href="\/api\/sar-oracle\/admin\/packets"/);
-  assert.match(cardHtml, /Admin view/);
+  assert.match(cardHtml, /Admin JSON API/);
   assert.equal(cardHtml.includes('_usd_'), false);
   assert.equal(cardHtml.includes('$'), false);
   assert.equal(HTML.includes('/api/sar-oracle/admin/packets'), false);
@@ -136,16 +136,28 @@ test('the restitution card is coming soon with no date until its flag is on', ()
   assert.equal(/\b20\d{2}\b/.test(cardHtml), false);
 });
 
-test('the fair-value card stays coming soon, and the link is only the operator\'s', () => {
+test('the fair-value card names the preview, and opens only when the flag is on', () => {
   const tool = catalog.loadCatalog().find((t) => t.id === 'fair-value-bridge');
   assert.deepStrictEqual(tool.chains, ['ethereum', 'solana', 'hyperliquid']);
   for (const env of [{}, { FVB_ENABLED: '1' }, { FVB_ENABLED: 'true' }]) {
     assert.deepStrictEqual(catalog.presentation(tool, env), { label: 'Coming soon', href: null });
     assert.deepStrictEqual(
-      catalog.presentation(tool, env, { operator: true }),
-      { label: 'Coming soon', href: '/fvb' },
+      catalog.presentation(tool, env, { operator: false }),
+      { label: 'Coming soon', href: null },
     );
   }
+  assert.deepStrictEqual(
+    catalog.presentation(tool, {}, { operator: true }),
+    { label: 'Admin preview', href: '/fvb' },
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(tool, { FVB_ENABLED: '1' }, { operator: true }),
+    { label: 'Open', href: '/fvb' },
+  );
+  assert.deepStrictEqual(
+    catalog.presentation(tool, { FVB_ENABLED: 'true' }, { operator: true }),
+    { label: 'Open', href: '/fvb' },
+  );
   const rendered = catalog.renderFile({});
   const at = rendered.indexOf('data-tool="fair-value-bridge"');
   const cardHtml = rendered.slice(rendered.lastIndexOf('<', at), rendered.indexOf('</article>', at));
@@ -158,8 +170,14 @@ test('the fair-value card stays coming soon, and the link is only the operator\'
   const opCard = op.slice(op.lastIndexOf('<', opAt), op.indexOf('</a>', opAt));
   assert.equal(opCard.startsWith('<a '), true);
   assert.match(opCard, /href="\/fvb"/);
-  assert.match(opCard, /Coming soon/);
-  assert.equal(opCard.includes('Open'), false);
+  assert.match(opCard, /Admin preview/);
+  assert.equal(opCard.includes('Coming soon'), false);
+  const opened = catalog.renderFile({ FVB_ENABLED: '1' }, { operator: true });
+  const openAt = opened.indexOf('data-tool="fair-value-bridge"');
+  const openCard = opened.slice(opened.lastIndexOf('<', openAt), opened.indexOf('</a>', openAt));
+  assert.match(openCard, /href="\/fvb"/);
+  assert.match(openCard, /Open/);
+  assert.equal(openCard.includes('Coming soon'), false);
 });
 
 test('chips follow the bar, then extras from the modules that name them', () => {

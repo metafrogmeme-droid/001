@@ -22,18 +22,48 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const net = require('node:net');
+const tls = require('node:tls');
+const { execFileSync } = require('node:child_process');
 
 const mailer = require('../lib/mailer');
 const { auditConfig } = require('../lib/config_audit');
 
-// A minimal SMTP server: no STARTTLS, no AUTH; records every line it is sent.
-function fakeSmtp() {
+// One throwaway cert for the fake relay. The client is pointed at 127.0.0.1
+// with verification off; production keeps the default, which checks the cert.
+let CERT;
+function testCert() {
+  if (CERT) return CERT;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'smtp-cert-'));
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-keyout', 'key.pem', '-out', 'cert.pem',
+    '-days', '1', '-nodes', '-subj', '/CN=127.0.0.1',
+  ], { cwd: dir, stdio: 'ignore' });
+  CERT = {
+    key: fs.readFileSync(path.join(dir, 'key.pem')),
+    cert: fs.readFileSync(path.join(dir, 'cert.pem')),
+  };
+  return CERT;
+}
+
+/**
+ * A minimal SMTP relay. `mode` is:
+ *   starttls — clear greeting, then STARTTLS (the Gmail 587 path)
+ *   implicit — TLS from the first byte (port 465)
+ *   plain    — no TLS offer, so a requireTLS client must stop
+ * Records every SMTP line, including those after the handshake.
+ */
+function fakeSmtp({ mode = 'starttls', echoAuth = false } = {}) {
   const lines = [];
-  const server = net.createServer((sock) => {
+  const pem = testCert();
+
+  function speak(sock, { greet, offerStartTls }) {
     let inData = false;
+    let authStep = 0;
     let buf = '';
-    sock.write('220 fake ESMTP\r\n');
     sock.on('data', (chunk) => {
       buf += chunk.toString('utf8');
       let i;
@@ -45,33 +75,74 @@ function fakeSmtp() {
           if (line === '.') { inData = false; sock.write('250 queued\r\n'); }
           continue;
         }
+        if (authStep === 1) {
+          authStep = 2;
+          sock.write('334 UGFzc3dvcmQ6\r\n');
+          continue;
+        }
+        if (authStep === 2) {
+          authStep = 0;
+          if (!echoAuth) { sock.write('235 ok\r\n'); continue; }
+          // A hostile relay that quotes the credential. The client must not
+          // let that text out of sendMail still holding the password.
+          let decoded = '';
+          try { decoded = Buffer.from(line, 'base64').toString('utf8'); } catch { decoded = ''; }
+          sock.write(`535 refused ${line} ${decoded}\r\n`);
+          continue;
+        }
         const verb = line.split(' ')[0].toUpperCase();
-        if (verb === 'EHLO') sock.write('250-fake\r\n250 OK\r\n');
-        else if (verb === 'DATA') { inData = true; sock.write('354 go\r\n'); }
+        if (verb === 'EHLO') {
+          sock.write(offerStartTls
+            ? '250-fake\r\n250-STARTTLS\r\n250 OK\r\n'
+            : '250-fake\r\n250 OK\r\n');
+        } else if (verb === 'STARTTLS' && offerStartTls) {
+          sock.write('220 go\r\n');
+          sock.removeAllListeners('data');
+          const secure = new tls.TLSSocket(sock, { isServer: true, key: pem.key, cert: pem.cert });
+          secure.on('error', () => {});
+          speak(secure, { greet: false, offerStartTls: false });
+        } else if (verb === 'DATA') { inData = true; sock.write('354 go\r\n'); }
         else if (verb === 'QUIT') { sock.write('221 bye\r\n'); sock.end(); }
+        else if (verb === 'AUTH') { authStep = 1; sock.write('334 VXNlcm5hbWU6\r\n'); }
         else sock.write('250 OK\r\n');
       }
     });
-  });
+    if (greet) sock.write('220 fake ESMTP\r\n');
+  }
+
+  const server = mode === 'implicit'
+    ? tls.createServer({ key: pem.key, cert: pem.cert }, (sock) => { speak(sock, { greet: true, offerStartTls: false }); })
+    : net.createServer((sock) => { speak(sock, { greet: true, offerStartTls: mode === 'starttls' }); });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, lines })));
 }
 
-async function sendThrough(env) {
-  const { server, lines } = await fakeSmtp();
+async function withSmtp(env, fn, { mode = 'starttls', echoAuth = false } = {}) {
+  const { server, lines } = await fakeSmtp({ mode, echoAuth });
   const saved = {};
-  const set = { SMTP_HOST: '127.0.0.1', SMTP_PORT: String(server.address().port),
-    SMTP_SECURE: 'false', SMTP_USER: '', SMTP_PASS: '', MAIL_REPLY_TO: '', ...env };
+  const set = {
+    SMTP_HOST: '127.0.0.1', SMTP_PORT: String(server.address().port),
+    SMTP_SECURE: mode === 'implicit' ? 'true' : 'false',
+    SMTP_USER: '', SMTP_PASS: '', MAIL_FROM: '', SMTP_FROM: '', MAIL_REPLY_TO: '',
+    SMTP_TLS_REJECT_UNAUTHORIZED: 'false',
+    ...env,
+  };
   for (const [k, v] of Object.entries(set)) { saved[k] = process.env[k]; process.env[k] = v; }
   try {
-    const r = await mailer.sendMail({ to: 'member@example.com', subject: 'Hi', text: 'body' });
-    assert.deepEqual(r, { skipped: false });
+    return await fn(lines);
   } finally {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
     server.close();
   }
-  return lines;
+}
+
+async function sendThrough(env, opts) {
+  return withSmtp(env, async (lines) => {
+    const r = await mailer.sendMail({ to: 'member@example.com', subject: 'Hi', text: 'body' });
+    assert.deepEqual(r, { skipped: false });
+    return lines;
+  }, opts);
 }
 
 test('the mailer says EHLO with the sender\'s domain, not a .local name', async () => {
@@ -81,6 +152,104 @@ test('the mailer says EHLO with the sender\'s domain, not a .local name', async 
   // than putting something malformed on the wire.
   assert.equal(mailer._ehloName('RUNECLAW <nobody>'), 'runeclaw.local');
   assert.equal(mailer._ehloName('a@bad domain.com'), 'runeclaw.local');
+});
+
+test('a blank MAIL_FROM does not hide SMTP_FROM, and no sender uses the Gmail account', async () => {
+  const viaSmtpFrom = await sendThrough({
+    MAIL_FROM: ' ',
+    SMTP_FROM: 'Desk <desk@humanoid-traders.com>',
+    SMTP_USER: 'owner@gmail.com',
+  });
+  assert.ok(viaSmtpFrom.some((l) => l === 'From: Desk <desk@humanoid-traders.com>'),
+    viaSmtpFrom.join('\n'));
+  const viaDefault = await sendThrough({
+    MAIL_FROM: '',
+    SMTP_FROM: '',
+    SMTP_USER: 'owner@gmail.com',
+  });
+  assert.ok(viaDefault.some((l) => l === 'From: Humanoid Traders <owner@gmail.com>'),
+    viaDefault.join('\n'));
+  assert.equal(viaDefault[0], 'EHLO gmail.com');
+  assert.equal(mailer.defaultFrom('owner@gmail.com'), 'Humanoid Traders <owner@gmail.com>');
+  assert.equal(mailer.defaultFrom('apikey'), '');
+  assert.equal(mailer.defaultFrom('owner@gmail.com\r\nBcc: x@y.z'), '');
+});
+
+test('port 587 upgrades with STARTTLS before AUTH, and port 465 is TLS from the first byte', async () => {
+  const pass = 'app-password-secret';
+  const starttls = await sendThrough({
+    SMTP_USER: 'owner@gmail.com',
+    SMTP_PASS: pass,
+    SMTP_SECURE: 'false',
+  }, { mode: 'starttls' });
+  const startIdx = starttls.indexOf('STARTTLS');
+  const authIdx = starttls.findIndex((l) => l.startsWith('AUTH'));
+  assert.ok(startIdx > 0 && authIdx > startIdx, starttls.join(' | '));
+  assert.equal(starttls.filter((l) => l.startsWith('EHLO')).length, 2);
+
+  const implicit = await sendThrough({
+    SMTP_USER: 'owner@gmail.com',
+    SMTP_PASS: pass,
+    SMTP_SECURE: 'true',
+  }, { mode: 'implicit' });
+  assert.equal(implicit.some((l) => l === 'STARTTLS'), false, implicit.join(' | '));
+  assert.ok(implicit.some((l) => l === 'From: Humanoid Traders <owner@gmail.com>'));
+  assert.equal(implicit.filter((l) => l.startsWith('EHLO')).length, 1);
+});
+
+test('a relay with no STARTTLS is refused before the password is sent', async () => {
+  const pass = 'app-password-secret';
+  const logs = [];
+  const orig = console.log;
+  const origWarn = console.warn;
+  console.log = (line) => logs.push(String(line));
+  console.warn = (line) => logs.push(String(line));
+  let seen = [];
+  try {
+    await assert.rejects(
+      () => withSmtp({
+        SMTP_USER: 'owner@gmail.com',
+        SMTP_PASS: pass,
+        MAIL_FROM: 'Humanoid Traders <owner@gmail.com>',
+      }, async (lines) => {
+        try {
+          await mailer.sendMail({ to: 'member@example.com', subject: 'Hi', text: 'body' });
+        } finally {
+          seen = lines.slice();
+        }
+      }, { mode: 'plain' }),
+      (err) => {
+        assert.equal(err.code, 'ESTARTTLS');
+        assert.equal(String(err.message).includes(pass), false);
+        assert.equal(String(err.stack).includes(pass), false);
+        return true;
+      },
+    );
+  } finally {
+    console.log = orig;
+    console.warn = origWarn;
+  }
+  assert.equal(seen.some((l) => l.startsWith('AUTH') || l.startsWith('MAIL')), false, seen.join(' | '));
+  assert.equal(logs.join('\n').includes(pass), false);
+});
+
+test('an SMTP reply that quotes the password does not leave sendMail carrying it', async () => {
+  const pass = 'app-password-secret';
+  const b64 = Buffer.from(pass).toString('base64');
+  await assert.rejects(
+    () => sendThrough({
+      SMTP_USER: 'owner@gmail.com',
+      SMTP_PASS: pass,
+    }, { echoAuth: true }),
+    (err) => {
+      assert.match(err.message, /\[redacted\]/);
+      assert.equal(err.message.includes(pass), false);
+      assert.equal(err.message.includes(b64), false);
+      assert.equal(String(err.stack).includes(pass), false);
+      assert.equal(String(err.stack).includes(b64), false);
+      return true;
+    },
+  );
 });
 
 test('Reply-To is sent only when configured', async () => {
