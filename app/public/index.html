@@ -24,9 +24,9 @@
 <link rel="icon" type="image/png" sizes="256x256" href="/app_icon_256.png">
 <link rel="apple-touch-icon" href="/app_icon_512.png">
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#0a0b10">
+<meta name="theme-color" content="#080a10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=52">
+<link rel="stylesheet" href="/styles.css?v=53">
 <script src="/js/api-retry.js?v=3"></script>
 <script src="/js/wallet_picker.js?v=1" defer></script>
 <script type="importmap">
@@ -954,7 +954,7 @@
 <script src="/js/i18n-core.js?v=208"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
-<script src="/js/app.js?v=17"></script>
+<script src="/js/app.js?v=18"></script>
 <script src="/js/copilot-review-model.js?v=3" defer></script>
 <script src="/js/trade-confirm-model.js?v=2" defer></script>
 <script src="/js/confidence-score.js?v=2"></script>
@@ -1209,7 +1209,9 @@
     var bits = [d.venue ? mode + ' on ' + d.venue : mode];
     if (typeof d.venues_connectable === 'number'
         && isFinite(d.venues_connectable) && d.venues_connectable > 1) {
-      bits.push(d.venues_connectable + ' venues connectable');
+      // Linkable venues, one account at a time. Not the perpetual count
+      // on the strip below — that list excludes balances-only venues.
+      bits.push(d.venues_connectable + ' venues connectable, one at a time');
     }
     bits.push('every trade recorded');
     return bits.join(' · ');
@@ -1220,20 +1222,21 @@
     if (eb && d.mode) {
       eb.removeAttribute('data-i18n');   // honest mode beats the static copy
       eb.textContent = heroEyebrow(d);
+      eb.title = 'Linkable venues, one account at a time. The perpetual venues are the separate row further down the page.';
     }
     var s = d.stats || {};
     if (!host) return;
-    function stat(v, k) {
+    function stat(v, k, tip) {
       return v == null ? '' :
-        '<span style="display:inline-flex;gap:6px;align-items:baseline">'
+        '<span style="display:inline-flex;gap:6px;align-items:baseline" title="' + RC.esc(tip) + '">'
         + '<b class="num" style="color:var(--text)">' + RC.esc(String(v)) + '</b>'
         + '<span>' + RC.esc(k) + '</span></span>';
     }
     var rows = [
-      stat(s.trades, 'recorded trades'),
-      stat(s.win_rate_pct != null ? Number(s.win_rate_pct).toFixed(0) + '%' : null, 'win rate'),
-      stat(s.profit_factor != null ? Number(s.profit_factor).toFixed(2) : null, 'profit factor'),
-      stat(s.max_drawdown_pct != null ? Number(s.max_drawdown_pct).toFixed(1) + '%' : null, 'max drawdown'),
+      stat(s.trades, 'recorded trades', 'Closed trades on the public track record.'),
+      stat(s.win_rate_pct != null ? Number(s.win_rate_pct).toFixed(0) + '%' : null, 'win rate', 'Wins divided by priced closes. An unpriced close is not a loss, and this is not the engine card.'),
+      stat(s.profit_factor != null ? Number(s.profit_factor).toFixed(2) : null, 'profit factor', 'Gross wins divided by gross losses, over priced closes. Below 1 means losses outweighed wins.'),
+      stat(s.max_drawdown_pct != null ? Number(s.max_drawdown_pct).toFixed(1) + '%' : null, 'max drawdown', 'Largest peak-to-trough drop on the indexed public curve.'),
     ].filter(Boolean);
     if (!rows.length) return clearSkel();
     function dayLabel(v) {
@@ -1251,10 +1254,14 @@
       : (fromDay || toDay ? (fromDay || toDay) + ' UTC' : '');
     // The numbers stay, including a profit factor below 1. The chip is not
     // green: a recorded sample is not a verdict that the record won. The
-    // window is omitted when the dates do not parse.
-    host.innerHTML = '<span class="chip" style="align-self:center">' + RC.esc(T('hero.recorded', 'recorded')) + '</span>'
+    // window is the readable UTC span when the dates parse. The wording next
+    // to it says these are recorded closes, priced for the win rate, not a
+    // profit stamp. The link is how the record is measured.
+    host.innerHTML = '<span class="chip" style="align-self:center" title="These figures are the public recorded closes, not a profit stamp.">' + RC.esc(T('hero.recorded', 'recorded')) + '</span>'
       + rows.join('<span aria-hidden="true">·</span>')
-      + (windowText ? '<span class="muted small">' + RC.esc(windowText) + '</span>' : '')
+      + '<span class="muted small" title="Public track record only. The engine card is a different book.">all recorded closes'
+      + (windowText ? ' · ' + RC.esc(windowText) : '')
+      + ' · win rate over priced closes</span>'
       + '<a class="small" href="/track">' + RC.esc(T('hero.measured', 'how this is measured')) + '</a>';
     host.hidden = false;
     host.style.display = 'flex';   // inline display would defeat [hidden]

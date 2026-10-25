@@ -90,7 +90,7 @@ When a ratchet count goes down, the baseline is re-recorded in the same commit. 
 | `pyproject.toml` optional cryptography | `>=50.0.0` |
 | Dockerfile pip floors | fastapi `>=0.115`, uvicorn[standard] `>=0.30` |
 
-`requirements.lock` is the file `pip-audit` reads. Nothing installs it. The Dockerfile and the Makefile install `bot/requirements.txt`. CI installs `requirements-ci.txt`. The lock is a superset of what ships: the twelve bot packages plus fastapi, uvicorn, pandas, matplotlib, and mplfinance. Ten dev packages in `requirements-ci.txt` (pytest and friends, ruff, mypy, bandit, hypothesis, pip-audit, PyJWT) are installed in CI and are not in the lock. The lock header states that PyJWT has no import under `bot/`, `scripts/`, or `api_bridge.py`.
+`requirements.lock` is the file `pip-audit` reads. `make install`, the README, and the deploy docs install it. The Dockerfile still installs `bot/requirements.txt` and names fastapi and uvicorn on that install line. CI installs `requirements-ci.txt`. The lock stays a superset of what the image installs. Dev packages in `requirements-ci.txt` (pytest and friends, ruff, mypy, bandit, hypothesis, pip-audit, PyJWT) are installed in CI and are not in the lock.
 
 Exact lock pins that differ from the floors above:
 

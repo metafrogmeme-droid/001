@@ -78,7 +78,7 @@ cd RUNECLAW
 
 # Setup
 python -m venv .venv && source .venv/bin/activate
-pip install -r bot/requirements.txt
+pip install -r requirements.lock
 cp .env.example .env
 
 # Run (no API keys needed for paper mode)
@@ -328,7 +328,7 @@ RUNECLAW
    python -m venv .venv
    source .venv/bin/activate   # Linux/macOS
    .venv\Scripts\activate      # Windows
-   pip install -r bot/requirements.txt
+   pip install -r requirements.lock
    ```
 3. **Configuration**
    - `cp .env.example .env`

@@ -50,8 +50,10 @@ class TestReportStructure:
         # Tier 1 safety/observability flags are now enabled by default.
         assert flat["WS_IDLE_TIMEOUT_SEC"] is True
         assert flat["VERIFY_CLASSIC_SLTP_ON_RESTART"] is True
-        # Tier 3 learning flags are now enabled by default (config-backed rows).
-        assert flat["LEARN_FROM_PAPER_CLOSES"] is True
+        # Paper closes and the expectancy nudge ship off (signal-side review
+        # 2026-10-24). The report reads the config, so it says so.
+        assert flat["LEARN_FROM_PAPER_CLOSES"] is False
+        assert flat["SETUP_EXPECTANCY_ENABLED"] is False
         # Tier 4 judgment/sizing flags are now enabled by default (config-backed).
         assert flat["REGIME_SIZING_ENABLED"] is True
         assert flat["DROP_UNCLOSED_CANDLE_ENABLED"] is True

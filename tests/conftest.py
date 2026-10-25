@@ -1668,3 +1668,20 @@ def _live_universe_gate_off_unless_a_test_asks():
         yield
     finally:
         object.__setattr__(CONFIG.risk, "live_universe_gate_enabled", prev)
+
+
+@pytest.fixture(autouse=True)
+def _kelly_on_risk_off_unless_a_test_asks():
+    """KELLY_ON_RISK_ENABLED ships on. On an empty or short tracker the floor
+    (0.25% of equity at the stop) replaces the fixed-fractional budget, so
+    every suite that sizes a fresh book to measure some other bound would
+    read the floor instead. Off here, restored after. The floor and the
+    flag-off no-op are measured in `test_kelly_sizing.py` and
+    `test_signal_side_review_2026_10_24.py`, which turn it on."""
+    from bot.config import CONFIG
+    prev = CONFIG.risk.kelly_on_risk_enabled
+    object.__setattr__(CONFIG.risk, "kelly_on_risk_enabled", False)
+    try:
+        yield
+    finally:
+        object.__setattr__(CONFIG.risk, "kelly_on_risk_enabled", prev)

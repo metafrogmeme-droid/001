@@ -7,7 +7,7 @@
 Welcome to the official RUNECLAW documentation. It is on the website at
 [humanoid-traders.com/docs](https://www.humanoid-traders.com/docs) and in the project's repository on GitHub.
 
-RUNECLAW is a risk-first AI trading assistant. It scans Bitget markets for opportunities, builds trade ideas from technical indicators with a rule engine (a configured LLM's read rides along and decides nothing unless `LLM_DECIDES` is on), applies macro and volatility context, enforces strict risk controls, and requires human confirmation before any trade can proceed unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.
+RUNECLAW is a risk-first AI trading assistant. It scans Bitget markets for opportunities, builds trade ideas from technical indicators with a rule engine (a configured LLM's read rides along and decides nothing unless `LLM_DECIDES` is on), applies macro and volatility context, enforces strict risk controls, and requires human confirmation before any trade can proceed unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — the live flag off in the code and in the shipped `.env.example`, the threshold `0.85` in the code and `1.0` in the example. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.
 
 Out of the box it places no real order: live trading stays off until the operator arms it (see [Enabling Live Trading](live-trading.md)). It is built around safety, transparency, explainability, and disciplined execution.
 
@@ -43,7 +43,7 @@ Structured Audit Log
 
 1. **Off until armed.** Live trading stays off until the operator sets `SIMULATION_MODE=false` and arms it (`LIVE_TRADING_ENABLED=true`, or `/golive CONFIRM`), and it never arms without `TELEGRAM_CHAT_ID`.
 2. **Fail-closed risk.** Every trade must pass the fail-closed risk gate. Most of its checks reject a trade when their data is missing; the order-flow and funding-clock gates pass without data and say so on the decision record, and the liquidity guard passes when there is no order book to read. One failed check means rejection.
-3. **Human-in-the-loop.** No trade executes without explicit confirmation via Telegram inline keyboard, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.
+3. **Human-in-the-loop.** No trade executes without explicit confirmation via Telegram inline keyboard, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — the live flag off in the code and in the shipped `.env.example`, the threshold `0.85` in the code and `1.0` in the example. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.
 4. **Full auditability.** Every decision is logged as structured JSON for post-mortem review.
 
 ---

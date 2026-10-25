@@ -92,7 +92,9 @@ async def test_overlay_admits_venue_native_markets(monkeypatch):
     # metals enabled explicitly: XYZ-GOLD classifies as Metal, and since
     # 2026-07-14 metals are off by default (parity evidence) — overlay
     # MECHANICS are what's under test here, not class policy.
-    sigs, _ = await _overlay(monkeypatch, scan_class_metals=True)
+    sigs, _ = await _overlay(
+        monkeypatch, scan_class_metals=True, scan_class_commodities=True,
+        scan_class_etfs=True)
     syms = {s.symbol for s in sigs}
     assert "XYZ-CL/USDC:USDC" in syms         # commodity (tradfi floor)
     assert "XYZ-SP500/USDC:USDC" in syms
@@ -124,7 +126,8 @@ async def test_overlay_flag_off_makes_no_venue_call(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_overlay_class_toggles_govern(monkeypatch):
-    sigs, _ = await _overlay(monkeypatch, scan_class_metals=False)
+    sigs, _ = await _overlay(
+        monkeypatch, scan_class_metals=False, scan_class_commodities=True)
     syms = {s.symbol for s in sigs}
     assert "XYZ-GOLD/USDC:USDC" not in syms    # class toggles govern here too
     assert "XYZ-CL/USDC:USDC" in syms

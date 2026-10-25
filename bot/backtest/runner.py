@@ -764,12 +764,14 @@ Examples:
     trade_group.add_argument("--scanner-config", type=str, default="", metavar="JSON",
                              help="The scanner preset's own numbers, as a JSON object "
                                   "(bot.core.limit_scanner.params_from_preset).")
-    trade_group.add_argument("--fill-mode", choices=("close", "next_open", "live"), default="close",
-                             help="Entry fill convention: same-bar close (legacy, optimistic), "
-                                  "next-bar open (conservative; audit fix #15), or live (what "
-                                  "--as-live sets: a limit rests from the next bar and fills on a "
-                                  "touch as a maker, a market idea fills at the next open). Run "
-                                  "both and compare to see how much edge lives in the fill assumption.")
+    trade_group.add_argument("--fill-mode", choices=("close", "next_open", "live"), default="next_open",
+                             help="Entry fill convention. Default next_open: queue the idea and "
+                                  "fill at the next bar's open. close: a market order at the "
+                                  "signal bar's close, and a limit rests from the next bar "
+                                  "(same-bar limit fills are BacktestConfig.same_bar_limit_fill). "
+                                  "live is what --as-live sets: a limit rests from the next bar "
+                                  "and fills on a touch as a maker, a market idea fills at the "
+                                  "next open.")
     trade_group.add_argument("--as-live", action="store_true",
                              help="Measure the system live runs: everything --honest sets, plus "
                                   "live's fills (a resting post-only limit filled only on a touch, "

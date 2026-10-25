@@ -77,7 +77,7 @@ function render(model, audience) {
 <link rel="canonical" href="https://www.humanoid-traders.com/rxb">
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/styles.css?v=52">
+<link rel="stylesheet" href="/styles.css?v=53">
 <style>
   .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
   h1 { font-family: var(--font-display); letter-spacing: .04em; }

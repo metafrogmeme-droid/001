@@ -106,7 +106,7 @@ python3 scripts/verify_evidence.py --online   # 另加已公布的每日根雜�
 
 **RUNECLAW** 是由 **Humanoid Traders** 為 Bitget AI Base Camp · Hackathon S1 打造的 AI 交易指揮系統。它將多時間框架分析、匯流評分、市況偵測、訂單流微結構與風險優先邏輯整合為一套講求紀律的框架 —— 全部都可透過 Telegram 機器人介面操控。
 
-本系統**預設以模擬優先模式運作**。每一個交易構想都必須通過 21 項交易前風險檢查（16 道嚴格的失敗即關閉閘門 + 1 道失敗即放行的流動性防護 + 4 項在資料不可用時略過的顧問性檢查）、一道啟發式疑慮的交易前批判，並在執行前取得明確的人工確認 —— 除非操作者啟用自動確認（`AUTO_CONFIRM_LIVE_ENABLED` 搭配 `AUTO_CONFIRM_THRESHOLD`）；隨附的 `.env.example` 兩者皆為關閉，而未提供 `.env` 時的程式碼預設為開啟。
+本系統**預設以模擬優先模式運作**。每一個交易構想都必須通過 21 項交易前風險檢查（16 道嚴格的失敗即關閉閘門 + 1 道失敗即放行的流動性防護 + 4 項在資料不可用時略過的顧問性檢查）、一道啟發式疑慮的交易前批判，並在執行前取得明確的人工確認 —— 除非操作者啟用自動確認（`AUTO_CONFIRM_LIVE_ENABLED` 搭配 `AUTO_CONFIRM_THRESHOLD`）；隨附的 `.env.example` 與程式碼中 `AUTO_CONFIRM_LIVE_ENABLED` 皆為關閉；`AUTO_CONFIRM_THRESHOLD` 在範例為 1.0、程式碼預設為 0.85。
 
 > **Shield 風險引擎以 MCP 伺服器形式提供 —— 任何 GetClaw agent 都可呼叫它。** 詳見 `bot/mcp/server.py`。
 
@@ -302,8 +302,8 @@ RUNECLAW 支援**多位使用者各自在自己的 Bitget 帳戶上實盤交易*
 **流程：** SCAN --> ANALYZE --> RISK GATE --> HUMAN CONFIRM --> EXECUTE（紙上或實盤；實盤受把關且需人工確認，僅管理員可自動執行）
 
 > 當操作者啟用自動確認（`AUTO_CONFIRM_LIVE_ENABLED` 搭配 `AUTO_CONFIRM_THRESHOLD`）時，
-> HUMAN CONFIRM 這一步會被略過。隨附的 `.env.example` 兩者皆關閉，
-> 未提供 `.env` 時的程式碼預設為開啟。
+> HUMAN CONFIRM 這一步會被略過。`AUTO_CONFIRM_LIVE_ENABLED` 在範例與程式碼皆為關閉；
+> `AUTO_CONFIRM_THRESHOLD` 在範例為 1.0、程式碼預設為 0.85。
 
 ### 執行期服務
 
@@ -438,7 +438,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 # 3. 安裝相依套件
-pip install -r bot/requirements.txt
+pip install -r requirements.lock
 
 # 4. 設定環境
 cp .env.example .env
@@ -998,7 +998,7 @@ RUNECLAW 開放協作。若你正為 Bitget AI Base Camp 開發並需要風險�
 # 60 秒內開始
 git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW && cp .env.example .env
-pip install -r bot/requirements.txt
+pip install -r requirements.lock
 python -m bot.main --mode scan
 ```
 

@@ -20,8 +20,9 @@
 #   sudo systemctl enable --now runeclaw-duel
 #   scripts/systemd/runeclaw-status.sh
 #
-# Adjust User=, WorkingDirectory= and the ExecStart interpreter to match the
-# box. If a virtualenv is in use, point ExecStart at <venv>/bin/python.
+# Adjust User=, WorkingDirectory= and the ExecStart path to match the box.
+# ExecStart is <repo>/.venv/bin/python (Python 3.11). /usr/bin/python3 on
+# this host is 3.10. See scripts/systemd/README.md for user units.
 
 [Unit]
 Description=RUNECLAW Daily Duel bot (its own Telegram token; health on :8081)
@@ -40,8 +41,8 @@ WorkingDirectory=/home/mulerun/runeclaw
 # Idempotent; restores .env (where the token lives) before the process reads it.
 ExecStartPre=/home/mulerun/runeclaw/deploy.sh
 
-# python3, NOT python — the box has no `python`.
-ExecStart=/usr/bin/python3 -m bot.duel_bot
+# The repo venv. /usr/bin/python3 on this host is 3.10; the lock needs 3.11.
+ExecStart=/home/mulerun/runeclaw/.venv/bin/python -m bot.duel_bot
 
 # /health answers 200 only while the poller is running: a process that exists
 # but no longer polls is not a healthy bot. Generous, like the others.

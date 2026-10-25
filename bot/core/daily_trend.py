@@ -303,6 +303,17 @@ def record_book(board: Any, *, when: Optional[datetime] = None,
         "holds": sorted(holds, key=lambda h: -h["weight_pct"]),
         "unread": [u.get("symbol") for u in board.get("unread") or [] if isinstance(u, dict)],
     }
+    # Present only when the scan named a book. A board that did not is the
+    # sleeve as it has always been recorded, and an absent name is not "hourly".
+    book_id = board.get("book")
+    if isinstance(book_id, str) and book_id.strip():
+        row["book"] = book_id.strip()
+    vol_window = board.get("vol_window")
+    if isinstance(vol_window, int) and not isinstance(vol_window, bool) and vol_window > 0:
+        row["vol_window"] = vol_window
+    lev_cap = board.get("leverage_cap")
+    if isinstance(lev_cap, int) and not isinstance(lev_cap, bool) and lev_cap > 0:
+        row["leverage_cap"] = lev_cap
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, separators=(",", ":")) + "\n")

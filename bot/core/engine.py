@@ -8070,7 +8070,7 @@ class RuneClawEngine:
         # Entry pricing is unaffected — the analyzer prices off the live ticker
         # (signal.price), not the last candle.
 
-        # Timeframe-matched Elliott (gated, default ON): fetch the extra
+        # Timeframe-matched Elliott (gated, default off): fetch the extra
         # timeframes whose wave degree the analyzer may need for scalp/swing/etc,
         # so it can read the wave structure appropriate to the setup. Cached and
         # fail-open — a fetch failure just omits that timeframe (analyzer no-ops).
@@ -8528,9 +8528,15 @@ class RuneClawEngine:
         # than off the risk engine that ran the recheck: that engine gates
         # live entries, and a practice loss must never arm it. The idea stays
         # pending, as it does behind every other refusal that is about timing.
+        from bot.core.testnet_book import cooldown_for, log_cooldown_decision
+        # The trial's wait is this entry's symbol. The engine's scan pause
+        # stays on the configured seconds, so one treatment loss does not
+        # stop the control arm.
+        _cd = cooldown_for(getattr(idea, "asset", None),
+                           CONFIG.risk.cooldown_after_loss_seconds)
+        log_cooldown_decision(_cd, where="practice_entry")
         _wait = practice_cooldown_reason(
-            portfolio.trade_history, datetime.now(UTC),
-            CONFIG.risk.cooldown_after_loss_seconds)
+            portfolio.trade_history, datetime.now(UTC), _cd.seconds)
         if _wait:
             return f"\u23f8 [PAPER] {_wait}"
         size_usd = self._high_conviction_margin(idea, recheck.position_size_usd, user_id,
@@ -11632,7 +11638,7 @@ class RuneClawEngine:
                 except Exception:
                     pass
                 # Feed the paper/sim close into the learning loop's WRITE side
-                # (default ON). Live closes record via
+                # (default off). Live closes record via
                 # _on_live_position_closed — which now also journals them;
                 # for a long time that claim was made here and nowhere
                 # enforced, leaving /journal empty in pure-live mode. this lets the simulation-first

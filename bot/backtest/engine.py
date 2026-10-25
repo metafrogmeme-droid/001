@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 from bot.backtest.funding import combine as funding_combine
-from bot.backtest.funding import funding_for_position
+from bot.backtest.funding import funding_for_position, interval_sec_for_symbol
 from bot.backtest.metrics import PF_UNDEFINED
 from bot.backtest.models import (
     BacktestBar,
@@ -260,7 +260,7 @@ class BacktestEngine:
         # decay, VWAP band) close positions at the bar close the way
         # `_evaluate_live_smart_exits` closes them at market. The 17 Oct edge
         # audit found live and `--honest` measuring different systems.
-        self._as_live = getattr(config, "fill_mode", "close") == "live"
+        self._as_live = getattr(config, "fill_mode", "next_open") == "live"
         self._maker_fills = 0
         self._limits_filled = 0
         self._limits_filled_same_bar = 0
@@ -755,7 +755,7 @@ class BacktestEngine:
         # open, as every other entry does. It filled at this bar's close,
         # the price that decided it, while the Lab said the honest model
         # was applied.
-        if getattr(self.config, "fill_mode", "close") == "next_open":
+        if getattr(self.config, "fill_mode", "next_open") == "next_open":
             self._pending_ma = (action, side)
             return
         self._apply_ma_action(bar, action, side, None)
@@ -974,7 +974,7 @@ class BacktestEngine:
         next bar and fills only on a touch, at its own price; a market idea
         fills at the next open. The entry-timing engine hands a FIRE here too.
         """
-        mode = getattr(self.config, "fill_mode", "close")
+        mode = getattr(self.config, "fill_mode", "next_open")
         if mode == "live":
             px = getattr(idea, "entry_price", None)
             priced = isinstance(px, (int, float)) and not isinstance(px, bool) and px > 0
@@ -1034,6 +1034,16 @@ class BacktestEngine:
             # A market order transacts at the going price, and the going price
             # at signal time is this bar's close.
             self._execute_fill(idea, risk_check, bar.close, bar)
+            return
+
+        # The signal bar's range is not a fill. The order did not exist while
+        # that bar was printing. Rest from the next bar unless the run asks
+        # for the old same-bar fill (`same_bar_limit_fill`).
+        # A half-built engine (tests construct one with __new__) has no
+        # config. The shipped default is to rest, so a missing config rests.
+        _cfg = getattr(self, "config", None)
+        if not getattr(_cfg, "same_bar_limit_fill", False):
+            self._rest_limit(idea, risk_check, bar)
             return
 
         if self._limit_is_touched(bar, px, idea.direction):
@@ -1614,7 +1624,8 @@ class BacktestEngine:
         # — the `funding: "0"` shape `bot/backtest/funding.py` is named for.
         _fund = funding_for_position(
             idea.direction.value, size_usd, entry_time, bar.timestamp,
-            self.config.funding_rate, self.config.market_is_perp)
+            self.config.funding_rate, self.config.market_is_perp,
+            interval_sec=interval_sec_for_symbol(idea.asset))
         if _fund.usd is not None:
             net_pnl += _fund.usd
             # close_position already settled `closed.pnl` into the balance, so
@@ -1905,7 +1916,9 @@ class BacktestEngine:
         # legs do not overlap.
         _fund = funding_for_position(
             pos.direction.value, size_usd, bt_meta.get("entry_time"),
-            bar.timestamp, self.config.funding_rate, self.config.market_is_perp)
+            bar.timestamp, self.config.funding_rate, self.config.market_is_perp,
+            interval_sec=interval_sec_for_symbol(
+                getattr(bt_meta.get("idea"), "asset", "") or getattr(pos, "symbol", "")))
         if _fund.usd is not None:
             net_pnl += _fund.usd
         lev = getattr(pos, "leverage", 1) or 1

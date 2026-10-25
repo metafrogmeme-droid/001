@@ -34,9 +34,10 @@ would be the `funding: "0"` shape again, so the default is `None`.
 
 **It already knows the hold.** Both close paths compute the entry and exit
 timestamps, which is the other half — and `bot/risk/funding_clock.py` owns the
-settlement definition the live path reads (``SETTLEMENT_INTERVAL_SEC``, "Bitget
-USDT perps: 00/08/16 UTC") and the side convention (`pays_funding`: positive
-rate, longs pay shorts). Restating either here would be a second answer, so
+settlement fallback the live path reads (``SETTLEMENT_INTERVAL_SEC``, the 8h
+grid) and the side convention (`pays_funding`: positive rate, longs pay
+shorts). A symbol whose interval was measured passes that grid in; unmeasured
+stays on the fallback. Restating either here would be a second answer, so
 neither is restated.
 """
 
@@ -81,18 +82,36 @@ class FundingRead:
     intervals: Optional[int]
 
 
-def settlements_spanned(entry_ts: float, exit_ts: float) -> int:
+def settlements_spanned(entry_ts: float, exit_ts: float,
+                        interval_sec: Optional[float] = None) -> int:
     """How many funding settlements a position open over ``(entry, exit]`` crossed.
 
     The count is of BOUNDARIES CROSSED, not the hold divided by the interval: a
     position opened at 07:59 and closed at 08:01 is open for two minutes and
     pays once, and one opened at 00:01 and closed at 07:59 is open for eight
     hours and pays nothing. Dividing would answer 0 and 0.
+
+    ``interval_sec`` None is the shared 8h fallback. A 4h or 1h contract
+    passes its own grid; the boundaries are still the ones crossed.
     """
     if exit_ts <= entry_ts:
         return 0
-    interval = SETTLEMENT_INTERVAL_SEC
+    try:
+        interval = float(interval_sec) if interval_sec else SETTLEMENT_INTERVAL_SEC
+    except (TypeError, ValueError):
+        interval = SETTLEMENT_INTERVAL_SEC
+    if interval <= 0:
+        interval = SETTLEMENT_INTERVAL_SEC
     return int(exit_ts // interval) - int(entry_ts // interval)
+
+
+def interval_sec_for_symbol(symbol: str) -> float:
+    """This symbol's grid, in seconds. Unreadable is the 8h fallback."""
+    try:
+        from bot.risk.funding_interval import interval_seconds
+        return interval_seconds(symbol)
+    except Exception:
+        return float(SETTLEMENT_INTERVAL_SEC)
 
 
 def _epoch(ts) -> Optional[float]:
@@ -115,7 +134,8 @@ def funding_for_position(direction: str,
                          entry_time,
                          exit_time,
                          rate: Optional[float],
-                         is_perp: Optional[bool]) -> FundingRead:
+                         is_perp: Optional[bool],
+                         interval_sec: Optional[float] = None) -> FundingRead:
     """The funding a backtest position paid or received, or why there is none.
 
     `rate` is the per-settlement funding rate as a FRACTION (Bitget quotes
@@ -134,7 +154,7 @@ def funding_for_position(direction: str,
         # A hold nobody can measure is not a hold of zero settlements.
         return FundingRead(UNPRICED, None, None)
 
-    spanned = settlements_spanned(entry_ts, exit_ts)
+    spanned = settlements_spanned(entry_ts, exit_ts, interval_sec)
     if spanned <= 0:
         return FundingRead(NO_SETTLEMENT, 0.0, 0)
 

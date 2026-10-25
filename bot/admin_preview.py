@@ -32,6 +32,9 @@ BANNER = "Admin preview. Not public."
 _FLAGS = frozenset({
     "SCAM_OR_SAFE_V0", "DUEL_CONFIDENCE_ENABLED", "SRB_ENABLED", "FVB_ENABLED",
 })
+# --- XNAV begin ---
+_FLAGS = _FLAGS | frozenset({"XNAV_ENABLED"})
+# --- XNAV end ---
 _CONFIDENCE_ON = frozenset({"1", "true", "yes", "on"})
 
 
@@ -48,6 +51,11 @@ def public_on(flag: str, env: Optional[Mapping[str, str]] = None) -> bool:
     if flag == "FVB_ENABLED":
         from bot.fvb.flag import flag_on
         return flag_on(env) is True
+    # --- XNAV begin ---
+    if flag == "XNAV_ENABLED":
+        from bot.xnav.flag import flag_on
+        return flag_on(env) is True
+    # --- XNAV end ---
     source = os.environ if env is None else env
     return str(source.get("DUEL_CONFIDENCE_ENABLED", "")).strip().lower() in _CONFIDENCE_ON
 
