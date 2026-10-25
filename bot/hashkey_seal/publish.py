@@ -31,9 +31,13 @@ Signer = Callable[[dict, str], str]
 class RpcFailed(Exception):
     """The endpoint did not answer a usable result. The message stays empty."""
 
+    pass  # a docstring-only body does not parse after code_only blanks it
+
 
 class SignerUnavailable(Exception):
     """eth-account is not installed. Nothing was signed."""
+
+    pass
 
 
 def anchor_calldata(seal_hash: bytes, kind: bytes) -> bytes:
