@@ -22,6 +22,13 @@ Tuesday at 3am. These units are the other half, and they make the same argument
 
 ## Install
 
+The files in this directory are **system** units (`User=`, `WantedBy=multi-user.target`).
+Production has also been run as **user** units (`systemctl --user`, 2026-09-17).
+Install with the manager the box actually uses. `runeclaw-status.sh` names
+which one holds each unit.
+
+### System units
+
 ```bash
 sudo cp scripts/systemd/runeclaw-bot.service    /etc/systemd/system/
 sudo cp scripts/systemd/runeclaw-bridge.service /etc/systemd/system/
@@ -29,6 +36,27 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now runeclaw-bot runeclaw-bridge
 scripts/systemd/runeclaw-status.sh
 ```
+
+### User units
+
+Copy the same files to the user manager, then change two lines in the copies.
+`User=` is a system-unit setting; drop it. `WantedBy=multi-user.target` does
+not attach a user unit to the user session; user units use `default.target`.
+`ExecStart` stays `<repo>/.venv/bin/python` either way.
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp scripts/systemd/runeclaw-bot.service    ~/.config/systemd/user/
+cp scripts/systemd/runeclaw-bridge.service ~/.config/systemd/user/
+# in each copy: delete the User= line; set WantedBy=default.target
+systemctl --user daemon-reload
+systemctl --user enable --now runeclaw-bot runeclaw-bridge
+loginctl enable-linger "$USER"
+scripts/systemd/runeclaw-status.sh
+```
+
+`loginctl enable-linger` is what starts those units at boot without an
+interactive login. Logs for a user unit are `journalctl --user -u runeclaw-bot`.
 
 ### The optional third unit: `runeclaw-duel`
 
@@ -42,6 +70,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now runeclaw-duel
 scripts/systemd/runeclaw-status.sh
 ```
+
+For a user unit, copy the file to `~/.config/systemd/user/`, apply the same
+`User=` and `WantedBy=` edits as above, then `systemctl --user enable --now runeclaw-duel`.
 
 A box without the token leaves the unit uninstalled, and the status script
 lists it as `OPTIONAL`, which is not a failure. Installed with no token, or
@@ -64,6 +95,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now runeclaw-daily-duel
 scripts/systemd/runeclaw-status.sh
 ```
+
+For a user unit, copy the file to `~/.config/systemd/user/`, apply the same
+`User=` and `WantedBy=` edits as above, then
+`systemctl --user enable --now runeclaw-daily-duel`.
 
 `/scam` on that bot is Scam or Safe? Daily. It stays unregistered unless
 `SCAM_OR_SAFE_V0` is `1` (also `true`, `on`, or `yes`) in the same environment.
@@ -95,16 +130,20 @@ facts this repo cannot know:
 
 | line | check |
 |---|---|
-| `User=mulerun` | the account that owns `~/runeclaw` |
+| `User=mulerun` | system units only: the account that owns `~/runeclaw`. Drop this line for a user unit |
 | `WorkingDirectory=` | the real repo path |
-| `ExecStart=/usr/bin/python3` | **a virtualenv needs `<venv>/bin/python`** |
+| `ExecStart=/home/mulerun/runeclaw/.venv/bin/python` | the repo venv. The host `/usr/bin/python3` is 3.10; this project requires Python 3.11, which is what `<repo>/.venv/bin/python` is |
 
 A wrong interpreter path fails at start, loudly, which is the good failure. A
 *right-looking* one that resolves to a Python without the dependencies fails on
-import — check `journalctl -u runeclaw-bot -n 50` after the first start.
+import — `/usr/bin/python3` on this host is that failure, because numpy 2.3.x
+in `requirements.lock` declares `requires-python >=3.11`. Check
+`journalctl -u runeclaw-bot -n 50` after the first start (add `--user` for a
+user unit).
 
 `python3`, not `python`: the box has no `python`, as
-`scripts/verify_bot_alive.sh` records.
+`scripts/verify_bot_alive.sh` records. The units do not call that name either;
+they call the venv interpreter.
 
 ## `systemctl status` will lie to you, and it is not a bug
 
@@ -162,8 +201,7 @@ exit 143; the units perform their own port waits, and verification follows.
 scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
 ```
 
-Then restart through the manager that holds the units. Installed as above,
-they are **system** units:
+Then restart through the manager that holds the units. A system install:
 
 ```bash
 sudo systemctl restart runeclaw-bot

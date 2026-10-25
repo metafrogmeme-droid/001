@@ -216,11 +216,10 @@ echo "  status: $DETAIL." >&2
 echo "" >&2
 echo "  A remote NAME is a local nickname and can point anywhere — on the box" >&2
 echo "  where this check was written, 'origin' was a mirror 255 commits stale." >&2
-echo "  Reset to the URL, not to a name:" >&2
+echo "  Fast-forward from the URL, not from a name:" >&2
 echo "" >&2
-echo "      git fetch $URL $BRANCH" >&2
-echo "      git reset --hard FETCH_HEAD" >&2
+echo "      git pull --ff-only $URL $BRANCH" >&2
 echo "" >&2
-echo "  (fetching a URL updates FETCH_HEAD only — no refs/remotes/* is" >&2
-echo "  written, so there is no stale ref left to reset to by mistake.)" >&2
+echo "  If the fast-forward fails, stop and ask. Do not reset." >&2
+echo "  Then run scripts/verify_deploy_source.sh again." >&2
 exit 1

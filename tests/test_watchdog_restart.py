@@ -141,15 +141,21 @@ def test_an_absent_pid_is_reported_dead(tmp_path):
 # ── structure ──────────────────────────────────────────────────────────────
 
 def test_the_kill_and_the_check_use_the_same_pattern():
-    """It killed more than it checked for."""
+    """It killed more than it checked for. Bot and bridge each pass one pattern."""
     code = _code_only(_src())
     patterns = set(re.findall(r'pkill[^\n]*-f\s+"([^"]+)"', code))
     patterns |= set(re.findall(r'pgrep[^\n]*-f\s+"([^"]+)"', code))
     assert patterns, "no pgrep/pkill patterns found — has the file changed shape?"
-    assert patterns == {"$BOT_PATTERN"}, (
+    assert patterns == {"$pattern"}, (
         f"pgrep/pkill use differing patterns {sorted(patterns)}. Detection and "
         f"termination must ask about the same set, or the watchdog SIGKILLs "
         f"processes it never looked for.")
+    assert 'ensure_running bot "$BOT_PATTERN"' in code
+    assert 'ensure_running bridge "$BRIDGE_PATTERN"' in code
+    assert "api_bridge.py" in code
+    assert "logs/watchdog.log" in code
+    assert "logs/api_bridge.log" in code
+    assert "/tmp/" not in code
 
 
 def test_sigterm_is_sent_before_sigkill():

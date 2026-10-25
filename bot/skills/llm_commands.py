@@ -85,7 +85,7 @@ class LLMCommands:
                 "🎛 <b>Runtime tier routing</b>\n"
                 "<pre>"
                 " /settier chat runeclaw\n"
-                " /settier scan runeclaw runeclaw-v6\n"
+                " /settier scan runeclaw pbdes2022/humanoid-traders:v10-8b\n"
                 " /settier clear chat\n"
                 " /settier clear all"
                 "</pre>\n"

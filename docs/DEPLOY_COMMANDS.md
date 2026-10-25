@@ -26,15 +26,19 @@ The bot's `/start` and `/app` then carry an "Open the Duel app" button in
 private chats. Setting `/tg` as the bot's Main Mini App in BotFather is
 optional, and is done in BotFather, not here.
 
-1. Fetch by URL and reset to `FETCH_HEAD`.
-2. Run `./deploy.sh`. Besides restoring `.env`, `data/`, and `logs/`, it writes
+1. Fast-forward from the repository URL:
+   `git pull --ff-only https://github.com/metafrogmeme-droid/001 main`.
+   If the fast-forward fails, stop and ask. Do not reset.
+2. Run `scripts/verify_deploy_source.sh` before starting anything. Exit 0 is
+   the only pass. Exit 1, 2, or 3: do not start.
+3. Run `./deploy.sh`. Besides restoring `.env`, `data/`, and `logs/`, it writes
    the persistent `~/runeclaw-persist/web.env` used for web publishes.
-3. Run `scripts/verify_deploy_source.sh` before starting anything.
 4. Restart `runeclaw-bot.service` and `runeclaw-bridge.service` (and
    `runeclaw-duel.service` where installed), each as its own command. Do not
    chain a probe onto a restart; verify afterward.
 5. Publish `app/` using `~/runeclaw-persist/web.env`, not the bot `.env`.
-   There is no install step unless a dependency manifest changed.
+   There is no install step unless a dependency manifest changed. When it
+   did, on Python 3.11: `python3 -m pip install -r requirements.lock`.
 6. Run `scripts/verify_deploy.sh` in a separate invocation.
 7. Once Memeclaw has its own domain, run the Memeclaw checks in
    [Two websites, one web container](#two-websites-one-web-container), also
@@ -69,8 +73,9 @@ was true of the stale tree: the pull "worked", the symlinks resolved, the user
 store loaded, 18 users were present. The only thing wrong was *which code*, and
 nothing asked.
 
-So: fetch by **URL**, verify against the **URL**, and never reset to a
-remote-tracking ref.
+So: fast-forward from the **URL** (`git pull --ff-only <url> main`), then
+`scripts/verify_deploy_source.sh`. If the fast-forward fails, stop and ask.
+Do not reset, and do not move the checkout from a remote-tracking ref.
 
 ---
 
@@ -171,23 +176,28 @@ appear there.
 
 ## The sequence
 
-Run from the launcher, which lives **outside** the repo — anything inside it is
-one `git reset --hard` away from reverting, and that produced ~15 consecutive
-silent no-op redeploys on 2026-08-01.
+Run from the launcher, which lives **outside** the repo. An update of this
+checkout overwrites anything tracked inside it. On 2026-08-01 a reset of the
+checkout restored a flagless launcher on ~15 consecutive deploys and each one
+printed success with nothing running.
 
-### 1. Get the latest from git — by URL, not by remote name
+### 1. Get the latest from git — by URL, fast-forward only
 
 ```bash
-git fetch https://github.com/metafrogmeme-droid/001 main
-git reset --hard FETCH_HEAD
+git pull --ff-only https://github.com/metafrogmeme-droid/001 main
 ```
 
+If that command fails, **stop and ask**. Do not recover it with `git reset`.
+
 A remote *name* is a per-machine nickname that can point anywhere, so "use the
-right remote" is advice, and advice is what failed. Fetching a URL writes
-`FETCH_HEAD` and no `refs/remotes/*`, so there is no stale ref left to reset to
-by mistake. It also sidesteps the trap that `git fetch origin main` updates
-`FETCH_HEAD` while leaving `refs/remotes/origin/main` untouched — so even a
-correct fetch can be followed by a reset onto stale code.
+right remote" is advice, and advice is what failed. The URL is the argument,
+so the nickname is not what moves the checkout. `--ff-only` refuses when this
+branch has local commits, has diverged from that URL's `main`, or is not
+`main`. A refusal is the stop. The checkout must already be on `main`.
+
+It also sidesteps the trap that `git fetch origin main` updates `FETCH_HEAD`
+while leaving `refs/remotes/origin/main` untouched — a later move onto that
+ref lands on stale code.
 
 ### 2. Verify the checkout is what the remote says it is
 
@@ -234,14 +244,22 @@ interpreter. Following it downgrades a correct pin for everybody.
 ### 5. Start, and gate `DEPLOY_DONE` on the process still being alive
 
 ```bash
-nohup python -m bot.main >> bot.log 2>&1 &
-scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
-echo "DEPLOY_DONE"
+# Copy once, outside the repo. Do not re-copy on later deploys.
+#   cp scripts/launch_all.sh.template "$HOME/launch_all.sh"
+#   chmod +x "$HOME/launch_all.sh"
+test -x "$HOME/launch_all.sh" || { echo "STOP — copy scripts/launch_all.sh.template to ~/launch_all.sh and ask before starting"; exit 1; }
+"$HOME/launch_all.sh"
 ```
+
+`scripts/launch_all.sh.template` starts **both** processes: `bot.main --mode
+telegram` (gateway on :8080) and `api_bridge.py` (uvicorn on :8000). It gates
+`DEPLOY_DONE` on each still being alive (`scripts/verify_bot_alive.sh --pid`),
+and it starts the optional duel bots only where their tokens are set. A line
+that starts only `bot.main` and then prints success is not a deploy.
 
 `python -m bot.main` defaults to `--mode telegram`. It used to default to `cli`,
 which finds no TTY and **exits zero** — so a launcher that forgot the flag
-printed `DEPLOY_DONE` and left nothing running.
+printed `DEPLOY_DONE` and left nothing running. The template passes the flag.
 
 Use `--pid`, not `pgrep -f`: the launcher knows what it started, and a pattern
 match also matches the checking script's own command line — the first draft of
@@ -308,15 +326,26 @@ The fingerprint is for every other copy.
 
 ```bash
 set -euo pipefail
-git fetch https://github.com/metafrogmeme-droid/001 main
-git reset --hard FETCH_HEAD
-scripts/verify_deploy_source.sh   || { echo "WRONG CODE — not starting"; exit 1; }
+git pull --ff-only https://github.com/metafrogmeme-droid/001 main \
+  || { echo "FAST-FORWARD FAILED — stop and ask"; exit 1; }
+scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
 ./deploy.sh
-pip install -r requirements.lock
-nohup python -m bot.main >> bot.log 2>&1 &
-scripts/verify_bot_alive.sh --pid $! || { echo "DEPLOY FAILED"; exit 1; }
-echo "DEPLOY_DONE"
+python3 -m pip install -r requirements.lock
+test -x "$HOME/launch_all.sh" || { echo "STOP — copy scripts/launch_all.sh.template to ~/launch_all.sh and ask before starting"; exit 1; }
+"$HOME/launch_all.sh"
 ```
 
 Keep this file's copy in the launcher outside the repo. The version in here is
-the reference; the version that runs must not be reachable by `git reset`.
+the reference; the version that runs must not be a file this update overwrites.
+
+## What the test baseline counts
+
+`scripts/ci_test_gate.py` prints `known-baseline: N` for the node ids in
+`tests/known_failures.txt`. A `#` line is not an entry. That file's baseline
+is empty: the last green run of this gate on `main` printed
+`known-baseline: 0`. The 53 in `tests/unreachable_methods_baseline.txt` is a
+different ratchet, the public method names the receiver sweep leaves
+unchecked. It follows the same two-way rule as `tests/known_failures.txt`
+and it is not that file. The measured note, including which `53` in the CI
+log is not a baseline, is in `docs/gitbook/demo-scenarios.md` under "Running
+the Tests".

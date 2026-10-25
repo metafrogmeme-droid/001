@@ -348,8 +348,9 @@ so a local edit there would not show." ;;
     esac
   else
     fail "box is running $live_build, this checkout is $want_build — WRONG CODE"
-    note "The deploy did not land here. Check the remote it reset to:"
-    note "  git fetch https://github.com/metafrogmeme-droid/001 main && git reset --hard FETCH_HEAD"
+    note "The deploy did not land here. Fast-forward from the repository URL:"
+    note "  git pull --ff-only https://github.com/metafrogmeme-droid/001 main"
+    note "  If the fast-forward fails, stop and ask. Then scripts/verify_deploy_source.sh"
   fi
 
   # Did /gateway/* actually mount? A 403 above proves something is serving
