@@ -28,9 +28,15 @@
  * completion the page sends only Pi's payment id (and the txid); the payment
  * itself is read back from Pi with the server-only key and must match the
  * order: this person, this amount, this order, user to app, not cancelled
- * (lib/pi_payments.mismatches). On PI_TESTNET_HOST that key is
+ * (lib/pi_payments.mismatches). On the Testnet app (lib/pi_host) that key is
  * PI_TESTNET_API_KEY when set, and PI_NETWORK_API_KEY otherwise
- * (lib/pi_payments.apiKey).
+ * (lib/pi_payments.apiKey). There is no swap of the two keys the other way:
+ * a request that is not the Testnet app never reads PI_TESTNET_API_KEY.
+ *
+ * ORIGIN. approve, complete and incomplete accept the request host's own
+ * origin, and https://<PI_TESTNET_HOST> only when the Worker proxy secret
+ * has authenticated the request (lib/pi_host.paymentOriginAllowed). A page
+ * on www cannot name the Testnet origin and be treated as that app.
  *
  * IDEMPOTENT, BECAUSE PI RETRIES. The SDK re-sends approval and completion
  * every ~10 s until they succeed, and an interrupted payment comes back
@@ -55,6 +61,7 @@ const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const pay = require('../lib/pi_payments');
 const coach = require('../lib/pi_coach');
+const { paymentOriginAllowed } = require('../lib/pi_host');
 
 const router = express.Router();
 
@@ -77,6 +84,15 @@ function platformDeps(req) {
   const d = deps();
   if (d.apiKey !== undefined) return d;
   return { ...d, apiKey: pay.apiKey(env(), req) };
+}
+
+/**
+ * The browser's Origin, for the three calls that settle a payment. The
+ * refusal names the decision and not the origin or the proxy header.
+ */
+function testnetProxyOrigin(req, res, next) {
+  if (paymentOriginAllowed(req, env())) return next();
+  return res.status(403).json({ error: 'origin_not_allowed' });
 }
 
 function unavailable(res, err, where) {
@@ -206,7 +222,7 @@ async function matched(req, res, paymentId, where) {
   return { payment, order };
 }
 
-router.post('/approve', authMiddleware, limit, async (req, res) => {
+router.post('/approve', testnetProxyOrigin, authMiddleware, limit, async (req, res) => {
   const paymentId = req.body && req.body.paymentId;
   try {
     const m = await matched(req, res, paymentId, 'approve');
@@ -284,7 +300,7 @@ async function complete(req, res, m, paymentId, txid) {
   return res.json({ ok: true, status: 'completed' });
 }
 
-router.post('/complete', authMiddleware, limit, async (req, res) => {
+router.post('/complete', testnetProxyOrigin, authMiddleware, limit, async (req, res) => {
   const paymentId = req.body && req.body.paymentId;
   const txid = req.body && req.body.txid;
   if (typeof txid !== 'string' || !pay.TXID_RE.test(txid)) {
@@ -305,7 +321,7 @@ router.post('/complete', authMiddleware, limit, async (req, res) => {
  * blockchain, not yet completed by us. Pi requires it to be completed before
  * the person can make another. The txid is Pi's, read back, not the page's.
  */
-router.post('/incomplete', authMiddleware, limit, async (req, res) => {
+router.post('/incomplete', testnetProxyOrigin, authMiddleware, limit, async (req, res) => {
   const paymentId = req.body && req.body.paymentId;
   try {
     const m = await matched(req, res, paymentId, 'incomplete');

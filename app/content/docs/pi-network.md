@@ -111,8 +111,9 @@ Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn fro
 | `PI_OAUTH_CLIENT_ID` | The OAuth Client ID for **Sign in with Pi** on the website, from the Developer Portal: this app, then **Pi Sign-In**. It is public. Without it the login page shows no Pi button. |
 | `PI_VALIDATION_KEY` | The Mainnet app's key from the Developer Portal's **Verify App Domain** step. It is served at `/pi/validation-key.txt`, the path the portal checks for this app, and at `/validation-key.txt`, on every host other than `PI_TESTNET_HOST`; 404 when unset |
 | `PI_TESTNET_HOST` | The Testnet app's hostname, for example `pi.humanoid-traders.com`. Unset, every host is served `PI_VALIDATION_KEY` |
-| `PI_TESTNET_VALIDATION_KEY` | That app's **Verify App Domain** key, served on both paths only when the request Host is `PI_TESTNET_HOST`. Unset, those requests are 404, not the Mainnet key |
-| `PI_TESTNET_API_KEY` | That app's server API key for payments. Used when Host is `PI_TESTNET_HOST` and this is set; otherwise payments keep `PI_NETWORK_API_KEY`. Sign-in does not use either key |
+| `PI_TESTNET_PROXY_SECRET` | Shared with the Cloudflare Worker's `PI_PROXY_SECRET`. A request whose `X-Runeclaw-Pi-Proxy` header matches it is the Testnet app even when Host is www. Unset, or shorter than 32 characters, that header is ignored. Generate it locally; never commit it |
+| `PI_TESTNET_VALIDATION_KEY` | That app's **Verify App Domain** key, served on both paths only for the Testnet app. Unset, those requests are 404, not the Mainnet key |
+| `PI_TESTNET_API_KEY` | That app's server API key for payments. Used for the Testnet app when set; otherwise payments keep `PI_NETWORK_API_KEY`. Sign-in does not use either key |
 | `PI_FRAME_ANCESTORS` | Replaces Pi's frame list (for `/pi`, `/privacy` and `/terms`) if Pi's hosts change |
 | `PI_AUTH_ORIGIN` | App Studio's backend, `https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com` by default |
 
@@ -150,13 +151,16 @@ In the Developer Portal, register `https://www.humanoid-traders.com/auth/pi/call
 
 ## A Testnet app on its own hostname
 
-The Mainnet app stays on `www.humanoid-traders.com` with `PI_VALIDATION_KEY`. A Testnet app verifies a hostname of its own. Set `PI_TESTNET_HOST` to that hostname and `PI_TESTNET_VALIDATION_KEY` to the key **Verify App Domain** shows for the Testnet app. A request whose Host is that name, in any case and with or without a port, is answered in plain text at `/validation-key.txt` and `/pi/validation-key.txt`, and the response is not stored by a cache. Requests for that hostname are answered on it. Leave `PI_FRAME_ANCESTORS` as it is, and keep the hostname out of `MEMECLAW_HOSTS`.
+The Mainnet app stays on `www.humanoid-traders.com` with `PI_VALIDATION_KEY`. A Testnet app verifies a hostname of its own. Set `PI_TESTNET_HOST` to that hostname and `PI_TESTNET_VALIDATION_KEY` to the key **Verify App Domain** shows for the Testnet app. A request is that app when its Host is that name, in any case and with or without a port, or when `X-Runeclaw-Pi-Proxy` matches `PI_TESTNET_PROXY_SECRET`. It is answered in plain text at `/validation-key.txt` and `/pi/validation-key.txt`, and the response is not stored by a cache. Neither key is served for the other app. Leave `PI_FRAME_ANCESTORS` as it is, and keep the hostname out of `MEMECLAW_HOSTS`.
 
-Payments on that hostname use `PI_TESTNET_API_KEY` when it is set, and `PI_NETWORK_API_KEY` when it is not.
+Payments for that app use `PI_TESTNET_API_KEY` when it is set, and `PI_NETWORK_API_KEY` when it is not.
 
 **Owner steps**
 
-1. In Cloudflare DNS, point the subdomain (for example `pi.humanoid-traders.com`) at the same origin as `www`. Do not add a redirect rule that sends that hostname to `www`.
-2. In the Pi Developer Portal, set the Testnet app's URL to `https://pi.humanoid-traders.com/pi`.
-3. Set `PI_TESTNET_HOST`, `PI_TESTNET_VALIDATION_KEY` and, for payments, `PI_TESTNET_API_KEY` in the website server's secret settings, then restart.
-4. Press **Verify**. The portal reads `https://pi.humanoid-traders.com/pi/validation-key.txt`.
+`pi.humanoid-traders.com` is a Cloudflare Worker in the owner's zone, not a CNAME to the host. The commands are in `docs/DEPLOY_COMMANDS.md` under "Pi Testnet on pi.humanoid-traders.com".
+
+1. Delete the `pi` CNAME. A CNAME to the host's Cloudflare account returns Error 1014.
+2. Create the Worker, set its `PI_PROXY_SECRET`, and attach the Custom Domain `pi.humanoid-traders.com`.
+3. In the Pi Developer Portal, set the Testnet app's URL to `https://pi.humanoid-traders.com/pi`.
+4. Set `PI_TESTNET_HOST`, `PI_TESTNET_PROXY_SECRET` (the same value as the Worker secret), `PI_TESTNET_VALIDATION_KEY` and, for payments, `PI_TESTNET_API_KEY` in the website server's secret settings, then republish `app/`.
+5. Press **Verify**. The portal reads `https://pi.humanoid-traders.com/pi/validation-key.txt`.

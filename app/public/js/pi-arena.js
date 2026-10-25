@@ -12,8 +12,12 @@
  * about who that is, so both are ignored. routes/pi_auth.js exchanges the
  * token with Pi's App Studio, and the uid in that answer is the identity.
  *
- * Pi.init is awaited to completion before Pi.authenticate, and is not told
- * whether this is the sandbox: the SDK detects that itself.
+ * Pi.init is awaited to completion before Pi.authenticate. It is given
+ * version 2.0 and no sandbox flag. A Testnet app in the Pi Browser is not
+ * the sandbox: the SDK (sdk.minepi.com/pi-sdk.js, read 2026-10-25) turns
+ * sandbox mode on only when an ancestor origin contains sandbox.minepi.com
+ * or the page URL has ?sandbox=true. Forcing sandbox mode would send this
+ * app's messages to sandbox.minepi.com instead of the Pi Browser.
  *
  * TWO PAYMENTS, ONE PATH. An optional tip, which unlocks nothing, and Coach
  * Plus, which adds coach questions for a while (off unless the operator
