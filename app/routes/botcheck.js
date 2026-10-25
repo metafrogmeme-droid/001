@@ -21,7 +21,7 @@ const nf = require('../lib/not_found');
 const check = require('../lib/botcheck');
 
 const PAGE_FILE = path.join(__dirname, '..', 'content', 'botcheck.html');
-const PAGE_ASSETS = ['/styles.css?v=53', '/js/botcheck.js?v=1'];
+const PAGE_ASSETS = ['/styles.css?v=54', '/js/botcheck.js?v=1'];
 
 const router = express.Router();
 
