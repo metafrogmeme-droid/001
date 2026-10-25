@@ -435,6 +435,28 @@ def test_consider_while_the_flag_is_off_does_not_score():
     assert out["findings"] is None
 
 
+def test_the_store_path_does_not_follow_the_working_directory(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from bot.claw_watch_heuristics.flag import STORE
+    from bot.claw_watch_heuristics.service import store_path
+    from bot.utils.paths import REPO_ROOT
+
+    monkeypatch.delenv(STORE, raising=False)
+    monkeypatch.chdir(tmp_path)
+    default = str(REPO_ROOT / "data" / "claw_watch_heuristics.db")
+    assert store_path() == default
+    assert Path(store_path()).is_absolute()
+    assert store_path({}) == default
+    absolute = tmp_path / "cmd.db"
+    monkeypatch.setenv(STORE, str(absolute))
+    assert store_path() == str(absolute)
+    assert store_path({}) == default
+    monkeypatch.setenv(STORE, "data/moved.db")
+    assert store_path() == str(REPO_ROOT / "data" / "moved.db")
+    assert store_path({STORE: "data/explicit.db"}) == str(REPO_ROOT / "data" / "explicit.db")
+
+
 def test_the_command_is_hidden_until_the_flag_or_an_admin(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAW_WATCH_HEURISTICS_ID_SALT", "s" * 16)
     monkeypatch.setenv("CLAW_WATCH_HEURISTICS_DB", str(tmp_path / "cmd.db"))

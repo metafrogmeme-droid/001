@@ -8,7 +8,6 @@ in memory for delivery and stored only as an HMAC.
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from typing import Optional
 
@@ -45,6 +44,7 @@ from bot.claw_watch_heuristics.store import (
     watch_remove,
 )
 from bot.daily_duel_store import player_key
+from bot.utils.paths import env_state_path, state_path
 
 _CHATS: dict[str, int] = {}
 
@@ -63,11 +63,15 @@ def chat_for(chat_id: object, env: Optional[dict] = None) -> Optional[str]:
 
 
 def store_path(env: Optional[dict] = None) -> str:
-    src = os.environ if env is None else env
-    raw = src.get(STORE)
+    """Absolute path. A relative override is anchored to the repo, not the cwd."""
+    if env is None:
+        # The name is a literal because the durable-path scan only recognises
+        # that form. It is the same variable as STORE.
+        return str(env_state_path("CLAW_WATCH_HEURISTICS_DB", "data/claw_watch_heuristics.db"))
+    raw = env.get(STORE)
     if not isinstance(raw, str) or not raw.strip():
-        return "data/claw_watch_heuristics.db"
-    return raw.strip()
+        return str(state_path("data/claw_watch_heuristics.db"))
+    return str(state_path(raw.strip()))
 
 
 def drain_addresses(chat_id: object) -> dict:
