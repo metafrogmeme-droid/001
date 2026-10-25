@@ -697,6 +697,7 @@ python -m bot.main --mode scan
 | `/idleyield` | 跨來源最佳利率掃描 |
 | `/hrc` | Hyperliquid USDC 借款利率上限——利用率與利率，僅管理員 |
 | `/clawwatch` | Claw Watch——登記地址、僅供參考的提醒，以及未簽名的撤銷交易，僅管理員 |
+| `/fees` | 單一 Hyperliquid 地址的 builder 上限與已付費用，唯讀 |
 | `/costs` | 今日模型與 API 支出對照每日預算 |
 
 <!-- END generated: telegram commands -->

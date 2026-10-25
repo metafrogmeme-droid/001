@@ -162,3 +162,10 @@ READERS.MARKET_CLOCK_ENABLED = function (env) {
 READERS.DRAIN_WATCH_ENABLED = function (env) {
   return require('./drain_watch_flag').flagOn(env) === true;
 };
+
+// --- Grounded Reputation begin ---
+// Lazy: grounded_reputation_flag does not require this module.
+READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
+  return require('./grounded_reputation_flag').flagOn(env) === true;
+};
+// --- Grounded Reputation end ---

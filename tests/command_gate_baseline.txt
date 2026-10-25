@@ -64,6 +64,7 @@ ethma guard
 eventrisk guard
 exchange guard
 exposure guard
+fees is_admin
 flags is_admin
 forcescan guard
 fullscan guard
