@@ -135,6 +135,13 @@ test('the page states the limits and does not sign', () => {
   assert.doesNotMatch(html, /\bscam\b/i);
   assert.doesNotMatch(html, /this is safe|marked safe|looks safe/i);
   assert.doesNotMatch(html, /eth_sendTransaction|signTransaction|privateKey/);
+  const scripts = [...html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<script\b([^>]*)>/gi)].map((m) => m[1]);
+  assert.match(scripts[0], /src="\/js\/api-retry\.js\?v=\d+"/);
+  assert.doesNotMatch(scripts[0], /\b(async|defer|type=)/);
+  const unlinked = JSON.parse(fs.readFileSync(path.join(__dirname, 'unlinked_routes.json'), 'utf8'));
+  assert.ok(unlinked.routes['/claw-firewall'].length >= 40);
+  const landing = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.equal(landing.includes('href="/claw-firewall"'), false);
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'claw_firewall.js'), 'utf8');
   assert.match(src, /optionalAuth/);
   assert.match(src, /flag_on_for/);

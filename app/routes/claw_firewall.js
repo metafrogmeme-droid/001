@@ -129,7 +129,7 @@ function limits() {
     revoke_open: 'Revoke stays available, including while the account is frozen.',
     unread: 'An unread chain is not a clean result.',
     ecrecover_first: 'DAI, OpenZeppelin ERC20Permit and USDS call ecrecover before ERC-1271. This module does not gate those permits.',
-    plain_signature: 'A facilitator that only accepts a plain v, r, s signature fails closed. isValidSignature does not recover one.',
+    plain_signature: 'A service that only accepts a plain v, r, s signature fails closed. isValidSignature does not recover one.',
     install_side_effect: 'Installing the gate makes outstanding unused Permit2 and USDC v2.2 signatures fail until they are registered.',
     root_key: 'Someone who holds the 7702 root key bypasses the module with a direct transfer or by pointing the delegation at another contract or at the zero address.',
     fuji: 'Avalanche Fuji is an ERC-7579 smart account. It has no EIP-7702.',
