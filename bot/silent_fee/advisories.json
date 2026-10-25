@@ -1,0 +1,14 @@
+{
+  "advisories": [
+    {
+      "id": "MAL-2026-3679",
+      "published": "2026-05-12",
+      "package": "@2oolkit/hyperliquid-cli",
+      "ecosystem": "npm",
+      "versions": ["0.2.1", "0.2.2"],
+      "builder": "0xa6f967d47c6f85a5ba4fc43543e5e1c171cccf98",
+      "referral_code": "2OOLKIT",
+      "url": "https://osv.dev/vulnerability/MAL-2026-3679"
+    }
+  ]
+}

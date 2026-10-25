@@ -87,6 +87,7 @@ from bot.skills.market_commands import MarketCommands
 from bot.skills.portfolio_commands import PortfolioCommands
 from bot.skills.research_commands import ResearchCommands
 from bot.skills.scan_commands import ScanCommands
+from bot.skills.silent_fee_commands import SilentFeeCommands
 from bot.skills.srb_commands import SrbCommands
 from bot.skills.start_commands import StartCommands
 from bot.skills.t2c_commands import T2CCommands
@@ -1139,6 +1140,7 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
 
 
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
+                      SilentFeeCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
                       EngineOpsCommands, T2CCommands, SrbCommands, PortfolioCommands, ScanCommands,
                       TradingCommands, StartCommands, AlertsMonitor, CallbackHandler):
@@ -1316,6 +1318,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # Lido/Aave), non-custodial preferred honestly. Read-only.
             ("idleyield", self._cmd_idleyield),
             ("hrc", self._cmd_hrc),
+            ("fees", self._cmd_fees),
             # Admin: web live-trading readiness + per-user enablement control
             ("weblive", self._cmd_weblive),
             # Stake/redeem flexible Earn on the CALLER's linked account
