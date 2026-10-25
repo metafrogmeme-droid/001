@@ -905,7 +905,9 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
       sha256_cert_fingerprints: [sha] },
   }]);
 });
-// Pi's domain-verification key, from PI_VALIDATION_KEY (routes/piapp.js).
+// Pi's domain-verification key (routes/piapp.js): PI_VALIDATION_KEY, or
+// PI_TESTNET_VALIDATION_KEY when Host is PI_TESTNET_HOST. Answered in place;
+// that host is not redirected to www.
 app.get('/validation-key.txt', require('./routes/piapp').validationKey);
 // Pi Sign-In's redirect URI: a page, because Pi returns the token in the URL
 // fragment, which only a script can read (routes/pi_signin_page.js).
