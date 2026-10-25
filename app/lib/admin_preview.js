@@ -165,3 +165,10 @@ READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
   return require('./grounded_reputation_flag').flagOn(env) === true;
 };
 // --- Grounded Reputation end ---
+
+// --- Signature decoder begin ---
+// Lazy: sig_decoder_flag does not require this module.
+READERS.SIG_DECODER_ENABLED = function (env) {
+  return require('./sig_decoder_flag').flagOn(env) === true;
+};
+// --- Signature decoder end ---
