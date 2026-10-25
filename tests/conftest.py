@@ -1144,12 +1144,19 @@ def _register_module_timings(config) -> None:
 
     An ordinary pytest does not set the variable, and this function then
     does nothing. The gate's shadow run and its serial run both set it.
+
+    Several tests call ``pytest_configure(None)`` to drive the refusals
+    that follow this call. Those callers have no plugin manager. Timings
+    are the gate's bookkeeping, not part of a refusal, so a missing
+    manager skips only this registration. A real pytest always passes a
+    Config, and this still runs first.
     """
     path = os.environ.get("RUNECLAW_MODULE_TIMINGS", "").strip()
-    if not path:
+    manager = getattr(config, "pluginmanager", None)
+    if not path or manager is None:
         return
     from tests.module_timings import ModuleTimings
-    config.pluginmanager.register(ModuleTimings(path), "runeclaw_module_timings")
+    manager.register(ModuleTimings(path), "runeclaw_module_timings")
 
 
 def _point_a_worker_at_its_own_state() -> None:

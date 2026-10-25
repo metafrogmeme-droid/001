@@ -544,7 +544,7 @@ test('the flag off is a 404, and a signed-in check seals v11 without the address
 
 test('the page says the disclaimer, names every control, and does not fetch on load', () => {
   assert.ok(HTML.includes(DISCLAIMER));
-  assert.match(HTML, /styles\.css\?v=53/);
+  assert.match(HTML, /styles\.css\?v=54/);
   assert.match(HTML, /src="\/js\/api-retry\.js\?v=3"/);
   assert.ok(HTML.indexOf('/js/api-retry.js') < HTML.indexOf('/js/rwa-precheck.js'));
   assert.equal((HTML.match(/<script\b/g) || []).length, 2);
