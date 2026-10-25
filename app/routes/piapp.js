@@ -146,7 +146,7 @@ const SCRIPTS = [
   '/js/pi-leaders.js?v=3',
   // The daily proof, read-only, behind the header's Proof button.
   '/js/pi-proof.js?v=2',
-  '/js/pi-arena.js?v=8',
+  '/js/pi-arena.js?v=9',
 ];
 
 // ── the reader's language ────────────────────────────────────────────────
@@ -211,7 +211,7 @@ function page(lang = 'en', offered = chunks(), preview = null, origin = 'https:/
   // Off, and not an admin preview, the script list is the one this page has
   // always shipped. `preview` defaults off so a direct _page() call stays that.
   if (require('../lib/scam_or_safe').enabled() || (preview && preview.scam)) {
-    const at = list.indexOf('/js/pi-arena.js?v=8');
+    const at = list.indexOf('/js/pi-arena.js?v=9');
     list.splice(at < 0 ? list.length : at, 0, '/js/scam-or-safe.js?v=2');
   }
   // The chosen language's words load right after the module that holds them,
