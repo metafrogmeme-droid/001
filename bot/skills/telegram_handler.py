@@ -79,6 +79,7 @@ from bot.skills.agent_commands import AgentCommands
 from bot.skills.alerts_monitor import AlertsMonitor
 from bot.skills.callback_handler import CallbackHandler
 from bot.skills.command_guard import guard
+from bot.skills.drain_watch_commands import DrainWatchCommands
 from bot.skills.engine_ops_commands import EngineOpsCommands
 from bot.skills.guardian_commands import GuardianCommands
 from bot.skills.hrc_commands import HrcCommands
@@ -1139,6 +1140,7 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
 
 
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
+                      DrainWatchCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
                       EngineOpsCommands, T2CCommands, SrbCommands, PortfolioCommands, ScanCommands,
                       TradingCommands, StartCommands, AlertsMonitor, CallbackHandler):
@@ -1392,6 +1394,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("meme_radar", self._cmd_meme_radar),
             ("wallet", self._cmd_wallet),
             ("defi", self._cmd_defi),
+            ("clawwatch", self._cmd_clawwatch),
         ]:
             # Every slash command's turn reaches the transcript through this
             # one line — the command typed and what it replied — because a

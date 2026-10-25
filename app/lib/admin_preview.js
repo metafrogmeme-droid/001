@@ -158,3 +158,7 @@ READERS.MARKET_CLOCK_ENABLED = function (env) {
   return require('./market_clock_flag').flagOn(env) === true;
 };
 // --- Market Clock end ---
+// Claw Watch. Lazy: drain_watch_flag requires this module.
+READERS.DRAIN_WATCH_ENABLED = function (env) {
+  return require('./drain_watch_flag').flagOn(env) === true;
+};

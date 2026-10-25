@@ -250,6 +250,7 @@ GROUPS: List[Group] = [
         ("yield", "idle-asset yield radar (read-only)"),
         ("idleyield", "cross-source best-rate scan"),
         ("hrc", "Hyperliquid USDC borrow-rate caps — utilization and rate, admin"),
+        ("clawwatch", "Claw Watch — register an address, advisory alerts, unsigned revokes, admin"),
         # It was "trading costs breakdown" under Portfolio, for everyone. It
         # is neither: the deployment's model and API spend, the operator's.
         ("costs", "today's model and API spend against the daily budget"),
@@ -514,6 +515,7 @@ DESC_ZH: Dict[str, str] = {
     "setsigner": "設定鏈上簽章金鑰（加密儲存）",
     "yield": "閒置資產收益雷達（唯讀）", "idleyield": "跨來源最佳利率掃描",
     "hrc": "Hyperliquid USDC 借款利率上限——利用率與利率，僅管理員",
+    "clawwatch": "Claw Watch——登記地址、僅供參考的提醒，以及未簽名的撤銷交易，僅管理員",
     "stake": "把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金",
     "unstake": "把你的活期 Earn 贖回為交易保證金——按鈕確認",
 }

@@ -764,6 +764,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
 | `/hrc` | Hyperliquid USDC borrow-rate caps — utilization and rate, admin |
+| `/clawwatch` | Claw Watch — register an address, advisory alerts, unsigned revokes, admin |
 | `/costs` | today's model and API spend against the daily budget |
 
 <!-- END generated: telegram commands -->
