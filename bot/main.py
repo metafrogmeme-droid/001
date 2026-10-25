@@ -627,6 +627,12 @@ def run_telegram() -> None:
             await app.updater.start_polling(drop_pending_updates=True)
             # Start proactive alert monitor (Move 2)
             await handler.start_monitor(app.bot)
+            # Claw Watch heuristics. Off unless the flag is on. Read-only.
+            try:
+                from bot.claw_watch_heuristics.loop import start_poll
+                await start_poll(app.bot)
+            except Exception as exc:
+                print(f"  Claw Watch heuristics skipped: {type(exc).__name__}\n")
             # Credential preflight: authenticate ONCE at boot so a bad key
             # (Bitget 40006 — the 2026-07-14 env-wipe incident) screams here
             # instead of silently surfacing only when a stop fails to place.

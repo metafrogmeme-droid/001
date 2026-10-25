@@ -622,6 +622,11 @@ app.use('/api/market-clock', require('./routes/market_clock'));
 app.use('/api/grounded-reputation', require('./routes/grounded_reputation'));
 // --- Grounded Reputation end ---
 app.use('/api/news', require('./routes/news'));
+// --- Claw Watch heuristics begin ---
+// Per-user public signals. Read-only, testnet or a local fork. 404 for a
+// non-operator while the flag is off. The route does not sign.
+app.use('/api/claw-watch-heuristics', require('./routes/claw_watch_heuristics'));
+// --- Claw Watch heuristics end ---
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
 app.use('/api/airdrops', require('./routes/airdrops'));

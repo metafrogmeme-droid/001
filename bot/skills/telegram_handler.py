@@ -78,6 +78,7 @@ from bot.skills.account_commands import AccountCommands
 from bot.skills.agent_commands import AgentCommands
 from bot.skills.alerts_monitor import AlertsMonitor
 from bot.skills.callback_handler import CallbackHandler
+from bot.skills.claw_heuristics_commands import ClawHeuristicsCommands
 from bot.skills.command_guard import guard
 from bot.skills.engine_ops_commands import EngineOpsCommands
 from bot.skills.guardian_commands import GuardianCommands
@@ -1143,7 +1144,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                       SilentFeeCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
                       EngineOpsCommands, T2CCommands, SrbCommands, PortfolioCommands, ScanCommands,
-                      TradingCommands, StartCommands, AlertsMonitor, CallbackHandler):
+                      TradingCommands, StartCommands, AlertsMonitor, ClawHeuristicsCommands,
+                      CallbackHandler):
     #: The signal-card sender start_monitor installs on the instance once the
     #: bot is running; None until then, and /latest_signal checks before it
     #: calls. A class default so the trading mixin's contract can name it.
@@ -1304,6 +1306,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("livepositions", self._cmd_livepositions), ("liveclose", self._cmd_liveclose),
             ("buy", self._cmd_buy), ("sell", self._cmd_sell),
             ("health", self._cmd_health),
+            ("clawheuristics", self._cmd_clawheuristics),
             # Per-user exchange BYOK (link your own Bitget account)
             ("connect", self._cmd_connect), ("disconnect", self._cmd_disconnect),
             ("exchange", self._cmd_exchange),

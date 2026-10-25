@@ -634,6 +634,7 @@ python -m bot.main --mode scan
 | `/backup` | 關鍵狀態的可驗證備份 |
 | `/readiness` | 學習迴路是否已驗證到可套用 |
 | `/srb` | 影子償付訊號——公開訊號，不支付 |
+| `/clawheuristics` | Claw Watch 啟發式——你的地址上的公開鏈上訊號，測試網，僅管理員 |
 
 ### 🚦 引擎營運（操作員） — *僅限操作員*
 

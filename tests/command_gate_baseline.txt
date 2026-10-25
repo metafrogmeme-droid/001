@@ -39,6 +39,7 @@ calibration guard
 channel is_admin
 cgc guard+is_admin
 classpf guard
+clawheuristics is_admin
 closeall is_admin
 compliance guard
 connect guard

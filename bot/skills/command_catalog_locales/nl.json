@@ -147,6 +147,7 @@
     "strategy": "actieve strategie en regime-routing",
     "crossasset": "correlatiecontext over activa heen",
     "cgc": "vensters van de conserveringsrem, testnet, alleen lezen",
+    "clawheuristics": "Claw Watch-heuristieken voor je adressen, openbare signalen, testnet, alleen admin",
     "gates": "geslaagd/gefaald-telemetrie per gate",
     "flags": "opt-in-flags voor diepe audit",
     "t2c": "plafond en LTV-signaal voor de wstETH-uitstapduur",
