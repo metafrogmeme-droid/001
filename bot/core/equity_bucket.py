@@ -70,8 +70,8 @@ from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 from bot.core.testnet_book import (
     LIVE,
-    deployment_kind,
     _runtime_is_live_mainnet,
+    deployment_kind,
 )
 
 ASSET_EQUITY = "equity"
@@ -789,8 +789,14 @@ def decide(
     reasons.extend(budget_reasons)
 
     if not any(code.startswith("EQUITY_RISK_UNREAD") for code in failed):
-        equity_open = sum(leg.risk_usd or 0.0 for leg in equity_legs)
-        crypto_risk = sum(leg.risk_usd or 0.0 for leg in crypto_legs)
+        equity_open = 0.0
+        for leg in equity_legs:
+            if leg.risk_usd is not None:
+                equity_open += leg.risk_usd
+        crypto_risk = 0.0
+        for leg in crypto_legs:
+            if leg.risk_usd is not None:
+                crypto_risk += leg.risk_usd
         stop = _finite(stop_distance_pct)
         lev = max(1, int(leverage))
         if stop is None or stop <= 0:
