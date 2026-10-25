@@ -20,6 +20,8 @@ _MAX_BODY = 8 * 1024 * 1024
 class PayloadTooLarge(Exception):
     """The response was larger than the cap. The body is not kept."""
 
+    pass
+
 
 def info_url(env: Optional[Mapping[str, str]] = None) -> str:
     """Testnet unless the mainnet read flag is on."""

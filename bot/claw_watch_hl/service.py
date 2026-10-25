@@ -29,6 +29,7 @@ from bot.claw_watch_hl.hook import ClawWatchRead, read_claw_watch
 from bot.claw_watch_hl.store import HlStore
 from bot.claw_watch_hl.watch import diff, snapshot
 from bot.daily_duel_store import player_key
+from bot.utils.paths import state_path
 
 log = logging.getLogger("runeclaw.claw_watch_hl")
 
@@ -53,8 +54,8 @@ def store_path(env: Optional[Mapping[str, str]] = None) -> Path:
     src = env if env is not None else os.environ
     raw = str(src.get("CLAW_WATCH_HL_STORE") or "").strip()
     if raw:
-        return Path(raw)
-    return Path("data/claw_watch_hl.sqlite")
+        return state_path(raw)
+    return state_path("data/claw_watch_hl.sqlite")
 
 
 def poll_sec(env: Optional[Mapping[str, str]] = None) -> int:
