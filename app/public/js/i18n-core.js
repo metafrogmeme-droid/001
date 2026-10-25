@@ -117,6 +117,9 @@
     "hero.cta_create": { en: "Create free account" },
     "hero.cta_dashboard": { en: "View the dashboard" },
     "hero.free_note": { en: "Free · paper-trade in your browser instantly · no exchange keys needed." },
+    "hero.same_form": { en: "This email continues in the account form further down the page. Both create the same account." },
+    "hero.recorded": { en: "recorded" },
+    "hero.measured": { en: "how this is measured" },
     "sec.mkt_h": { en: "The Strategy Agent Marketplace" },
     "sec.mkt_p": { en: "Browse the engine’s strategy agents — each one a preset from the engine’s own config, and its card says when the live engine does not run it. Follow one, copy its picks on paper, or, where a frozen backtest is attached, reproduce its numbers yourself in the Lab." },
     "sec.mkt_loading": { en: "Loading the agent catalogue…" },
@@ -1260,6 +1263,15 @@
     "auth.pass_min_ph": { en: "Min 10 characters" },
     "auth.pass_ph": { en: "Your password" },
     "auth.create": { en: "Create free account" },
+    "auth.pass_hint": { en: "At least 10 characters." },
+    "auth.pass_ok": { en: "Long enough." },
+    "auth.pass_count": { en: "{n} of 10 characters." },
+    "auth.terms": { en: "By creating an account you agree to the <a href=\"/terms\">terms</a> and <a href=\"/privacy\">privacy policy</a>." },
+    "auth.welcome_title": { en: "Your account is ready" },
+    "auth.welcome_body": { en: "Paper trading works now. The Arena uses live prices and a paper balance, with no exchange keys." },
+    "auth.welcome_arena": { en: "Enter the Arena" },
+    "auth.verify_why": { en: "Confirm this address so password-reset links and account notices are known to reach you. Confirming it does not start live trading. Live trading uses your own exchange keys, and those need Telegram." },
+    "auth.settings": { en: "Account settings" },
     "auth.or_continue": { en: "or continue with" },
     "auth.continue_wallet": { en: "Continue with a wallet" },
     "auth.no_wallet": { en: "No wallet detected — install MetaMask or a browser wallet." },
@@ -2594,7 +2606,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"a0872440","zh":"a78a2292","pt":"24abbb5f","fr":"5527a1c4","de":"36cacb7c","nl":"d80860e3","ja":"939b4770","ko":"b7c725a2","ru":"70481e60","tr":"4e83bf08","it":"f356d3e2","hi":"e47aea16","ar":"3cd7f2ae"};
+  var CHUNKS = {"es":"d59f5e41","zh":"533819b4","pt":"3a423e4b","fr":"59e6dc17","de":"26720d26","nl":"89c3bf91","ja":"561eb438","ko":"423d3ee9","ru":"9554d8cb","tr":"badf03f1","it":"8b90ff18","hi":"041a0016","ar":"f89f43bb"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

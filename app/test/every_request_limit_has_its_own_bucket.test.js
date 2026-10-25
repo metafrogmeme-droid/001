@@ -29,16 +29,24 @@ test('every limiter the routes construct has a name of its own', () => {
   assert.deepStrictEqual(shared, [], `names constructed more than once: ${JSON.stringify(shared)}`);
 
   // The construct-time count and the source count are one quantity read twice.
+  // Loading the route files also loads auth.js (they require it at module
+  // scope), and auth.js constructs its resend limiter then. A scan of
+  // routes/ alone would call that one construction a loop.
+  const files = [
+    ...fs.readdirSync(ROUTES).filter((x) => x.endsWith('.js')).map((f) => path.join(ROUTES, f)),
+    path.join(__dirname, '..', 'auth.js'),
+  ];
   let calls = 0;
-  for (const f of fs.readdirSync(ROUTES).filter((x) => x.endsWith('.js'))) {
-    const src = codeOnly(fs.readFileSync(path.join(ROUTES, f), 'utf8'));
+  for (const f of files) {
+    const src = codeOnly(fs.readFileSync(f, 'utf8'));
     calls += (src.match(/\b(?:rateLimit|slidingWindow)\(\s*\{/g) || []).length;
   }
   assert.strictEqual(names.size, calls,
-    `${calls} limiter calls in routes/, ${names.size} constructed at load: one is built lazily or in a loop`);
+    `${calls} limiter calls in the files loaded with the routes, ${names.size} constructed at load: one is built lazily or in a loop`);
 
-  // The five hand-rolled per-IP windows and the MCP chat window are on the shared count.
-  for (const n of ['insight', 'lab', 'macro', 'market', 'patterns', 'mcp', 'mcp.ask']) {
+  // The five hand-rolled per-IP windows, the MCP chat window, and the
+  // verification resend are on the shared count.
+  for (const n of ['insight', 'lab', 'macro', 'market', 'patterns', 'mcp', 'mcp.ask', 'auth.verify_resend']) {
     assert.ok(names.has(n), `no limiter named ${n}`);
   }
 });

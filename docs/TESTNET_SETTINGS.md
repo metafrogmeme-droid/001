@@ -81,3 +81,93 @@ testnet the profile is on until that line is set; on paper it is off until
 
 `PRIMARY_BOOK=hourly` reverts only the named book. It does not restore
 sizing 5, the manual streak reset, or a single cooldown.
+
+## Tokenized-equity bucket
+
+Bitget's R-prefix tokenized equities (RAAPL, RTSLA, RNVDA, RFSLY, and the
+same shape of replica) stay in the scanner. `EQUITY_BUCKET_ENABLED` caps
+them and keeps their closes out of the crypto book. The flag defaults off.
+A live mainnet process ignores it, including one armed with `/golive` after
+boot. On a venue testnet or a paper process it applies only when the flag
+is set. The reading is `bot/core/equity_bucket.py`.
+
+### Which names
+
+The Bitget instrument row is the preferred reading: `symbolType` `stock`,
+`isRwa` `YES`, or `isReality` `yes`, and the base still has to be the
+R-prefix family (`R` plus a ticker). `symbolType` `crypto` is crypto. A
+base on the crypto refusal list is never an equity, including when a row
+is mis-tagged. That list includes RUNE, RENDER, RSR and RVN.
+
+When the row does not carry those fields, the name is an equity only if
+it has that shape and the ticker after the leading `R` is on the
+documented underlying list (the replica names in `US_STOCK_SYMBOLS`, plus
+FSLY). A leading `R` by itself is not enough.
+
+### Ceilings
+
+While the bucket is on:
+
+| knob | default | what it bounds |
+|---|---|---|
+| `EQUITY_MAX_OPEN_POSITIONS` | 2 | open equity positions |
+| `EQUITY_MAX_RISK_SHARE` | 0.20 | equity open risk as a share of total open risk |
+| `EQUITY_RISK_MULTIPLE` | 0.5 | per-trade equity risk versus the crypto size |
+
+The share is of risk that is already open. One equity in an otherwise flat
+book would be the whole of open risk, so the ceiling admits none until
+another position has risk on record. The performance budget below can only
+lower this share. None of these raise a size, and none of them change
+`BID_DOMINANCE` or `OF_DOMINANCE_RATIO`.
+
+Crypto keeps priority on `max_open_positions`. In one confirm batch, crypto
+ideas are ordered first. An equity is refused when crypto already holds
+every slot, or the book is already full. The existing max-open check is
+unchanged and still counts every position.
+
+### What an equity close does not teach the crypto book
+
+It does not enter confidence calibration, voter-weight learning, or setup
+expectancy. It does not move the streak breaker, the live-performance
+window, or a per-symbol cooldown. The bucket keeps its own close record
+and uses that for the budget below.
+
+The account daily-loss limit still counts the close. On a live book that
+is the daily P&L accumulator. On a paper book it is the portfolio's own
+daily P&L, which is recorded before the streak callback.
+
+### Adaptive, under those ceilings
+
+Each cut is deterministic and recorded as a reason code on the risk check
+(`equity_reasons` in the risk audit, and `action=equity_bucket` in the
+trade log). A trade-log open and close for one of these names carries
+`asset_class=equity`.
+
+* Same-direction equity positions are one cluster. Size shrinks when the
+  new trade joins that cluster, and when rolling-return correlation with
+  an open name is at or above `EQUITY_CORR_THRESHOLD` (default 0.50). With
+  no return history the bucket assumes the cluster is correlated
+  (`EQUITY_ASSUMED_CORR_MULT`, default 0.5) rather than treating a missing
+  series as uncorrelated.
+* Size scales by the equity's own realized vol (ATR over price) against
+  `EQUITY_VOL_TARGET` (default 0.03). It never scales up. An unreadable vol
+  uses a 0.5 cut.
+* The risk share starts at `EQUITY_BUDGET_FLOOR` (default 0.05) until
+  `EQUITY_BUDGET_MIN_CLOSES` (default 8) equity closes are on record. Over
+  the last `EQUITY_BUDGET_WINDOW` closes (default 20), a profit factor
+  below 1 or a drawdown above `EQUITY_BUDGET_DD` (default 0.10) returns
+  the share to the floor. A healthy window steps it up by
+  `EQUITY_BUDGET_STEP` (default 0.02) and no further, and never above the
+  hard share.
+* Notional is capped at `EQUITY_DEPTH_FRACTION` (default 0.10) of the
+  measured top-of-book depth on the side the entry takes. An unread book
+  refuses the trade.
+* A closed US reference session scales size by `EQUITY_SESSION_CLOSED_MULT`
+  (default 0.25). Setting that to 0 skips the entry instead. An unreadable
+  session clock does not pretend the market is closed.
+
+### Revert the bucket
+
+Unset `EQUITY_BUCKET_ENABLED`, or set it to 0, and restart. Caps, ordering,
+and the learning wall go back to the crypto book. Live mainnet was never
+on this path.

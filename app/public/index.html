@@ -209,10 +209,11 @@
   <p class="hero-lede" data-i18n="hero.lede">Every trading call is sealed with a hash before the market moves — so a win can never be backdated and a loss can never quietly disappear.</p>
   <form class="hero-cta hero-signup" id="heroSignup" novalidate>
     <input class="input hero-email" type="email" id="hero-email" placeholder="you@example.com" autocomplete="email" aria-label="Email address" data-i18n-attr="aria-label:a11y.email;placeholder:auth.email_ph">
-    <button class="btn btn--primary" type="submit" data-i18n="hero.cta_create">Create free account</button>
+    <button class="btn btn--primary" type="submit" data-i18n="nav.get_started">Get started</button>
     <a class="hero-secondary" href="/dashboard" data-i18n="hero.cta_dashboard">View the dashboard</a>
   </form>
   <p class="hero-note muted small" data-i18n="hero.free_note">Free · paper-trade in your browser instantly · no exchange keys needed.</p>
+  <p class="hero-note muted small" data-i18n="hero.same_form">This email continues in the account form further down the page. Both create the same account.</p>
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
   <ul class="trust-badges" aria-label="Why you can trust it" data-i18n-attr="aria-label:a11y.trust">
@@ -251,7 +252,7 @@
 
 <!-- Sticky mobile CTA: the primary action stays one tap away through the whole
      long page on phones (where most visitors land). Hidden on desktop. -->
-<a class="mobile-cta" href="#auth-panel" data-i18n="hero.cta_create">Create free account</a>
+<a class="mobile-cta" href="#auth-panel" data-i18n="nav.get_started">Get started</a>
 
 <!-- A slice of the real market feed. It is a SAMPLE, not a census:
      (server-cached, percent moves only — no account data on this page). -->
@@ -712,10 +713,11 @@
     </div>
     <div id="step-register" class="step active">
       <div class="field"><label for="reg-email" data-i18n="auth.email">Email</label><input class="input" type="email" id="reg-email" placeholder="you@example.com" autocomplete="email" data-i18n-attr="placeholder:auth.email_ph"></div>
-      <div class="field"><label for="reg-pass" data-i18n="auth.password">Password</label><input class="input" type="password" id="reg-pass" placeholder="Min 10 characters" autocomplete="new-password" data-i18n-attr="placeholder:auth.pass_min_ph"></div>
+      <div class="field"><label for="reg-pass" data-i18n="auth.password">Password</label><input class="input" type="password" id="reg-pass" placeholder="Min 10 characters" autocomplete="new-password" data-i18n-attr="placeholder:auth.pass_min_ph" aria-describedby="reg-pass-hint"><p class="muted small" id="reg-pass-hint" aria-live="polite" data-i18n="auth.pass_hint">At least 10 characters.</p></div>
       <div class="field"><label for="reg-pass2" data-i18n="auth.confirm_pass">Confirm password</label><input class="input" type="password" id="reg-pass2" placeholder="Repeat password" autocomplete="new-password" data-i18n-attr="placeholder:auth.confirm_ph"></div>
       <div class="form-err" id="reg-err" aria-live="polite"></div>
-      <button class="btn btn--primary btn-block" data-act="doRegister" data-i18n="auth.create">Create free account</button>
+      <p class="muted small" data-i18n-html="auth.terms">By creating an account you agree to the <a href="/terms">terms</a> and <a href="/privacy">privacy policy</a>.</p>
+      <button class="btn btn--primary btn-block" data-act="doRegister" data-i18n="nav.get_started">Get started</button>
       <p class="muted small" data-i18n="auth.paper_note">Paper trading works immediately — no Telegram, no exchange keys.</p>
     </div>
     <div id="step-login" class="step">
@@ -757,10 +759,22 @@
       <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em" data-i18n="acc.title">Your account</h2>
       <button class="btn btn--ghost btn--sm" data-act="doLogout" data-i18n="acc.logout">Log out</button>
     </div>
+    <div id="welcome-box" class="hidden" style="margin-bottom:var(--s4)">
+      <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em" data-i18n="auth.welcome_title">Your account is ready</h2>
+      <p class="muted small" data-i18n="auth.welcome_body">Paper trading works now. The Arena uses live prices and a paper balance, with no exchange keys.</p>
+      <a class="btn btn--primary" href="/arena" data-i18n="auth.welcome_arena">Enter the Arena</a>
+    </div>
     <div class="acct-grid">
       <div class="stat"><div class="k">Account</div><div class="v" style="font-family:var(--font-ui);font-size:var(--fs-sm);word-break:break-all" id="d-email">–</div></div>
       <div class="stat"><div class="k">Telegram</div><div class="v" style="font-size:var(--fs-sm)" id="d-tg-status">–</div></div>
     </div>
+    <div class="section-note hidden" id="verify-box" style="border-style:solid;flex-direction:column;align-items:flex-start">
+      <span id="verify-text" data-i18n="acc.verify_text">Your email isn't verified yet.</span>
+      <p class="muted small" id="verify-why" style="margin:6px 0 0" data-i18n="auth.verify_why">Confirm this address so password-reset links and account notices are known to reach you. Confirming it does not start live trading. Live trading uses your own exchange keys, and those need Telegram.</p>
+      <button class="btn btn--ghost btn--sm mt-2" id="verify-resend" data-act="resendVerification" data-i18n="acc.resend_verify">Resend verification email</button>
+    </div>
+    <details id="account-more">
+      <summary class="muted small" style="cursor:pointer;margin:var(--s3) 0" data-i18n="auth.settings">Account settings</summary>
     <div class="section-note hidden" id="linked-ok" style="border-style:solid;border-color:var(--up);color:var(--up)">
       <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
       <span data-i18n="acc.linked_ok">Telegram linked — exchange-key management and live controls unlocked. Live trades run on your own exchange keys.</span>
@@ -783,12 +797,6 @@
       <h3 style="font-size:var(--fs-base);margin-bottom:var(--s1)" data-i18n="acc.link_social">Link social accounts</h3>
       <p class="muted small" data-i18n="acc.link_social_body">Connect another way to sign in. You'll stay the same account.</p>
       <div id="link-social-btns" style="display:flex;flex-direction:column;gap:8px;margin-top:var(--s2)"></div>
-    </div>
-
-    <!-- Email verification status (shown only for real email accounts) -->
-    <div class="section-note hidden" id="verify-box" style="border-style:solid">
-      <span id="verify-text" data-i18n="acc.verify_text">Your email isn't verified yet.</span>
-      <button class="btn btn--ghost btn--sm mt-2" id="verify-resend" data-act="resendVerification" data-i18n="acc.resend_verify">Resend verification email</button>
     </div>
 
     <!-- Wallet link (shown when the server supports wallet verification) -->
@@ -861,8 +869,9 @@
       </div>
       <div class="form-err" id="del-msg" aria-live="polite"></div>
     </div>
+    </details>
 
-    <a href="/dashboard" class="btn btn--primary btn-block mt-4" data-i18n="acc.open_dash">Open trading dashboard →</a>
+    <a href="/dashboard" class="btn btn--primary btn-block mt-4" id="account-dash" data-i18n="acc.open_dash">Open trading dashboard →</a>
   </div>
 </main>
 
@@ -942,7 +951,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=208"></script>
+<script src="/js/i18n-core.js?v=209"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=18"></script>
@@ -1217,11 +1226,6 @@
     }
     var s = d.stats || {};
     if (!host) return;
-    function utcDay(iso) {
-      if (!iso) return null;
-      var d = new Date(iso);
-      return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-    }
     function stat(v, k, tip) {
       return v == null ? '' :
         '<span style="display:inline-flex;gap:6px;align-items:baseline" title="' + RC.esc(tip) + '">'
@@ -1235,12 +1239,30 @@
       stat(s.max_drawdown_pct != null ? Number(s.max_drawdown_pct).toFixed(1) + '%' : null, 'max drawdown', 'Largest peak-to-trough drop on the indexed public curve.'),
     ].filter(Boolean);
     if (!rows.length) return clearSkel();
-    var from = utcDay(s.first_trade_at), to = utcDay(s.last_trade_at);
-    var windowLabel = (from && to) ? (from + ' – ' + to + ' UTC') : 'all recorded closes';
-    host.innerHTML = '<span class="chip" style="align-self:center" title="These figures are the public recorded closes, not a profit stamp.">recorded</span>'
+    function dayLabel(v) {
+      if (v == null || v === '') return '';
+      var t = typeof v === 'number' ? v : Date.parse(v);
+      if (!isFinite(t)) return '';
+      var d = new Date(t);
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return d.getUTCDate() + ' ' + months[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+    }
+    var fromDay = dayLabel(s.first_trade_at);
+    var toDay = dayLabel(s.last_trade_at);
+    var windowText = fromDay && toDay
+      ? (fromDay === toDay ? fromDay + ' UTC' : fromDay + ' – ' + toDay + ' UTC')
+      : (fromDay || toDay ? (fromDay || toDay) + ' UTC' : '');
+    // The numbers stay, including a profit factor below 1. The chip is not
+    // green: a recorded sample is not a verdict that the record won. The
+    // window is the readable UTC span when the dates parse. The wording next
+    // to it says these are recorded closes, priced for the win rate, not a
+    // profit stamp. The link is how the record is measured.
+    host.innerHTML = '<span class="chip" style="align-self:center" title="These figures are the public recorded closes, not a profit stamp.">' + RC.esc(T('hero.recorded', 'recorded')) + '</span>'
       + rows.join('<span aria-hidden="true">·</span>')
-      + '<span class="small" title="Public track record only. The engine card is a different book.">all recorded closes · ' + RC.esc(windowLabel) + ' · win rate over priced closes</span>'
-      + '<a class="small" href="/track">verify →</a>';
+      + '<span class="muted small" title="Public track record only. The engine card is a different book.">all recorded closes'
+      + (windowText ? ' · ' + RC.esc(windowText) : '')
+      + ' · win rate over priced closes</span>'
+      + '<a class="small" href="/track">' + RC.esc(T('hero.measured', 'how this is measured')) + '</a>';
     host.hidden = false;
     host.style.display = 'flex';   // inline display would defeat [hidden]
   }).catch(function () { clearSkel(); });
@@ -1313,6 +1335,16 @@ async function apiCall(path,body){
   const r=await fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   return r.json();
 }
+(function(){
+  var input=document.getElementById('reg-pass');
+  var hint=document.getElementById('reg-pass-hint');
+  if(!input||!hint)return;
+  input.addEventListener('input', function(){
+    var n=input.value.length;
+    if(!n){hint.textContent=T('auth.pass_hint','At least 10 characters.');return;}
+    hint.textContent=n>=10?T('auth.pass_ok','Long enough.'):T('auth.pass_count','{n} of 10 characters.').replace('{n}',String(n));
+  });
+})();
 async function doRegister(){
   const email=document.getElementById('reg-email').value.trim();
   const pass=document.getElementById('reg-pass').value;
@@ -1324,7 +1356,7 @@ async function doRegister(){
   const res=await apiCall('/auth/register',{email,password:pass,ref:REF});
   if(res.error){setErr('reg-err',res.error);return;}
   try{localStorage.removeItem('rc_ref');}catch(e){}  // consumed
-  SESSION=res;showAccount(res);
+  SESSION=res;showAccount(res,{welcome:true});
 }
 async function doLogin(){
   const email=document.getElementById('login-email').value.trim();
@@ -1354,9 +1386,16 @@ function doLogout(){
   document.getElementById('auth-panel').classList.remove('hidden');
   document.getElementById('account').classList.add('hidden');
 }
-function showAccount(data){
+function showAccount(data, opts){
+  var welcome = !!(opts && opts.welcome);
   document.getElementById('auth-panel').classList.add('hidden');
   document.getElementById('account').classList.remove('hidden');
+  var welcomeBox = document.getElementById('welcome-box');
+  if (welcomeBox) welcomeBox.classList.toggle('hidden', !welcome);
+  var more = document.getElementById('account-more');
+  if (more) more.open = !welcome;
+  var dash = document.getElementById('account-dash');
+  if (dash) dash.classList.toggle('hidden', welcome);
   document.getElementById('d-email').textContent=data.email||'–';
   const linked=!!data.telegram_linked;
   document.getElementById('d-tg-status').innerHTML=linked
@@ -1466,12 +1505,14 @@ function renderAccountMeta(data){
     vbox.style.borderColor='var(--up)';vbox.style.color='var(--up)';
     document.getElementById('verify-text').textContent='✓ Email verified.';
     document.getElementById('verify-resend').classList.add('hidden');
-  }else if(data.email_verified===false){
+  }  else if(data.email_verified===false){
     vbox.classList.remove('hidden');
     vbox.style.borderColor='';vbox.style.color='';
     document.getElementById('verify-text').textContent="Your email isn't verified yet.";
     document.getElementById('verify-resend').classList.remove('hidden');
   }
+  var why=document.getElementById('verify-why');
+  if(why) why.classList.toggle('hidden', data.email_verified!==false || placeholder);
   // Password box: OAuth-only accounts SET a password (no current field).
   if(data.has_password===false){
     document.getElementById('pw-title').textContent='Set a password';

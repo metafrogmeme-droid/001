@@ -555,6 +555,16 @@ def close_row(trade, *, mode: str, source: str) -> Optional[dict]:
     from bot.core.practice_fill import close_trains_engine
     if not close_trains_engine(trade):
         return None
+    # An equity close, while that bucket is on, stays out of this crypto
+    # ledger the same way the live close stays out of decision memory.
+    # A paper close is not that gate: the paper loop still scores it.
+    if mode != "paper":
+        try:
+            from bot.core.equity_bucket import crypto_learning_isolated
+            if crypto_learning_isolated(_symbol(trade)):
+                return None
+        except Exception:  # noqa: BLE001 — an unread check is not an equity
+            logger.error("Equity isolation could not be read for a close")
     from bot.utils.win_rate import trade_pnl
     pnl = trade_pnl(trade)
     if pnl is None:

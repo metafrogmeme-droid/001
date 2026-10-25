@@ -37,9 +37,15 @@
     out.appendChild(note);
     if (!doc || doc.available !== true || !Array.isArray(doc.rows) || doc.rows.length === 0) {
       var empty = document.createElement('p');
-      empty.textContent = doc && doc.reason === 'unreadable'
-        ? 'Board unreadable.'
-        : 'Board not published.';
+      if (doc && doc.reason === 'unreadable') {
+        empty.textContent = 'Board unreadable.';
+      } else {
+        var line = 'Board not published. Nothing is listed here until a board file is published.';
+        if (document.querySelector('.fvb-banner')) {
+          line += ' The flag is off, so this view is an admin preview of that introduction.';
+        }
+        empty.textContent = line;
+      }
       out.appendChild(empty);
       return;
     }

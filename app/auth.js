@@ -18,6 +18,7 @@ const gateway = { isConfigured };
 const { erasurePlan } = require('./lib/account_erasure');
 const { aggregateStats } = require('./public/js/trade-stats');
 const { secLog } = require('./lib/seclog');
+const { rateLimit, userKey } = require('./lib/rate_limit');
 
 // Self-custody sign-in verifier, in-house (lib/eth_signature.js). It used to
 // be `ethers.verifyMessage`, which the stub production resolves `ethers` to
@@ -481,6 +482,15 @@ const RESET_TTL_MS = 30 * 60 * 1000;       // 30m
 // paper now, Telegram link next, live only with operator approval. A welcome
 // that implies live trading is one tap away is the same promise-then-refuse
 // the bot's own onboarding was fixed for; the person just finds out later.
+function _mailShell(inner) {
+  return '<div style="font-family:Georgia,serif;color:#1c1a16;max-width:560px;line-height:1.5">'
+    + '<p style="margin:0 0 16px;letter-spacing:.14em;font-size:12px;color:#8a7340">'
+    + 'HUMANOID TRADERS</p>'
+    + inner
+    + '<p style="margin:24px 0 0;color:#888;font-size:12px">Humanoid Traders · RUNECLAW</p>'
+    + '</div>';
+}
+
 function _welcomeBlocks(link) {
   const text =
     'Welcome to RUNECLAW.\n\n'
@@ -495,7 +505,7 @@ function _welcomeBlocks(link) {
     + '  - Live trading additionally needs the operator to approve your\n'
     + '    account. Paper works without any of this.\n\n'
     + "If you didn't create an account, ignore this message.";
-  const html =
+  const html = _mailShell(
     '<p>Welcome to <b>RUNECLAW</b>.</p>'
     + `<p><a href="${link}">Confirm your email</a> to finish setting up (valid 24h).</p>`
     + '<p><b>Straight away:</b> paper trading and the dashboard — no setup, no '
@@ -504,7 +514,8 @@ function _welcomeBlocks(link) {
     + 'management, your live-trading controls and alerts. Live trading also '
     + 'needs operator approval; paper works without any of it.</p>'
     + '<p style="color:#888;font-size:12px">If you didn\'t create an account, '
-    + 'ignore this message.</p>';
+    + 'ignore this message.</p>'
+  );
   return { text, html };
 }
 
@@ -524,9 +535,11 @@ async function sendVerificationEmail(userId, email, { welcome = false } = {}) {
     const link = `${base}/verify?token=${raw}`;
     const body = welcome ? _welcomeBlocks(link) : {
       text: `Confirm your email to finish setting up RUNECLAW.\n\nOpen this link (valid 24h):\n${link}\n\nIf you didn't create an account, ignore this message.`,
-      html: `<p>Confirm your email to finish setting up <b>RUNECLAW</b>.</p>`
+      html: _mailShell(
+        `<p>Confirm your email to finish setting up <b>RUNECLAW</b>.</p>`
         + `<p><a href="${link}">Verify my email</a> (valid 24h)</p>`
-        + `<p style="color:#888;font-size:12px">If you didn't create an account, ignore this message.</p>`,
+        + `<p style="color:#888;font-size:12px">If you didn't create an account, ignore this message.</p>`
+      ),
     };
     await mailer.sendMail({
       to: email,
@@ -1666,7 +1679,16 @@ router.post('/verify-email', async (req, res) => {
 });
 
 // -- Resend the verification email (authenticated) --
-router.post('/send-verification', authMiddleware, async (req, res) => {
+// Five an account, per 15 minutes. The login limiter is per IP and would
+// let one session ask for a new token on every click.
+const verifyResendLimit = rateLimit({
+  name: 'auth.verify_resend',
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  key: userKey,
+  message: 'Too many verification emails. Try again later.',
+});
+router.post('/send-verification', authMiddleware, verifyResendLimit, async (req, res) => {
   try {
     const [rows] = await pool.execute(
       'SELECT id, email, email_verified FROM users WHERE id = ?', [req.user.user_id]);

@@ -92,10 +92,12 @@ async function webAccount() {
   return { id: rows[0].id, token: auth.signToken(rows[0]) };
 }
 
-async function serve({ key = KEY, env = {} } = {}) {
+async function serve({ key = KEY, env = {}, omitKey = false } = {}) {
   const router = require('../routes/pi_payments');
   const pi = fakePi();
-  router._deps = { fetch: pi.fetch, apiKey: key, apiBase: BASE, env };
+  const injected = { fetch: pi.fetch, apiBase: BASE, env };
+  if (!omitKey) injected.apiKey = key;
+  router._deps = injected;
   const app = express();
   app.use(express.json());
   app.use('/api/pi/payments', router);
@@ -150,6 +152,60 @@ test('the client\'s three answers: a payment, null for unknown, a throw for ever
   await assert.rejects(() => pay.getPayment('p', { ...deps, apiKey: null }), pay.PaymentsNotConfigured);
   const liar = { fetch: async () => ({ status: 200, ok: true, json: async () => ({ identifier: 'other' }) }), apiKey: KEY };
   await assert.rejects(() => pay.getPayment('mine', liar), /different payment/);
+});
+
+test('the testnet host uses its own API key, and falls back when that key is unset', async () => {
+  const env = {
+    PI_TESTNET_HOST: 'pi.humanoid-traders.com',
+    PI_TESTNET_API_KEY: '  testnet-api-dummy  ',
+    PI_NETWORK_API_KEY: 'main-api-dummy',
+  };
+  const on = (host) => ({ hostname: host });
+  assert.strictEqual(pay.apiKey(env, on('PI.HUMANOID-TRADERS.COM')), 'testnet-api-dummy');
+  assert.strictEqual(pay.apiKey(env, on('www.humanoid-traders.com')), 'main-api-dummy');
+  assert.strictEqual(pay.apiKey({ ...env, PI_TESTNET_API_KEY: '' }, on('pi.humanoid-traders.com')), 'main-api-dummy');
+  assert.strictEqual(pay.apiKey({ PI_NETWORK_API_KEY: 'main-api-dummy', PI_TESTNET_API_KEY: 'testnet-api-dummy' }, on('pi.humanoid-traders.com')), 'main-api-dummy');
+  assert.strictEqual(pay.apiKey({}), null);
+  assert.strictEqual(pay.configured(env, on('pi.humanoid-traders.com')), true);
+
+  // The route, with no injected key: approval sends the key for the Host.
+  const s = await serve({ omitKey: true, env });
+  try {
+    const me = await piAccount();
+    const port = s.server.address().port;
+    async function post(host, path, body) {
+      const r = await new Promise((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1', port, path: `/api/pi/payments${path}`, method: 'POST',
+          headers: {
+            host, 'content-type': 'application/json', authorization: `Bearer ${me.token}`,
+          },
+        }, (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }));
+        });
+        req.on('error', reject);
+        req.end(JSON.stringify(body));
+      });
+      return r;
+    }
+    const orderedOn = async (host) => {
+      const o = await post(host, '/tips', { amount: 1 });
+      assert.strictEqual(o.status, 200, JSON.stringify(o.body));
+      const paymentId = `pay-${Math.random().toString(36).slice(2)}`;
+      s.pi.create(paymentId, { uid: me.uid, amount: o.body.amount, metadata: o.body.metadata });
+      return paymentId;
+    };
+    const testnetId = await orderedOn('pi.humanoid-traders.com:443');
+    const testnetApproved = await post('pi.humanoid-traders.com:443', '/approve', { paymentId: testnetId });
+    assert.strictEqual(testnetApproved.status, 200, JSON.stringify(testnetApproved.body));
+    const wwwId = await orderedOn('www.humanoid-traders.com');
+    const wwwApproved = await post('www.humanoid-traders.com', '/approve', { paymentId: wwwId });
+    assert.strictEqual(wwwApproved.status, 200, JSON.stringify(wwwApproved.body));
+    const auths = s.pi.calls.filter((c) => c.op === 'approve').map((c) => c.auth);
+    assert.deepStrictEqual(auths, ['Key testnet-api-dummy', 'Key main-api-dummy']);
+  } finally { s.server.close(); }
 });
 
 test('tip amounts are the server\'s, and a bad setting falls back rather than offering nothing', () => {

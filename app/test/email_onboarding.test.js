@@ -164,6 +164,24 @@ test('with SMTP configured it keeps the generic, non-enumerating wording', async
   assert.match(sent[0].text, /\/reset\?token=/);
 });
 
+test('resend verification is limited to five an account', async () => {
+  sent.length = 0;
+  await withMailer(true, async () => {
+    const reg = await post('/api/auth/register',
+      { email: 'resend-cap@test.io', password: 'correct-horse-battery' });
+    assert.strictEqual(reg.status, 200, JSON.stringify(reg.body));
+    sent.length = 0;
+    for (let i = 0; i < 5; i++) {
+      const ok = await post('/api/auth/send-verification', {}, reg.body.token);
+      assert.strictEqual(ok.status, 200, JSON.stringify(ok.body));
+    }
+    const blocked = await post('/api/auth/send-verification', {}, reg.body.token);
+    assert.strictEqual(blocked.status, 429);
+    assert.match(blocked.body.error, /verification/i);
+  });
+  assert.strictEqual(sent.length, 5, 'the sixth request is refused before another mail');
+});
+
 test.after(() => {
   mailer.sendMail = realSend;
   mailer.isConfigured = realIsConfigured;

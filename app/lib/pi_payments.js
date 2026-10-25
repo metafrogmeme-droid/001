@@ -12,7 +12,9 @@
  *   GET  https://api.minepi.com/v2/payments/{id}            the payment, as Pi holds it
  *   POST https://api.minepi.com/v2/payments/{id}/approve    let the person sign
  *   POST https://api.minepi.com/v2/payments/{id}/complete   { txid }: it happened
- *   Authorization: Key <PI_NETWORK_API_KEY>
+ *   Authorization: Key <the app's server API key>
+ *     PI_NETWORK_API_KEY, or PI_TESTNET_API_KEY when the request host is
+ *     PI_TESTNET_HOST and that key is set. Unset there, the Mainnet key.
  *
  * WHAT THE PAGE SAYS IS NEVER THE PAYMENT. The page sends a payment id (and a
  * txid at completion); everything else (whose payment, how much, which order,
@@ -30,6 +32,8 @@
  * answered something unusable). A throw is ours to report, never a verdict on
  * the person.
  */
+
+const { isTestnetHost } = require('./pi_host');
 
 const API_BASE = 'https://api.minepi.com';
 const TIMEOUT_MS = 10000;
@@ -51,13 +55,23 @@ const MAX_TIP = 100;
 /** Raised when the server has no API key: payments are not offered, not broken. */
 class PaymentsNotConfigured extends Error {}
 
-function apiKey(env = process.env) {
+/**
+ * The server API key for this request. On the Testnet host, PI_TESTNET_API_KEY
+ * when it is set; otherwise PI_NETWORK_API_KEY, on that host and every other.
+ * Sign-in does not use a key (lib/pi_auth.js exchanges the access token).
+ * `req` may be omitted by a caller with no request: that is the Mainnet key.
+ */
+function apiKey(env = process.env, req) {
+  if (req && isTestnetHost(req, env)) {
+    const test = String(env.PI_TESTNET_API_KEY || '').trim();
+    if (test) return test;
+  }
   const k = String(env.PI_NETWORK_API_KEY || '').trim();
   return k || null;
 }
 
-function configured(env = process.env) {
-  return apiKey(env) !== null;
+function configured(env = process.env, req) {
+  return apiKey(env, req) !== null;
 }
 
 /**

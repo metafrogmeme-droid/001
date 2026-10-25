@@ -344,7 +344,7 @@ test('SaR stays off in public, and an admin previews the tools page and the admi
     assert.equal(adminPage.status, 200);
     assert.ok(adminPage.raw.includes(preview.BANNER));
     assert.match(adminPage.raw, /href="\/api\/sar-oracle\/admin\/packets"/);
-    assert.match(adminPage.raw, /Admin view/);
+    assert.match(adminPage.raw, /Admin JSON API/);
     assert.equal(adminPage.raw.includes('_usd_'), false);
     assert.equal(adminPage.raw.includes('$'), false);
     assert.equal(adminPage.cache, 'private, no-store');
@@ -378,7 +378,7 @@ test('SaR stays off in public, and an admin previews the tools page and the admi
     const openPage = await hit(server, '/tools', { token: adminToken });
     assert.equal(openPage.status, 200);
     assert.equal(openPage.raw.includes(preview.BANNER), false);
-    assert.match(openPage.raw, /Admin view/);
+    assert.match(openPage.raw, /Admin JSON API/);
     assert.equal(openPage.cache, 'no-store');
     const openFeed = await hit(server, '/api/sar-oracle/packets');
     assert.equal(openFeed.status, 200);
