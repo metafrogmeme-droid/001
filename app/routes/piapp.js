@@ -54,7 +54,7 @@ const express = require('express');
 const { previewFlags, withBanner } = require('../lib/admin_preview');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const PiI18n = require('../public/js/pi-i18n.js');
-const { isTestnetHost } = require('../lib/pi_host');
+const { isTestnetHost, pageOrigin } = require('../lib/pi_host');
 
 const router = express.Router();
 
@@ -146,7 +146,7 @@ const SCRIPTS = [
   '/js/pi-leaders.js?v=3',
   // The daily proof, read-only, behind the header's Proof button.
   '/js/pi-proof.js?v=2',
-  '/js/pi-arena.js?v=8',
+  '/js/pi-arena.js?v=9',
 ];
 
 // ── the reader's language ────────────────────────────────────────────────
@@ -201,7 +201,9 @@ function escAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function page(lang = 'en', offered = chunks(), preview = null) {
+function page(lang = 'en', offered = chunks(), preview = null, origin = 'https://www.humanoid-traders.com') {
+  // The origin is written into the document. Only a hostname we built is used.
+  if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) origin = 'https://www.humanoid-traders.com';
   const code = lang === 'en' || Object.prototype.hasOwnProperty.call(offered, lang) ? lang : 'en';
   const head = HEAD_SCRIPTS.map((s) => `<script src="${s}"></script>`).join('\n');
   const list = SCRIPTS.slice();
@@ -209,7 +211,7 @@ function page(lang = 'en', offered = chunks(), preview = null) {
   // Off, and not an admin preview, the script list is the one this page has
   // always shipped. `preview` defaults off so a direct _page() call stays that.
   if (require('../lib/scam_or_safe').enabled() || (preview && preview.scam)) {
-    const at = list.indexOf('/js/pi-arena.js?v=8');
+    const at = list.indexOf('/js/pi-arena.js?v=9');
     list.splice(at < 0 ? list.length : at, 0, '/js/scam-or-safe.js?v=2');
   }
   // The chosen language's words load right after the module that holds them,
@@ -225,8 +227,9 @@ function page(lang = 'en', offered = chunks(), preview = null) {
 <meta property="og:title" content="RUNECLAW Arena">
 <meta property="og:description" content="Paper-trade the Arena and call the Daily Duel from the Pi Browser. Free, paper money, no real funds.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://www.humanoid-traders.com/pi">
-<meta property="og:image" content="https://www.humanoid-traders.com/pi_og_1200x630.jpg">
+<link rel="canonical" href="${origin}/pi">
+<meta property="og:url" content="${origin}/pi">
+<meta property="og:image" content="${origin}/pi_og_1200x630.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -244,17 +247,23 @@ ${scripts}
 }
 
 router.get('/', async (req, res) => {
-  // The page depends on the reader's language; it is never cached anyway
-  // (framable(), no-store), and Vary says so to anything in between.
-  res.setHeader('Vary', 'Accept-Language');
+  // The page depends on the reader's language and, through the Worker, on
+  // X-Runeclaw-Pi-Proxy (the canonical URL). It is never cached anyway
+  // (framable(), no-store). Vary names both so a cache that kept the body
+  // anyway cannot serve one app's links as the other's. The header name is
+  // varied; the secret is not written into the response.
+  res.setHeader('Vary', 'Accept-Language, X-Runeclaw-Pi-Proxy');
+  // The Testnet app's canonical URL is its own hostname, including when a
+  // Worker fetched this page from www and proved it with the proxy secret.
+  const origin = pageOrigin(req);
   try {
     const flags = await previewFlags(req);
     res.type('html').send(page(pickLang(req), chunks(), {
       scam: flags.includes('SCAM_OR_SAFE_V0'),
       banner: flags.length > 0,
-    }));
+    }, origin));
   } catch (e) {
-    if (!res.headersSent) res.type('html').send(page(pickLang(req)));
+    if (!res.headersSent) res.type('html').send(page(pickLang(req), chunks(), null, origin));
   }
 });
 
@@ -267,14 +276,18 @@ router.get('/', async (req, res) => {
  * an unset key is a 404, never an empty 200 that reads as "verified with
  * nothing".
  *
- * TWO APPS, TWO KEYS. The Mainnet app keeps PI_VALIDATION_KEY. A request whose
- * host is PI_TESTNET_HOST is the Testnet app and is answered with
- * PI_TESTNET_VALIDATION_KEY, including when that key is unset (a 404, not the
- * Mainnet key: one file must not verify both apps). The handler answers in
- * place. Nothing in this server redirects that host to www.
+ * TWO APPS, TWO KEYS. The Mainnet app keeps PI_VALIDATION_KEY. A request that
+ * is the Testnet app (lib/pi_host: Host is PI_TESTNET_HOST, or the Worker
+ * proxy secret matches) is answered with PI_TESTNET_VALIDATION_KEY, including
+ * when that key is unset (a 404, not the Mainnet key: one file must not
+ * verify both apps). The other direction holds too: a request that is not
+ * the Testnet app is never answered with the Testnet key. The handler
+ * answers in place. Nothing in this server redirects that host to www.
  *
- * NO SHARED CACHE. Both hostnames are one path. no-store, and Vary: Host, so
- * a cache that kept the body anyway cannot hand one app the other's key.
+ * NO SHARED CACHE. The two apps share this path, and through the Worker they
+ * also share Host. no-store, and Vary names Host and X-Runeclaw-Pi-Proxy, so
+ * a cache that kept the body anyway cannot hand one app the other's key. The
+ * header name is varied; the secret is not written into the response.
  */
 router.get('/validation-key.txt', validationKey);
 
@@ -282,7 +295,7 @@ function validationKey(req, res) {
   const env = process.env;
   const key = String((isTestnetHost(req, env) ? env.PI_TESTNET_VALIDATION_KEY : env.PI_VALIDATION_KEY) || '').trim();
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Vary', 'Host');
+  res.setHeader('Vary', 'Host, X-Runeclaw-Pi-Proxy');
   if (!key) return res.status(404).type('text/plain').send('Not found');
   return res.type('text/plain').send(key);
 }

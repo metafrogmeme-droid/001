@@ -682,11 +682,11 @@ describe('scam or safe daily', { concurrency: false }, () => {
     flag(false);
     const off = pi._page('en', {});
     assert.equal(off.includes('scam-or-safe.js'), false);
-    assert.match(off, /\/js\/pi-arena\.js\?v=8/);
+    assert.match(off, /\/js\/pi-arena\.js\?v=9/);
     flag(true);
     const on = pi._page('en', {});
     const atScam = on.indexOf('/js/scam-or-safe.js?v=2');
-    const atArena = on.indexOf('/js/pi-arena.js?v=8');
+    const atArena = on.indexOf('/js/pi-arena.js?v=9');
     assert.ok(atScam > 0 && atArena > atScam);
     flag(false);
     const arena = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'pi-arena.js'), 'utf8');

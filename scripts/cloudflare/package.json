@@ -1,0 +1,6 @@
+{
+  "name": "runeclaw-pi-testnet-worker",
+  "private": true,
+  "type": "module",
+  "description": "Marks pi-testnet-worker.js as an ES module for Node and Wrangler. No dependencies."
+}

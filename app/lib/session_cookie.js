@@ -97,6 +97,9 @@ function isSecure(req) {
 }
 
 function serialize(name, value, { maxAge, httpOnly, secure }) {
+  // No Domain attribute. The cookie belongs to the host the browser requested.
+  // Domain=www would pin a response that arrived through the Testnet hostname
+  // to the Mainnet host, and the browser would drop it.
   const parts = [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'SameSite=Lax'];
   // Max-Age=0 with an empty value is the expiry form; both are set so a
   // browser ignoring one honours the other.

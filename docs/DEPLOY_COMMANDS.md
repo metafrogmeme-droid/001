@@ -338,6 +338,46 @@ test -x "$HOME/launch_all.sh" || { echo "STOP — copy scripts/launch_all.sh.tem
 Keep this file's copy in the launcher outside the repo. The version in here is
 the reference; the version that runs must not be a file this update overwrites.
 
+## Pi Testnet on pi.humanoid-traders.com
+
+MuleRun's custom-hostname quota is full. Only `www.humanoid-traders.com` is
+registered there. `pi.humanoid-traders.com` is a Worker in the owner's own
+Cloudflare account (the `humanoid-traders.com` zone). It proxies the Testnet
+app to `https://www.humanoid-traders.com` and sends `X-Runeclaw-Pi-Proxy`.
+The website treats that request as the Testnet app when the header matches
+`PI_TESTNET_PROXY_SECRET`. www stays the Mainnet app. The secret is never
+committed and never pasted into chat.
+
+1. On your own machine, generate a secret of at least 48 characters. A value
+   shorter than 32 characters is ignored, and the Worker then refuses to
+   proxy rather than serve the Mainnet validation key on the Testnet hostname.
+   ```bash
+   python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+   ```
+2. In the Cloudflare dashboard for `humanoid-traders.com`, delete the `pi`
+   CNAME. It points at `pmvc58g2.mule.page` and that is what returns Error
+   1014 (CNAME Cross-User Banned).
+3. Create a Worker from `scripts/cloudflare/pi-testnet-worker.js`.
+   `scripts/cloudflare/wrangler.toml` is the example config. Do not put the
+   secret in that file. From that directory:
+   ```bash
+   wrangler deploy
+   ```
+4. Set the Worker secret (this prompts; it does not take the value on the
+   command line) and attach the hostname. The example config names the
+   Custom Domain; confirm it in the dashboard as `pi.humanoid-traders.com`.
+   ```bash
+   wrangler secret put PI_PROXY_SECRET
+   ```
+   In the dashboard, add the Worker as a Custom Domain:
+   `pi.humanoid-traders.com`.
+5. On the MuleRun host, set `PI_TESTNET_PROXY_SECRET` in
+   `~/runeclaw-persist/web.env` to the same value, along with
+   `PI_TESTNET_HOST=pi.humanoid-traders.com`, `PI_TESTNET_VALIDATION_KEY` and
+   `PI_TESTNET_API_KEY`. Republish `app/`. The Worker only forwards the
+   Testnet app (`/pi`, its validation file, the Pi API routes, and the
+   static files that page loads). Other paths redirect to www.
+
 ## What the test baseline counts
 
 `scripts/ci_test_gate.py` prints `known-baseline: N` for the node ids in

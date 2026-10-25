@@ -1,0 +1,16 @@
+# Example Worker config for the Pi Testnet hostname.
+# The secret is not here. Set it in the owner's Cloudflare account:
+#   wrangler secret put PI_PROXY_SECRET
+# The same value goes in the website server as PI_TESTNET_PROXY_SECRET.
+# Neither value belongs in this file, in git, or in chat.
+
+name = "runeclaw-pi-testnet"
+main = "pi-testnet-worker.js"
+compatibility_date = "2026-10-25"
+workers_dev = false
+
+# Custom Domain on the humanoid-traders.com zone, in the same Cloudflare
+# account as this Worker. Delete the pi CNAME before attaching it.
+[[routes]]
+pattern = "pi.humanoid-traders.com"
+custom_domain = true

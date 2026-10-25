@@ -13,8 +13,10 @@
  *   POST https://api.minepi.com/v2/payments/{id}/approve    let the person sign
  *   POST https://api.minepi.com/v2/payments/{id}/complete   { txid }: it happened
  *   Authorization: Key <the app's server API key>
- *     PI_NETWORK_API_KEY, or PI_TESTNET_API_KEY when the request host is
- *     PI_TESTNET_HOST and that key is set. Unset there, the Mainnet key.
+ *     PI_NETWORK_API_KEY, or PI_TESTNET_API_KEY when the request is the
+ *     Testnet app (lib/pi_host) and that key is set. Unset there, the
+ *     Mainnet key. A request that is not the Testnet app never reads the
+ *     Testnet key.
  *
  * WHAT THE PAGE SAYS IS NEVER THE PAYMENT. The page sends a payment id (and a
  * txid at completion); everything else (whose payment, how much, which order,
@@ -56,8 +58,8 @@ const MAX_TIP = 100;
 class PaymentsNotConfigured extends Error {}
 
 /**
- * The server API key for this request. On the Testnet host, PI_TESTNET_API_KEY
- * when it is set; otherwise PI_NETWORK_API_KEY, on that host and every other.
+ * The server API key for this request. On the Testnet app, PI_TESTNET_API_KEY
+ * when it is set; otherwise PI_NETWORK_API_KEY, on that app and every other.
  * Sign-in does not use a key (lib/pi_auth.js exchanges the access token).
  * `req` may be omitted by a caller with no request: that is the Mainnet key.
  */
