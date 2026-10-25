@@ -134,3 +134,10 @@ READERS.XNAV_ENABLED = function (env) {
   return require('./xnav_flag').flagOn(env) === true;
 };
 // --- XNAV end ---
+
+// --- HashKey seal begin ---
+// Lazy: hashkey_seal_flag requires this module.
+READERS.HASHKEY_SEAL_ENABLED = function (env) {
+  return require('./hashkey_seal_flag').flagOn(env) === true;
+};
+// --- HashKey seal end ---

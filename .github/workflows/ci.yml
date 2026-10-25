@@ -1272,3 +1272,24 @@ jobs:
       - name: SCA — npm advisory ratchet
         working-directory: contracts/xnav
         run: node ../../token/scripts/audit_gate.mjs .
+
+  hashkey-seal:
+    name: HashKey seal (solidity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      # Foundry 1.8.6, pinned by release checksum. Hermetic: forge test
+      # does not deploy and does not talk to a chain.
+      - name: Install Foundry 1.8.6
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/foundry.tar.gz https://github.com/foundry-rs/foundry/releases/download/v1.8.6/foundry_v1.8.6_linux_amd64.tar.gz
+          echo "58850106984038f3a7200f38a4182c8cb423d3a4f4c7848eacbc2453e6bc35fc  /tmp/foundry.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/foundry.tar.gz -C /usr/local/bin forge cast
+          forge --version
+
+      - name: Contract tests
+        working-directory: contracts/hashkey
+        run: forge test

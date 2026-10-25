@@ -593,6 +593,11 @@ app.use('/api/sar-oracle', require('./routes/sar_oracle'));
 // The quote tool is POST /api/xnav/mcp, not the MCP catalogue.
 app.use('/api/xnav', require('./routes/xnav'));
 // --- XNAV end ---
+// --- HashKey seal begin ---
+// Seal anchor. Admin only, flag on or off. The publisher signs HashKey
+// testnet only, and a preview does not sign.
+app.use('/api/hashkey-seal', require('./routes/hashkey_seal'));
+// --- HashKey seal end ---
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
