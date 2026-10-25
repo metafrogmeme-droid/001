@@ -80,9 +80,9 @@ test('output, the catalog, the page, and the client avoid the forbidden words', 
   assert.equal(MONEY.test(blob), false);
   assert.equal(/<script(?![^>]*\bsrc=)/i.test(HTML), false);
   assert.equal(/\son[a-z]+=/i.test(HTML), false);
-  assert.equal(HTML.includes('/styles.css?v=53'), true);
+  assert.equal(HTML.includes('/styles.css?v=54'), true);
   assert.equal(HTML.includes('/js/botcheck.js?v=1'), true);
-  assert.equal(ROUTE_SRC.includes('/styles.css?v=53'), true);
+  assert.equal(ROUTE_SRC.includes('/styles.css?v=54'), true);
   assert.equal(ROUTE_SRC.includes('/js/botcheck.js?v=1'), true);
 });
 

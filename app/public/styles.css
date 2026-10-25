@@ -224,11 +224,36 @@ code { font-family: var(--font-data); font-size: .9em; background: var(--surface
   /* 15 items would crush to ~25px on a phone. Give each tab a tappable width
      and let the bar scroll horizontally instead of squashing every label. */
   overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
-  /* UX-4: a gentle right-edge fade signals "more tabs →" so the scrollable
-     bar doesn't read as the whole nav. The active tab is centered in JS, so
-     it never sits under the fade. */
-  -webkit-mask-image: linear-gradient(to right, #000 92%, rgba(0, 0, 0, .35));
-  mask-image: linear-gradient(to right, #000 92%, rgba(0, 0, 0, .35));
+  /* Room for the overlay "more" control, so the last tab can scroll clear
+     of it. Constant, so showing or hiding the control does not shift the bar. */
+  padding-right: 44px; scroll-padding-inline-end: 48px;
+  /* A right-edge fade that actually reads as "more this way". The old one
+     held 92% at full opacity and only dropped to 0.35, which on a phone
+     looked like a hard cut. The active tab is centered in JS. */
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 88px), rgba(0, 0, 0, .15) calc(100% - 36px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 88px), rgba(0, 0, 0, .15) calc(100% - 36px), transparent 100%);
+}
+.tabbar.tabbar--end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+/* Phone only. The desktop rail is the same list without this control.
+   Fixed, so it overlays the fade and never changes the bar's height. */
+.tabbar-more {
+  display: none;
+  position: fixed; right: 0; bottom: 0; z-index: 61;
+  width: 44px; min-width: 44px; min-height: 44px;
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  margin: 0; padding: 0 0 env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+  align-items: center; justify-content: center;
+  border: 0; border-left: 1px solid var(--line);
+  background: rgba(14, 16, 23, .98); color: var(--gold-bright);
+  cursor: pointer;
+}
+.tabbar-more .icon { width: 20px; height: 20px; }
+@media (max-width: 1023px) {
+  .tabbar-more:not([hidden]) { display: flex; }
 }
 .tabbar::-webkit-scrollbar { display: none; }
 .tabbar a {

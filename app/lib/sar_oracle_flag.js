@@ -32,6 +32,37 @@ function defaultOperator(req) {
 }
 
 /**
+ * Whether this caller would receive the /tools document.
+ *
+ * The same decision `sendPage` uses, and nothing else. While the flag
+ * is on, that is the operator. While it is off, that is an admin
+ * preview (`flag_on_for`). A failed read is closed. The nav asks this
+ * rather than a client-side flag, and the page route still answers
+ * 404 on its own.
+ */
+async function access(req, deps) {
+  const on = flag_on();
+  if (on) {
+    const injected = deps && deps.isOperator;
+    const check = injected || defaultOperator;
+    try {
+      if (!injected) await identify(req);
+      return { operator: (await check(req)) === true, preview: false };
+    } catch (err) {
+      console.error('operator check failed:', err && err.name ? err.name : 'Error');
+      return { operator: false, preview: false };
+    }
+  }
+  const preview = (await flag_on_for(req, FLAG)) === true;
+  return { operator: preview === true, preview: preview === true };
+}
+
+async function openFor(req) {
+  const gate = await access(req);
+  return gate.operator === true;
+}
+
+/**
  * The /tools document. 404 while the flag is off for this caller.
  * While the flag is on, 404 unless the caller is the operator. An
  * admin, while the flag is off, gets the same operator HTML plus the
@@ -39,23 +70,9 @@ function defaultOperator(req) {
  */
 async function sendPage(req, res, deps) {
   try {
-    const on = flag_on();
-    let operator = false;
-    let preview = false;
-    if (on) {
-      const injected = deps && deps.isOperator;
-      const check = injected || defaultOperator;
-      try {
-        if (!injected) await identify(req);
-        operator = await check(req);
-      } catch (err) {
-        console.error('operator check failed:', err && err.name ? err.name : 'Error');
-        operator = false;
-      }
-    } else {
-      preview = (await flag_on_for(req, FLAG)) === true;
-      operator = preview;
-    }
+    const gate = await access(req, deps);
+    const operator = gate.operator === true;
+    const preview = gate.preview === true;
     if (operator !== true) return res.status(404).type('text/plain').send('Not found');
     let html;
     try {
@@ -101,4 +118,4 @@ async function pageGate(req, res, next) {
   }
 }
 
-module.exports = { FLAG, flag_on, pageGate, pageFile, sendPage };
+module.exports = { FLAG, flag_on, pageGate, pageFile, sendPage, openFor };
