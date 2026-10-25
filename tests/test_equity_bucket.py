@@ -10,6 +10,7 @@ import pytest
 
 from bot.core.equity_bucket import (
     CRYPTO_BASES,
+    _reset_bucket_state,
     apply_to_risk,
     bucket_active,
     bucket_closes,
@@ -18,7 +19,6 @@ from bot.core.equity_bucket import (
     decide,
     is_tokenized_equity,
     record_bucket_close,
-    reset_bucket_state,
     slot_order,
     trade_fields,
 )
@@ -388,7 +388,7 @@ def test_paper_equity_close_does_not_move_the_streak(monkeypatch, tmp_path):
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "0")
     monkeypatch.delenv("BITGET_SANDBOX", raising=False)
     monkeypatch.delenv("HYPERLIQUID_TESTNET", raising=False)
-    reset_bucket_state()
+    _reset_bucket_state()
     risk = RiskEngine(
         PortfolioTracker(initial_balance=10_000, state_file=str(tmp_path / "unused.json")),
         state_file=str(tmp_path / "risk.json"))

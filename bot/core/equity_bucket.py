@@ -367,8 +367,8 @@ def slot_order(pairs: Sequence[Any], env: Optional[Mapping[str, str]] = None) ->
     return sorted(rows, key=rank)
 
 
-def reset_bucket_state() -> None:
-    """Forget this process's equity closes. Tests use it."""
+def _reset_bucket_state() -> None:
+    """Forget this process's equity closes. The suite calls this between cases."""
     with _CLOSES_LOCK:
         _CLOSES.clear()
 

@@ -1907,15 +1907,16 @@ class RuneClawEngine:
             if _rpnl is not None:
                 # The stated notional turns the P&L into the per-close return
                 # the live VaR proxy reads; an unstated one records no return.
-                # An equity close still counts toward the daily-loss
-                # accumulator and does not enter the streak or the windows.
-                _notional = None
-                if not _eq_iso:
-                    _notional = _live_executor_mod.position_size_basis(pos)[1]
+                # That keyword stays the basis expression on every close. An
+                # equity close still counts toward the daily-loss accumulator
+                # and does not enter the streak or the windows; the flag is
+                # passed only when it is on, so a crypto close is the same call
+                # it was.
+                _eq_flag = {"isolated_equity": True} if _eq_iso else {}
                 self.risk_for(user_id).record_live_trade_result(
                     float(_rpnl),
-                    notional=_notional,
-                    isolated_equity=_eq_iso)
+                    notional=_live_executor_mod.position_size_basis(pos)[1],
+                    **_eq_flag)
                 if _eq_iso and _eq_record is not None:
                     _eq_record(float(_rpnl), _eq_sym)
             elif not _eq_iso:
