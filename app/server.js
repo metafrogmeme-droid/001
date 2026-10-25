@@ -333,6 +333,9 @@ app.use('/api/chat', express.json({ limit: '7mb' }));
 const panicApi = require('./routes/panic');
 const panicReceipt = require('./routes/panic_receipt');
 app.use('/api/panic', panicApi.capBody);
+// Silent Fee Check posts one address. Mounted here, before the 1mb parser,
+// so the router's own cap is the parser that reads the body.
+app.use('/api/fees', require('./routes/silent_fee'));
 // The review-queue write is a name and a short note. This parser runs first
 // for /api/botcheck/submit, so the global parser below skips a body it
 // already parsed, and a payload over 1kb never reaches the handler.

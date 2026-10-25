@@ -325,6 +325,23 @@ def on_panic(
     return render_messages(result, page_url(env))
 
 
+def read_silent_fees(
+    address: str,
+    *,
+    days: int = 30,
+    transport=None,
+    env: Optional[Mapping[str, str]] = None,
+    now_ms: Optional[int] = None,
+) -> dict[str, Any]:
+    """Silent Fee Check, asked through Panic Button.
+
+    The reading lives in ``bot.silent_fee``. This function does not sign,
+    does not approve a builder, and does not keep the address.
+    """
+    from bot.silent_fee.check import read_account
+    return read_account(address, days=days, transport=transport, env=env, now_ms=now_ms)
+
+
 def seal_receipt(hashes: Any, now: Optional[str] = None) -> dict[str, Any]:
     """The time the caller reported these revoke hashes. Hashes only.
 

@@ -185,6 +185,7 @@
     "setsigner": "define la clave de firma on-chain (cifrada)",
     "yield": "radar de rendimiento de activos ociosos (solo lectura)",
     "hrc": "topes de la tasa de préstamo USDC de Hyperliquid — utilización y tasa, solo administrador",
+    "fees": "topes y comisiones de builder pagadas en una dirección de Hyperliquid, solo lectura",
     "idleyield": "escaneo de la mejor tasa entre fuentes",
     "stake": "poner los stables ociosos de TU cuenta Bitget vinculada en Earn flexible — una tarjeta de plan, nada se mueve hasta Confirmar",
     "unstake": "rescatar tu Earn flexible de vuelta al margen de trading — confirmado con botón",
