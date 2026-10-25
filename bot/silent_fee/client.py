@@ -24,6 +24,8 @@ Transport = Callable[[str, dict], object]
 class PayloadTooLarge(Exception):
     """The response was larger than the cap. The body is not kept."""
 
+    pass
+
 
 def info_url(network: str) -> str:
     if network not in INFO_URL:
