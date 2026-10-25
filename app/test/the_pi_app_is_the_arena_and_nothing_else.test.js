@@ -34,18 +34,53 @@ const PUBLIC = path.join(APP, 'public');
 const PUBLIC_JS = path.join(PUBLIC, 'js');
 const VALIDATION_TOKEN = 'piappstudio-UTmzZbZm68Hqo7a0yTvian5zxjEApYdY';
 
-/** The router behind express.static, in the order server.js mounts them. */
-async function get(p, env = {}) {
+/** One request. `host` is the Host header; fetch will not set one. */
+function httpGet(port, p, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port, path: p, method: 'GET', headers,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        headers: {
+          get(name) {
+            const v = res.headers[String(name).toLowerCase()];
+            if (v == null) return null;
+            return Array.isArray(v) ? v.join(', ') : String(v);
+          },
+        },
+        text: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/**
+ * The router behind express.static, in the order server.js mounts them.
+ * `opts.host` sets Host. `opts.trustProxy` is Express's trust proxy setting,
+ * off unless a test turns it on. `opts.headers` are extra request headers.
+ */
+async function get(p, env = {}, opts = {}) {
   const saved = {};
   for (const [k, v] of Object.entries(env)) { saved[k] = process.env[k]; process.env[k] = v; }
   const mod = require('../routes/piapp');
   const app = express();
+  if (opts.trustProxy != null) app.set('trust proxy', opts.trustProxy);
   app.use(express.static(PUBLIC));
   app.use('/pi', mod);
   app.get('/validation-key.txt', mod.validationKey);
   const server = http.createServer(app);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   try {
+    if (opts.host || opts.headers || opts.trustProxy != null) {
+      const headers = { ...(opts.headers || {}) };
+      if (opts.host) headers.host = opts.host;
+      return await httpGet(server.address().port, p, headers);
+    }
     const r = await fetch(`http://127.0.0.1:${server.address().port}${p}`, { redirect: 'manual' });
     return { status: r.status, headers: r.headers, text: await r.text() };
   } finally {
@@ -228,14 +263,101 @@ test('the domain key is served only when set, and never as an empty 200', async 
   // The Developer Portal's "Verify App Domain" step asks for the key beside
   // the App URL, /pi/validation-key.txt (2026-10-17); the root path stays.
   for (const p of ['/validation-key.txt', '/pi/validation-key.txt']) {
-    const unset = await get(p, { PI_VALIDATION_KEY: '' });
+    const unset = await get(p, { PI_VALIDATION_KEY: '', PI_TESTNET_HOST: '', PI_TESTNET_VALIDATION_KEY: '' });
     assert.strictEqual(unset.status, 404, p);
     assert.notStrictEqual(unset.text.trim(), '', `${p}: an unset key answered an empty body`);
-    const set = await get(p, { PI_VALIDATION_KEY: '  abc123key  ' });
+    const set = await get(p, { PI_VALIDATION_KEY: '  abc123key  ', PI_TESTNET_HOST: '', PI_TESTNET_VALIDATION_KEY: '' });
     assert.strictEqual(set.status, 200, p);
     assert.strictEqual(set.text, 'abc123key', p);
     assert.match(set.headers.get('content-type'), /^text\/plain/, p);
   }
+});
+
+const WWW = 'www.humanoid-traders.com';
+const PI_HOST = 'pi.humanoid-traders.com';
+const BOTH_KEYS = {
+  PI_VALIDATION_KEY: 'www-dummy',
+  PI_TESTNET_HOST: PI_HOST,
+  PI_TESTNET_VALIDATION_KEY: '  testnet-dummy  ',
+};
+
+test('the testnet host is served its own key, and www keeps the mainnet key', async () => {
+  for (const p of ['/validation-key.txt', '/pi/validation-key.txt']) {
+    const testnet = await get(p, BOTH_KEYS, { host: 'PI.HUMANOID-TRADERS.COM:443' });
+    assert.strictEqual(testnet.status, 200, p);
+    assert.strictEqual(testnet.text, 'testnet-dummy', p);
+    assert.match(testnet.headers.get('content-type'), /^text\/plain/, p);
+    assert.match(testnet.headers.get('cache-control'), /no-store/, p);
+    assert.match(testnet.headers.get('vary'), /\bHost\b/, p);
+    assert.strictEqual(testnet.headers.get('location'), null, p);
+
+    const www = await get(p, BOTH_KEYS, { host: WWW });
+    assert.strictEqual(www.status, 200, p);
+    assert.strictEqual(www.text, 'www-dummy', p);
+    assert.strictEqual(www.headers.get('location'), null, p);
+
+    const neighbour = await get(p, BOTH_KEYS, { host: 'not-pi.humanoid-traders.com' });
+    assert.strictEqual(neighbour.text, 'www-dummy', `${p} treated a neighbour as the testnet host`);
+  }
+});
+
+test('an unset key is a 404, including the testnet key on the testnet host', async () => {
+  for (const p of ['/validation-key.txt', '/pi/validation-key.txt']) {
+    const neither = await get(p, {
+      PI_VALIDATION_KEY: '', PI_TESTNET_HOST: '', PI_TESTNET_VALIDATION_KEY: '',
+    }, { host: PI_HOST });
+    assert.strictEqual(neither.status, 404, p);
+    assert.notStrictEqual(neither.text.trim(), '', p);
+
+    // The testnet host does not fall back to the mainnet key.
+    const testnetUnset = await get(p, {
+      PI_VALIDATION_KEY: 'www-dummy', PI_TESTNET_HOST: ` ${PI_HOST}:8443 `, PI_TESTNET_VALIDATION_KEY: ' ',
+    }, { host: PI_HOST });
+    assert.strictEqual(testnetUnset.status, 404, p);
+    assert.doesNotMatch(testnetUnset.text, /www-dummy/, p);
+    assert.match(testnetUnset.headers.get('cache-control'), /no-store/, p);
+
+    // The new settings unset: today's one key, on every host.
+    const legacy = await get(p, {
+      PI_VALIDATION_KEY: 'www-dummy', PI_TESTNET_HOST: '', PI_TESTNET_VALIDATION_KEY: 'testnet-dummy',
+    }, { host: PI_HOST });
+    assert.strictEqual(legacy.status, 200, p);
+    assert.strictEqual(legacy.text, 'www-dummy', p);
+  }
+});
+
+test('the testnet host is not redirected, and a forwarded host is not trusted unless the proxy is', async () => {
+  for (const p of ['/validation-key.txt', '/pi/validation-key.txt', '/pi', '/pi/']) {
+    const r = await get(p, BOTH_KEYS, { host: PI_HOST });
+    const loc = r.headers.get('location');
+    assert.ok(r.status < 400, `${p} answered ${r.status}`);
+    if (loc) {
+      assert.doesNotMatch(loc, /www\.humanoid-traders\.com/i, `${p} location ${loc}`);
+      if (/^https?:\/\//i.test(loc)) {
+        assert.strictEqual(new URL(loc).hostname, PI_HOST, `${p} left the host: ${loc}`);
+      }
+    }
+  }
+  const page = await get('/pi/', BOTH_KEYS, { host: PI_HOST });
+  assert.strictEqual(page.status, 200);
+  assert.doesNotMatch(page.text, /http-equiv="refresh"/i);
+
+  // trust proxy is off: X-Forwarded-Host cannot pick the testnet key.
+  const spoofed = await get('/validation-key.txt', BOTH_KEYS, {
+    host: WWW,
+    headers: { 'x-forwarded-host': PI_HOST },
+  });
+  assert.strictEqual(spoofed.status, 200);
+  assert.strictEqual(spoofed.text, 'www-dummy');
+
+  // The same header counts when this app already trusts the connecting hop.
+  const trusted = await get('/pi/validation-key.txt', BOTH_KEYS, {
+    host: 'internal.local',
+    headers: { 'x-forwarded-host': PI_HOST },
+    trustProxy: true,
+  });
+  assert.strictEqual(trusted.status, 200);
+  assert.strictEqual(trusted.text, 'testnet-dummy');
 });
 
 test('the page carries a description, a link-preview image and an icon, and the files it names exist', async () => {

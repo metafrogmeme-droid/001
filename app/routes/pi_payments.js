@@ -28,7 +28,9 @@
  * completion the page sends only Pi's payment id (and the txid); the payment
  * itself is read back from Pi with the server-only key and must match the
  * order: this person, this amount, this order, user to app, not cancelled
- * (lib/pi_payments.mismatches).
+ * (lib/pi_payments.mismatches). On PI_TESTNET_HOST that key is
+ * PI_TESTNET_API_KEY when set, and PI_NETWORK_API_KEY otherwise
+ * (lib/pi_payments.apiKey).
  *
  * IDEMPOTENT, BECAUSE PI RETRIES. The SDK re-sends approval and completion
  * every ~10 s until they succeed, and an interrupted payment comes back
@@ -62,9 +64,19 @@ const limit = rateLimit({ name: 'pi_payments', windowMs: 60000, max: 30, key: us
 /** Test seam: { fetch, apiKey, apiBase } for lib/pi_payments, and { env }. */
 function deps() { return router._deps || {}; }
 function env() { return deps().env || process.env; }
-function isConfigured() {
+function isConfigured(req) {
   const d = deps();
-  return d.apiKey !== undefined ? Boolean(d.apiKey) : pay.configured(env());
+  return d.apiKey !== undefined ? Boolean(d.apiKey) : pay.configured(env(), req);
+}
+
+/**
+ * What a Platform call is given. A test that injects `apiKey` keeps that key.
+ * Production reads the key for this request's host.
+ */
+function platformDeps(req) {
+  const d = deps();
+  if (d.apiKey !== undefined) return d;
+  return { ...d, apiKey: pay.apiKey(env(), req) };
 }
 
 function unavailable(res, err, where) {
@@ -90,12 +102,12 @@ async function orderOf(orderId, userId) {
 }
 
 router.get('/tips', authMiddleware, limit, (req, res) => {
-  if (!isConfigured()) return res.json({ enabled: false });
+  if (!isConfigured(req)) return res.json({ enabled: false });
   return res.json({ enabled: true, amounts: pay.tipAmounts(env()), memo: pay.TIP_MEMO });
 });
 
 router.post('/tips', authMiddleware, limit, async (req, res) => {
-  if (!isConfigured()) return res.status(503).json({ error: 'payments_not_configured' });
+  if (!isConfigured(req)) return res.status(503).json({ error: 'payments_not_configured' });
   const offered = pay.tipAmounts(env()).find((a) => pay.sameAmount(a, req.body && req.body.amount));
   if (offered === undefined) return res.status(400).json({ error: 'amount_not_offered' });
   try {
@@ -119,13 +131,13 @@ router.post('/tips', authMiddleware, limit, async (req, res) => {
 
 router.get('/coach-plus', authMiddleware, limit, (req, res) => {
   const offer = coach.plusOffer(env());
-  if (!isConfigured() || !offer) return res.json({ enabled: false });
+  if (!isConfigured(req) || !offer) return res.json({ enabled: false });
   return res.json({ enabled: true, amount: offer.amount, days: offer.days,
     daily: coach.limits(env()).plus, memo: pay.COACH_PLUS_MEMO });
 });
 
 router.post('/coach-plus', authMiddleware, limit, async (req, res) => {
-  if (!isConfigured()) return res.status(503).json({ error: 'payments_not_configured' });
+  if (!isConfigured(req)) return res.status(503).json({ error: 'payments_not_configured' });
   const offer = coach.plusOffer(env());
   if (!offer) return res.status(404).json({ error: 'not_offered' });
   try {
@@ -158,7 +170,7 @@ async function matched(req, res, paymentId, where) {
     res.status(400).json({ error: 'payment_id_required' });
     return null;
   }
-  if (!isConfigured()) {
+  if (!isConfigured(req)) {
     res.status(503).json({ error: 'payments_not_configured' });
     return null;
   }
@@ -169,7 +181,7 @@ async function matched(req, res, paymentId, where) {
   }
   let payment;
   try {
-    payment = await pay.getPayment(paymentId, deps());
+    payment = await pay.getPayment(paymentId, platformDeps(req));
   } catch (err) {
     unavailable(res, err, where);
     return null;
@@ -223,7 +235,7 @@ router.post('/approve', authMiddleware, limit, async (req, res) => {
     }
     if (!(payment.status && payment.status.developer_approved)) {
       try {
-        await pay.approvePayment(paymentId, deps());
+        await pay.approvePayment(paymentId, platformDeps(req));
       } catch (err) {
         return unavailable(res, err, 'approve');
       }
@@ -255,7 +267,7 @@ async function complete(req, res, m, paymentId, txid) {
 
   if (!(payment.status && payment.status.developer_completed)) {
     try {
-      await pay.completePayment(paymentId, txid, deps());
+      await pay.completePayment(paymentId, txid, platformDeps(req));
     } catch (err) {
       // Not complete: nothing is recorded as received (Pi's rule).
       return unavailable(res, err, 'complete');
