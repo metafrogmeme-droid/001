@@ -8,12 +8,11 @@ key", so they were measuring the box they ran on. Six readers carried the
 shape; each reads `env if env is not None else os.environ` now, the spelling
 `meme_executor.feature_enabled` already used.
 
-The second half is prose that named the wrong default. The signer's refusal
-text called WEB3_LIVE_EXEC_SIGN_ENABLED "its own default-OFF switch", and the
-sign and deploy handlers' docstrings said "default-OFF", while both switches
-ship ON (`.env.example` says so correctly). `tests/default_comments.py`'s rule
-reads `bot/config.py` declarations and cannot see these, so they are pinned
-by NAME against the reader itself, called with ``env={}``.
+The second half is prose that must name the default the reader has. The
+feature switch ships ON. The signing switch ships OFF
+(WEB3_LIVE_EXEC_SIGN_ENABLED). `tests/default_comments.py`'s rule reads
+`bot/config.py` declarations and cannot see these, so they are pinned by
+NAME against the reader itself, called with ``env={}``.
 """
 from __future__ import annotations
 
@@ -41,7 +40,7 @@ def _no_vault(monkeypatch):
 # ── an empty dict is a clean slate ───────────────────────────────────────
 
 @pytest.mark.parametrize("var,value,read,clean,process", [
-    ("WEB3_LIVE_EXEC_SIGN_ENABLED", "0", sg.signing_enabled, True, False),
+    ("WEB3_LIVE_EXEC_SIGN_ENABLED", "1", sg.signing_enabled, False, True),
     ("WEB3_LIVE_EXEC_ENABLED", "0", gate.feature_enabled, True, False),
     ("WEB3_LIVE_EXEC_ALLOW_MAINNET", "1", gate.mainnet_allowed, False, True),
     ("WEB_LIVE_TRADING_ENABLED", "1", wlg.feature_enabled, False, True),
@@ -129,8 +128,9 @@ def test_a_sentence_names_the_default_its_switch_has(name, text, readers):
 def test_the_web_relay_names_the_defaults_the_bot_has():
     js = (ROOT / "app/routes/web3_execute.js").read_text(encoding="utf-8")
     said = _words(js)
-    assert said == {_default(gate.feature_enabled), _default(sg.signing_enabled)} == {"ON"}
-    assert "default-OFF" not in js
+    assert _default(gate.feature_enabled) == "ON"
+    assert _default(sg.signing_enabled) == "OFF"
+    assert said == {_default(gate.feature_enabled), _default(sg.signing_enabled)}
 
 
 def test_the_gate_does_not_claim_there_is_no_signer():

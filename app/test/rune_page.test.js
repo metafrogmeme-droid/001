@@ -7,8 +7,8 @@
  *   invented), and only a real count draws a number;
  * - the five facts say what the thing is NOT (soulbound, free, one per
  *   wallet, on-chain art, badge-not-investment) — the §4 posture in copy;
- * - non-custodial doctrine rides the how-to (server never signs / sends /
- *   holds keys);
+ * - non-custodial doctrine rides the how-to (server never holds mainnet
+ *   keys or signs for users);
  * - every rn.* key ships all 14 locales; html keys keep markup parity
  *   (checked at insert time; the count key's {n} slot is pinned here);
  * - the page is wired everywhere a page must be wired: route, sitemap,
@@ -72,7 +72,7 @@ test('the five facts carry the §4 posture in copy', () => {
   }
   assert.match(page, /A badge, not an investment\./);
   assert.match(page, /promises nothing, earns nothing, and can never be resold/);
-  assert.match(page, /never signs transactions, never sends them, never holds keys/,
+  assert.match(page, /The server never holds mainnet keys or signs for users\./,
     'the non-custodial doctrine rides the how-to');
   // §4: no dollar amounts anywhere on this public page
   assert.ok(!/\$\s?\d/.test(page), 'no $-amount on the rune page');

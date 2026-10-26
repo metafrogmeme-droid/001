@@ -54,7 +54,7 @@ router.post('/execute', async (req, res) => {
  * The first slice that actually SIGNS + broadcasts an on-chain transaction — a
  * native-value transfer to an envelope-allowlisted destination, on a testnet
  * only. The bot gateway is authoritative: it re-checks admin, runs the signing
- * gate (its own WEB3_LIVE_EXEC_SIGN_ENABLED switch, default ON + a configured
+ * gate (its own WEB3_LIVE_EXEC_SIGN_ENABLED switch, default OFF + a configured
  * key + the eth-account library + an enforcing envelope), prices the value it
  * will sign, runs authorize(), signs, and broadcasts to the configured testnet
  * RPC. The signing key never leaves the bot; the web layer only forwards the
