@@ -46,12 +46,23 @@ def _row_chain_id(row: Mapping[str, object]) -> Optional[int]:
 
 
 def mainnet_chain_ids() -> frozenset[int]:
-    """Chain ids the network table marks as not a testnet. One reading."""
+    """Chain ids that are not a testnet: the web3 network table's mainnet
+    rows plus HashKey mainnet from contracts/hashkey/networks.json. Two
+    tables, one reading here, so the generic refusal in startup_refusal
+    knows every mainnet id the repository names."""
     found: list[int] = []
     for row in gate.NETWORKS.values():
         cid = _row_chain_id(row)
         if cid is not None and not row.get("testnet"):
             found.append(cid)
+    try:
+        from bot.hashkey_seal.networks import mainnet_chain_id
+        found.append(int(mainnet_chain_id()))
+    except Exception:
+        # An unreadable HashKey file is reported by _hashkey_seal_refusal
+        # when the HashKey key is set; the generic reading stays what the
+        # web3 table says rather than guessing an id.
+        pass
     return frozenset(found)
 
 

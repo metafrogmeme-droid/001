@@ -4,12 +4,18 @@ out = "out"
 script = "script"
 libs = []
 solc_version = "0.8.24"
+# Pinned so CI, the owner's machine and the explorer verification compile
+# the same bytecode. deploy.sh passes the same value to forge verify-contract
+# and tests/test_hashkey_seal.py holds the two equal. HashKey Chain is an
+# OP Stack chain; the runtime uses PUSH0 (Shanghai) and no Cancun-only opcode.
+evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 
 [profile.default.fuzz]
 runs = 256
 
-[rpc_endpoints]
-hashkey_testnet = "https://testnet.hsk.xyz"
-hashkey_mainnet = "https://mainnet.hsk.xyz"
+[profile.default.invariant]
+runs = 64
+depth = 32
+fail_on_revert = false
