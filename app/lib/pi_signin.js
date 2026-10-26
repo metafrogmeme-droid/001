@@ -19,19 +19,16 @@
  *   1. claims the state: issued by /start, single use, ten minutes
  *      (lib/oauth_state_store.js, shared by every instance);
  *   2. asks Pi who the token belongs to: GET https://api.minepi.com/v2/me
- *      with `Authorization: Bearer <token>`, the call that document names for
- *      a website's backend;
+ *      with `Authorization: Bearer <token>`, the same Platform call the Pi
+ *      Browser app uses (lib/pi_auth.js);
  *   3. keeps the uid and nothing else, and signs the person in the way every
  *      other provider does (auth.js, findOrCreateOAuthUser).
  *
- * NOT THE PI BROWSER APP'S FLOW. Inside the Pi Browser the SDK's token is
- * exchanged with App Studio (lib/pi_auth.js), whose guidance is that the app
- * must not call /v2/me itself. This is the other door, and Pi documents
- * /v2/me as its check. Pi says the uid is stable per person within one app;
- * it does not say whether this flow and the Pi Browser app's yield the same
- * uid for one person. Both land on users.pi_uid, so if they match, a person
- * has one account either way, and if they do not, two. Check with a real
- * account after the deploy before announcing the button.
+ * SAME CHECK, TWO DOORS. This file is the website's OAuth door. The Pi
+ * Browser app posts the SDK's token to /api/pi/signin, which asks the same
+ * /v2/me. Pi says a uid is stable per person within one app, so a token from
+ * the same Pi app yields the same uid either way, and both land on
+ * users.pi_uid. The Testnet app and the Mainnet app are different apps.
  *
  * Three answers from Pi, as everywhere else in this codebase:
  *   { ok: true, uid }        Pi vouched for the token.
@@ -40,16 +37,12 @@
  *                            Never reported as a refusal of the person.
  */
 
-const { wellFormedToken } = require('./pi_auth');
+const { verifyAccessToken, API_BASE, UID_RE } = require('./pi_auth');
 
 const AUTHORIZE_URL = 'https://accounts.pinet.com/oauth/authorize';
-const API_BASE = 'https://api.minepi.com/v2';
 const CALLBACK_PATH = '/auth/pi/callback';
 /** The least Pi offers: the uid comes with it. No wallet address is asked for. */
 const SCOPE = 'username';
-const TIMEOUT_MS = 8000;
-/** Pi's uids look like `a1111111-aaaa-bbbb-2222-ccccccc3333d`; the column is 64 wide. */
-const UID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The public client id from the Developer Portal; '' when the door is not configured. */
 function clientId(env = process.env) {
@@ -77,26 +70,15 @@ function authorizeUrl({ state, env = process.env }) {
   return `${AUTHORIZE_URL}?${q.toString()}`;
 }
 
-/** Who does this token belong to, according to Pi? See the header for the three answers. */
+/**
+ * Who does this token belong to, according to Pi? The Platform call lives in
+ * lib/pi_auth.js, shared with the Pi Browser app. This door keeps the uid
+ * and drops the username: the website does not offer a board name from it.
+ */
 async function identify(accessToken, deps = {}) {
-  if (!wellFormedToken(accessToken)) return { ok: false, reason: 'malformed_token' };
-  const fetchImpl = deps.fetch || globalThis.fetch;
-  const r = await fetchImpl(`${deps.apiBase || API_BASE}/me`, {
-    headers: { Authorization: `Bearer ${accessToken}`, accept: 'application/json' },
-    signal: AbortSignal.timeout(deps.timeoutMs || TIMEOUT_MS),
-  });
-  if (r.status === 401 || r.status === 403) return { ok: false, reason: 'token_rejected' };
-  if (!r.ok) throw new Error(`Pi /v2/me answered ${r.status}`);
-  let body;
-  try {
-    body = await r.json();
-  } catch (_) {
-    throw new Error('Pi /v2/me answered a body that is not JSON');
-  }
-  const uid = body && typeof body.uid === 'string' ? body.uid.trim() : '';
-  // A 200 with no usable uid is Pi answering nothing we can stand on: unavailable, not a refusal.
-  if (!UID_RE.test(uid)) throw new Error('Pi /v2/me answered without a usable uid');
-  return { ok: true, uid };
+  const verdict = await verifyAccessToken(accessToken, deps);
+  if (!verdict.ok) return verdict;
+  return { ok: true, uid: verdict.uid };
 }
 
 module.exports = {

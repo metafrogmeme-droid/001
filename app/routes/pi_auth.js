@@ -5,10 +5,11 @@
  *   POST /api/pi/signin  { accessToken }  -> { token, handle }
  *
  * The page gets `accessToken` from the Pi SDK's `Pi.authenticate()`. This
- * route exchanges it with Pi's App Studio (lib/pi_auth.js), once per sign-in,
- * finds or creates the RUNECLAW account for the uid App Studio returns, and
+ * route checks it with the Pi Platform (GET /v2/me, lib/pi_auth.js), once per
+ * sign-in, finds or creates the RUNECLAW account for the uid Pi returns, and
  * answers our own session token. Anything else the request carries (a uid, a
- * username) is ignored: the browser is the end user's to control.
+ * username) is ignored: the browser is the end user's to control. The same
+ * check serves the Testnet host and www. No server API key is used.
  *
  * A BEARER TOKEN, NOT A COOKIE, for the reason routes/farcaster_auth.js gives:
  * an app inside another app's frame does not get a SameSite=Lax cookie, so a
@@ -42,8 +43,10 @@ router.post('/signin', async (req, res) => {
   try {
     verdict = await piAuth.verifyAccessToken(accessToken, router._deps || {});
   } catch (err) {
-    // App Studio could not be asked. Ours to report, not a refusal of the person.
-    console.error('Pi App Studio login unavailable:', err.stack || err.message);
+    // The Platform could not be asked. Ours to report, not a refusal of the person.
+    // The error is our own sentence (a status, or "not JSON"): the token is a
+    // header on the request, never part of this Error.
+    console.error('Pi /v2/me unavailable:', err.stack || err.message);
     return res.status(503).json({ error: 'verifier_unavailable' });
   }
 

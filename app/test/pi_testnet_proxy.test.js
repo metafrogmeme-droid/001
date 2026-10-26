@@ -390,3 +390,52 @@ test('the worker proxies the Testnet app and rewrites www back to pi', async () 
   assert.strictEqual(otherHost.status, 404);
   assert.strictEqual(seen.length, 0);
 });
+
+test('the Pi page\'s images are proxied, so img-src self can load them', async () => {
+  // /pi's CSP is img-src 'self' data:. A path the Worker does not proxy is a
+  // 302 to www, and the browser then refuses the image. Measured 2026-10-26:
+  // GET https://pi.humanoid-traders.com/mascot/runeclaw_owl_round.webp 302'd
+  // to www, which serves the file.
+  const worker = await import(pathToFileURL(path.join(
+    __dirname, '..', '..', 'scripts', 'cloudflare', 'pi-testnet-worker.js')).href);
+  const { _piCsp } = require('../routes/piapp');
+  const csp = _piCsp();
+  assert.match(csp, /img-src 'self' data:/);
+  assert.doesNotMatch(csp, /img-src[^;]*https:/);
+
+  const roots = [
+    path.join(__dirname, '..', 'routes', 'piapp.js'),
+    path.join(__dirname, '..', 'public', 'js', 'pi-arena.js'),
+  ];
+  const images = [];
+  for (const file of roots) {
+    const src = codeOnly(fs.readFileSync(file, 'utf8'));
+    for (const m of src.matchAll(/['"`](\/[^'"`?\s]+\.(?:png|webp|jpe?g|gif|svg))/g)) images.push(m[1]);
+  }
+  assert.ok(images.includes('/mascot/runeclaw_owl_round.webp'), JSON.stringify(images));
+  assert.ok(images.includes('/pi_icon_200.png'));
+  for (const p of images) assert.strictEqual(worker.shouldProxy(p), true, `${p} would 302 and the page CSP would block it`);
+
+  const seen = [];
+  const fetchImpl = async (url) => {
+    seen.push(String(url));
+    return new Response('img', { status: 200, headers: { 'content-type': 'image/webp' } });
+  };
+  const res = await worker.handle(
+    new Request(`https://${PI}/mascot/runeclaw_owl_round.webp?v=1`),
+    { PI_PROXY_SECRET: SECRET }, fetchImpl);
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(await res.text(), 'img');
+  assert.deepStrictEqual(seen, [`https://${WWW}/mascot/runeclaw_owl_round.webp?v=1`]);
+
+  seen.length = 0;
+  // A dot-segment must not turn the mascot prefix into a proxy for the rest of the site.
+  const escaped = await worker.handle(
+    new Request(`https://${PI}/mascot/../token`),
+    { PI_PROXY_SECRET: SECRET }, fetchImpl);
+  assert.strictEqual(seen.length, 0);
+  assert.strictEqual(escaped.status, 302);
+  assert.strictEqual(escaped.headers.get('location'), `https://${WWW}/token`);
+  assert.strictEqual(worker.shouldProxy('/mascot'), false);
+  assert.strictEqual(worker.shouldProxy('/token/logo.png'), false);
+});

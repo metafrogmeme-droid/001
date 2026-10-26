@@ -60,7 +60,8 @@ class PaymentsNotConfigured extends Error {}
 /**
  * The server API key for this request. On the Testnet app, PI_TESTNET_API_KEY
  * when it is set; otherwise PI_NETWORK_API_KEY, on that app and every other.
- * Sign-in does not use a key (lib/pi_auth.js exchanges the access token).
+ * Sign-in does not use a key (lib/pi_auth.js checks the access token with
+ * GET /v2/me).
  * `req` may be omitted by a caller with no request: that is the Mainnet key.
  */
 function apiKey(env = process.env, req) {

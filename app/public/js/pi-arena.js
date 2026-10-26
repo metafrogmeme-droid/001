@@ -9,8 +9,8 @@
  *
  * WHAT THE PAGE SENDS IS THE ACCESS TOKEN, NOT THE USER. `Pi.authenticate`
  * also hands back a uid and username, and a page can say anything it likes
- * about who that is, so both are ignored. routes/pi_auth.js exchanges the
- * token with Pi's App Studio, and the uid in that answer is the identity.
+ * about who that is, so both are ignored. routes/pi_auth.js checks the token
+ * with the Pi Platform (GET /v2/me), and the uid in that answer is the identity.
  *
  * Pi.init is awaited to completion before Pi.authenticate. It is given
  * version 2.0 and no sandbox flag. A Testnet app in the Pi Browser is not

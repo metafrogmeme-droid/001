@@ -13,7 +13,7 @@
  *   Pi's policy, explicit and narrow. The SDK from sdk.minepi.com, loaded in
  *   the head; connect-src 'self' and https://socialchain.app (the SDK's own
  *   authentication call); never a wildcard; frame-ancestors limited to Pi's
- *   hosts. The App Studio exchange runs on our server, so its origin is NOT in
+ *   hosts. The Platform check runs on our server, so api.minepi.com is NOT in
  *   this page's connect-src. The site's own policy, which other tests pin, is
  *   not touched.
  *
@@ -174,8 +174,8 @@ test('the policy is Pi\'s: explicit sources, no wildcard, no inline script', asy
   assert.strictEqual(directive(csp, 'style-src'), "style-src 'self' 'unsafe-inline'",
     'the SDK injects inline styles; scripts stay strict');
   assert.doesNotMatch(csp, /(^|\s)\*(\s|;|$)/, 'a bare wildcard source');
-  assert.doesNotMatch(directive(csp, 'connect-src'), /piappengine/,
-    'the App Studio exchange is server-side; its origin does not belong in the browser policy');
+  assert.doesNotMatch(directive(csp, 'connect-src'), /piappengine|api\.minepi\.com/,
+    'the Platform check is server-side; its origin does not belong in the browser policy');
   assert.doesNotMatch(csp, /unsafe-eval/);
 });
 
@@ -192,17 +192,20 @@ test('framable by Pi\'s hosts only, uncached, and cookie-free', async () => {
     'frame-ancestors https://app.minepi.com');
 });
 
-test('App Studio may frame the page by its exact origin, the one whose backend signs us in', async () => {
+test('App Studio may frame the page by its exact origin, and sign-in asks the Platform', async () => {
   // App Studio's "Checking Pi Auth" previews the page inside App Studio, and
   // frame-ancestors is checked against every ancestor: without this origin the
-  // preview showed net::ERR_BLOCKED_BY_RESPONSE (2026-10-17).
+  // preview showed net::ERR_BLOCKED_BY_RESPONSE (2026-10-17). Sign-in does
+  // not talk to that host: the verifier is the Platform API.
   const { APP_STUDIO } = require('../routes/piapp');
-  const { DEFAULT_ORIGIN } = require('../lib/pi_auth');
-  assert.strictEqual(new URL(DEFAULT_ORIGIN).host, `backend.${new URL(APP_STUDIO).host}`,
-    'the App Studio allowed to frame us is not the one we exchange tokens with');
+  const { API_BASE } = require('../lib/pi_auth');
+  assert.strictEqual(new URL(API_BASE).host, 'api.minepi.com');
+  assert.notStrictEqual(new URL(API_BASE).host, new URL(APP_STUDIO).host);
   const fa = directive((await get('/pi/')).headers.get('content-security-policy'), 'frame-ancestors');
   assert.ok(fa.split(/\s+/).includes(APP_STUDIO), fa);
   assert.doesNotMatch(fa, /\*\.piappengine\.com/, 'every app App Studio hosts could frame the page');
+  assert.doesNotMatch(directive((await get('/pi/')).headers.get('content-security-policy'), 'connect-src'),
+    /api\.minepi\.com/, 'the Platform check is server-side');
 });
 
 test('Pi.init is awaited, gets only its version, and no sandbox flag is set', () => {

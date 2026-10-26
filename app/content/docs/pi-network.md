@@ -33,10 +33,10 @@ The image is published by `.github/workflows/image.yml` when a `v*` tag is pushe
 - **Your leaderboard name** is chosen on the Leaders tab. Sign-in offers the username Pi verified as the first value in the box; it is saved only when you tap Save, and **Hide me** takes you off the board.
 - **Duel receipts are checked in the app.** Each receipt on a Duel card has a **Check** button. It reads the receipt from our API, hashes what was sealed with the browser's own SHA-256, and replays the day's proof to its daily root. A round still sealed (not called, day not over) is shown as sealed, with no verdict either way. The DogeOS app runs the same check.
 
-**How sign-in works.** The page waits for `Pi.init({ version: "2.0" })` to finish, then asks Pi's SDK to authenticate and gets back an access token. Our server exchanges that token with Pi's App Studio (`POST /pi/auth/v1/login`), the flow Pi requires of every app. App Studio checks the token against the Pi Platform, and the uid in its answer is the identity. A uid or username the page sends is ignored. One Pi account is one RUNECLAW account.
+**How sign-in works.** The page waits for `Pi.init({ version: "2.0" })` to finish, then asks Pi's SDK to authenticate and gets back an access token. Our server checks that token with the Pi Platform (`GET https://api.minepi.com/v2/me`, `Authorization: Bearer`), the call Pi documents for a self-hosted app. It works for the Mainnet app and the Testnet app; the token says which app it belongs to, and no server API key is sent. The uid in Pi's answer is the identity. A uid or username the page sends is ignored. One Pi account is one RUNECLAW account.
 
-- **A token App Studio refuses** is a 401, and the page says Pi did not confirm the sign-in.
-- **App Studio unreachable** is a 503, and the page says the fault is on our side. It is never reported as a refusal of the person.
+- **A token Pi refuses** (invalid or expired) is a 401, and the page says Pi did not confirm the sign-in.
+- **The Platform unreachable** is a 503, and the page says the fault is on our side. It is never reported as a refusal of the person.
 - **Outside the Pi Browser** there is no SDK, and the page says to open it there.
 
 **The session.** The Pi Browser shows apps inside a frame (Pi's SDK talks to its host with `window.parent.postMessage`). So the session is a bearer token kept in the page's memory: no cookie, no storage. Closing the app signs you out.
@@ -47,7 +47,7 @@ The image is published by `.github/workflows/image.yml` when a `v*` tag is pushe
 - Inline styles are allowed (the SDK needs them); inline scripts are not.
 - Only `'self' https://*.pinet.com https://*.minepi.com` and App Studio itself, `https://appstudio-u7cm9zhmha0ruwv8.piappengine.com`, may frame the page. App Studio's "Checking Pi Auth" step shows the page in a preview inside App Studio. A browser checks every frame around a page, so without App Studio's origin the preview fails with `net::ERR_BLOCKED_BY_RESPONSE`.
 
-There is no wildcard anywhere: App Studio is listed by its exact origin, not `*.piappengine.com`, which would let every app App Studio hosts frame the page. The App Studio sign-in exchange runs on our server, so its origin is not in the page's `connect-src`.
+There is no wildcard anywhere: App Studio is listed by its exact origin, not `*.piappengine.com`, which would let every app App Studio hosts frame the page. The Platform check runs on our server, so `api.minepi.com` is not in the page's `connect-src`.
 
 **Signals and charts.** Signed in, the app shows the engine's latest calls the way a signed-in member sees them on the website: side, entry, stop, target, R:R and confidence. Each call has the site's TradingView chart with its levels drawn on it.
 
@@ -91,7 +91,7 @@ Each card offers one action at most, depending on where the call stands:
 
 Each step saves what it relies on before asking Pi, so Pi's retries are safe. One Pi payment can settle one order, and one order one payment. A payment left unfinished, for example because the app was closed mid-tip, is reported by Pi's SDK at the next sign-in, and the server finishes it from Pi's own record.
 
-Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn from npm in March 2026, so the page calls `Pi.createPayment` directly and the server calls Pi's documented Platform API. The SDK's own payment calls go to the same backend it uses for sign-in, so the page's security policy is unchanged.
+Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn from npm in March 2026, so the page calls `Pi.createPayment` directly and the server calls Pi's documented Platform API. The page does not call the Platform itself: sign-in is checked on our server, and the SDK's own payment calls go to the backend its host hands it, so the page's security policy is unchanged.
 
 **App Studio's validation file** is the static `app/public/pi/pi-app-validation.txt`, served at `/pi/pi-app-validation.txt`. It holds exactly App Studio's token, with no route or script of its own.
 
@@ -115,7 +115,6 @@ Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn fro
 | `PI_TESTNET_VALIDATION_KEY` | That app's **Verify App Domain** key, served on both paths only for the Testnet app. Unset, those requests are 404, not the Mainnet key |
 | `PI_TESTNET_API_KEY` | That app's server API key for payments. Used for the Testnet app when set; otherwise payments keep `PI_NETWORK_API_KEY`. Sign-in does not use either key |
 | `PI_FRAME_ANCESTORS` | Replaces Pi's frame list (for `/pi`, `/privacy` and `/terms`) if Pi's hosts change |
-| `PI_AUTH_ORIGIN` | App Studio's backend, `https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com` by default |
 
 **Listing it.** In Pi's App Studio, choose **Use External AI**, then **Convert App**, with `https://www.humanoid-traders.com/pi` as the App Link. That route is free. Step 2 gives a prompt for the validation file and Pi Auth; after the deploy, **Verify My App** checks both.
 
@@ -140,7 +139,7 @@ The website's login page offers **Continue with Pi** beside Google, Telegram, Di
 
 In the Developer Portal, register `https://www.humanoid-traders.com/auth/pi/callback` under **Pi Sign-In → Redirect URIs**. It must match exactly.
 
-**Not yet confirmed:** whether this sign-in and the Pi Browser app give one person the same uid. Pi says a uid is stable per person within one app. Both store it in the same place, so if they match, a person has one account either way. Check with a real account before announcing the button.
+Both this sign-in and the Pi Browser app ask `GET /v2/me`. Pi says a uid is stable per person within one app, so a token from the same Pi app is the same account either way. The Testnet app and the Mainnet app are different apps.
 
 ## Not yet
 
