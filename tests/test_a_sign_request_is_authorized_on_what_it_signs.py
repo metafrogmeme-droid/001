@@ -102,6 +102,10 @@ def rig(monkeypatch, tmp_path):
     # The key goes in through the signer's resolver — never os.environ, which
     # the secrets vault would mirror to disk at the next import of bot.config.
     monkeypatch.setattr(sg, "_resolve_key", lambda env=None: "0x" + "11" * 32)
+    # The signing switch defaults OFF. This suite drives the envelope and the
+    # day's spend, which the handler reaches only after that switch is on.
+    # The off default itself is pinned in test_web3_signer.py.
+    monkeypatch.setenv("WEB3_LIVE_EXEC_SIGN_ENABLED", "1")
     monkeypatch.setattr(sg, "_signing_lib", lambda: _Account)
     monkeypatch.setattr(sg, "rpc_url_for", lambda network, env=None: "http://rpc.stub.invalid")
 
