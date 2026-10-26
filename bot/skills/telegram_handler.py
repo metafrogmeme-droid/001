@@ -79,6 +79,7 @@ from bot.skills.agent_commands import AgentCommands
 from bot.skills.alerts_monitor import AlertsMonitor
 from bot.skills.callback_handler import CallbackHandler
 from bot.skills.command_guard import guard
+from bot.skills.drain_watch_commands import DrainWatchCommands
 from bot.skills.engine_ops_commands import EngineOpsCommands
 from bot.skills.guardian_commands import GuardianCommands
 from bot.skills.hrc_commands import HrcCommands
@@ -90,6 +91,7 @@ from bot.skills.market_commands import MarketCommands
 from bot.skills.portfolio_commands import PortfolioCommands
 from bot.skills.research_commands import ResearchCommands
 from bot.skills.scan_commands import ScanCommands
+from bot.skills.sigdecoder_commands import SigDecoderCommands
 from bot.skills.silent_fee_commands import SilentFeeCommands
 from bot.skills.srb_commands import SrbCommands
 from bot.skills.start_commands import StartCommands
@@ -1144,10 +1146,12 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
 
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
                       IncidentPackCommands,
+                      DrainWatchCommands,
                       SilentFeeCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
                       EngineOpsCommands, T2CCommands, SrbCommands, PortfolioCommands, ScanCommands,
-                      TradingCommands, StartCommands, AlertsMonitor, CallbackHandler):
+                      TradingCommands, StartCommands, AlertsMonitor, CallbackHandler,
+                      SigDecoderCommands):
     #: The signal-card sender start_monitor installs on the instance once the
     #: bot is running; None until then, and /latest_signal checks before it
     #: calls. A class default so the trading mixin's contract can name it.
@@ -1402,6 +1406,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # --- Incident pack begin ---
             ("incidentpack", self._cmd_incidentpack),
             # --- Incident pack end ---
+            ("clawwatch", self._cmd_clawwatch),
         ]:
             # Every slash command's turn reaches the transcript through this
             # one line — the command typed and what it replied — because a
@@ -1410,6 +1415,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             handler = self._remembering(cmd, handler)
             app.add_handler(CommandHandler(cmd, handler))
             self._known_commands.append(cmd)
+        # --- Signature decoder begin ---
+        # Operator-only. While SIG_DECODER_ENABLED is off the reply says so.
+        for cmd, handler in [
+            ("sigdecode", self._cmd_sigdecode),
+        ]:
+            handler = self._remembering(cmd, handler)
+            app.add_handler(CommandHandler(cmd, handler))
+            self._known_commands.append(cmd)
+        # --- Signature decoder end ---
         # A tapped button is a turn the user can see and the model
         # cannot — the hole the line above closes for slash commands,
         # on the door registered directly below it.

@@ -635,6 +635,7 @@ python -m bot.main --mode scan
 | `/readiness` | 學習迴路是否已驗證到可套用 |
 | `/srb` | 影子償付訊號——公開訊號，不支付 |
 | `/incidentpack` | 單一地址與時間窗的唯讀事件包，僅測試網，僅管理員 |
+| `/sigdecode` | 把簽名請求解讀成公開訊號，不是判決 |
 
 ### 🚦 引擎營運（操作員） — *僅限操作員*
 
@@ -697,6 +698,7 @@ python -m bot.main --mode scan
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
 | `/hrc` | Hyperliquid USDC 借款利率上限——利用率與利率，僅管理員 |
+| `/clawwatch` | Claw Watch——登記地址、僅供參考的提醒，以及未簽名的撤銷交易，僅管理員 |
 | `/fees` | 單一 Hyperliquid 地址的 builder 上限與已付費用，唯讀 |
 | `/costs` | 今日模型與 API 支出對照每日預算 |
 
