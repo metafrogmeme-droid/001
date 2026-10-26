@@ -250,7 +250,25 @@ ${scripts}
   return preview && preview.banner ? withBanner(html) : html;
 }
 
-router.get('/', async (req, res) => {
+/**
+ * The Arena document. One handler for every path Pi loads it from.
+ *
+ * Pi Browser and the sandbox put the app in an iframe whose src is
+ * frontend_url concatenated with the path after `/mobile-app-ui/app/<slug>`
+ * (Pi's shell, https://app-cdn.minepi.com/static/js/main.9715118d.js, read
+ * 2026-10-26). The app URL is `https://<host>/pi`. The directory's default
+ * document is `/pi/index.html`, and that is the request that renders the
+ * site's own 404 ("There is no page at this address…"): `public/pi/` exists
+ * only to hold the validation file, so express.static, mounted ahead of this
+ * router, has no index.html; this router answered only `/`; the request is
+ * allowlisted (`/pi/`), so the Worker proxies it; framable() has already set
+ * the Pi policy; then the catch-all paints the 404. `/pi`, `/pi/` and
+ * `/pi?…` never ask for that file, which is why a plain curl of them is the
+ * Arena. The same document, in place, keeps `?sandbox=true` on the URL the
+ * SDK reads. A redirect is a different document, and the host follows
+ * redirects itself.
+ */
+async function sendArena(req, res) {
   // The page depends on the reader's language and, through the Worker, on
   // X-Runeclaw-Pi-Proxy (the canonical URL). It is never cached anyway
   // (framable(), no-store). Vary names both so a cache that kept the body
@@ -269,7 +287,10 @@ router.get('/', async (req, res) => {
   } catch (e) {
     if (!res.headersSent) res.type('html').send(page(pickLang(req), chunks(), null, origin));
   }
-});
+}
+
+router.get('/', sendArena);
+router.get('/index.html', sendArena);
 
 /**
  * GET /validation-key.txt, at the site root (server.js) and beside the app

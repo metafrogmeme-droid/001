@@ -160,6 +160,6 @@ Payments for that app use `PI_TESTNET_API_KEY` when it is set, and `PI_NETWORK_A
 
 1. Delete the `pi` CNAME. A CNAME to the host's Cloudflare account returns Error 1014.
 2. Create the Worker, set its `PI_PROXY_SECRET`, and attach the Custom Domain `pi.humanoid-traders.com`.
-3. In the Pi Developer Portal, set the Testnet app's URL to `https://pi.humanoid-traders.com/pi`.
+3. In the Pi Developer Portal, set the Testnet app's URL to `https://pi.humanoid-traders.com/pi`. Pi Browser and the sandbox also request that directory's default document, `/pi/index.html` (with `?sandbox=true` in the sandbox). That path is the same Arena page.
 4. Set `PI_TESTNET_HOST`, `PI_TESTNET_PROXY_SECRET` (the same value as the Worker secret), `PI_TESTNET_VALIDATION_KEY` and, for payments, `PI_TESTNET_API_KEY` in the website server's secret settings, then republish `app/`.
 5. Press **Verify**. The portal reads `https://pi.humanoid-traders.com/pi/validation-key.txt`.

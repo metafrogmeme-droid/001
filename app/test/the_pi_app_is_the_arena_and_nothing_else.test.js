@@ -118,6 +118,27 @@ test('/pi itself reaches the page', async () => {
   assert.strictEqual((await get('/pi/')).status, 200);
 });
 
+test('Pi\'s default document /pi/index.html is the Arena, and a stray path is not', async () => {
+  // Pi Browser and the sandbox load frontend_url plus a path. For this app
+  // that document is /pi/index.html (public/pi/ has no index file, so static
+  // does not answer it). It must be the Arena, with the Pi policy, including
+  // when the sandbox appends ?sandbox=true. A path Pi does not ask for stays
+  // unanswered: this is not a catch-all.
+  for (const p of ['/pi/index.html', '/pi/index.html?sandbox=true']) {
+    const r = await get(p);
+    assert.strictEqual(r.status, 200, p);
+    assert.strictEqual(r.headers.get('location'), null, `${p} must not redirect`);
+    assert.match(r.text, /<title>RUNECLAW Arena<\/title>/);
+    assert.strictEqual(r.headers.get('x-frame-options'), null);
+    assert.match(r.headers.get('cache-control'), /no-store/);
+    assert.match(r.headers.get('content-security-policy'), /frame-ancestors /);
+    assert.match(r.text, /src="https:\/\/sdk\.minepi\.com\/pi-sdk\.js"/);
+  }
+  const stray = await get('/pi/not-a-page');
+  assert.notStrictEqual(stray.status, 200);
+  assert.doesNotMatch(stray.text, /<title>RUNECLAW Arena<\/title>/);
+});
+
 test('nothing the page loads carries the presale or the token', async () => {
   const r = await get('/pi/');
   assert.doesNotMatch(r.text, PRESALE, 'the page itself names the sale');
@@ -330,7 +351,7 @@ test('an unset key is a 404, including the testnet key on the testnet host', asy
 });
 
 test('the testnet host is not redirected, and a forwarded host is not trusted unless the proxy is', async () => {
-  for (const p of ['/validation-key.txt', '/pi/validation-key.txt', '/pi', '/pi/']) {
+  for (const p of ['/validation-key.txt', '/pi/validation-key.txt', '/pi', '/pi/', '/pi/index.html']) {
     const r = await get(p, BOTH_KEYS, { host: PI_HOST });
     const loc = r.headers.get('location');
     assert.ok(r.status < 400, `${p} answered ${r.status}`);
