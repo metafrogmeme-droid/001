@@ -147,6 +147,7 @@
     "strategy": "estratégia ativa e encaminhamento por regime",
     "crossasset": "contexto de correlação entre ativos",
     "cgc": "janelas do freio de conservação, testnet, somente leitura",
+    "clawheuristics": "heurísticas Claw Watch para os teus endereços, sinais públicos, testnet, só admin",
     "gates": "telemetria de aprovado/reprovado por gate",
     "flags": "flags de auditoria profunda opt-in",
     "t2c": "teto e sinal de LTV da duração de saída do wstETH",

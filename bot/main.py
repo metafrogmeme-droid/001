@@ -627,6 +627,12 @@ def run_telegram() -> None:
             await app.updater.start_polling(drop_pending_updates=True)
             # Start proactive alert monitor (Move 2)
             await handler.start_monitor(app.bot)
+            # Claw Watch heuristics. Off unless the flag is on. Read-only.
+            try:
+                from bot.claw_watch_heuristics.loop import start_poll
+                await start_poll(app.bot)
+            except Exception as exc:
+                print(f"  Claw Watch heuristics skipped: {type(exc).__name__}\n")
             # --- Claw Watch HL begin ---
             # Advisory Hyperliquid reads. Off unless CLAW_WATCH_HL_ENABLED is on.
             _hl_watch_task = None

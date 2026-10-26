@@ -176,6 +176,14 @@ READERS.QUARANTINE_ENABLED = function (env) {
 };
 // --- QUARANTINE end ---
 
+// --- Claw Watch heuristics begin ---
+// Lazy: the flag module does not require this file. Appended so a later
+// reader can land above this block without editing it.
+READERS.CLAW_WATCH_HEURISTICS_ENABLED = function (env) {
+  return require('./claw_watch_heuristics_flag').flagOn(env) === true;
+};
+// --- Claw Watch heuristics end ---
+
 // --- Claw Firewall begin ---
 // Lazy: claw_firewall_flag requires this module, so the reader cannot load at the top.
 READERS.DRAIN_FIREWALL_ENABLED = function (env) {

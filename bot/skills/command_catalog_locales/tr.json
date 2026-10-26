@@ -147,6 +147,7 @@
     "strategy": "aktif strateji ve rejim yönlendirmesi",
     "crossasset": "varlıklar arası korelasyon bağlamı",
     "cgc": "koruma freninin zaman pencereleri, testnet, salt okunur",
+    "clawheuristics": "adreslerin için Claw Watch sezgileri, kamuya açık sinyaller, testnet, yalnızca yönetici",
     "gates": "kapı başına geçti/kaldı telemetrisi",
     "flags": "isteğe bağlı derin denetim bayrakları",
     "t2c": "wstETH çıkış süresi tavanı ve LTV sinyali",
