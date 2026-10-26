@@ -184,6 +184,7 @@ GROUPS: List[Group] = [
         ("readiness", "is the learning loop validated enough to apply"),
         ("srb", "shadow restitution signals — a public signal, nothing is paid"),
         ("quarantine", "hidden tokens and NFTs the bot will not approve, transfer, or burn, plus a lookalike warning"),
+        ("sigdecode", "decode a signature request into public signals, not a verdict"),
     ]),
     ("🚦 Engine ops (operator)", "admin", [
         # MOVED FROM USER GROUPS. Each of these was documented for everyone
@@ -251,6 +252,7 @@ GROUPS: List[Group] = [
         ("yield", "idle-asset yield radar (read-only)"),
         ("idleyield", "cross-source best-rate scan"),
         ("hrc", "Hyperliquid USDC borrow-rate caps — utilization and rate, admin"),
+        ("clawwatch", "Claw Watch — register an address, advisory alerts, unsigned revokes, admin"),
         ("fees", "builder caps and fees paid on one Hyperliquid address, read-only"),
         # It was "trading costs breakdown" under Portfolio, for everyone. It
         # is neither: the deployment's model and API spend, the operator's.
@@ -500,6 +502,7 @@ DESC_ZH: Dict[str, str] = {
     "shadow": "反事實影子帳本 — /shadow ladder 與 /shadow bounds 看倉位控制本來會怎麼做",
     "srb": "影子償付訊號——公開訊號，不支付",
     "quarantine": "被隱藏的代幣與 NFT：機器人不會授權、轉出或銷毀，並在地址相似時警告",
+    "sigdecode": "把簽名請求解讀成公開訊號，不是判決",
     "audit": "每夜自我稽核報告", "parity": "實盤 ↔ 回測一致性", "attribution": "哪些指標帶來獲利",
     "duplicates": "營運者帳本間被記兩次的平倉",
     "slippage": "滑價統計", "accounts": "各帳戶風險快照", "closeall": "平掉所有持倉",
@@ -517,6 +520,7 @@ DESC_ZH: Dict[str, str] = {
     "setsigner": "設定鏈上簽章金鑰（加密儲存）",
     "yield": "閒置資產收益雷達（唯讀）", "idleyield": "跨來源最佳利率掃描",
     "hrc": "Hyperliquid USDC 借款利率上限——利用率與利率，僅管理員",
+    "clawwatch": "Claw Watch——登記地址、僅供參考的提醒，以及未簽名的撤銷交易，僅管理員",
     "fees": "單一 Hyperliquid 地址的 builder 上限與已付費用，唯讀",
     "stake": "把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金",
     "unstake": "把你的活期 Earn 贖回為交易保證金——按鈕確認",

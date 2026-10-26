@@ -158,6 +158,10 @@ READERS.MARKET_CLOCK_ENABLED = function (env) {
   return require('./market_clock_flag').flagOn(env) === true;
 };
 // --- Market Clock end ---
+// Claw Watch. Lazy: drain_watch_flag requires this module.
+READERS.DRAIN_WATCH_ENABLED = function (env) {
+  return require('./drain_watch_flag').flagOn(env) === true;
+};
 
 // --- Grounded Reputation begin ---
 // Lazy: grounded_reputation_flag does not require this module.
@@ -171,3 +175,10 @@ READERS.QUARANTINE_ENABLED = function (env) {
   return require('./quarantine_flag').flagOn(env) === true;
 };
 // --- QUARANTINE end ---
+
+// --- Signature decoder begin ---
+// Lazy: sig_decoder_flag does not require this module.
+READERS.SIG_DECODER_ENABLED = function (env) {
+  return require('./sig_decoder_flag').flagOn(env) === true;
+};
+// --- Signature decoder end ---

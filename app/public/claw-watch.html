@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RUNECLAW — Claw Watch</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/claw-watch">
+<meta name="description" content="Claw Watch is advisory only. It reads a transaction you paste and shows an unsigned revoke your own wallet can sign, even if this site is offline.">
+<meta property="og:title" content="RUNECLAW — Claw Watch">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="Advisory chain notes and unsigned revokes. Your wallet signs. This page never does.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/claw-watch">
+<meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RUNECLAW — Claw Watch">
+<meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#080a10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=54">
+<style>
+  .cw-wrap { max-width: 860px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); }
+  .cw-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .warn { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); color: var(--text-1); line-height: 1.55; }
+  .warn p { margin: 0 0 var(--s2); }
+  .warn p:last-child { margin: 0; color: var(--text-2); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  label { display: block; color: var(--text-2); font-size: var(--fs-sm); margin-top: 10px; }
+  input[type=text], textarea { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: 10px 12px; font-family: var(--font-data); font-size: var(--fs-sm); }
+  textarea { min-height: 88px; }
+  .out { margin-top: var(--s3); color: var(--text-1); line-height: 1.5; }
+  .out .muted { color: var(--text-3); }
+  pre.fields { white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; font-family: var(--font-data); font-size: var(--fs-xs); }
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<canvas id="rc-constellation" data-viewport data-hue="200" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.3"></canvas>
+<div class="cw-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/panic">Panic Button</a>
+    <a href="/approvals">Allowance X-ray</a>
+    <span data-i18n-switcher></span>
+  </nav>
+  <div class="cw-hero"><h1>Claw Watch</h1></div>
+  <div class="warn" id="warn">
+    <p>Claw Watch is advisory only. It is fail-open: if indexing lags or this site is down, there is no alert. It cannot stop a drain on its own.</p>
+    <p>This page never asks for a seed phrase, a private key, or for you to run code.</p>
+    <p>A revoke shown here is an unsigned transaction. Your wallet signs it and submits it. It does not depend on this site staying online. Nothing here is pre-signed, and this site does not relay it.</p>
+    <p>A cancel link applies once an on-chain module exists. None is installed, so there is no cancel transaction.</p>
+  </div>
+  <section class="panel">
+    <h2>Read a transaction</h2>
+    <form id="cw-form">
+      <label for="cw-chain">Chain id</label>
+      <input type="text" id="cw-chain" name="chain" spellcheck="false" autocomplete="off" inputmode="numeric" placeholder="1">
+      <label for="cw-to">Contract</label>
+      <input type="text" id="cw-to" name="to" spellcheck="false" autocomplete="off" placeholder="0x…">
+      <label for="cw-data">Call data</label>
+      <textarea id="cw-data" name="data" spellcheck="false" autocomplete="off" placeholder="0x…"></textarea>
+      <label for="cw-value">Value, as a decimal integer or 0x hex. Leave blank when there is none.</label>
+      <input type="text" id="cw-value" name="value" spellcheck="false" autocomplete="off" placeholder="0">
+      <label for="cw-dest">Destination, when this transaction sends somewhere</label>
+      <input type="text" id="cw-dest" name="destination" spellcheck="false" autocomplete="off" placeholder="0x…">
+      <label for="cw-known">Counterparties you already know, one address per line</label>
+      <textarea id="cw-known" name="known" spellcheck="false" autocomplete="off"></textarea>
+      <button class="btn btn--primary btn--sm" id="cw-go" type="submit">Read</button>
+    </form>
+    <div id="cw-out" class="out" aria-live="polite"></div>
+  </section>
+</div>
+<script src="/js/api-retry.js?v=3"></script>
+<script src="/js/i18n-core.js?v=209"></script>
+<script src="/js/ambient.js?v=3" defer></script>
+<script src="/js/claw-watch.js?v=1"></script>
+</body>
+</html>

@@ -186,12 +186,14 @@
     "setsigner": "define a chave de assinatura on-chain (cifrada)",
     "yield": "radar de rendimento de ativos parados (só leitura)",
     "hrc": "tetos da taxa de empréstimo USDC da Hyperliquid — utilização e taxa, só administrador",
+    "clawwatch": "Claw Watch — registar um endereço, alertas consultivos e revogações por assinar, só administrador",
     "fees": "tetos e taxas de builder pagas num endereço Hyperliquid, só leitura",
     "idleyield": "análise da melhor taxa entre fontes",
     "stake": "colocar os stables parados da SUA conta Bitget vinculada em Earn flexível — um cartão de plano, nada se move até Confirmar",
     "unstake": "resgatar seu Earn flexível de volta para a margem de trading — confirmado por botão",
     "arbpair": "dimensionar um par de funding delta-neutro nas suas corretoras ligadas — /arbpair BTC [usd]; uma proposta que não coloca nada",
-    "postmortem": "autópsia de uma operação fechada — /postmortem [SÍMBOLO ou id da operação]"
+    "postmortem": "autópsia de uma operação fechada — /postmortem [SÍMBOLO ou id da operação]",
+    "sigdecode": "descodificar um pedido de assinatura em sinais públicos, não um veredito"
   },
   "menu": {
     "start": "👋 Registe-se e veja o ponto da situação",
