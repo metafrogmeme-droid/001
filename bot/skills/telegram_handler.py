@@ -83,6 +83,9 @@ from bot.skills.drain_watch_commands import DrainWatchCommands
 from bot.skills.engine_ops_commands import EngineOpsCommands
 from bot.skills.guardian_commands import GuardianCommands
 from bot.skills.hrc_commands import HrcCommands
+# --- Incident pack begin ---
+from bot.skills.incident_pack_commands import IncidentPackCommands
+# --- Incident pack end ---
 from bot.skills.llm_commands import LLMCommands
 from bot.skills.market_commands import MarketCommands
 from bot.skills.portfolio_commands import PortfolioCommands
@@ -1142,6 +1145,7 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
 
 
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
+                      IncidentPackCommands,
                       DrainWatchCommands,
                       SilentFeeCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
@@ -1399,6 +1403,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("meme_radar", self._cmd_meme_radar),
             ("wallet", self._cmd_wallet),
             ("defi", self._cmd_defi),
+            # --- Incident pack begin ---
+            ("incidentpack", self._cmd_incidentpack),
+            # --- Incident pack end ---
             ("clawwatch", self._cmd_clawwatch),
         ]:
             # Every slash command's turn reaches the transcript through this

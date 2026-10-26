@@ -176,6 +176,12 @@ READERS.DRAIN_FIREWALL_ENABLED = function (env) {
   return require('./claw_firewall_flag').flagOn(env) === true;
 };
 // --- Claw Firewall end ---
+// --- Incident pack begin ---
+// Lazy: incident_pack_flag requires this module.
+READERS.INCIDENT_PACK_ENABLED = function (env) {
+  return require('./incident_pack_flag').flagOn(env) === true;
+};
+// --- Incident pack end ---
 // --- Signature decoder begin ---
 // Lazy: sig_decoder_flag does not require this module.
 READERS.SIG_DECODER_ENABLED = function (env) {
