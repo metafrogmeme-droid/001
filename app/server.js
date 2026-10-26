@@ -573,6 +573,11 @@ app.use('/api/panic', panicApi);
 // v0.1 (a lookalike warning, an audit-trail export) is a separate router
 // and stays 404 until CLAW_GUARD_V01 is set. /check is the v0 router only.
 app.use('/api/guard/poison', require('./routes/guard_v01'));
+// --- Signature decoder begin ---
+// Claw Guard signature signals. 404 for a non-operator while
+// SIG_DECODER_ENABLED is off. An operator can preview. No network call.
+app.use('/api/guard/sigdecode', require('./routes/sig_decoder'));
+// --- Signature decoder end ---
 app.use('/v1/receipts', require('./routes/receipts_v01'));
 app.use('/api/guard', require('./routes/guard'));
 // RWA pre-check: read-only flags on a tokenized-asset contract. 404 until
