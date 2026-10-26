@@ -40,6 +40,7 @@ channel is_admin
 cgc guard+is_admin
 classpf guard
 clawheuristics is_admin
+clawwatch is_admin
 closeall is_admin
 compliance guard
 connect guard
@@ -157,6 +158,7 @@ setsigner is_admin
 settier guard+is_admin
 shadow is_admin
 share is_authorized
+sigdecode is_admin
 signals guard
 slippage is_admin
 spot guard
