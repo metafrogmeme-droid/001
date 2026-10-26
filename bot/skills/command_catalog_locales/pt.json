@@ -192,6 +192,7 @@
     "unstake": "resgatar seu Earn flexível de volta para a margem de trading — confirmado por botão",
     "arbpair": "dimensionar um par de funding delta-neutro nas suas corretoras ligadas — /arbpair BTC [usd]; uma proposta que não coloca nada",
     "postmortem": "autópsia de uma operação fechada — /postmortem [SÍMBOLO ou id da operação]",
+    "incidentpack": "pacote de incidente só de leitura para um endereço e uma janela, rede de teste, só administrador",
     "sigdecode": "descodificar um pedido de assinatura em sinais públicos, não um veredito"
   },
   "menu": {

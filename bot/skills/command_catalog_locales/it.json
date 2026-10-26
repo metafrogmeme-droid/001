@@ -192,6 +192,7 @@
     "unstake": "riscattare il tuo Earn flessibile verso il margine di trading — confermato con pulsante",
     "arbpair": "dimensionare una coppia di funding delta-neutrale sulle tue venue collegate — /arbpair BTC [usd]; una proposta che non piazza nulla",
     "postmortem": "autopsia di un'operazione chiusa — /postmortem [SIMBOLO o id dell'operazione]",
+    "incidentpack": "pacchetto incidente in sola lettura per un indirizzo e una finestra, testnet, solo per l'amministratore",
     "sigdecode": "decodificare una richiesta di firma in segnali pubblici, non un verdetto"
   },
   "menu": {
