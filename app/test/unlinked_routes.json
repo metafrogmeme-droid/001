@@ -34,6 +34,7 @@
     "/t2c": "Admin-only duration signal. It answers 404 for everyone who is not the operator, including while the flag is on, so the landing page has no public door to it.",
     "/qch": "Quantum custody haircut behind QCH_ENABLED, off by default. Admin-only: a non-admin gets 404 even when the flag is on. It is not a public dashboard, so the landing page does not link it.",
     "/xnav": "Exit-adjusted NAV. Admin-only, and XNAV_ENABLED is off by default. A non-operator gets 404 even when the flag is on, so the landing page does not advertise it.",
-    "/claw-firewall": "Behind DRAIN_FIREWALL_ENABLED, off unless it is 1 or true. While it is off the public gets 404, so the landing page does not advertise a closed door."
+    "/claw-firewall": "Behind DRAIN_FIREWALL_ENABLED, off unless it is 1 or true. While it is off the public gets 404, so the landing page does not advertise a closed door.",
+    "/claw-watch": "Claw Watch behind DRAIN_WATCH_ENABLED, off by default. The public gets 404. An operator gets an admin preview, so the landing page does not advertise a closed door."
   }
 }

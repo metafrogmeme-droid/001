@@ -185,12 +185,14 @@
     "setsigner": "stelt de on-chain ondertekeningssleutel in (versleuteld)",
     "yield": "yield-radar voor inactieve activa (alleen-lezen)",
     "hrc": "plafonds op de USDC-leenrente van Hyperliquid — benutting en rente, alleen voor de beheerder",
+    "clawwatch": "Claw Watch — een adres bewaren, adviserende meldingen en niet-ondertekende intrekkingen, alleen beheer",
     "fees": "builder-plafonds en betaalde kosten op een Hyperliquid-adres, alleen lezen",
     "idleyield": "scan van het beste tarief over alle bronnen",
     "stake": "ongebruikte stables van JOUW gekoppelde Bitget-account in flexibel Earn zetten — een plankaart, niets verplaatst tot Bevestigen",
     "unstake": "je flexibele Earn terughalen naar de handelsmarge — met een knop bevestigd",
     "arbpair": "een delta-neutraal fundingpaar op je gekoppelde beurzen bemeten — /arbpair BTC [usd]; een voorstel dat niets plaatst",
-    "postmortem": "autopsie van één gesloten trade — /postmortem [SYMBOOL of trade-id]"
+    "postmortem": "autopsie van één gesloten trade — /postmortem [SYMBOOL of trade-id]",
+    "sigdecode": "een handtekeningverzoek ontleden tot openbare signalen, geen oordeel"
   },
   "menu": {
     "start": "👋 Registreer en zie hoe het ervoor staat",

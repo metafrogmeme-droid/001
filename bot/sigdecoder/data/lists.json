@@ -1,0 +1,43 @@
+{
+  "_note": "Public labels bundled with this package. A match is a public signal, not a verdict.",
+  "known_bad_7702_delegates": {
+    "0x6f7c7b0129afd6172dd36891b7048c6cf2d29c7f": "Etherscan: Hardcoded Crime Enjoyor: EIP-7702 Delegator",
+    "0x89046d34e70a65acab2152c26a0c8e493b5ba629": "Etherscan: Advanced Crime Enjoyor: EIP-7702 Delegator 2",
+    "0xb6785b782571980b3ddb5d40659f4861ff15aa02": "Etherscan: Advanced Crime Enjoyor: EIP-7702 Delegator 1",
+    "0x6b7879a5d747e30a3adb37a9e41c046928fce933": "Etherscan: Crime Enjoyor: EIP-7702 Delegator 7",
+    "0x08f5e230d412f0cd475b03b9acb51d1562f730f9": "Etherscan: Crime Enjoyor: EIP-7702 Delegator 8",
+    "0xa03fc3c62d26253b3ec3076cb871afa3b5fa60ab": "Etherscan: Crime Enjoyor: EIP-7702 Delegator 2",
+    "0x8044f37eb661c524227f0936eca21a1a748dd79c": "Etherscan: Sweeper Crime Enjoyor: EIP-7702 Delegator",
+    "0x289c9c58355e1a7d2b0ad4a5e8f2c3c961b48ae9": "Etherscan: Advanced Crime Enjoyor:EIP-7702 Delegator 2"
+  },
+  "known_good_7702_delegates": {
+    "0x63c0c19a282a1b52b07dd5a65b58948a07dae32b": "Etherscan: MetaMask: EIP-7702 Delegator",
+    "0x5a7fc11397e9a8ad41bf10bf13f22b0a63f96f6d": "Etherscan: Ambire: EIP-7702 Delegator",
+    "0x80296ff8d1ed46f8e3c7992664d13b833504c2bb": "Etherscan: OKX: EIP-7702 Delegator",
+    "0xd2e28229f6f2c235e57de2ebc727025a1d0530fb": "Etherscan: Trust Wallet: EIP-7702 Delegator 1"
+  },
+  "allow_spenders_and_routers": {
+    "0x000000000022d473030f116ddee9f6b43ac78ba3": "Uniswap Permit2",
+    "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad": "Uniswap Universal Router v1.2",
+    "0x66a9893cc07d91d95644aedd05d03f95e1dba8af": "Uniswap Universal Router v2",
+    "0xef1c6e67703c7bd7107eed8303fbe6ec2554bf6b": "Uniswap Universal Router v1",
+    "0x00000011f84b9aa48e5f8aa8b9897600006289be": "UniswapX Dutch Order Reactor V2",
+    "0x6000da47483062a0d734ba3dc7576ce6a0b645c4": "UniswapX Dutch Order Reactor",
+    "0x111111125421ca6dc452d289314280a0f8842a65": "1inch Aggregation Router V6",
+    "0x1111111254eeb25477b68fb85ed929f73a960582": "1inch Aggregation Router V5",
+    "0x9008d19f58aabd9ed0d60971565aa8510560ab41": "CoW GPv2Settlement",
+    "0xc92e8bdf79f0507f65a392b0ab4667716bfe0110": "CoW GPv2VaultRelayer",
+    "0x0000000000000068f116a894984e2db1123eb395": "Seaport 1.6 (Seaport README)",
+    "0x00000000000000adc04c56bf30ac9d3c0aaf14dc": "Seaport 1.5 (Seaport README)",
+    "0x1e0049783f008a0085193e00003d00cd54003c71": "OpenSea Conduit",
+    "0x6a000f20005980200259b80c5102003040001068": "Velora (ParaSwap) Augustus V6.2",
+    "0xcf5540fffcdc3d510b18bfca6d2b9987b0772559": "Odos Router V2",
+    "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae": "LI.FI Diamond",
+    "0x6131b5fae19ea4f9d964eac0408e4408b66337b5": "KyberSwap Meta Aggregation Router v2",
+    "0x881d40237659c251811cec9c364ef91dc08d300c": "MetaMask Swap Router",
+    "0x888888888889758f76e7103c6cbf23abbf58f946": "Pendle Router V4",
+    "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2": "Aave Pool V3",
+    "0x000000000000ad05ccc4f10045630fb830b95127": "Blur Marketplace",
+    "0x29469395eaf6f95920e59f858042f0e28d98a20b": "Blur Blend"
+  }
+}
