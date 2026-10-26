@@ -87,6 +87,10 @@
     "v": 1,
     "sha": "2d974fd10da45b24"
   },
+  "js/claw-watch.js": {
+    "v": 1,
+    "sha": "d31a7454f01f6d23"
+  },
   "js/confidence-score.js": {
     "v": 2,
     "sha": "eae59726fc5089ab"

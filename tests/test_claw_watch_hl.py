@@ -266,10 +266,27 @@ def test_a_zero_transfer_amount_is_shown():
     assert " 0 " in alerts[0]["text"]
 
 
-def test_claw_watch_is_absent_on_this_tree():
+def test_an_unread_claw_watch_is_not_an_empty_list(monkeypatch):
+    monkeypatch.setattr("bot.drain_watch.service.get_service", lambda: None)
     read = read_claw_watch("123")
-    assert read.present is False
+    assert read.present is True
     assert read.addresses is None
+
+
+def test_claw_watch_addresses_come_from_its_store(tmp_path, monkeypatch):
+    from bot.daily_duel_store import player_key
+    from bot.drain_watch.service import DrainWatch
+    from bot.drain_watch.store import DrainWatchStore
+
+    salt = "s" * 32
+    store = DrainWatchStore(tmp_path / "drain.sqlite")
+    svc = DrainWatch(salt=salt, store=store)
+    key = player_key("123", salt)
+    store.add(key, "0x" + "ab" * 20, "2026-01-01T00:00:00Z")
+    monkeypatch.setattr("bot.drain_watch.service.get_service", lambda: svc)
+    read = read_claw_watch("123")
+    assert read.present is True
+    assert read.addresses == ["0x" + "ab" * 20]
 
 
 def test_poll_does_not_start_and_does_not_touch_the_network_when_the_flag_is_off(monkeypatch):

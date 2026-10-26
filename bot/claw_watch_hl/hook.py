@@ -1,10 +1,9 @@
 """The seam to Claw Watch.
 
-``bot.drain_watch`` is not in this tree until that branch lands. The import
-sits inside the function, so a missing package is "not present" and startup
-does not depend on it. When the package is present, addresses a chat stored
-there are included in this watch's poll. This module does not edit that
-package.
+The import sits inside the function. A missing package is "not present",
+and startup does not depend on it. When the package is present, addresses
+a chat stored there are included in this watch's poll. An unread list is
+not an empty one. This module does not edit that package.
 """
 
 from __future__ import annotations

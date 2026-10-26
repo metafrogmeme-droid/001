@@ -702,6 +702,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/backup` | verifiable backups of critical state |
 | `/readiness` | is the learning loop validated enough to apply |
 | `/srb` | shadow restitution signals — a public signal, nothing is paid |
+| `/sigdecode` | decode a signature request into public signals, not a verdict |
 
 ### 🚦 Engine ops (operator) — *operator only*
 
@@ -764,6 +765,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
 | `/hrc` | Hyperliquid USDC borrow-rate caps — utilization and rate, admin |
+| `/clawwatch` | Claw Watch — register an address, advisory alerts, unsigned revokes, admin |
 | `/fees` | builder caps and fees paid on one Hyperliquid address, read-only |
 | `/hlwatch` | Hyperliquid account watch for Claw Watch — agents, builder fees, withdrawals and sudden position changes, advisory, read-only |
 | `/costs` | today's model and API spend against the daily budget |

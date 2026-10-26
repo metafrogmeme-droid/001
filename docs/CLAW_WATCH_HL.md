@@ -21,11 +21,10 @@ command since this process started.
 
 ## Claw Watch
 
-Draft PR #725 (`DRAIN_WATCH_ENABLED`, `/clawwatch`) is a separate branch.
-This watch does not edit that package. `bot.claw_watch_hl.hook.read_claw_watch`
-imports it when it is present and includes the addresses that chat stored.
-Until that package is on this tree, the import is absent and those addresses
-are not part of the poll.
+Claw Watch (`DRAIN_WATCH_ENABLED`, `/clawwatch`) is its own package. This
+watch does not edit it. `bot.claw_watch_hl.hook.read_claw_watch` includes
+the addresses that chat stored there. A failed import leaves them out. A
+read that does not succeed leaves them unread, which is not an empty list.
 
 ## What this is not
 

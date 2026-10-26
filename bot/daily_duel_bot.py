@@ -683,7 +683,16 @@ class DailyDuelBot:
         if await self._limited(update):
             return
         await self._reply(update, await self.digest.on_stop(self._chat(update)))
+        self._forget_claw_watch(update)
         self._forget_hl_watch(update)
+
+    def _forget_claw_watch(self, update) -> None:
+        """Delete Claw Watch rows for this telegram id. The duel reply stays the digest's."""
+        try:
+            from bot.drain_watch.service import forget_telegram
+            forget_telegram(self._tg_id(update))
+        except Exception as exc:
+            log.info("claw watch forget skipped: %s", type(exc).__name__)
 
     def _forget_hl_watch(self, update) -> None:
         """Delete Hyperliquid watch rows for this telegram id. The duel reply stays."""

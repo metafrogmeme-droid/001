@@ -748,6 +748,12 @@ class AlertsMonitor:
                 system_log.debug("Auto-confirm notify send failed: %s", exc)
 
         self.engine.set_auto_confirm_notify_callback(_on_auto_confirmed)
+        self._claw_watch_task = None
+        try:
+            from bot.drain_watch.service import start_poll
+            self._claw_watch_task = start_poll(bot)
+        except Exception as exc:
+            system_log.warning("claw watch poll did not start: %s", type(exc).__name__)
 
     async def stop_monitor(self) -> None:
         """Stop the proactive monitor."""
@@ -758,6 +764,13 @@ class AlertsMonitor:
             task.cancel()
             try:
                 await task
+            except asyncio.CancelledError:
+                pass
+        extra = getattr(self, "_claw_watch_task", None)
+        if extra is not None:
+            extra.cancel()
+            try:
+                await extra
             except asyncio.CancelledError:
                 pass
 

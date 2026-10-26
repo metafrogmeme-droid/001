@@ -1,0 +1,31 @@
+{
+  "tiers": {
+    "low": ["claude-haiku-5-5"],
+    "medium": ["claude-sonnet-5"],
+    "high": ["claude-opus-4-8", "claude-fable-5"]
+  },
+  "low_below": 20,
+  "high_at": 50,
+  "weights": {
+    "payable": 40,
+    "value_transfer": 40,
+    "token_approval": 40,
+    "upgradeable": 40,
+    "external_call": 12,
+    "oracle": 12,
+    "access_complex": 12,
+    "per_100_loc": 5,
+    "per_extra_contract": 5,
+    "loc_cap": 15,
+    "contract_cap": 15,
+    "mainnet_documented": 8,
+    "mainnet_target": 25
+  },
+  "budget": {
+    "max_tokens": 200000,
+    "max_cost_usd": 8.0,
+    "max_output_tokens": 4096,
+    "chunk_input_tokens": 6000,
+    "timeout_seconds": 120
+  }
+}
