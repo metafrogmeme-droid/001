@@ -38,6 +38,9 @@ _FLAGS = _FLAGS | frozenset({"XNAV_ENABLED"})
 # --- QUARANTINE begin ---
 _FLAGS = _FLAGS | frozenset({"QUARANTINE_ENABLED"})
 # --- QUARANTINE end ---
+# --- Incident pack begin ---
+_FLAGS = _FLAGS | frozenset({"INCIDENT_PACK_ENABLED"})
+# --- Incident pack end ---
 _CONFIDENCE_ON = frozenset({"1", "true", "yes", "on"})
 
 
@@ -64,6 +67,11 @@ def public_on(flag: str, env: Optional[Mapping[str, str]] = None) -> bool:
         from bot.quarantine.flag import flag_on
         return flag_on(env) is True
     # --- QUARANTINE end ---
+    # --- Incident pack begin ---
+    if flag == "INCIDENT_PACK_ENABLED":
+        from bot.incident_pack import flag_on
+        return flag_on(env) is True
+    # --- Incident pack end ---
     source = os.environ if env is None else env
     return str(source.get("DUEL_CONFIDENCE_ENABLED", "")).strip().lower() in _CONFIDENCE_ON
 

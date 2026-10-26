@@ -703,6 +703,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/readiness` | is the learning loop validated enough to apply |
 | `/srb` | shadow restitution signals — a public signal, nothing is paid |
 | `/quarantine` | hidden tokens and NFTs the bot will not approve, transfer, or burn, plus a lookalike warning |
+| `/incidentpack` | read-only incident pack for one address and a time window, testnet, admin |
 | `/sigdecode` | decode a signature request into public signals, not a verdict |
 
 ### 🚦 Engine ops (operator) — *operator only*

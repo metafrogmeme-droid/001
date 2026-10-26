@@ -193,6 +193,7 @@
     "unstake": "내 유연 Earn을 거래 증거금으로 되돌리기 — 버튼으로 확인",
     "arbpair": "연결된 거래소에서 델타 중립 펀딩 페어 규모 산정 — /arbpair BTC [usd]; 아무것도 주문하지 않는 제안",
     "postmortem": "청산된 거래 1건의 부검 — /postmortem [심볼 또는 거래 ID]",
+    "incidentpack": "주소 하나와 시간 창의 읽기 전용 사건 묶음, 테스트넷, 관리자 전용",
     "sigdecode": "서명 요청을 공개 신호로 해독한다. 판정이 아니다"
   },
   "menu": {
