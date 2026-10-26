@@ -112,8 +112,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 255,
-    "sha": "78e68a21014f6e49"
+    "v": 256,
+    "sha": "9862eb98baa186fe"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -216,8 +216,8 @@
     "sha": "173436196745d52c"
   },
   "js/i18n-core.js": {
-    "v": 209,
-    "sha": "01f4d5c0bc838675"
+    "v": 210,
+    "sha": "2e76e6c25c2f0f1a"
   },
   "js/icons.js": {
     "v": 6,

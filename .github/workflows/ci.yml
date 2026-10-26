@@ -391,20 +391,18 @@ jobs:
       - name: Build — release profile
         run: cargo build -p rclaw_staking --release
 
-      # The artifact that actually gets DEPLOYED, built for the first time.
+      # The artifact that actually gets DEPLOYED.
       #
-      # `cargo test` builds for the host. Solana runs SBF bytecode, and nothing
-      # in this repo had ever produced any — the audit listed "no SBF build" as
-      # an open caveat. When it was finally attempted it did not work, for a
-      # reason no host build could surface: the toolchain pinned in Anchor.toml
-      # (Solana 1.18.26) bundles cargo 1.75, and the dependency tree had drifted
-      # into crates requiring `edition2024` and rustc 1.85+. The program could
-      # not be built for deployment at all.
-      #
-      # Fixing that needed Cargo.lock pinned to lockfile v3 (cargo 1.75 cannot
-      # parse v4) plus 19 transitive downgrades. Both are load-bearing and both
-      # are easy to undo by accident — a single `cargo update` re-breaks
-      # deployability while every host check stays green. Hence this gate.
+      # `cargo test` builds for the host (rust-toolchain.toml, 1.94). Solana
+      # runs SBF bytecode compiled by the Solana CLI's platform-tools, which
+      # is a different rustc. Anchor.toml pins that CLI at Agave 3.1.14
+      # (platform-tools v1.52, Rust 1.89) because the program graph no longer
+      # builds on 1.18.26: Cargo.lock is v4 (cargo 1.75 cannot parse it),
+      # solana-program 2.1 pulls zeroize 1.9 (rust-version 1.85), and
+      # anchor-spl pulls serde_with 3.24 (rust-version 1.88) so quinn-proto
+      # 0.11 and serde_with 3.21+ can replace the vulnerable 0.10 / 2.3
+      # releases. A newer crate that declares rust-version above 1.89 still
+      # leaves `cargo test` green and this build red. Hence this gate.
       - name: Install the SBF toolchain (pinned to Anchor.toml's solana_version)
         env:
           # The installer for the version Anchor.toml pins, checksummed rather
@@ -417,10 +415,10 @@ jobs:
           # release host still serves compromised binaries to a script whose
           # hash checks out. Pinning those needs the tarballs fetched and
           # checksummed directly, which is a larger change than this one.
-          ANZA_INSTALL_SHA256: cec72cde1cf36eb35cd8326245d23af0b6791fab68337c2953e2ca2a40af2c50
+          ANZA_INSTALL_SHA256: f2d4860409b14a7aacc6454431d3b5366f2795df696466fe5a7177b0adf5f761
         run: |
           set -euo pipefail
-          curl -sSfLo anza-install.sh "https://release.anza.xyz/v1.18.26/install"
+          curl -sSfLo anza-install.sh "https://release.anza.xyz/v3.1.14/install"
           echo "${ANZA_INSTALL_SHA256}  anza-install.sh" | sha256sum -c -
           sh anza-install.sh
           rm -f anza-install.sh
@@ -831,10 +829,13 @@ jobs:
       # and is itself worth having wired into CI.
       - name: Install the Solana CLI (for solana-test-validator)
         env:
-          # The installer for the version Anchor.toml pins, checksummed rather
-          # than executed sight-unseen. This was `sh -c "$(curl ...)"` -- the
-          # same execution as a `curl | sh` one syntax over, which is exactly
-          # why a grep for the pipe form reported this repo clean.
+          # The validator these token tests were written against, checksummed
+          # rather than executed sight-unseen. This stays on Solana 1.18.26
+          # even though Anchor.toml's solana_version is the staking SBF
+          # compiler (3.1.14): this job does not compile the staking program.
+          # This was `sh -c "$(curl ...)"` -- the same execution as a `curl | sh`
+          # one syntax over, which is exactly why a grep for the pipe form
+          # reported this repo clean.
           #
           # STATE THE LIMIT: this pins the ENTRYPOINT, not the toolchain. The
           # script then downloads release tarballs itself, so a compromised

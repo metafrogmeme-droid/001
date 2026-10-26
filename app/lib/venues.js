@@ -62,7 +62,7 @@ const VENUES = [
     market: 'perps',
     orders: true,
     balance_coin: 'USDT',
-    help: 'USDT perpetuals ($2 min notional). Create API keys with perpetual-futures trade permission; account must be in ONE-WAY position mode.',
+    help: 'USDT perpetuals (minimum order size applies). Create API keys with perpetual-futures trade permission; account must be in ONE-WAY position mode.',
     fields: [
       { key: 'api_key', label: 'API key', type: 'text' },
       { key: 'api_secret', label: 'API secret', type: 'password' },

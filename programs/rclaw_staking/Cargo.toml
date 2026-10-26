@@ -31,12 +31,30 @@ custom-panic = []
 anchor-debug = []
 
 [dependencies]
-anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
-anchor-spl = "0.30.1"
+anchor-lang = { version = "0.31.2", features = ["init-if-needed"] }
+anchor-spl = "0.31.2"
+
+# spl-token-2022 → solana-sdk pulls secp256r1's openssl into every host
+# build. solana-client turns on `openssl-vendored` for `cargo test`; a plain
+# `cargo build` does not, and then the build stops unless libssl-dev happens
+# to be installed. Same feature, on the host only — the crate's own openssl
+# dependency is already cfg'd out of the SBF target.
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-secp256r1-program = { version = "=2.1.21", features = ["openssl-vendored"] }
 
 [dev-dependencies]
-solana-program-test = "1.18"
-solana-sdk = "1.18"
+# 2.1.21 is the newest Solana line whose solana-sdk depends on serde_with ^3
+# and whose solana-streamer depends on quinn-proto ^0.11. Exact pins so a
+# later 2.2/2.3 line (different crate split, older or newer proto) cannot
+# drift back onto the vulnerable releases.
+solana-program-test = "=2.1.21"
+solana-sdk = "=2.1.21"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-spl-token = { version = "4.0", features = ["no-entrypoint"] }
-spl-associated-token-account = { version = "2.3", features = ["no-entrypoint"] }
+spl-token = { version = "=7.0.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "=6.0.0", features = ["no-entrypoint"] }
+# Floors, not the versions Cargo happened to pick. solana-sdk 2.1 allows
+# serde_with ^3.11 and solana-streamer allows quinn-proto ^0.11.9, both of
+# which still include the vulnerable releases. These keep a later
+# `cargo update` from walking back under the patched versions.
+serde_with = "3.21"
+quinn-proto = "0.11.15"

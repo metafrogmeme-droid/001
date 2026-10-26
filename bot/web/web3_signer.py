@@ -8,10 +8,11 @@ strictest possible envelope this platform can express:
     WEB3_LIVE_EXEC_ALLOW_MAINNET. Mainnet signing is a separate, later,
     separately-gated slice — blast radius here is testnet funds (worthless).
   * ADMIN ONLY, re-checked server-side.
-  * ON by default behind its OWN dedicated flag WEB3_LIVE_EXEC_SIGN_ENABLED
-    (set =0 to hard-disable) — but inert until the operator supplies the signing
-    key AND installs eth-account, and testnet-only regardless. So "on" here still
-    signs nothing until the operator's own multi-step setup is complete.
+  * OFF by default behind its OWN dedicated flag WEB3_LIVE_EXEC_SIGN_ENABLED
+    (set =1 to allow) — and still inert until the operator supplies the signing
+    key AND installs eth-account, and testnet-only regardless. So even an
+    explicit on signs nothing until the operator's own multi-step setup is
+    complete.
   * ENVELOPE-ENFORCED. The action still runs through the Authority Envelope
     authorize() as a transfer (withdraw_allowed + dest on the allowlist).
   * REVIEW-QUEUED. Every sign is recorded to the Guardian review queue.
@@ -46,20 +47,18 @@ _TESTNET_CHAIN_IDS = frozenset(
 
 
 def signing_enabled(env: Optional[dict] = None) -> bool:
-    """The signer's OWN master switch. Default ON, but TESTNET-ONLY and inert
-    until the operator supplies the two things only they can: the signing key
-    (WEB3_SIGNER_PRIVATE_KEY) and the eth-account library. With the switch ON,
-    testnet signing "just works" once those are present — while mainnet stays
-    hard-refused here regardless of any flag. Explicit off wins: set
-    WEB3_LIVE_EXEC_SIGN_ENABLED=0 to hard-disable signing."""
+    """The signer's OWN master switch. Default OFF. Testnet signing stays
+    refused until the operator sets WEB3_LIVE_EXEC_SIGN_ENABLED=1, and even
+    then it is inert until they supply the two things only they can: the
+    signing key (WEB3_SIGNER_PRIVATE_KEY) and the eth-account library.
+    Mainnet stays hard-refused here regardless of any flag. Unset, empty,
+    and anything other than an explicit on read as off."""
     import os
     # `env if env is not None`, NOT `env or os.environ`: an empty dict is a
     # caller saying "nothing is set", and `or` read it as "ask the process".
     e = env if env is not None else os.environ
     raw = str(e.get("WEB3_LIVE_EXEC_SIGN_ENABLED", "")).strip().lower()
-    if raw in ("0", "false", "no", "off"):
-        return False
-    return True
+    return raw in ("1", "true", "yes", "on")
 
 
 def _resolve_key(env: Optional[dict] = None) -> str:
@@ -228,8 +227,9 @@ _SIGN_CHECKS = (
      "on-chain execution is not enabled by the operator (WEB3_LIVE_EXEC_ENABLED)"),
     ("is_admin", "on-chain signing is admin-only"),
     ("signing_enabled",
-     "live signing is switched off — WEB3_LIVE_EXEC_SIGN_ENABLED is set off (its "
-     "own switch, default ON, separate from previews); unset it or set it to 1"),
+     "live signing is switched off — WEB3_LIVE_EXEC_SIGN_ENABLED is off (its "
+     "own switch, default OFF, separate from previews); set it to 1 to allow "
+     "testnet signing"),
     ("testnet_only",
      "signing is TESTNET-ONLY in this slice — target a supported testnet "
      "(mainnet signing is a separate, later, separately-gated slice)"),

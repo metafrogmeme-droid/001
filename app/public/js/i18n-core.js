@@ -191,7 +191,7 @@
     "rn.how_h": { en: "How to bear one" },
     "rn.how_1": { en: "Create a free account and open the dashboard." },
     "rn.how_2": { en: "Link your wallet address — a signature proves it's yours; no key ever leaves your wallet." },
-    "rn.how_3": { en: "When the forge is live, mint from your own wallet. The server never signs transactions, never sends them, never holds keys — it only writes you the invitation." },
+    "rn.how_3": { en: "When the forge is live, mint from your own wallet. The server never holds mainnet keys or signs for users. It only writes you the invitation." },
     "rn.cta_dash": { en: "Open the dashboard →" },
     "gs.h1": { en: "⛽ Live Gas" },
     "gs.lede": { en: "Gas across seven chains, straight from public nodes — <b>market facts, not advice</b>. Each row shows the node's current suggestion, the native coin's live price, and a literal <b>floor</b> for one typical transfer. A chain that would not answer is simply absent: <b>omitted, never invented</b>." },
@@ -1772,7 +1772,7 @@
     "venue.help.bitget": { en: "Create USDT-M futures API keys with read + trade permission. Keep withdrawals disabled." },
     "venue.help.bybit": { en: "USDT perpetuals. Create API keys with derivatives trade permission; account must be in ONE-WAY position mode." },
     "venue.help.bybiteu": { en: "Balances only. Bybit EU offers spot, not the perpetual futures this bot trades, so no order is placed there. Create a read-only API key on bybit.eu; keep withdrawals disabled." },
-    "venue.help.bingx": { en: "USDT perpetuals ($2 min notional). Create API keys with perpetual-futures trade permission; account must be in ONE-WAY position mode." },
+    "venue.help.bingx": { en: "USDT perpetuals (minimum order size applies). Create API keys with perpetual-futures trade permission; account must be in ONE-WAY position mode." },
     "venue.help.okx": { en: "USDT perpetual swaps. Create API keys with trade permission and set an API passphrase; keep withdrawals disabled." },
     "venue.help.gate": { en: "USDT perpetual swaps. Create API keys with futures trade permission; keep withdrawals disabled." },
     "venue.help.kucoin": { en: "USDT perpetual futures. Create Futures API keys with trade permission and set an API passphrase; keep withdrawals disabled." },
@@ -1979,7 +1979,7 @@
     "doors.d5_h": { en: "Story" },
     "doors.d5_p": { en: "The Agent Letter, the Rune of Entry, and the developer surface — what the agent has been thinking, in its own words." },
     "sw.h1": { en: "Review & sign a swap" },
-    "sw.lede": { en: "RUNECLAW plans the trade and builds the transaction. You sign it in your own wallet — we never hold your keys, and we cannot send anything on your behalf." },
+    "sw.lede": { en: "RUNECLAW plans the trade and builds the transaction. You sign it in your own wallet. The server never holds your mainnet keys or signs for you." },
     "sw.s1_h": { en: "1 · Your wallet" },
     "sw.connect": { en: "Connect Solana wallet" },
     "sw.not_connected": { en: "not connected" },
@@ -2606,7 +2606,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"d59f5e41","zh":"533819b4","pt":"3a423e4b","fr":"59e6dc17","de":"26720d26","nl":"89c3bf91","ja":"561eb438","ko":"423d3ee9","ru":"9554d8cb","tr":"badf03f1","it":"8b90ff18","hi":"041a0016","ar":"f89f43bb"};
+  var CHUNKS = {"es":"70c86d6a","zh":"e9681215","pt":"763db7dd","fr":"73c03118","de":"a446ed84","nl":"e00a5326","ja":"7d72a4ed","ko":"63f795b5","ru":"c031b838","tr":"77a74085","it":"a992623e","hi":"b02638a5","ar":"ae4bc5ee"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

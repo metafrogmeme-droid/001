@@ -10677,7 +10677,7 @@
 
   // ── Admin testnet live signer console (WEB3-LIVE-EXEC slice 2) ──────────
   // Drives the bot's testnet-only signer from the web. Every real gate lives
-  // bot-side (the feature + signing switches, both default ON; the operator's
+  // bot-side (the feature switch, default ON, and the signing switch, default OFF; the operator's
   // key + library; admin re-check, testnet-only, enforcing envelope, and
   // authorize() on the value the bot prices itself); this panel only shows
   // status and forwards the resolved transfer. No private key ever reaches the browser — the panel shows the

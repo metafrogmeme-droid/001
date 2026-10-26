@@ -107,7 +107,7 @@ def build(pinned: str | None) -> str:
     previous build's artifact, which would have this script compare a hash
     against itself and pass unconditionally.
 
-    On the pinned toolchain (cargo-build-sbf 1.18.26) that insurance turns out
+    Measured on cargo-build-sbf 1.18.26, that insurance turned out
     to be redundant: cargo records ``option_env!`` inputs in its fingerprint, so
     changing ``RCLAW_PINNED_MINT`` alone already forces a rebuild. Measured, not
     assumed — removing the touch was tried and the gate still produced two

@@ -1,8 +1,9 @@
 """WEB3-LIVE-EXEC slice 2 — the testnet live signer.
 
 Locks the safety envelope of the first slice that ACTUALLY signs + broadcasts.
-The feature + signing switches now DEFAULT ON so testnet signing works out of the
-box — but the envelope is unchanged and airtight: admin-only, TESTNET-ONLY
+The feature switch DEFAULTS ON. The signing switch DEFAULTS OFF, so an unset
+WEB3_LIVE_EXEC_SIGN_ENABLED signs nothing. The envelope is unchanged and
+airtight: admin-only, TESTNET-ONLY
 (mainnet refused regardless of the mainnet-allow flag), envelope-enforced, inert
 without the operator's key + eth-account, and — the hard money-path invariant —
 the signing key is NEVER returned, logged, or surfaced in an error. The elliptic
@@ -45,37 +46,51 @@ def _ev(monkeypatch, *, lib=True, **kw):
 
 # ── the fail-closed signing gate ───────────────────────────────────────
 
+def test_signing_defaults_off(monkeypatch):
+    # Unset is off. A key, a testnet, an admin and an enforcing envelope do not
+    # turn signing on — only an explicit WEB3_LIVE_EXEC_SIGN_ENABLED=1 does.
+    assert signer.signing_enabled({}) is False
+    off = _ev(monkeypatch, env={"WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
+    assert off.allowed is False and "signing" in off.reason.lower()
+    on = _ev(monkeypatch, env={"WEB3_LIVE_EXEC_SIGN_ENABLED": "1",
+                               "WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
+    assert on.allowed is True
+
+
 def test_feature_default_on_but_hard_disable_wins(monkeypatch):
-    # With nothing set, the feature is ON — testnet signing works out of the box
-    # (key + testnet + envelope + lib all present here).
-    on = _ev(monkeypatch, env={"WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
+    # With nothing set, the feature is ON. Signing is its own switch and is
+    # set on here so this arm measures the feature, not the signing default.
+    on = _ev(monkeypatch, env={"WEB3_LIVE_EXEC_SIGN_ENABLED": "1",
+                               "WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
     assert on.allowed is True
     # …but an explicit WEB3_LIVE_EXEC_ENABLED=0 still hard-disables everything.
     off = _ev(monkeypatch, env={"WEB3_LIVE_EXEC_ENABLED": "0",
+                                "WEB3_LIVE_EXEC_SIGN_ENABLED": "1",
                                 "WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
     assert off.allowed is False and "not enabled" in off.reason.lower()
 
 
 def test_signing_has_its_own_hard_disable(monkeypatch):
-    # signing defaults ON, but its OWN switch can hard-disable it independently.
+    # An explicit 0 hard-disables signing even when every other precondition holds.
     off = _ev(monkeypatch, env={"WEB3_LIVE_EXEC_SIGN_ENABLED": "0",
                                 "WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
     assert off.allowed is False and "signing" in off.reason.lower()
 
 
-def test_defaults_on_still_need_the_operator_key(monkeypatch):
-    # Defaulting the switches ON does NOT bypass the operator's own setup: with no
-    # signing key, signing is still refused — "on" is inert until the key is set.
-    d = _ev(monkeypatch, env={})                      # everything default, no key
+def test_signing_on_still_needs_the_operator_key(monkeypatch):
+    # Turning the signing switch on does NOT bypass the operator's own setup:
+    # with no signing key, signing is still refused.
+    d = _ev(monkeypatch, env={"WEB3_LIVE_EXEC_SIGN_ENABLED": "1"})
     assert d.allowed is False and "key" in d.reason.lower()
 
 
-def test_mainnet_still_refused_by_default_with_everything_on(monkeypatch):
-    # THE safety invariant of this change: even with the feature + signing ON by
-    # default and a key present, a mainnet target is refused (testnet-only), with
+def test_mainnet_still_refused_when_signing_is_explicitly_on(monkeypatch):
+    # THE safety invariant: even with the feature on, signing explicitly on,
+    # and a key present, a mainnet target is refused (testnet-only), with
     # no mainnet-allow flag anywhere in sight.
     d = _ev(monkeypatch, network="ethereum",
-            env={"WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
+            env={"WEB3_LIVE_EXEC_SIGN_ENABLED": "1",
+                 "WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
     assert d.allowed is False and "testnet" in d.reason.lower()
 
 
@@ -83,7 +98,9 @@ def test_new_testnets_pass_the_gate(monkeypatch):
     # the added testnets are usable end-to-end (gate allows; chain in testnet set).
     for net in ("polygon-amoy", "avalanche-fuji", "scroll-sepolia",
                 "linea-sepolia", "blast-sepolia", "bsc-testnet"):
-        d = _ev(monkeypatch, network=net, env={"WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
+        d = _ev(monkeypatch, network=net,
+                env={"WEB3_LIVE_EXEC_SIGN_ENABLED": "1",
+                     "WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY})
         assert d.allowed is True, net
         assert d.network["testnet"] is True
         assert d.network["chain_id"] in signer._TESTNET_CHAIN_IDS

@@ -1844,8 +1844,9 @@ async def handle_contract_deploy(request: web.Request) -> web.Response:
     """Contract Studio slice 5 — admin-only, TESTNET-ONLY one-click deploy of a
     compiled contract's init bytecode. This is a contract-CREATION sign+broadcast
     (``to`` omitted, ``data`` = bytecode), run through the SAME fail-closed spine
-    as the value-transfer signer: the feature and signing switches (both default
-    ON, either set off hard-disables) + the operator's key + the eth-account
+    as the value-transfer signer: the feature switch (default ON) and the
+    signing switch (default OFF) — setting the feature off, or leaving signing
+    off, hard-disables — plus the operator's key + the eth-account
     library + an enforcing envelope, authorized through the Authority Envelope
     as a ``deploy``, mainnet refused regardless of any flag.
     NEVER returns or logs the signing key (F-15 on every error path)."""
@@ -5544,8 +5545,9 @@ def _release_web3_spend(ledger: "AuthoritySpendLedger | None", tg_id: str, ref: 
 async def handle_web3_sign(request: web.Request) -> web.Response:
     """WEB3-LIVE-EXEC slice 2 — admin-only, TESTNET-ONLY live SIGN + broadcast of
     a native-value transfer to an envelope-allowlisted destination. Gated by
-    WEB3_LIVE_EXEC_ENABLED and WEB3_LIVE_EXEC_SIGN_ENABLED — both default ON,
-    either set off hard-disables — and, in practice, by what only the operator
+    WEB3_LIVE_EXEC_ENABLED (default ON) and WEB3_LIVE_EXEC_SIGN_ENABLED
+    (default OFF) — setting the feature off, or leaving signing off,
+    hard-disables — and, in practice, by what only the operator
     can supply: a configured signer key, the eth-account library, and an
     enforcing envelope. Mainnet is refused here regardless of any flag. NEVER
     returns or logs the signing key; F-15 on every error path.
