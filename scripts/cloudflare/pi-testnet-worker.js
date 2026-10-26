@@ -59,6 +59,10 @@ const PROXY_PREFIXES = [
   '/api/scam-or-safe/',
   '/js/',
   '/vendor/',
+  // The owl on the first screen (pi-arena.js). img-src is 'self', so a 302
+  // of this path to www is a broken image. The prefix is the directory the
+  // page's still lives in; a path that is not under it stays a redirect.
+  '/mascot/',
 ];
 
 function shouldProxy(pathname) {

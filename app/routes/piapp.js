@@ -23,7 +23,7 @@
  *
  * SAFE TO FRAME FOR THE SAME REASON THE MINI APP IS (routes/miniapp.js): no
  * cookie and no storage, a session held in memory, obtainable only with an
- * access token Pi's App Studio vouches for (lib/pi_auth.js). frame-ancestors
+ * access token the Pi Platform vouches for (lib/pi_auth.js). frame-ancestors
  * is the one Pi's App Studio guidance gives (2026-10-16): 'self' plus
  * https://*.pinet.com and https://*.minepi.com, never a wildcard.
  * PI_FRAME_ANCESTORS replaces it if Pi's hosts change.
@@ -38,8 +38,8 @@
  *
  * THE POLICY IS PI'S, explicit and narrow. The SDK calls https://socialchain.app
  * internally during authentication, so connect-src names it; our own code
- * talks only to us (the App Studio exchange happens on our server, so its
- * origin is deliberately NOT in this page's connect-src). The SDK injects
+ * talks only to us (the Platform check happens on our server, so
+ * api.minepi.com is deliberately NOT in this page's connect-src). The SDK injects
  * inline STYLES, so style-src allows them; script-src never allows inline.
  *
  * THE ONE OUTSIDE SCRIPT is Pi's own SDK, which the platform requires to be
@@ -62,7 +62,11 @@ router.use(rateLimit({ name: 'piapp', windowMs: 60000, max: 120, key: ipKey }));
 
 const PI_SDK = 'https://sdk.minepi.com/pi-sdk.js';
 
-/** Pi's App Studio (the Dev Portal); its backend is lib/pi_auth.js's DEFAULT_ORIGIN. */
+/**
+ * Pi's App Studio (the Dev Portal). It may frame this page: its "Checking Pi
+ * Auth" preview is an ancestor. Sign-in does not talk to it (lib/pi_auth.js
+ * asks api.minepi.com).
+ */
 const APP_STUDIO = 'https://appstudio-u7cm9zhmha0ruwv8.piappengine.com';
 
 const PI_FRAME_ANCESTORS = `'self' https://*.pinet.com https://*.minepi.com ${APP_STUDIO}`;
@@ -146,7 +150,7 @@ const SCRIPTS = [
   '/js/pi-leaders.js?v=3',
   // The daily proof, read-only, behind the header's Proof button.
   '/js/pi-proof.js?v=2',
-  '/js/pi-arena.js?v=9',
+  '/js/pi-arena.js?v=10',
 ];
 
 // ── the reader's language ────────────────────────────────────────────────
@@ -211,7 +215,7 @@ function page(lang = 'en', offered = chunks(), preview = null, origin = 'https:/
   // Off, and not an admin preview, the script list is the one this page has
   // always shipped. `preview` defaults off so a direct _page() call stays that.
   if (require('../lib/scam_or_safe').enabled() || (preview && preview.scam)) {
-    const at = list.indexOf('/js/pi-arena.js?v=9');
+    const at = list.indexOf('/js/pi-arena.js?v=10');
     list.splice(at < 0 ? list.length : at, 0, '/js/scam-or-safe.js?v=2');
   }
   // The chosen language's words load right after the module that holds them,
@@ -246,7 +250,25 @@ ${scripts}
   return preview && preview.banner ? withBanner(html) : html;
 }
 
-router.get('/', async (req, res) => {
+/**
+ * The Arena document. One handler for every path Pi loads it from.
+ *
+ * Pi Browser and the sandbox put the app in an iframe whose src is
+ * frontend_url concatenated with the path after `/mobile-app-ui/app/<slug>`
+ * (Pi's shell, https://app-cdn.minepi.com/static/js/main.9715118d.js, read
+ * 2026-10-26). The app URL is `https://<host>/pi`. The directory's default
+ * document is `/pi/index.html`, and that is the request that renders the
+ * site's own 404 ("There is no page at this address…"): `public/pi/` exists
+ * only to hold the validation file, so express.static, mounted ahead of this
+ * router, has no index.html; this router answered only `/`; the request is
+ * allowlisted (`/pi/`), so the Worker proxies it; framable() has already set
+ * the Pi policy; then the catch-all paints the 404. `/pi`, `/pi/` and
+ * `/pi?…` never ask for that file, which is why a plain curl of them is the
+ * Arena. The same document, in place, keeps `?sandbox=true` on the URL the
+ * SDK reads. A redirect is a different document, and the host follows
+ * redirects itself.
+ */
+async function sendArena(req, res) {
   // The page depends on the reader's language and, through the Worker, on
   // X-Runeclaw-Pi-Proxy (the canonical URL). It is never cached anyway
   // (framable(), no-store). Vary names both so a cache that kept the body
@@ -265,7 +287,10 @@ router.get('/', async (req, res) => {
   } catch (e) {
     if (!res.headersSent) res.type('html').send(page(pickLang(req), chunks(), null, origin));
   }
-});
+}
+
+router.get('/', sendArena);
+router.get('/index.html', sendArena);
 
 /**
  * GET /validation-key.txt, at the site root (server.js) and beside the app

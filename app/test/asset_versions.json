@@ -276,8 +276,8 @@
     "sha": "47fdece4720a8b2c"
   },
   "js/pi-arena.js": {
-    "v": 9,
-    "sha": "6600905a74ff6c4d"
+    "v": 10,
+    "sha": "a1e3cdeff1825d41"
   },
   "js/pi-coach.js": {
     "v": 3,
@@ -314,6 +314,10 @@
   "js/plan-card-model.js": {
     "v": 1,
     "sha": "3c147ef2a8704aa3"
+  },
+  "js/qch.js": {
+    "v": 1,
+    "sha": "d1fb7e8b16371d4a"
   },
   "js/radar3d.js": {
     "v": 3,
@@ -490,9 +494,5 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
-  },
-  "js/qch.js": {
-    "v": 1,
-    "sha": "d1fb7e8b16371d4a"
   }
 }
