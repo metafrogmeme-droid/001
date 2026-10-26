@@ -116,7 +116,7 @@ class HlWatch:
         self.claw_read = claw_read or read_claw_watch
         self.delivery: dict[str, str] = {}
 
-    def watch_key(self, chat_id: str) -> Optional[str]:
+    def hl_watch_key(self, chat_id: str) -> Optional[str]:
         if not chat_id or len(self.salt) < _SALT_MIN:
             return None
         try:
@@ -125,7 +125,7 @@ class HlWatch:
             return None
 
     def bind(self, chat_id: str) -> Optional[str]:
-        key = self.watch_key(chat_id)
+        key = self.hl_watch_key(chat_id)
         if key and chat_id:
             self.delivery[key] = str(chat_id)
         return key
@@ -140,8 +140,8 @@ class HlWatch:
     def _preview(self) -> bool:
         return not flag_on(self.env)
 
-    def on_status(self, chat_id: str) -> str:
-        key = self.watch_key(chat_id)
+    def hl_status(self, chat_id: str) -> str:
+        key = self.hl_watch_key(chat_id)
         lines = [copy.ADVISORY, copy.NEVER_ASK, host_line(self.env)]
         if self._preview():
             lines.append(BANNER)
@@ -171,7 +171,7 @@ class HlWatch:
             log.info("claw watch read skipped: %s", type(exc).__name__)
             return ClawWatchRead(True, None)
 
-    def register_address(self, chat_id: str, raw: str) -> str:
+    def hl_register(self, chat_id: str, raw: str) -> str:
         if looks_like_secret(raw):
             return SECRET_REFUSAL
         addr = normalize_address(raw)
@@ -194,8 +194,8 @@ class HlWatch:
             lines.insert(0, BANNER)
         return "\n\n".join(lines)
 
-    def forget_chat(self, chat_id: str) -> str:
-        key = self.watch_key(chat_id)
+    def hl_forget(self, chat_id: str) -> str:
+        key = self.hl_watch_key(chat_id)
         if not key:
             return copy.NOT_AVAILABLE
         self.delivery.pop(key, None)
@@ -203,7 +203,7 @@ class HlWatch:
             return copy.STOPPED
         return copy.STOPPED_EMPTY
 
-    def prepare(self, chat_id: str) -> tuple[list[str], list[tuple[str, dict]], Optional[set], bool]:
+    def hl_prepare(self, chat_id: str) -> tuple[list[str], list[tuple[str, dict]], Optional[set], bool]:
         """Alerts, snapshots to save after a successful send, the keep-set, and baseline.
 
         The keep-set is None when Claw Watch could not be read. Snapshots for
@@ -240,8 +240,8 @@ class HlWatch:
         texts = render_messages(alerts, preview=self._preview(), env=self.env)
         return texts, pending, keep, baseline
 
-    def commit(self, chat_id: str, pending: list[tuple[str, dict]], keep: Optional[set]) -> None:
-        key = self.watch_key(chat_id)
+    def hl_commit(self, chat_id: str, pending: list[tuple[str, dict]], keep: Optional[set]) -> None:
+        key = self.hl_watch_key(chat_id)
         if not key:
             return
         for addr, body in pending:
@@ -269,23 +269,23 @@ def handle_command(chat_id: str, raw: str, *, is_admin: bool,
     head = parts[0].lower() if parts else ""
     try:
         if head == "stop" and len(parts) == 1:
-            return [service.forget_chat(chat_id)]
+            return [service.hl_forget(chat_id)]
         if head == "now" and len(parts) == 1:
-            texts, pending, keep, baseline = service.prepare(chat_id)
-            service.commit(chat_id, pending, keep)
+            texts, pending, keep, baseline = service.hl_prepare(chat_id)
+            service.hl_commit(chat_id, pending, keep)
             if texts:
                 return texts
             if baseline:
                 return [copy.BASELINE_QUIET]
-            key = service.watch_key(chat_id)
+            key = service.hl_watch_key(chat_id)
             if key and service.store.listed_addresses(key):
                 return [copy.NO_CHANGE]
-            return [service.on_status(chat_id)]
+            return [service.hl_status(chat_id)]
         if not raw.strip():
-            return [service.on_status(chat_id)]
+            return [service.hl_status(chat_id)]
         if len(parts) != 1:
             return [INVALID_ADDRESS]
-        return [service.register_address(chat_id, parts[0])]
+        return [service.hl_register(chat_id, parts[0])]
     except Exception as exc:
         return [type(exc).__name__]
 
@@ -359,7 +359,7 @@ async def dispatch(service: HlWatch, send: Send) -> int:
     sent = 0
     for chat in bound_chats(service):
         try:
-            texts, pending, keep, _baseline = await asyncio.to_thread(service.prepare, chat)
+            texts, pending, keep, _baseline = await asyncio.to_thread(service.hl_prepare, chat)
         except Exception as exc:
             log.warning("hl watch prepare failed: %s", type(exc).__name__)
             continue
@@ -370,7 +370,7 @@ async def dispatch(service: HlWatch, send: Send) -> int:
             log.warning("hl watch send failed: %s", type(exc).__name__)
             continue
         try:
-            await asyncio.to_thread(service.commit, chat, pending, keep)
+            await asyncio.to_thread(service.hl_commit, chat, pending, keep)
         except Exception as exc:
             log.warning("hl watch commit failed: %s", type(exc).__name__)
             continue
