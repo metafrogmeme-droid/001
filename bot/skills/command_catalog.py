@@ -183,6 +183,9 @@ GROUPS: List[Group] = [
         ("backup", "verifiable backups of critical state"),
         ("readiness", "is the learning loop validated enough to apply"),
         ("srb", "shadow restitution signals — a public signal, nothing is paid"),
+        # --- Incident pack begin ---
+        ("incidentpack", "read-only incident pack for one address and a time window, testnet, admin"),
+        # --- Incident pack end ---
         ("sigdecode", "decode a signature request into public signals, not a verdict"),
     ]),
     ("🚦 Engine ops (operator)", "admin", [
@@ -525,4 +528,7 @@ DESC_ZH: Dict[str, str] = {
     "hlwatch": "Claw Watch 的 Hyperliquid 帳戶監看——代理人、builder 費、提款與突然的倉位變化，僅供參考，唯讀",
     "stake": "把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金",
     "unstake": "把你的活期 Earn 贖回為交易保證金——按鈕確認",
+    # --- Incident pack begin ---
+    "incidentpack": "單一地址與時間窗的唯讀事件包，僅測試網，僅管理員",
+    # --- Incident pack end ---
 }

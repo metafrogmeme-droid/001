@@ -82,6 +82,7 @@ hlwatch is_admin
 hrc is_admin
 holdtime guard
 idleyield is_admin
+incidentpack is_admin
 intraday guard
 journal is_admin
 lang guard

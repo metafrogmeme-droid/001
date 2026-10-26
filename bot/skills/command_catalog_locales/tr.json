@@ -193,6 +193,7 @@
     "unstake": "esnek Earn'ünü işlem marjına geri al — butonla onaylanır",
     "arbpair": "bağlı borsalarında delta-nötr bir funding çifti boyutlandır — /arbpair BTC [usd]; hiçbir emir vermeyen bir öneri",
     "postmortem": "kapanmış tek bir işlemin otopsisi — /postmortem [SEMBOL veya işlem kimliği]",
+    "incidentpack": "bir adres ve zaman penceresi için salt okunur olay paketi, test ağı, yalnızca yönetici",
     "sigdecode": "bir imza isteğini kamu sinyallerine çöz, bir hüküm değil"
   },
   "menu": {

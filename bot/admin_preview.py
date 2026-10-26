@@ -35,6 +35,9 @@ _FLAGS = frozenset({
 # --- XNAV begin ---
 _FLAGS = _FLAGS | frozenset({"XNAV_ENABLED"})
 # --- XNAV end ---
+# --- Incident pack begin ---
+_FLAGS = _FLAGS | frozenset({"INCIDENT_PACK_ENABLED"})
+# --- Incident pack end ---
 _CONFIDENCE_ON = frozenset({"1", "true", "yes", "on"})
 
 
@@ -56,6 +59,11 @@ def public_on(flag: str, env: Optional[Mapping[str, str]] = None) -> bool:
         from bot.xnav.flag import flag_on
         return flag_on(env) is True
     # --- XNAV end ---
+    # --- Incident pack begin ---
+    if flag == "INCIDENT_PACK_ENABLED":
+        from bot.incident_pack import flag_on
+        return flag_on(env) is True
+    # --- Incident pack end ---
     source = os.environ if env is None else env
     return str(source.get("DUEL_CONFIDENCE_ENABLED", "")).strip().lower() in _CONFIDENCE_ON
 
