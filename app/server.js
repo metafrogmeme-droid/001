@@ -403,6 +403,9 @@ app.use(require('./lib/qch_flag').pageGate);
 // or off. Ahead of express.static so public/xnav.html is not a public file.
 app.use(require('./lib/xnav_flag').pageGate);
 // --- XNAV end ---
+// Claw Firewall. Ahead of express.static so public/claw-firewall.html is not
+// a file a non-operator can open while DRAIN_FIREWALL_ENABLED is off.
+app.use(require('./lib/claw_firewall_flag').pageGate);
 // Claw Watch stays 404 until DRAIN_WATCH_ENABLED is on, except an operator
 // preview. Ahead of express.static so public/claw-watch.html and
 // js/claw-watch.js are not files a stranger can open while the flag is off.
@@ -637,6 +640,10 @@ app.use('/api/drain-watch', require('./routes/drain_watch'));
 // is on. Read-only. No key, no signature.
 app.use('/api/grounded-reputation', require('./routes/grounded_reputation'));
 // --- Grounded Reputation end ---
+// Claw Firewall. While DRAIN_FIREWALL_ENABLED is off, 404 for a non-operator
+// and a preview for an operator. While it is on, the route is public.
+// The child does not sign.
+app.use('/api/claw-firewall', require('./routes/claw_firewall'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/proofofpnl', require('./routes/proofofpnl'));
 app.use('/api/share', require('./routes/share'));
@@ -752,6 +759,9 @@ app.get('/qch', (req, res, next) => {
 // --- XNAV begin ---
 app.get('/xnav', (req, res) => { require('./lib/xnav_flag').sendPage(req, res); });
 // --- XNAV end ---
+// /claw-firewall — testnet outflow and signature gate. 404 for the public
+// while DRAIN_FIREWALL_ENABLED is off; an operator gets the preview.
+app.get('/claw-firewall', (req, res) => { require('./lib/claw_firewall_flag').sendPage(req, res); });
 app.get('/claw-watch', (req, res) => { require('./lib/drain_watch_flag').sendPage(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
