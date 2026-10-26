@@ -320,13 +320,22 @@ def authorize(envelope: Optional[dict], action: dict, *,
 
     Returns ``{decision, reasons, envelope_id, hash, kind, checked}`` where
     ``decision`` is ``"allow"`` only when there are zero deny reasons.
+
+    Holdings are dropped before anything else is read. A received token or
+    NFT is not a permission. ``bot.quarantine.policy.without_holdings``.
     """
+    if isinstance(action, dict):
+        from bot.quarantine.policy import without_holdings
+        action = without_holdings(action)
+    kind = ""
+    if isinstance(action, dict):
+        kind = str(action.get("kind") or "").lower().strip()
     result: dict[str, Any] = {
         "decision": "deny",
         "reasons": [],
         "envelope_id": (envelope or {}).get("envelope_id"),
         "hash": (envelope or {}).get("compiled_hash"),
-        "kind": str((action or {}).get("kind") or "").lower().strip(),
+        "kind": kind,
         "checked": 0,
     }
     reasons: list[str] = result["reasons"]

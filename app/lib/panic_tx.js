@@ -106,6 +106,16 @@ function walletLink(item, tx) {
 
 function attachRevokes(result) {
   const items = (result.items || []).map((item) => {
+    if (item && item.do_not_touch === true) {
+      const copy = {};
+      for (const k of Object.keys(item)) {
+        if (k === 'nft_id') continue;
+        copy[k] = item[k];
+      }
+      copy.tx = null;
+      copy.open_url = null;
+      return copy;
+    }
     const tx = buildRevoke(item);
     const copy = {};
     for (const k of Object.keys(item)) {

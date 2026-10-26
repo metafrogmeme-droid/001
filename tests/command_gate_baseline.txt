@@ -79,6 +79,7 @@ guardian is_admin
 halt guard
 health guard
 help access_state+is_admin+is_authorized+rate_limit
+hlwatch is_admin
 hrc is_admin
 holdtime guard
 idleyield is_admin
@@ -132,6 +133,7 @@ postmortem guard
 price_alert guard
 proposals guard
 quant guard
+quarantine is_admin
 rclaw is_admin+rate_limit
 readiness is_admin
 rejected guard

@@ -83,6 +83,7 @@ from bot.skills.command_guard import guard
 from bot.skills.drain_watch_commands import DrainWatchCommands
 from bot.skills.engine_ops_commands import EngineOpsCommands
 from bot.skills.guardian_commands import GuardianCommands
+from bot.skills.hl_watch_commands import HlWatchCommands
 from bot.skills.hrc_commands import HrcCommands
 # --- Incident pack begin ---
 from bot.skills.incident_pack_commands import IncidentPackCommands
@@ -90,6 +91,7 @@ from bot.skills.incident_pack_commands import IncidentPackCommands
 from bot.skills.llm_commands import LLMCommands
 from bot.skills.market_commands import MarketCommands
 from bot.skills.portfolio_commands import PortfolioCommands
+from bot.skills.quarantine_commands import QuarantineCommands
 from bot.skills.research_commands import ResearchCommands
 from bot.skills.scan_commands import ScanCommands
 from bot.skills.sigdecoder_commands import SigDecoderCommands
@@ -1146,11 +1148,11 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
 
 
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
-                      IncidentPackCommands,
-                      DrainWatchCommands,
-                      SilentFeeCommands,
+                      IncidentPackCommands, DrainWatchCommands,
+                      SilentFeeCommands, HlWatchCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
-                      EngineOpsCommands, T2CCommands, SrbCommands, PortfolioCommands, ScanCommands,
+                      EngineOpsCommands, T2CCommands, SrbCommands, QuarantineCommands,
+                      PortfolioCommands, ScanCommands,
                       TradingCommands, StartCommands, AlertsMonitor, ClawHeuristicsCommands,
                       CallbackHandler, SigDecoderCommands):
     #: The signal-card sender start_monitor installs on the instance once the
@@ -1329,6 +1331,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("idleyield", self._cmd_idleyield),
             ("hrc", self._cmd_hrc),
             ("fees", self._cmd_fees),
+            ("hlwatch", self._cmd_hlwatch),
             # Admin: web live-trading readiness + per-user enablement control
             ("weblive", self._cmd_weblive),
             # Stake/redeem flexible Earn on the CALLER's linked account
@@ -1378,6 +1381,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("escape", self._cmd_escape),
             ("guardian", self._cmd_guardian),
             ("srb", self._cmd_srb),
+            ("quarantine", self._cmd_quarantine),
             ("approvals", self._cmd_approvals),
             ("xray", self._cmd_xray),
             # Web-parity views

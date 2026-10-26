@@ -169,6 +169,12 @@ READERS.GROUNDED_REPUTATION_ENABLED = function (env) {
   return require('./grounded_reputation_flag').flagOn(env) === true;
 };
 // --- Grounded Reputation end ---
+// --- QUARANTINE begin ---
+// Lazy: quarantine_flag does not require this module.
+READERS.QUARANTINE_ENABLED = function (env) {
+  return require('./quarantine_flag').flagOn(env) === true;
+};
+// --- QUARANTINE end ---
 
 // --- Claw Watch heuristics begin ---
 // Lazy: the flag module does not require this file. Appended so a later
@@ -178,6 +184,12 @@ READERS.CLAW_WATCH_HEURISTICS_ENABLED = function (env) {
 };
 // --- Claw Watch heuristics end ---
 
+// --- Claw Firewall begin ---
+// Lazy: claw_firewall_flag requires this module, so the reader cannot load at the top.
+READERS.DRAIN_FIREWALL_ENABLED = function (env) {
+  return require('./claw_firewall_flag').flagOn(env) === true;
+};
+// --- Claw Firewall end ---
 // --- Incident pack begin ---
 // Lazy: incident_pack_flag requires this module.
 READERS.INCIDENT_PACK_ENABLED = function (env) {

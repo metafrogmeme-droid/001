@@ -684,6 +684,7 @@ class DailyDuelBot:
             return
         await self._reply(update, await self.digest.on_stop(self._chat(update)))
         self._forget_claw_watch(update)
+        self._forget_hl_watch(update)
 
     def _forget_claw_watch(self, update) -> None:
         """Delete Claw Watch rows for this telegram id. The duel reply stays the digest's."""
@@ -693,12 +694,37 @@ class DailyDuelBot:
         except Exception as exc:
             log.info("claw watch forget skipped: %s", type(exc).__name__)
 
+    def _forget_hl_watch(self, update) -> None:
+        """Delete Hyperliquid watch rows for this telegram id. The duel reply stays."""
+        try:
+            from bot.claw_watch_hl.service import forget_telegram
+            forget_telegram(self._tg_id(update))
+        except Exception as exc:
+            log.info("hl watch forget skipped: %s", type(exc).__name__)
+
     async def cmd_panic(self, update, context) -> None:
         if await self._limited(update):
             return
         raw = command_argument(getattr(getattr(update, "effective_message", None), "text", "") or "")
+        extra: dict = {}
+        try:
+            from bot.quarantine.flag import flag_on as quarantine_on
+            if quarantine_on():
+                try:
+                    from bot.quarantine.book import load_book
+                    owner = str(getattr(getattr(update, "effective_user", None), "id", "") or "")
+                    loaded = load_book(owner)
+                    if loaded.get("state") == "unreadable":
+                        extra["list_state"] = "unreadable"
+                    else:
+                        extra["hidden"] = loaded.get("contracts") or set()
+                except Exception:
+                    extra = {"list_state": "unreadable"}
+        except Exception:
+            extra = {}
         texts = await asyncio.to_thread(
             on_panic, raw, reader=self.reader, exploits=self.exploits, now_iso=self._now(),
+            **extra,
         )
         for text in texts:
             await self._reply(update, text)

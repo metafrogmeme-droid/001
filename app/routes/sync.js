@@ -1904,7 +1904,7 @@ const CHAT_CARDS = {
   etf_flows: () => require('../lib/etf_flows').etfChatCard(),
   wallet: async (tg, q) => {
     const userId = await webUserFor(tg);
-    return userId == null ? UNLINKED : require('../lib/wallet').walletChatCard(userId, cardChain(q));
+    return userId == null ? UNLINKED : require('../lib/wallet').walletChatCard(userId, cardChain(q), tg);
   },
   defi: async (tg) => {
     const userId = await webUserFor(tg);

@@ -293,3 +293,13 @@ def hardened_prompt(text: Any, verdict: dict | None = None) -> str:
     from bot.nlp.sanitize import sanitize_chat_input
     hardened, _applied = defang_if_flagged(text, verdict)
     return sanitize_chat_input(hardened)
+
+
+def asset_for_model(asset: Any) -> dict:
+    """Token and NFT metadata, quoted, before an agent reads it.
+
+    The typed fields stay typed. Name, symbol and the rest are untrusted
+    text inside quote marks. Holding the asset is not consulted.
+    """
+    from bot.quarantine.metadata import sanitize_asset_metadata
+    return sanitize_asset_metadata(asset)
