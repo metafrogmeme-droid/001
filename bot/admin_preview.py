@@ -35,6 +35,9 @@ _FLAGS = frozenset({
 # --- XNAV begin ---
 _FLAGS = _FLAGS | frozenset({"XNAV_ENABLED"})
 # --- XNAV end ---
+# --- QUARANTINE begin ---
+_FLAGS = _FLAGS | frozenset({"QUARANTINE_ENABLED"})
+# --- QUARANTINE end ---
 # --- Incident pack begin ---
 _FLAGS = _FLAGS | frozenset({"INCIDENT_PACK_ENABLED"})
 # --- Incident pack end ---
@@ -59,6 +62,11 @@ def public_on(flag: str, env: Optional[Mapping[str, str]] = None) -> bool:
         from bot.xnav.flag import flag_on
         return flag_on(env) is True
     # --- XNAV end ---
+    # --- QUARANTINE begin ---
+    if flag == "QUARANTINE_ENABLED":
+        from bot.quarantine.flag import flag_on
+        return flag_on(env) is True
+    # --- QUARANTINE end ---
     # --- Incident pack begin ---
     if flag == "INCIDENT_PACK_ENABLED":
         from bot.incident_pack import flag_on

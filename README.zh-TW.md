@@ -634,6 +634,7 @@ python -m bot.main --mode scan
 | `/backup` | 關鍵狀態的可驗證備份 |
 | `/readiness` | 學習迴路是否已驗證到可套用 |
 | `/srb` | 影子償付訊號——公開訊號，不支付 |
+| `/quarantine` | 被隱藏的代幣與 NFT：機器人不會授權、轉出或銷毀，並在地址相似時警告 |
 | `/incidentpack` | 單一地址與時間窗的唯讀事件包，僅測試網，僅管理員 |
 | `/sigdecode` | 把簽名請求解讀成公開訊號，不是判決 |
 

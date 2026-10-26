@@ -89,6 +89,7 @@ from bot.skills.incident_pack_commands import IncidentPackCommands
 from bot.skills.llm_commands import LLMCommands
 from bot.skills.market_commands import MarketCommands
 from bot.skills.portfolio_commands import PortfolioCommands
+from bot.skills.quarantine_commands import QuarantineCommands
 from bot.skills.research_commands import ResearchCommands
 from bot.skills.scan_commands import ScanCommands
 from bot.skills.sigdecoder_commands import SigDecoderCommands
@@ -1149,7 +1150,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                       DrainWatchCommands,
                       SilentFeeCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
-                      EngineOpsCommands, T2CCommands, SrbCommands, PortfolioCommands, ScanCommands,
+                      EngineOpsCommands, T2CCommands, SrbCommands, QuarantineCommands,
+                      PortfolioCommands, ScanCommands,
                       TradingCommands, StartCommands, AlertsMonitor, CallbackHandler,
                       SigDecoderCommands):
     #: The signal-card sender start_monitor installs on the instance once the
@@ -1376,6 +1378,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("escape", self._cmd_escape),
             ("guardian", self._cmd_guardian),
             ("srb", self._cmd_srb),
+            ("quarantine", self._cmd_quarantine),
             ("approvals", self._cmd_approvals),
             ("xray", self._cmd_xray),
             # Web-parity views

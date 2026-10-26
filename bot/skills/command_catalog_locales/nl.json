@@ -153,6 +153,7 @@
     "rxb": "recursie-doorkijk voor de beheerder, alleen verhoudingen",
     "shadow": "contrafeitelijk schaduwboek",
     "srb": "schaduw-restitutiesignalen — een openbaar signaal, er wordt niets betaald",
+    "quarantine": "verborgen tokens en NFT's die de bot niet aanraakt, plus een waarschuwing bij een lijkend adres",
     "audit": "nachtelijk zelfauditrapport",
     "parity": "pariteit live ↔ backtest",
     "duplicates": "dubbel geboekte sluitingen in de boeken van de operator",

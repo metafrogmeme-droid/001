@@ -618,6 +618,11 @@ app.use('/api/sar-oracle', require('./routes/sar_oracle'));
 // The quote tool is POST /api/xnav/mcp, not the MCP catalogue.
 app.use('/api/xnav', require('./routes/xnav'));
 // --- XNAV end ---
+// --- QUARANTINE begin ---
+// Hide list and lookalike warning. Admin only while QUARANTINE_ENABLED is
+// off. Read-only: nothing is signed.
+app.use('/api/quarantine', require('./routes/quarantine'));
+// --- QUARANTINE end ---
 // Limit Entry Scanner forward shadow. Admin only, flag on or off.
 // Basis points and counts. A missing summary is not a measured zero.
 app.use('/api/limit-scanner/shadow', require('./routes/limit_scanner_shadow'));

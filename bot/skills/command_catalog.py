@@ -183,6 +183,7 @@ GROUPS: List[Group] = [
         ("backup", "verifiable backups of critical state"),
         ("readiness", "is the learning loop validated enough to apply"),
         ("srb", "shadow restitution signals — a public signal, nothing is paid"),
+        ("quarantine", "hidden tokens and NFTs the bot will not approve, transfer, or burn, plus a lookalike warning"),
         # --- Incident pack begin ---
         ("incidentpack", "read-only incident pack for one address and a time window, testnet, admin"),
         # --- Incident pack end ---
@@ -503,6 +504,7 @@ DESC_ZH: Dict[str, str] = {
     "rxb": "遞迴穿透讀數，僅管理員，只給比率",
     "shadow": "反事實影子帳本 — /shadow ladder 與 /shadow bounds 看倉位控制本來會怎麼做",
     "srb": "影子償付訊號——公開訊號，不支付",
+    "quarantine": "被隱藏的代幣與 NFT：機器人不會授權、轉出或銷毀，並在地址相似時警告",
     "sigdecode": "把簽名請求解讀成公開訊號，不是判決",
     "audit": "每夜自我稽核報告", "parity": "實盤 ↔ 回測一致性", "attribution": "哪些指標帶來獲利",
     "duplicates": "營運者帳本間被記兩次的平倉",

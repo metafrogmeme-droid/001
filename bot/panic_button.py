@@ -278,6 +278,14 @@ def render_messages(result: Mapping[str, Any], url: str) -> list[str]:
         lines.append("Could not read: " + ", ".join(unread) + ".")
     if not result.get("exploit_list_read"):
         lines.append(EXPLOIT_UNREAD)
+    untouched = result.get("quarantined_untouched")
+    if isinstance(untouched, int) and not isinstance(untouched, bool) and untouched > 0:
+        lines.append(
+            f"{untouched} hidden approval(s) were left untouched. "
+            "This bot does not approve, transfer, or burn them."
+        )
+    if result.get("quarantine_list") == "unreadable":
+        lines.append("The quarantine list could not be read, so nothing was hidden from this list.")
     lines.append(f"Revoke in your own wallet: {url}")
     lines.append("This bot never signs.")
     return _pack(header, lines)
@@ -306,6 +314,8 @@ def on_panic(
     now_iso: str,
     env: Optional[Mapping[str, str]] = None,
     known_good: frozenset[str] = KNOWN_GOOD_DELEGATES,
+    hidden: Optional[set[str]] = None,
+    list_state: Optional[str] = None,
 ) -> list[str]:
     """The reply. Nothing is written. The watch list is not touched."""
     if not flag_on(env):
@@ -322,6 +332,14 @@ def on_panic(
     result = read_panic(
         address, reader=reader, exploits=exploits, now=now, known_good=known_good,
     )
+    try:
+        from bot.quarantine.hide import apply_withhold
+    except Exception:
+        apply_withhold = None  # type: ignore[assignment]
+    if apply_withhold is not None:
+        result = apply_withhold(
+            result, hidden=hidden, list_state=list_state, env=env,
+        )
     return render_messages(result, page_url(env))
 
 
@@ -396,6 +414,16 @@ def main() -> int:
     result = read_panic(
         address, reader=ApprovalReader(), exploits=ExploitDirectory(), now=int(time.time()),
     )
+    raw_hidden = body.get("hidden")
+    hidden = None
+    if isinstance(raw_hidden, list):
+        hidden = {item for item in raw_hidden if isinstance(item, str)}
+    list_state = body.get("list_state") if body.get("list_state") == "unreadable" else None
+    try:
+        from bot.quarantine.hide import apply_withhold
+        result = apply_withhold(result, hidden=hidden, list_state=list_state)
+    except Exception:
+        pass
     result["available"] = True
     result["warning"] = SEED_WARNING
     result["never_ask"] = NEVER_ASK

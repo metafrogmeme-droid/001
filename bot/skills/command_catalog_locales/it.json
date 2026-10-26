@@ -153,6 +153,7 @@
     "rxb": "lettura della ricorsione per l'operatore, solo rapporti",
     "shadow": "libro ombra controfattuale",
     "srb": "segnali di restituzione in ombra — un segnale pubblico, non si paga",
+    "quarantine": "token e NFT nascosti che il bot non tocca, e un avviso se l'indirizzo somiglia",
     "audit": "report notturno di auto-audit",
     "parity": "parità live ↔ backtest",
     "duplicates": "chiusure registrate due volte nei registri dell'operatore",

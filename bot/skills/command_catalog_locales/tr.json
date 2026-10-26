@@ -153,6 +153,7 @@
     "rxb": "operatör için özyineleme okuması, yalnızca oranlar",
     "shadow": "karşı-olgusal gölge defter",
     "srb": "gölge iade sinyalleri — herkese açık bir sinyal, ödeme yok",
+    "quarantine": "botun dokunmadığı gizlenen token ve NFT kayıtları, benzer adres uyarısıyla",
     "audit": "gecelik öz denetim raporu",
     "parity": "canlı ↔ geriye dönük test paritesi",
     "duplicates": "operatörün defterlerinde iki kez kaydedilen kapanışlar",
