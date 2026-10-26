@@ -185,6 +185,7 @@
     "setsigner": "define a chave de assinatura on-chain (cifrada)",
     "yield": "radar de rendimento de ativos parados (só leitura)",
     "hrc": "tetos da taxa de empréstimo USDC da Hyperliquid — utilização e taxa, só administrador",
+    "clawwatch": "Claw Watch — registar um endereço, alertas consultivos e revogações por assinar, só administrador",
     "fees": "tetos e taxas de builder pagas num endereço Hyperliquid, só leitura",
     "idleyield": "análise da melhor taxa entre fontes",
     "stake": "colocar os stables parados da SUA conta Bitget vinculada em Earn flexível — um cartão de plano, nada se move até Confirmar",

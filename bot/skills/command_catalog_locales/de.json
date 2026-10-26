@@ -185,6 +185,7 @@
     "setsigner": "setzt den On-Chain-Signaturschlüssel (verschlüsselt)",
     "yield": "Yield-Radar für ungenutzte Assets (nur lesend)",
     "hrc": "Obergrenzen für den USDC-Leihzinssatz von Hyperliquid — Auslastung und Satz, nur für Admins",
+    "clawwatch": "Claw Watch — eine Adresse merken, Hinweise zur Orientierung und unsignierte Widerrufe, nur Admin",
     "fees": "Builder-Obergrenzen und gezahlte Gebühren einer Hyperliquid-Adresse, nur lesen",
     "idleyield": "Bestzins-Scan über alle Quellen",
     "stake": "ungenutzte Stables DEINES verknüpften Bitget-Kontos in flexibles Earn legen — eine Plan-Karte, nichts bewegt sich vor Bestätigen",

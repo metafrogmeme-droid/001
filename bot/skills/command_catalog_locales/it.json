@@ -185,6 +185,7 @@
     "setsigner": "imposta la chiave di firma on-chain (cifrata)",
     "yield": "radar del rendimento degli asset inattivi (sola lettura)",
     "hrc": "tetti del tasso di prestito USDC di Hyperliquid — utilizzo e tasso, solo per l'amministratore",
+    "clawwatch": "Claw Watch — registra un indirizzo, avvisi consultivi e revoche non firmate, solo admin",
     "fees": "massimali e commissioni builder pagate su un indirizzo Hyperliquid, sola lettura",
     "idleyield": "scansione del miglior tasso tra le fonti",
     "stake": "mettere gli stable inattivi del TUO account Bitget collegato in Earn flessibile — una scheda piano, nulla si muove fino a Conferma",

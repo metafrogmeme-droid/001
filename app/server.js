@@ -399,6 +399,10 @@ app.use(require('./lib/qch_flag').pageGate);
 // or off. Ahead of express.static so public/xnav.html is not a public file.
 app.use(require('./lib/xnav_flag').pageGate);
 // --- XNAV end ---
+// Claw Watch stays 404 until DRAIN_WATCH_ENABLED is on, except an operator
+// preview. Ahead of express.static so public/claw-watch.html and
+// js/claw-watch.js are not files a stranger can open while the flag is off.
+app.use(require('./lib/drain_watch_flag').pageGate);
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1h',
   setHeaders: (res, filePath) => {
@@ -615,6 +619,9 @@ app.use('/api/hashkey-seal', require('./routes/hashkey_seal'));
 // Times and rules. 404 for everyone who is not an operator.
 app.use('/api/market-clock', require('./routes/market_clock'));
 // --- Market Clock end ---
+// Claw Watch check. Advisory signals and an unsigned revoke. 404 while the
+// flag is off, except an operator preview. Does not sign or store the address.
+app.use('/api/drain-watch', require('./routes/drain_watch'));
 // --- Grounded Reputation begin ---
 // ERC-8004 payment evidence. Admin only. 404 for every caller while
 // GROUNDED_REPUTATION_ENABLED is off, and 404 for a non-operator while it
@@ -736,6 +743,7 @@ app.get('/qch', (req, res, next) => {
 // --- XNAV begin ---
 app.get('/xnav', (req, res) => { require('./lib/xnav_flag').sendPage(req, res); });
 // --- XNAV end ---
+app.get('/claw-watch', (req, res) => { require('./lib/drain_watch_flag').sendPage(req, res); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.
