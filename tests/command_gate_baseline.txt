@@ -78,6 +78,7 @@ guardian is_admin
 halt guard
 health guard
 help access_state+is_admin+is_authorized+rate_limit
+hlwatch is_admin
 hrc is_admin
 holdtime guard
 idleyield is_admin

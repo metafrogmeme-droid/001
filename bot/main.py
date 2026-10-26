@@ -627,6 +627,15 @@ def run_telegram() -> None:
             await app.updater.start_polling(drop_pending_updates=True)
             # Start proactive alert monitor (Move 2)
             await handler.start_monitor(app.bot)
+            # --- Claw Watch HL begin ---
+            # Advisory Hyperliquid reads. Off unless CLAW_WATCH_HL_ENABLED is on.
+            _hl_watch_task = None
+            try:
+                from bot.claw_watch_hl.service import start_poll as _hl_watch_start
+                _hl_watch_task = _hl_watch_start(app.bot)
+            except Exception as exc:
+                print(f"  Claw Watch HL poll skipped: {type(exc).__name__}\n")
+            # --- Claw Watch HL end ---
             # Credential preflight: authenticate ONCE at boot so a bad key
             # (Bitget 40006 — the 2026-07-14 env-wipe incident) screams here
             # instead of silently surfacing only when a stop fails to place.
@@ -739,6 +748,15 @@ def run_telegram() -> None:
             except NameError:
                 pass  # boot failed before the watchdog was created
             await handler.stop_monitor()
+            # --- Claw Watch HL begin ---
+            _hl_task = locals().get("_hl_watch_task")
+            if _hl_task is not None:
+                _hl_task.cancel()
+                try:
+                    await _hl_task
+                except asyncio.CancelledError:
+                    pass
+            # --- Claw Watch HL end ---
             if dashboard_runner:
                 await dashboard_runner.cleanup()
             # Each only if it is running: a boot that failed before polling

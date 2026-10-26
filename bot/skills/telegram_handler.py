@@ -82,6 +82,7 @@ from bot.skills.command_guard import guard
 from bot.skills.drain_watch_commands import DrainWatchCommands
 from bot.skills.engine_ops_commands import EngineOpsCommands
 from bot.skills.guardian_commands import GuardianCommands
+from bot.skills.hl_watch_commands import HlWatchCommands
 from bot.skills.hrc_commands import HrcCommands
 # --- Incident pack begin ---
 from bot.skills.incident_pack_commands import IncidentPackCommands
@@ -1146,9 +1147,8 @@ def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
 
 
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands, HrcCommands,
-                      IncidentPackCommands,
-                      DrainWatchCommands,
-                      SilentFeeCommands,
+                      IncidentPackCommands, DrainWatchCommands,
+                      SilentFeeCommands, HlWatchCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
                       EngineOpsCommands, T2CCommands, SrbCommands, QuarantineCommands,
                       PortfolioCommands, ScanCommands,
@@ -1329,6 +1329,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("idleyield", self._cmd_idleyield),
             ("hrc", self._cmd_hrc),
             ("fees", self._cmd_fees),
+            ("hlwatch", self._cmd_hlwatch),
             # Admin: web live-trading readiness + per-user enablement control
             ("weblive", self._cmd_weblive),
             # Stake/redeem flexible Earn on the CALLER's linked account

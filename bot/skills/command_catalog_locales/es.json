@@ -188,6 +188,7 @@
     "hrc": "topes de la tasa de préstamo USDC de Hyperliquid — utilización y tasa, solo administrador",
     "clawwatch": "Claw Watch — registrar una dirección, avisos orientativos y revocaciones sin firmar, solo admin",
     "fees": "topes y comisiones de builder pagadas en una dirección de Hyperliquid, solo lectura",
+    "hlwatch": "vigilancia de la cuenta Hyperliquid para Claw Watch — agentes, comisiones de builder, retiros y cambios bruscos de posición, solo aviso, solo lectura",
     "idleyield": "escaneo de la mejor tasa entre fuentes",
     "stake": "poner los stables ociosos de TU cuenta Bitget vinculada en Earn flexible — una tarjeta de plan, nada se mueve hasta Confirmar",
     "unstake": "rescatar tu Earn flexible de vuelta al margen de trading — confirmado con botón",
