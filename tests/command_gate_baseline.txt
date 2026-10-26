@@ -82,6 +82,7 @@ help access_state+is_admin+is_authorized+rate_limit
 hrc is_admin
 holdtime guard
 idleyield is_admin
+incidentpack is_admin
 intraday guard
 journal is_admin
 lang guard

@@ -184,6 +184,9 @@ GROUPS: List[Group] = [
         ("readiness", "is the learning loop validated enough to apply"),
         ("srb", "shadow restitution signals — a public signal, nothing is paid"),
         ("clawheuristics", "Claw Watch heuristics for your addresses, public signals, testnet, admin"),
+        # --- Incident pack begin ---
+        ("incidentpack", "read-only incident pack for one address and a time window, testnet, admin"),
+        # --- Incident pack end ---
         ("sigdecode", "decode a signature request into public signals, not a verdict"),
     ]),
     ("🚦 Engine ops (operator)", "admin", [
@@ -524,4 +527,7 @@ DESC_ZH: Dict[str, str] = {
     "fees": "單一 Hyperliquid 地址的 builder 上限與已付費用，唯讀",
     "stake": "把你已連結 Bitget 帳戶的閒置穩定幣投入活期 Earn——計畫卡，按下確認前不動任何資金",
     "unstake": "把你的活期 Earn 贖回為交易保證金——按鈕確認",
+    # --- Incident pack begin ---
+    "incidentpack": "單一地址與時間窗的唯讀事件包，僅測試網，僅管理員",
+    # --- Incident pack end ---
 }

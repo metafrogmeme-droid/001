@@ -336,6 +336,10 @@ app.use('/api/panic', panicApi.capBody);
 // Silent Fee Check posts one address. Mounted here, before the 1mb parser,
 // so the router's own cap is the parser that reads the body.
 app.use('/api/fees', require('./routes/silent_fee'));
+// Incident pack posts one address and a window. Mounted here, before the
+// 1mb parser, so the router's own cap is the parser that reads the body.
+// Off unless INCIDENT_PACK_ENABLED is 1 or true; an operator can preview.
+app.use('/api/incident-pack', require('./routes/incident_pack'));
 // The review-queue write is a name and a short note. This parser runs first
 // for /api/botcheck/submit, so the global parser below skips a body it
 // already parsed, and a payload over 1kb never reaches the handler.
