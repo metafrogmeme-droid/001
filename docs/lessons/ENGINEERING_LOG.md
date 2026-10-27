@@ -29893,12 +29893,14 @@ date, the discovery window (`corr_dense_1h` and `majors_1h_v2`, before
 positions averaged -0.31% per trade, the middle +0.15% and the smallest third
 +1.49%. Weighted by size the holdout average is -0.06%, equal-weighted +0.37%.
 Capping the size weight at 0.5 to 1.0 times the median improves the weighted
-result monotonically on both windows. The mechanism is in the code, not
-measured here: size is Kelly risk over stop distance, so the large positions
-are the tight-stop calm-market ones, where a fixed round-trip cost is a large
-share of the risk, and Kelly's record-based fraction grows after a winning
-stretch on a win rate that does not persist. The pre-registered risk sweep
-(`docs/research/prereg/risk_settings_2026-10/`) tests the levers one at a time.
+result monotonically on both windows. The mechanism is not established. Size is Kelly risk over
+stop distance, so the large positions are the tight-stop calm-market ones, and
+two explanations were plausible: a fixed round-trip cost being a large share of
+their risk, and Kelly's record-based fraction growing after a winning stretch.
+The pre-registered risk sweep (`docs/research/prereg/risk_settings_2026-10/`)
+tested the levers one at a time and supports neither: Kelly off made the folds
+worse, the fee-aware gate at 3 times cost almost never binds and at 6 times hurt
+the holdout, and no arm passed. The correlation is measured; its cause is open.
 
 **The voters the first ablation could not see.** With the labels corrected,
 dropping `bb_pct_b` lowers per-trade expectancy by 0.088 points (95% interval
@@ -29922,3 +29924,14 @@ holdout had to be powered before it could vote; and the family was fixed
 before the first look. The finding is that the electorate's directional signal
 is not where the result comes from, which turns attention to costs, size and
 stop distance.
+
+**A sweep that passes nothing is a result, and the settings that never bind are
+worth knowing.** Twelve one-at-a-time risk arms, judged on discovery folds and
+a holdout with a size, a drawdown condition and an interval, passed none.
+Capping open positions at three changed nothing at all (it never binds with the
+default of five), and the fee-aware entry gate at three times the cost
+almost never fired. Two hypotheses of mine, that Kelly sizing and the cost share
+of tight-stop trades explained the size-outcome correlation, were tested and not
+supported; the log's earlier sentence stating them as a mechanism was corrected
+in the sizing paragraph. Registering two arms after reading the code but
+before any result, and saying so in an addendum, is the honest way to add one.
