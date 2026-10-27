@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import logging.handlers
+import os
 import re
 import sys
 from datetime import datetime
@@ -82,6 +83,29 @@ def _redact_string(s: str) -> str:
     return scrub_secrets(s)
 
 
+def _tail_hash(path: Path) -> str:
+    """SHA-256 of the last line already in ``path``, or ``GENESIS``.
+
+    A restart resumes the chain where the file left off instead of opening a
+    second chain at GENESIS mid-file. An absent, empty or unreadable file is a
+    fresh chain: GENESIS is the one honest "nothing before this" value, and a
+    read that fails must not raise out of logger construction.
+    """
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            if size == 0:
+                return "GENESIS"
+            fh.seek(max(0, size - 65536))
+            lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+    except OSError:
+        return "GENESIS"
+    if not lines:
+        return "GENESIS"
+    return hashlib.sha256(lines[-1]).hexdigest()
+
+
 class _JSONFormatter(logging.Formatter):
     """Emit each log record as a single JSON line with redaction and hash chain.
 
@@ -90,9 +114,11 @@ class _JSONFormatter(logging.Formatter):
     chain: mutating or deleting any line breaks the chain from that point on.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, resume_from: Path | None = None) -> None:
         super().__init__()
-        self._prev_hash: str = "GENESIS"
+        self._prev_hash: str = (
+            _tail_hash(resume_from) if resume_from is not None else "GENESIS"
+        )
 
     def format(self, record: logging.LogRecord) -> str:
         entry: dict[str, Any] = {
@@ -125,7 +151,7 @@ def _build_logger(name: str, filename: str) -> logging.Logger:
         fh = logging.handlers.RotatingFileHandler(
             LOG_DIR / filename, maxBytes=10 * 1024 * 1024, backupCount=5,
         )
-        fh.setFormatter(_JSONFormatter())
+        fh.setFormatter(_JSONFormatter(resume_from=LOG_DIR / filename))
         logger.addHandler(fh)
 
         # Console handler (INFO+)
