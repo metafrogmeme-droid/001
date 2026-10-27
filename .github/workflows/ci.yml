@@ -1329,6 +1329,13 @@ jobs:
         working-directory: contracts/hashkey
         run: forge test
 
+      # A ratchet on gas: the committed .gas-snapshot is re-recorded with
+      # `forge snapshot --no-match-test 'testFuzz_'` in the same commit as an
+      # intended change. Fuzz runs are excluded because their figures drift.
+      - name: Gas snapshot (ratchet)
+        working-directory: contracts/hashkey
+        run: forge snapshot --no-match-test 'testFuzz_' --check
+
   claw-firewall:
     name: Claw Firewall contracts (solidity)
     runs-on: ubuntu-latest
