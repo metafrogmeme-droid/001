@@ -48,3 +48,30 @@ A 3x notional cap (which would restore 1% risk on those trades), a different
 window than 20 bars or threshold than 1.5 (none was tuned, deliberately),
 maker orders or lower costs, funding, other timeframes, and any data after
 2026-09-24.
+
+## Sensitivity: 10x notional cap (requested after the results; not registered)
+
+Same rules, universe of amendment A, cap raised from 1x to 10x of the balance,
+2000 bootstrap draws and 200 random-entry draws, seed 7. It is a sensitivity
+run, so it cannot pass or fail the strategy.
+
+| window | cap | trades | net expectancy (R) | 95% interval | random-entry mean / p95 |
+|---|---|---|---|---|---|
+| discovery | 1x | 1046 | -0.026 | [-0.148, +0.089] | -0.130 / -0.060 |
+| discovery | 10x | 1046 | -0.034 | [-0.163, +0.092] | -0.137 / -0.076 |
+| holdout | 1x | 180 | -0.132 | [-0.465, +0.183] | -0.162 / -0.003 |
+| holdout | 10x | 180 | -0.180 | [-0.536, +0.184] | -0.204 / -0.006 |
+
+* At 10x every trade risks the full 1.00% (the 1x run averaged 0.83% to 0.99%),
+  so BTC's discovery maximum drawdown rose from 29.3% to 35.1% and its
+  expectancy fell from -0.059R to -0.083R: the trades the 1x cap had been
+  shrinking were calm-market trades with tight stops, and they lose.
+* The largest notional the rules ever asked for in discovery was 3.9x the
+  balance, so a 10x cap and a 4x cap give identical trades. The nominal
+  leverage is not the leverage used. With 1% risk and a 2 x ATR stop, the
+  position is never above about 4x, and a liquidation 10% away is not reached
+  by a 1% stop.
+* The worst single trade in discovery was -1.55R, a gap through the stop that
+  filled at the open. Gap risk is the loss that leverage cannot cap.
+* Higher leverage did not change the verdict: the expectancy is below zero
+  and the interval spans it.
