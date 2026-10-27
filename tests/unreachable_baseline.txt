@@ -108,16 +108,12 @@
 #
 # A note explaining why something is unreachable is itself a claim, and it
 # ages against code that keeps moving. Re-read it before trusting it.
-bot/core/swarm.py
-
 # ── the detective's remaining scorer ────────────────────────────────────────
 # The only one here with a known reason: presale_claims has no source, the way
 # deployer_history had none until #54. Same shape, same fix if wanted.
 #
-# swarm.py above is the other keep, and for the opposite reason: it is 428
-# lines of in-process pub/sub scaffolding for the roadmap's "Multi-agent
-# ensemble" row, which is 🔵 Planned. Deleting it would throw away design work
-# for a feature that is scheduled; wiring it is that feature, not a cleanup.
+# swarm.py was the other keep and left this list when the engine started
+# importing it (an optional coordinator behind SWARM_ENABLED, default off).
 bot/core/presale_claims.py
 
 # ── bot/learning: NOT here any more, and the reason matters ────────────────

@@ -344,7 +344,11 @@ def auto_confirm_refusal(idea: Any) -> Optional[str]:
     earlier draft said EIGHT: it listed every ``source=`` literal in the tree,
     and ``getclaw``, ``swarm`` and ``mcp_shield`` build a `TradeIdea` that
     never reaches ``_pending_ideas`` at all (zero references in any of the
-    three files) -- coverage claimed, not held. The correction said FIVE, which
+    three files) -- coverage claimed, not held. (``swarm`` has since gained a
+    door: the engine's `_swarm_enqueue_ticket` puts its approved thesis in
+    the book as a NON-engine ticket, which `_auto_confirm_batch` never reads,
+    so it is a person's Confirm and not a fifth unattended writer; it sits
+    behind SWARM_ENABLED, off by default.) The correction said FIVE, which
     was right on the day and counted ``"scan_skill_retry"`` as its own source;
     that site now builds through `drift_offer.reanalyzed_idea` like its twin,
     so the string is retired and nothing in the tree writes or reads it. What

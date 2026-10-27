@@ -74,3 +74,71 @@ class TestAccountsCapDisplay:
         # The error doesn't break the row — cap just reads None.
         assert rows["dave"]["cap_usd"] is None
         assert rows["dave"]["error"] is None
+
+
+# ── the venue router's read lands on /accounts (VENUE_ROUTER_ENABLED) ───────
+
+import re  # noqa: E402
+from unittest import mock  # noqa: E402
+
+import bot.core.venue_router as venue_router  # noqa: E402
+from bot.skills.engine_ops_commands import EngineOpsCommands  # noqa: E402
+
+
+def _card(eng):
+    sent: list[str] = []
+
+    class Host(EngineOpsCommands):
+        def __init__(self, e):
+            self.engine = e
+
+        def _is_admin(self, u):
+            return True
+
+        def _lang(self, u):
+            return "en"
+
+        async def _send(self, u, text, **kw):
+            sent.append(text)
+
+    import asyncio
+    asyncio.run(Host(eng)._cmd_accounts(None, None))
+    return re.sub(r"</?(pre|b|i|code)>", "", sent[0])
+
+
+def test_a_router_row_prints_the_venue_read_beside_the_bot_record():
+    eng = _engine(user_execs={"alice": _FakeExec(user_id="alice", positions=[])})
+    reads = {
+        ("operator", "?"): {
+            "venue": "bybit", "venue_state": "open", "venue_open": 2,
+            "venue_latency_ms": 41.0,
+            "venue_note": "bybit: 2 position(s) still open at the venue"},
+        ("alice", "?"): {
+            "venue": "hyperliquid", "venue_state": "unread", "venue_open": None,
+            "venue_latency_ms": None,
+            "venue_note": "hyperliquid: not read (TimeoutError); flat NOT verified"},
+    }
+    with mock.patch.object(venue_router, "router_reads",
+                           AsyncMock(return_value=reads)):
+        card = _card(eng)
+    assert "Venue read:" in card
+    op = next(ln for ln in card.splitlines() if ln.startswith("operator")
+              and "venue" in ln)
+    assert "2 position(s) still open at the venue" in op
+    assert "41 ms" in op
+    assert "bot record 1" in op              # the executor holds 1, the venue 2
+    alice = next(ln for ln in card.splitlines() if ln.startswith("alice")
+                 and "hyperliquid" in ln)
+    assert "flat NOT verified" in alice
+    assert "ms" not in alice and "bot record" not in alice   # nothing read: nothing printed
+
+
+def test_the_card_has_no_venue_section_when_the_router_did_not_run():
+    eng = _engine()
+    card = _card(eng)
+    assert "Venue read" not in card
+
+
+async def test_account_rows_gain_no_venue_key_when_the_router_is_off():
+    rows = await _engine().account_risk_overview()
+    assert not any(k.startswith("venue") for k in rows[0])

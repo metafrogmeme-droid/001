@@ -11,6 +11,10 @@ Endpoints:
   GET  /risk/status         - Risk engine state + circuit breaker
   GET  /blackswan           - Black swan detector status
   GET  /patterns/{symbol}   - Chart + candlestick pattern detection
+  GET  /parity              - Live vs backtest parity (counts and ratios, no dollars)
+  GET  /attestation         - Attestation public key + audit-chain verification
+  GET  /redteam             - Risk-engine red-team summary (cached, one run at a time)
+  WS   /ws/telemetry        - Orderbook metrics + risk alerts (token auth, bounded)
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Depends, Security, Request
+from fastapi import FastAPI, HTTPException, Depends, Security, Request, WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -36,6 +40,7 @@ from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
 from bot.api.auth_routes import auth_router
 from bot.utils.client_ip import client_ip
+from bot.web import ops_reads, telemetry_stream
 from bot.api.lab import lab_router
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.core.analyzer import _detect_candlestick_patterns
@@ -321,7 +326,9 @@ async def lifespan(app: FastAPI):
     engine.detach_state_persistence()
     _start_time = time.time()
     yield
-    # Cleanup: close exchange connection
+    # Cleanup: stop the telemetry readers, then close the exchange connection
+    if _telemetry_feeds is not None:
+        await _telemetry_feeds.stop_all()
     try:
         ex = await engine.get_exchange()
         if ex is not None:
@@ -1144,6 +1151,103 @@ async def platform_url():
     """The app platform's base URL (operator-config WEBSITE_URL, empty if
     unset). The gateway landing page uses this to render its CTA."""
     return {"url": os.environ.get("WEBSITE_URL", "").rstrip("/")}
+
+
+# ── Telemetry stream and ops reads ───────────────────────────────
+#
+# Everything here is behind the dashboard token (the WebSocket checks it
+# itself: a dependency cannot gate a socket) and the per-IP limiter. The logic
+# lives in bot/web/telemetry_stream.py and bot/web/ops_reads.py, where tests
+# drive it without this app; these are the thin doors. They sit ABOVE the
+# static mount below, which matches every path and must stay last.
+
+_telemetry_hub = telemetry_stream.TelemetryHub()
+_telemetry_feeds: Optional[telemetry_stream.TelemetryFeeds] = None
+
+
+async def _orderbook_fetch(symbol: str) -> Any:
+    """The order-flow signal for ``symbol``, or None when this process cannot
+    read the venue (no engine, no exchange). Bounded by the same semaphore as
+    every other exchange read here."""
+    if engine is None:
+        return None
+    async with _EXCHANGE_SEMAPHORE:
+        exchange = await engine.get_exchange()
+        if exchange is None:
+            return None
+        return await engine.order_flow.analyze(exchange, symbol)
+
+
+def _risk_log_path() -> str:
+    """Where the bot writes its risk audit log (the logger's own directory)."""
+    from bot.utils.logger import LOG_DIR
+    return str(LOG_DIR / "risk.jsonl")
+
+
+def _get_telemetry_feeds() -> telemetry_stream.TelemetryFeeds:
+    global _telemetry_feeds
+    if _telemetry_feeds is None:
+        _telemetry_feeds = telemetry_stream.TelemetryFeeds(
+            _telemetry_hub,
+            lambda symbol: _orderbook_fetch(symbol),   # late-bound: one name to replace
+            telemetry_stream.RiskLogTailer(_risk_log_path()),
+        )
+    return _telemetry_feeds
+
+
+@app.websocket("/ws/telemetry")
+async def telemetry_ws(ws: WebSocket):
+    """Orderbook metrics and risk alerts, dollar-free, for a token holder.
+
+    Close before accept (HTTP 403) when the address is over its limit. Auth,
+    subscription, bounds and slow-client handling are `serve_session`."""
+    if not _check_rate_limit(client_ip(ws)):
+        await ws.close(code=telemetry_stream.CLOSE_TRY_LATER)
+        return
+    await telemetry_stream.serve_session(
+        ws, hub=_telemetry_hub, feeds=_get_telemetry_feeds(),
+        expected_token=_DASHBOARD_TOKEN,
+        symbol_ok=lambda s: bool(_SYMBOL_RE.match(s)))
+
+
+@app.get("/parity")
+async def parity(_token: str = Depends(require_dashboard_token), _rl: None = Depends(_require_rate_limit)):
+    """Live realized performance against the benchmark on record, as counts,
+    ratios and verdict words. No dollar figure: `parity_payload` is a whitelist.
+
+    A closed-trade record that exists and cannot be read is a 503 with
+    `state: "unreadable"`, not a report over zero trades."""
+    from bot.backtest.parity import DEFAULT_TRADES_FILE
+    state, trades = await asyncio.to_thread(ops_reads.read_closed_trades, DEFAULT_TRADES_FILE)
+    try:
+        body = await asyncio.to_thread(
+            ops_reads.parity_payload, state, trades, CONFIG.risk.commission_pct)
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={
+            "state": "unreadable", "error": type(exc).__name__})
+    return JSONResponse(status_code=503 if state == "unreadable" else 200, content=body)
+
+
+@app.get("/attestation")
+async def attestation(_token: str = Depends(require_dashboard_token), _rl: None = Depends(_require_rate_limit)):
+    """The audit-attestation public key and a re-derivation of the audit chain.
+    Read-only: it signs nothing, creates no key, and appends nothing."""
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Engine not initialized")
+    try:
+        body = await asyncio.to_thread(ops_reads.attestation_payload, engine.audit_chain)
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"error": type(exc).__name__})
+    return body
+
+
+@app.get("/redteam")
+async def redteam(_token: str = Depends(require_dashboard_token), _rl: None = Depends(_require_rate_limit)):
+    """The risk engine's red-team result: counts, rates and the names of any
+    scenario that got through. A run that could not complete is a 503 with
+    `ran: false`, which is not a pass."""
+    body = await ops_reads.red_team_payload()
+    return JSONResponse(status_code=200 if body.get("ran") else 503, content=body)
 
 
 if os.path.isdir(_WEBSITE_DIR):

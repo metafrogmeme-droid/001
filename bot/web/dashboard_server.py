@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import math
 import os
 import pathlib
 import time
@@ -485,6 +486,121 @@ async def handle_ready(request: web.Request) -> web.Response:
             {"ready": False, "error": str(exc)[:120]}, status=503)
 
 
+#: The most gate labels one scrape will carry. The names come from the risk
+#: engine's own check strings, so the set is bounded by the code; the cap keeps
+#: a future check that interpolates a symbol into its name from becoming an
+#: unbounded label set, which is how a Prometheus server gets taken down.
+_MAX_GATE_LABELS = 64
+
+
+def _label_value(value: object) -> str:
+    """A Prometheus label value: backslash, quote and newline escaped, as the
+    text exposition format requires."""
+    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _measured(value: object) -> "float | None":
+    """``value`` as a finite float, or None. A bool is not a measurement and
+    neither is NaN/inf: the exposition has no spelling for "unread", so an
+    unreadable figure is OMITTED by the caller, never written as 0."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
+
+
+def _scan_series(engine) -> "list[tuple[str, float, str, str]]":
+    """(name, value, help, type) for the scan phase, from what the engine
+    measured and nothing it did not.
+
+    The source is ``RuneClawEngine._phase_durations["scan"]`` (the tick's own
+    per-phase timer) and the scan heartbeat stamp. No histogram is built over
+    them: the engine keeps the last and the peak, not the samples, and bucket
+    counts derived from two numbers would be a distribution nobody observed.
+
+    A scan that TIMED OUT recorded its cap as its duration, which is a floor and
+    not a reading (`_record_phase_duration`), so the last-run gauge is omitted
+    for it and `runeclaw_scan_last_timed_out` says why. The peak is a floor when
+    `runeclaw_scan_timed_out` is 1, and its help text says so.
+    """
+    out: list[tuple[str, float, str, str]] = []
+    rec = (getattr(engine, "_phase_durations", None) or {}).get("scan")
+    if isinstance(rec, dict):
+        last_timed_out = bool(rec.get("last_timed_out"))
+        last = _measured(rec.get("last_s"))
+        peak = _measured(rec.get("peak_s"))
+        cap = _measured(rec.get("cap_s"))
+        if last is not None and not last_timed_out:
+            out.append(("runeclaw_scan_latency_last_seconds", last,
+                        "Duration of the last completed scan phase (seconds).", "gauge"))
+        if peak is not None:
+            out.append(("runeclaw_scan_latency_peak_seconds", peak,
+                        "Slowest scan phase since boot (seconds); a lower bound "
+                        "while runeclaw_scan_timed_out is 1.", "gauge"))
+        if cap is not None and cap > 0:
+            out.append(("runeclaw_scan_latency_cap_seconds", cap,
+                        "The scan phase's timeout (seconds).", "gauge"))
+        out.append(("runeclaw_scan_last_timed_out", float(int(last_timed_out)),
+                    "1 if the last scan phase was cut off by its timeout.", "gauge"))
+        out.append(("runeclaw_scan_timed_out", float(int(bool(rec.get("timed_out")))),
+                    "1 if any scan phase has timed out since boot (sticky).", "gauge"))
+    stamp = _measured(getattr(engine, "_scan_heartbeat_mono", None))
+    if stamp is not None:
+        age = max(0.0, time.monotonic() - stamp)
+        out.append(("runeclaw_scan_heartbeat_age_seconds", age,
+                    "Seconds since a scan batch last checked in.", "gauge"))
+    return out
+
+
+def _gate_rejection_rows(engine) -> "list[tuple[str, int]]":
+    """(gate, failures) from the risk engine's per-gate counters, sorted.
+
+    A rejection that fails several gates counts under each of them, so the sum
+    over gates can exceed `runeclaw_risk_rejections_total`; the help text says
+    so. A gate that has been evaluated and never failed is a MEASURED zero and
+    is emitted as one. No risk engine, or no counters, is no rows."""
+    stats = engine.risk.gate_stats()
+    if not isinstance(stats, dict):
+        return []
+    rows: list[tuple[str, int]] = []
+    for gate, rec in stats.items():
+        failed = rec.get("failed") if isinstance(rec, dict) else None
+        n = _measured(failed)
+        if n is None or not str(gate).strip():
+            continue
+        rows.append((str(gate), int(n)))
+    rows.sort()
+    return rows[:_MAX_GATE_LABELS]
+
+
+def _swarm_series(engine) -> "list[tuple[str, float, str, str]]":
+    """The swarm's worker count and halt latch, or nothing when no swarm is
+    attached: SWARM_ENABLED is off by default, and an engine with no swarm has
+    zero workers only in the sense that it has no swarm to count."""
+    swarm = getattr(engine, "_swarm", None)
+    if swarm is None:
+        return []
+    status = swarm.status()
+    workers = status.get("workers")
+    if not isinstance(workers, dict):
+        return []
+    out: list[tuple[str, float, str, str]] = [
+        ("runeclaw_swarm_workers_active",
+         float(sum(1 for running in workers.values() if running is True)),
+         "Swarm worker tasks currently running.", "gauge"),
+        ("runeclaw_swarm_workers_total", float(len(workers)),
+         "Swarm worker tasks the coordinator owns.", "gauge"),
+    ]
+    halted = status.get("halted")
+    if isinstance(halted, bool):
+        out.append(("runeclaw_swarm_halted", float(int(halted)),
+                    "1 if the swarm's halt latch is set.", "gauge"))
+    return out
+
+
 def _render_prometheus(engine) -> str:
     """Hand-rolled Prometheus text exposition (no prometheus_client dependency).
 
@@ -542,6 +658,28 @@ def _render_prometheus(engine) -> str:
             if "total_rejections" in rstats:
                 metric("runeclaw_risk_rejections_total", rstats["total_rejections"],
                        "Total risk rejections.", "counter")
+    except Exception:
+        pass
+    # Each block below is its own try: one dead source leaves its own series
+    # out and says nothing false about the others (the "omit" strategy).
+    try:
+        for name, value, help_text, mtype in _scan_series(engine):
+            metric(name, repr(round(value, 6)), help_text, mtype)
+    except Exception:
+        pass
+    try:
+        gate_rows = _gate_rejection_rows(engine)
+        if gate_rows:
+            lines.append("# HELP runeclaw_risk_gate_rejections_total Risk-gate failures by gate "
+                         "(a rejection that fails several gates counts under each).")
+            lines.append("# TYPE runeclaw_risk_gate_rejections_total counter")
+            for gate, failed in gate_rows:
+                lines.append(f'runeclaw_risk_gate_rejections_total{{gate="{_label_value(gate)}"}} {failed}')
+    except Exception:
+        pass
+    try:
+        for name, value, help_text, mtype in _swarm_series(engine):
+            metric(name, repr(round(value, 6)), help_text, mtype)
     except Exception:
         pass
 

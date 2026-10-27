@@ -2297,6 +2297,24 @@ class ConfluenceConfig:
     # family_cap_enabled is on.
     pattern_weight_cap: float = _env_float_bounded(
         "CONFLUENCE_PATTERN_WEIGHT_CAP", 2.5, 0.1, 100.0)
+    # MEASURED voter de-correlation (bot/core/voter_correlation.py). The family
+    # caps above are hand-written lists; this one reads the recent per-voter
+    # vote history and scales back the LATER of any two actively-voting voters
+    # whose votes have a pairwise Pearson |rho| above this threshold and agree
+    # again on this bar (RSI/OBV, MACD/VWAP ...). Reduce-only; a pair whose
+    # correlation cannot be measured (short, constant or missing history) is
+    # never penalised. Applies only when family_cap_enabled is on.
+    #
+    # This is a VOTER-level setting, deliberately separate from the risk
+    # engine's MAX_CORRELATION (0.85, a cross-position gate): changing one
+    # must not move the other.
+    voter_max_correlation: float = _env_float_bounded(
+        "CONFLUENCE_VOTER_MAX_CORRELATION", 0.70, 0.05, 0.99)
+    # The de-correlation pass itself is OFF until it has been backtested: the
+    # 0.70 threshold and the weight floor are not measured, and the pass
+    # changes the committed scorecards. It needs family_cap_enabled as well.
+    voter_decorrelation_enabled: bool = _env_bool(
+        "CONFLUENCE_VOTER_DECORRELATION_ENABLED", False)
 
 
 @dataclass(frozen=True)
@@ -2722,6 +2740,37 @@ class AppConfig:
     # venue is not consenting to trade on it.
     multi_venue_trading_enabled: bool = _env_bool("MULTI_VENUE_TRADING_ENABLED", False)
     multi_venue_trading_mode: str = os.getenv("MULTI_VENUE_TRADING_MODE", "shadow").strip().lower()
+
+    # Venue router (bot/core/venue_router.py). When on, `/closeall` and
+    # `/accounts` ask every account's venue what it holds, concurrently and
+    # with a per-venue timeout, after the executors have done their own work:
+    # a venue that does not answer is reported UNREAD, never flat. Default
+    # off: both commands read exactly what they read before. It sends nothing.
+    venue_router_enabled: bool = _env_bool("VENUE_ROUTER_ENABLED", False)
+    # How long the router waits on one venue before calling it unread.
+    venue_router_timeout_s: float = _env_float_bounded(
+        "VENUE_ROUTER_TIMEOUT_S", 8.0, 1.0, 60.0)
+    # Meaningful ONLY with VENUE_ROUTER_ENABLED on. When a flatten leaves a
+    # position the venue still holds (one the executor had no record of), send
+    # a reduce-only close for it through the router's adapter. Default off:
+    # a flatten closes the executor's own book and the router only reports.
+    # Hyperliquid mainnet is never closed here (the server does not sign it)
+    # and OKX is never closed (its order path has not been driven).
+    venue_router_close_residual: bool = _env_bool("VENUE_ROUTER_CLOSE_RESIDUAL", False)
+
+    # Async swarm (bot/core/swarm.py). When on, the engine runs a bounded
+    # asyncio queue bus with one worker per role beside its own loop: it hears
+    # every FSM transition, mirrors a halt both ways, and lets a critical
+    # black-swan anomaly halt new entries through the engine's existing /halt
+    # path. A queue overflow, a missed heartbeat or a worker exception HALTS
+    # (fail closed). Its Executor only enqueues a ticket into the confirm path;
+    # nothing it does places an order. Default off: the engine builds no swarm.
+    swarm_enabled: bool = _env_bool("SWARM_ENABLED", False)
+    swarm_queue_size: int = int(_env_float_bounded("SWARM_QUEUE_SIZE", 256.0, 8.0, 4096.0))
+    swarm_heartbeat_interval_s: float = _env_float_bounded(
+        "SWARM_HEARTBEAT_INTERVAL_S", 2.0, 0.1, 60.0)
+    swarm_heartbeat_timeout_s: float = _env_float_bounded(
+        "SWARM_HEARTBEAT_TIMEOUT_S", 15.0, 0.5, 600.0)
 
     # Paper auto-accept: a new Telegram user is admitted for PAPER trading on
     # first contact instead of waiting for an operator's /approve. The Arena is

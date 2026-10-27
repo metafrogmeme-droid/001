@@ -34,7 +34,7 @@ from bot.core.cost import thesis_dollar_exhausted
 from bot.core.position_telemetry import price_on_record
 from bot.core.signal_levels import (atr_on_record, record_atr,
                                      record_idea_levels, record_level)
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:
     from bot.core.why_not import WhyNotLog
@@ -829,6 +829,10 @@ class Analyzer:
         # Confidence calibrator (Phase A): lazily loaded from disk. ``False`` is
         # the "looked, none on disk" sentinel so we don't re-stat every analyze().
         self._calibrator = None
+        # Rolling per-voter vote history ((symbol, timeframe) -> bars) read by
+        # the measured voter de-correlation. Bounded; see voter_correlation.py.
+        from bot.core.voter_correlation import VoterVoteHistory
+        self._voter_vote_history = VoterVoteHistory()
 
         # Multi-tier routing: resolve separate configs for scan vs thesis
         self._scan_config = resolve_tier_config(LLMTier.SCAN, self._llm_config) if self._llm_config else None
@@ -1559,6 +1563,18 @@ class Analyzer:
             system_log.debug("Cross-asset context skipped: %s", _ca_exc)
 
         _confluence_votes: list = []
+        # Voter de-correlation: history of the bars BEFORE this one (the
+        # current bar is recorded after scoring, so it never correlates with
+        # itself). Only touched when the family-cap flag is on.
+        _vh_key = (str(signal.symbol), str(timeframe))
+        _vh_series = None
+        if (CONFIG.confluence.family_cap_enabled
+                and CONFIG.confluence.voter_decorrelation_enabled):
+            try:
+                _vh_series = self._voter_vote_history.series(_vh_key)
+            except Exception as _vh_exc:
+                system_log.debug("Voter history read skipped: %s",
+                                 type(_vh_exc).__name__)
         confluence = self._score_confluence(
             indicators, regime, signal,
             order_flow=order_flow,
@@ -1570,7 +1586,22 @@ class Analyzer:
             breakdown=_confluence_votes,
             onchain_snapshot=_onchain_snapshot,
             cross_asset_context=_ca_context,
+            voter_history=_vh_series,
         )
+        if (CONFIG.confluence.family_cap_enabled
+                and CONFIG.confluence.voter_decorrelation_enabled
+                and _confluence_votes):
+            try:
+                _bar = candles[-1][0] if candles and candles[-1] else None
+                _agg: dict[str, list[float]] = {}
+                for _n, _v, _w in _confluence_votes:
+                    _agg.setdefault(_n, []).append(_v)
+                self._voter_vote_history.record(
+                    _vh_key, {n: sum(vs) / len(vs) for n, vs in _agg.items()},
+                    bar_key=_bar)
+            except Exception as _vh_exc:
+                system_log.debug("Voter history record skipped: %s",
+                                 type(_vh_exc).__name__)
         # Voter-grounded thesis (audit UX item): expose the top signed votes
         # to the LLM prompt so the narrative cites the actual electorate that
         # drove the score instead of re-deriving (or inventing) its own read.
@@ -3376,9 +3407,19 @@ class Analyzer:
                           strategy_type: str = "swing",
                           breakdown: "Optional[list]" = None,
                           onchain_snapshot=None,
-                          cross_asset_context=None) -> float:
+                          cross_asset_context=None,
+                          voter_history: "Optional[Mapping[str, Sequence[Optional[float]]]]" = None) -> float:
         """
         Score agreement across indicators on a 0-1 scale.
+
+        ``voter_history`` (optional, default None = no change) is the recent
+        per-voter vote history ({voter name: aligned votes, None where the
+        voter was absent}) from before THIS bar. When given, and
+        CONFIG.confluence.family_cap_enabled is on, voters the history shows
+        to be redundant with an earlier voter are scaled back (reduce-only);
+        see bot/core/voter_correlation.py. A static scorer holds no state of
+        its own, so the caller supplies the history; callers that do not
+        (backtest, scan) score exactly as before.
 
         Each indicator votes bullish (+1), bearish (-1), or neutral (0).
         Confluence = |sum of votes| / number of voters.
@@ -4193,6 +4234,34 @@ class Analyzer:
                         _scale = _cap / _wsum
                         for i in _active:
                             weights[i] *= _scale
+
+        # MEASURED voter de-correlation: the hand-written families above miss
+        # pairs that merely MOVE together (RSI/OBV, MACD/VWAP ...). With a
+        # vote history supplied, scale back the later of any two actively
+        # voting voters whose history correlation exceeds the voter threshold
+        # and which echo each other again on this bar. Reduce-only; an
+        # unmeasurable pair (short/constant/missing history) is untouched.
+        # `breakdown` below shows the scaled weights.
+        if (voter_history and CONFIG.confluence.family_cap_enabled
+                and CONFIG.confluence.voter_decorrelation_enabled
+                and len(names) == len(votes) == len(weights)):
+            try:
+                from bot.core.voter_correlation import redundancy_scales
+                _by_name: dict[str, list[int]] = {}
+                for _i, _n in enumerate(names):
+                    _by_name.setdefault(_n, []).append(_i)
+                _cur = {_n: sum(votes[_i] for _i in _ix) / len(_ix)
+                        for _n, _ix in _by_name.items()}
+                _scales = redundancy_scales(
+                    list(_by_name), _cur, voter_history,
+                    float(CONFIG.confluence.voter_max_correlation))
+                for _n, _s in _scales.items():
+                    if 0.0 < _s < 1.0:
+                        for _i in _by_name[_n]:
+                            weights[_i] *= _s
+            except Exception as _vc_exc:
+                logger.warning("Voter de-correlation skipped: %s",
+                               type(_vc_exc).__name__)
 
         # Voter ablation hook (measurement only; default no-op). ABLATE_VOTERS
         # is a comma-list of voter names whose weight is zeroed here, so the

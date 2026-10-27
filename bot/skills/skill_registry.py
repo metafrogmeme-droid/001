@@ -1911,19 +1911,23 @@ class HaltSkill(BaseSkill):
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         from bot.utils.models import AgentState
-        engine.risk.emergency_halt("manual halt via /halt command")
+        # `reason` is for a caller that is not the operator's /halt (the swarm):
+        # the same halt, said honestly in the audit row.
+        reason = str(kwargs.get("reason") or "manual halt via /halt command")
+        engine.risk.emergency_halt(reason)
         # Halt every per-user risk engine too, so no account can open new trades
         # (default per-user OFF → _user_risk empty → identical to before).
         for _uid, _eng in list(getattr(engine, "_user_risk", {}).items()):
             try:
-                _eng.emergency_halt("manual halt via /halt command")
+                _eng.emergency_halt(reason)
             except Exception:
                 pass
         cancelled = list(engine._pending_ideas.keys())
         engine._pending_ideas.clear()
         engine._pending_atr.clear()
-        engine._transition(AgentState.HALTED, "manual halt via /halt command")
-        audit(system_log, f"MANUAL HALT: {len(cancelled)} ideas cancelled",
+        engine._transition(AgentState.HALTED, reason)
+        label = f"HALT ({reason})" if kwargs.get("reason") else "MANUAL HALT"
+        audit(system_log, f"{label}: {len(cancelled)} ideas cancelled",
               action="halt", result="HALTED", data={"cancelled_ids": cancelled})
         return (
             f"\U0001f6a8 <b>EMERGENCY HALT</b>\n{SEP}\n\n"

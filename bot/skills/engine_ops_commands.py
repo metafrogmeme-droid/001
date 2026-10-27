@@ -34,6 +34,7 @@ from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
 from bot.core.margin_clamp import read_money_field
+from bot.formatters.drift_offer import flatten_venue_note
 from bot.formatters.money import signed_usd
 from bot.skills.command_guard import guard
 from bot.utils.exc_text import _safe_exc_text
@@ -495,6 +496,24 @@ class EngineOpsCommands:
             foot += (f" · {n_error} not read at all (ERROR) — counted in the "
                      f"total above and in none of the figures beside it")
         lines.append(f"\n<i>{foot}</i>")
+        # 🏦 The venue router's read of each account's VENUE (VENUE_ROUTER_ENABLED),
+        # beside the executor's own record above. Absent keys mean the router
+        # did not run, and then nothing is printed. A venue that did not answer
+        # says so; it is never drawn as an empty book.
+        venue_rows = [r for r in rows if r.get("venue_note")]
+        if venue_rows:
+            lines.append("\n🏦 <b>Venue read:</b>")
+            for r in venue_rows:
+                lat = r.get("venue_latency_ms")
+                lat_s = (f" · {lat:.0f} ms"
+                         if isinstance(lat, (int, float)) and not isinstance(lat, bool)
+                         else "")
+                held = r.get("venue_open")
+                rec = ""
+                if isinstance(held, int) and held != r.get("open_positions"):
+                    rec = f" · bot record {r.get('open_positions')}"
+                lines.append(f"<code>{r['account'][:10]}</code> "
+                             f"{_html.escape(str(r['venue_note']))}{lat_s}{rec}")
         # ⚙ Live-performance governor — surface only accounts it is actively
         # throttling (REDUCE/PAUSE) so the size changes aren't invisible. Quiet
         # when nothing is throttled or the governor is off.
@@ -1705,6 +1724,11 @@ class EngineOpsCommands:
             for acct in accounts:
                 lines.append(f"\n<b>{acct['account']}:</b>")
                 lines.extend(f"• {m[:120]}" for m in acct["messages"][:10])
+                # The venue router's read-back, when it ran: whether the
+                # VENUE holds anything, or could not be read.
+                venue_note = flatten_venue_note(acct)
+                if venue_note:
+                    lines.append(f"↳ {venue_note[:160]}")
             await self._send(update, "\n".join(lines), edit=True)
         except Exception as exc:
             await self._send(update,

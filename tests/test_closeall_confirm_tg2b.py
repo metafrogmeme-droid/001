@@ -50,3 +50,57 @@ def test_confirm_callback_is_permission_gated_and_admin_rechecked():
     branch = src[confirm_at:confirm_at + 400]
     assert "_is_admin(update)" in branch
     assert "_flatten_all_accounts(update)" in branch
+
+
+# ── the venue router's read-back reaches the cards (VENUE_ROUTER_ENABLED) ──
+#
+# `flatten_all_positions` rows carry `venue_note` only when the router ran. The
+# two cards that print a flatten (the /closeall confirm and the emergency stop)
+# show it under the account, and print nothing extra when it is absent, so the
+# default (router off) card is the card it always was. Driven through the real
+# `_flatten_all_accounts`, not read off its source.
+
+import asyncio  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import AsyncMock  # noqa: E402
+
+
+def _sent_by_flatten(rows):
+    sent: list[str] = []
+
+    async def _send(update, text, **kw):
+        sent.append(text)
+
+    host = SimpleNamespace(
+        _send=_send,
+        engine=SimpleNamespace(flatten_all_positions=AsyncMock(return_value=rows)))
+    asyncio.run(th.TelegramHandler._flatten_all_accounts(host, None))
+    return sent[-1]
+
+
+def test_the_closeall_card_prints_the_venue_readback_under_its_account():
+    card = _sent_by_flatten([
+        {"account": "operator", "messages": ["LONG BTC/USDT: closed"], "ok": True,
+         "venue_note": "bybit: flat at the venue (read back)"},
+        {"account": "alice", "messages": ["LONG ETH/USDT: closed"], "ok": True,
+         "venue_note": "hyperliquid: not read (TimeoutError); flat NOT verified"},
+    ])
+    assert "↳ bybit: flat at the venue (read back)" in card
+    # a venue that did not answer is said as such, in its own account's block
+    alice = card.split("<b>alice:</b>")[1]
+    assert "flat NOT verified" in alice and "TimeoutError" in alice
+    assert "flat NOT verified" not in card.split("<b>alice:</b>")[0]
+
+
+def test_the_closeall_card_is_unchanged_when_the_router_did_not_run():
+    card = _sent_by_flatten(
+        [{"account": "operator", "messages": ["LONG BTC/USDT: closed"], "ok": True}])
+    assert "↳" not in card and "venue" not in card.lower()
+    assert "LONG BTC/USDT: closed" in card
+
+
+def test_the_emergency_stop_card_prints_the_same_note():
+    src = inspect.getsource(th.TelegramHandler._handle_callback)
+    at = src.index('if data == "emergency_confirm":')
+    branch = src[at:at + 3200]
+    assert "flatten_venue_note(acct)" in branch

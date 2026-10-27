@@ -829,7 +829,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 637 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 636 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -22046,7 +22046,7 @@ suite, and no source scan distinguishes them — reachability is a property of
 the *callers*, so it can only be checked from outside the file.
 
 `tests/test_no_new_unreachable_modules.py` checks it every run, against
-`tests/unreachable_baseline.txt` (**2** modules today). It is a ratchet in
+`tests/unreachable_baseline.txt` (**1** modules today, counting the one). It is a ratchet in
 both directions: a new entry means
 somebody just built another scorer nobody calls, and an entry that leaves must
 be deleted in the same commit — the `known_failures.txt` rule, for the same
@@ -29592,6 +29592,188 @@ the four groups that already count. Avalanche runs Snowman, so it does not
 join `ethereum-l2`. It is the fifth. The measured cost of one anchor that
 day was 25669 gas at 2.5 gwei, about 0.000064 AVAX, paid by the wallet. The
 server pays nothing.
+
+## THE SWARM WAS SCAFFOLDING NOBODY CONSTRUCTED, AND WIRING IT MEANT DECIDING WHO OWNS THE HALT
+
+`bot/core/swarm.py` was 428 lines of synchronous pub/sub on
+`tests/unreachable_baseline.txt`, and the old `RiskAgent` fell back, with no
+`RiskEngine`, to "approve any momentum of 0.3 or more", built a `TradeIdea` out
+of invented levels (entry 1.0, stop 0.95, target 1.10) and decided
+`Direction.LONG` from `abs(momentum)`, so every idea was a long. It is an asyncio
+queue bus now, one bounded `PriorityQueue` per role, one worker task per role,
+and an optional coordinator the engine starts in `run()` and stops in `stop()`
+behind `SWARM_ENABLED` (default off).
+
+**The halt is the engine's, and the swarm asks for it.** The coordinator holds a
+`halt_sink`; the engine's is `_swarm_halt`, which runs `HaltSkill` (breaker on
+the shared and every per-user engine, idea book cleared, FSM to HALTED), the one
+path `/halt` already takes. `HaltSkill` gained an optional `reason` so the audit
+row says what halted it instead of "MANUAL HALT". If that path itself raises, the
+shared breaker is tripped directly. An engine halt (`_transition` to HALTED)
+latches the swarm with `engine_halted`, and that reason is never handed back to
+the sink, so the two cannot echo. The FSM has one mutator: the coordinator
+OBSERVES `_transition` through `_transition_observers` and an exhaustive
+`ROLE_FOR_STATE` map, and holds no state machine of its own.
+
+**Fail closed, three ways, and each HALTS rather than drops:** a queue overflow,
+a missed heartbeat, a handler that raises. The halt is a latch on the bus set at
+once from any thread; it does not need the HALT message to fit in a full queue.
+A worker that raised keeps running and discards while halted, so `reset()` needs
+no restart. The exception's MESSAGE never reaches the reason; the class does.
+
+**Nothing is invented and nothing is placed.** No levels, no thesis. No
+`RiskEngine`, no approval. An anomaly whose severity cannot be read halts, as
+critical does. The Executor worker calls a `ticket_sink`; the engine's puts the
+idea in `_pending_ideas` but NOT in `_engine_idea_ids`, so `_auto_confirm_batch`
+(which reads only the engine's own) never takes it, and a Confirm goes through
+`confirm_trade`, which re-runs `RiskEngine.evaluate` with live context and the
+compliance mint. A ticket with no ATR is refused there, which is the honest
+outcome.
+
+**Recorded, not changed.** The engine does not feed scan signals into the
+Scanner. A scan sweeps dozens of symbols through `_analyze_signal` and a bounded
+queue that halts on overflow would halt a healthy engine on an ordinary burst;
+the engine feeds the Sentinel (new black-swan alerts) and the FSM observer only.
+`SwarmCoordinator.process_signal` stays on `tests/unreachable_methods_baseline.txt`
+for that reason. The black-swan detector still only observes; the swarm is what
+makes a critical alert a halt, and only when the flag is on.
+
+**Four ratchets moved in the same commit:** `swarm.py` left the module baseline,
+`inject_anomaly` and `inbox_count` left the method baseline, the honesty
+baseline lost the file's one `get-default-zero` hit, and ruff's I001 count fell.
+(`tests/test_swarm.py`, `tests/test_core.py::TestSwarmProtocol`.)
+
+
+## THE TELEMETRY DOORS: A GAUGE IS A CLAIM, A SOCKET IS A SURFACE, AND A CHAT ID IS A PERSON
+
+Four things were asked for and the repo already held three of their premises
+wrong: there was no server-side WebSocket anywhere, `api_bridge.py` is at the
+repository root and is NOT the bot (its engine is a detached reader of the bot's
+state), and `/metrics` is `dashboard_server._render_prometheus`, a hand-rolled
+exposition with no client library. Each was built on what exists.
+
+**Three metric families, each omitted when unmeasured.** Scan latency reads
+`RuneClawEngine._phase_durations["scan"]` and the heartbeat stamp; there is no
+histogram because the engine keeps the last and the peak, not the samples, and
+buckets derived from two numbers would be a distribution nobody observed. A scan
+that timed out recorded its CAP as its duration, which is a floor, so the
+last-run gauge is left out for it and `runeclaw_scan_last_timed_out` says why.
+Risk rejections are labelled by gate from `RiskEngine.gate_stats()`: the label is
+escaped and the set capped, and a rejection that fails several gates counts under
+each, so the sum over gates can exceed the total (the help text says so). The
+swarm's worker count is absent when no swarm is attached, because "no swarm" is
+not "zero workers".
+
+**The stream tails the bot's risk log, not this process's engine.** The bridge's
+`engine.risk` counts evaluations THIS process ran, which describe nothing the bot
+did, so risk alerts come from `logs/risk.jsonl` (`action=risk_check`,
+`result=REJECTED`, plus WARNING-or-worse lines) read from the end of the file.
+The reason text is never forwarded: it carries amounts. An unreadable log is
+announced as `source_unreadable` and `source_recovered`, never as a quiet stretch.
+Orderbook frames are ratios and basis points gated on the signal's own
+`components_ok`: `OrderFlowSignal` defaults its numbers to 0.0, so a spread from a
+book nobody answered would have been a 0 bps spread.
+
+**Four things the tests caught in the first draft.**
+(1) The dollar-key net matched `balance` and so removed `book_imbalance`, the
+stream's headline field; `imbalance` is excluded by name now.
+(2) On Python 3.11 `asyncio.wait_for` swallows an outer cancel when its inner call
+completes in the same tick, so the session's writer survived its own cancellation
+and blocked on an empty queue for ever. Every bounded await in the new code is
+`asyncio.timeout`.
+(3) `TelemetryHub.__len__` made an empty hub falsy, and `hub or TelemetryHub()`
+quietly built a second one; it is a `subscribers` property now.
+(4) `subscribe`, `unsubscribe` and `shutdown` are method names other classes
+share, and the methods ratchet counts a name it cannot resolve: the hub's are
+`attach`, `detach` and `stop_all`, so the count stays at 53.
+
+**Auth and bounds.** The socket takes the dashboard token from the Authorization
+header, a first `{"op":"auth"}` message, or `?token=` (last resort: a proxy logs
+the URL), compared as bytes with `hmac.compare_digest` so a non-ASCII probe is a
+mismatch and not a TypeError. Nothing is subscribed, queued or polled before it
+matches. Each connection has a bounded queue; a full queue or a send that outlasts
+five seconds closes THAT connection with 1013 and no other notices. Inbound
+messages are bounded in size and rate. Every frame is dollar-free (a key or
+string naming an amount is dropped, not zeroed), then `scrub_secrets`, then
+checked to be JSON and under 4 KiB.
+
+**The three read routes.** `/parity` is a whitelist over `parity_summary`, whose
+net, gross, fees and notional are dollars and whose verdict sentence prints the
+mean net per trade; a key the summary grows tomorrow does not reach the route. A
+closed-trade file that exists and will not parse is a 503 `unreadable`, where
+`load_closed_trades` returns `[]` for it by design. `/attestation` derives the
+audit-attestation PUBLIC key from the seed on disk without creating one when none
+exists, and re-derives the audit chain (cached on size and mtime, bounded in
+size); the chain's start and linking are unchanged. `/redteam` runs
+`scripts/red_team.py --json` in a child with credential-named variables removed
+from its environment, because run in this process the red team would write thirty
+synthetic rejections into the risk log the stream tails as the bot's alerts. It is
+cached, one run at a time, and a run that could not complete is a 503, not a pass.
+
+**Chat ids.** Five rows in `secret_shapes.py` (a labelled id, a bare `-100…`
+supergroup id, a `t.me/c/` link, `repr(Chat)`, a printed `'chat': {'id': …}`), each
+with its example and decoy, and `CHAT_ID_KEY_RE` read by `logger._redact_dict`
+because an int under `chat_id` has no string for a row to match. The test plants
+credentials and ids in every way a call can carry them, through the real
+`trade_log`, `risk_log` and `system_log` formatter, and greps the bytes written;
+a control run with the rows removed shows the same grep finding the ids.
+
+**Recorded, not changed.** The logger's hash chain still restarts at `GENESIS`
+for each process. The streams are served by `uvicorn` on the loopback-bound
+bridge; nginx is not given a WebSocket upgrade, so a browser reaches them only
+where the operator adds one. None of the socket behaviour was exercised under real
+network load or behind a proxy.
+(`tests/test_telemetry_metrics.py`, `tests/test_telemetry_stream.py`,
+`tests/test_ops_reads_and_stream_door.py`,
+`tests/test_the_logs_hold_no_credential_or_chat_id.py`,
+`tests/test_one_secret_vocabulary.py`.)
+
+
+## NINE REVIEW FINDINGS ON THE FOUR NEW LAYERS: A SET EVENT WITH NOTHING BEHIND IT, A FLAT NOBODY VERIFIED, AND AN ID IN A SENTENCE
+
+An adversarial review of the swarm, the venue router, the telemetry doors and the
+chat-id scrub found nine defects; each is fixed with a test and was mutated back
+to confirm the test fails for the reason it names.
+
+**The swarm's halt watcher could freeze the loop.** `SwarmBus.halt` from an
+off-loop thread latches the reason and schedules `_announce_halt`; a `/reset` on
+the loop that runs first cleared the reason, and the late announce then set the
+event with no reason behind it. `Event.wait()` on a set event returns without
+suspending, so `_watch_halt` spun forever. `_announce_halt` now carries the halt's
+generation and announces nothing when that halt is no longer the latched one, and
+the watcher yields when woken with nothing latched (two layers, because a spin
+takes the whole bot).
+
+**An unverified flat was audited as a verified one.** `flatten_all_positions`
+leaves `ok` as the executor said when the venue was unread, faulted or not
+routed, and the kill-switch's audit row counted `ok`. `accounts_flattened` now
+excludes those accounts and `accounts_unverified` names them
+(`drift_offer.flatten_unverified_accounts`). **The router phase of a flatten is
+bounded** at two per-venue timeouts in all (`FLATTEN_BUDGET_TIMEOUTS`): a close
+that does not settle leaves the earlier `open` reading standing, with the reason.
+
+**Absent is not a measurement, twice more.** A red-team report with no scenarios
+is `ran: false` (`NoScenarios`), not a clean run; a symbol past the stream's
+process cap of eight gets one `read: false, polled: false` frame instead of
+silence. **A cancelled `/redteam` request** killed nothing: cancellation is a
+`BaseException` the timeout handler never sees; a `finally` now reaps the child.
+
+**Ids in sentences and URLs.** A bare number after the word `chat` or `group`
+("enabled for chat 123456789") matched no chat-id row; a sixth row,
+`telegram_chat_word`, covers it, and the three call sites that printed an id in
+their message text (`enable_chat`, `disable_chat`, the channel forwarder) no
+longer do (the structured `chat_id` field is redacted by the logger). The venue
+router logged `account`, which is a Telegram id for a user; it logs
+`account_tag` now, a per-process salted tag. `/ws/telemetry` no longer accepts
+`?token=` at all: uvicorn and every proxy log the query string, and the same
+token gates other endpoints; a connection that puts one there is closed.
+
+**Recorded, not changed.** `tests/test_one_signal_one_confidence.py::
+TestEveryReaderAsksIt::test_the_reason_for_parsing_raw_is_the_one_measured` fails
+on the tree before these changes and is in no baseline; it is not touched here.
+(`tests/test_swarm.py`, `tests/test_venue_router.py`,
+`tests/test_ops_reads_and_stream_door.py`, `tests/test_telemetry_stream.py`,
+`tests/test_the_logs_hold_no_credential_or_chat_id.py`.)
 
 ## A STAND-IN SIGNER ACCEPTED WHAT THE REAL ONE REFUSED, AND A HASH-ONLY REGISTRY GAVE THE FIRST PUBLISHER THE LAST WORD
 

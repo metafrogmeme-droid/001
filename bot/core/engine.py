@@ -1249,6 +1249,11 @@ class RuneClawEngine:
         # _analyze_signal; every call is wrapped so a detector fault can never
         # block a trade decision.
         self.black_swan = BlackSwanDetector()
+        # The optional async swarm (behind its own flag) and the
+        # observers `_transition` tells. The observers only READ a transition:
+        # `_transition` stays the one place the FSM changes.
+        self._swarm: Any = None
+        self._transition_observers: list[Callable[[AgentState, AgentState, str], None]] = []
 
     # -- State management --
 
@@ -3670,7 +3675,13 @@ class RuneClawEngine:
         `account_risk_overview`". This is that door.
         """
         rows: list[dict] = []
-        for ex in self._all_live_executors():
+        executors = self._all_live_executors()
+        # One concurrent ask of every venue, before the per-account reads:
+        # `{}` unless VENUE_ROUTER_ENABLED, and then each row below carries its
+        # own venue's answer under `venue_*` keys.
+        from bot.core.venue_router import executor_key, router_reads
+        venue_reads = await router_reads(executors, CONFIG, full=True)
+        for ex in executors:
             uid = getattr(ex, "user_id", None)
             row = {
                 "account": str(uid or "operator"), "user_id": uid,
@@ -3746,6 +3757,8 @@ class RuneClawEngine:
             except Exception as exc:
                 row["error"] = str(exc)
                 logger.warning("Account overview: %s failed: %s", row["account"], exc)
+            if venue_reads:
+                row.update(venue_reads.get(executor_key(ex), {}))
             rows.append(row)
         return rows
 
@@ -3761,7 +3774,8 @@ class RuneClawEngine:
         results: list[dict] = []
         if not CONFIG.is_live():
             return results
-        for ex in self._all_live_executors():
+        executors = self._all_live_executors()
+        for ex in executors:
             label = getattr(ex, "user_id", None) or "operator"
             try:
                 msgs = await ex.close_all_positions(reason=reason)
@@ -3775,6 +3789,22 @@ class RuneClawEngine:
             from bot.formatters.drift_offer import flatten_account_ok
             results.append({"account": str(label), "messages": list(msgs),
                             "ok": flatten_account_ok(list(msgs))})
+        # ADDITIVE: ask each account's venue what it holds now. The executor's
+        # "closed" is its own book's word; this is the venue's. A venue that
+        # still holds a position makes the account NOT ok; one that did not
+        # answer leaves `ok` as the executor said it and is marked unread, so
+        # the card never prints it as verified flat. `{}` when the router is
+        # off, and then no row gains a key.
+        from bot.core.venue_router import VERDICT_OPEN, executor_key, router_reads
+        reads = await router_reads(executors, CONFIG, flatten_reason=reason)
+        if reads:
+            for ex, row in zip(executors, results):
+                extra = reads.get(executor_key(ex))
+                if extra is None:
+                    continue
+                row.update(extra)
+                if extra.get("venue_state") == VERDICT_OPEN:
+                    row["ok"] = False
         return results
 
     async def emergency_halt_all(self, reason: str = "emergency") -> dict:
@@ -3814,12 +3844,19 @@ class RuneClawEngine:
         self._pending_turn.clear()
         self._pending_pyramid.clear()
         accounts = await self.flatten_all_positions(reason=reason)
+        # `ok` is the executor's word. With the venue router on, an account
+        # whose venue was unread, faulted or not routed is flat only by that
+        # word: the audit row counts it apart, never as a verified flatten.
+        from bot.formatters.drift_offer import flatten_unverified_accounts
+        unverified = flatten_unverified_accounts(accounts)
         audit(system_log, f"GLOBAL KILL-SWITCH engaged: {reason}",
               action="emergency_halt_all", result="OK",
               data={"engines_halted": engines_halted,
                     "pending_cleared": pending_cleared,
                     "accounts_attempted": len(accounts),
-                    "accounts_flattened": sum(1 for a in accounts if a.get("ok")),
+                    "accounts_flattened": sum(1 for a in accounts if a.get("ok"))
+                    - len(unverified),
+                    "accounts_unverified": unverified,
                     "accounts_failed": [a.get("account") for a in accounts
                                         if not a.get("ok")]})
         return {
@@ -3836,6 +3873,9 @@ class RuneClawEngine:
         engine, identical to a bare reset_circuit_breaker()."""
         reset = 0
         self._halted = False  # resume: allow execution again
+        _swarm = getattr(self, "_swarm", None)
+        if _swarm is not None:
+            _swarm.reset()
         try:
             self.risk.reset_circuit_breaker()
             reset += 1
@@ -4555,6 +4595,94 @@ class RuneClawEngine:
         # Persist the rename itself (not just the tmp contents) — best-effort.
         fsync_dir(str(combined_path))
 
+    # -- Async swarm (optional, SWARM_ENABLED) --
+
+    async def _start_swarm(self) -> None:
+        """Build and start the swarm when SWARM_ENABLED is on. Never raises:
+        a swarm that cannot start leaves the engine exactly as it was."""
+        if not getattr(CONFIG, "swarm_enabled", False) or getattr(self, "_swarm", None) is not None:
+            return
+        try:
+            from bot.core.swarm import SwarmCoordinator
+            coordinator = SwarmCoordinator(
+                risk_engine=self.risk,
+                ticket_sink=self._swarm_enqueue_ticket,
+                halt_sink=self._swarm_halt,
+                queue_size=CONFIG.swarm_queue_size,
+                heartbeat_interval_s=CONFIG.swarm_heartbeat_interval_s,
+                heartbeat_timeout_s=CONFIG.swarm_heartbeat_timeout_s,
+            )
+            await coordinator.start()
+        except Exception as exc:
+            logger.warning("swarm failed to start: %s", type(exc).__name__)
+            return
+        self._swarm = coordinator
+        self._transition_observers.append(coordinator.on_transition)
+        audit(system_log, "Swarm started", action="swarm_start", result="OK")
+
+    async def _stop_swarm(self) -> None:
+        coordinator = getattr(self, "_swarm", None)
+        if coordinator is None:
+            return
+        self._swarm = None
+        try:
+            self._transition_observers.remove(coordinator.on_transition)
+        except ValueError:
+            pass
+        try:
+            await coordinator.stop()
+        except Exception as exc:
+            logger.warning("swarm stop failed: %s", type(exc).__name__)
+        audit(system_log, "Swarm stopped", action="swarm_stop", result="OK",
+              data=coordinator.status())
+
+    def _swarm_reset(self) -> None:
+        """Resume the swarm with the engine (`/reset`). No-op with no swarm."""
+        swarm = getattr(self, "_swarm", None)
+        if swarm is not None:
+            swarm.reset()
+
+    def _swarm_report_anomalies(self, alerts) -> None:
+        """Give the Sentinel each new black-swan alert. A critical one halts
+        through `_swarm_halt`; the detector itself still only observes."""
+        swarm = getattr(self, "_swarm", None)
+        if swarm is None:
+            return
+        for alert in alerts or ():
+            swarm.report_anomaly(
+                getattr(getattr(alert, "anomaly_type", None), "value", "unknown"),
+                getattr(alert, "severity", None),
+                getattr(alert, "symbol", ""), getattr(alert, "description", ""))
+
+    async def _swarm_halt(self, reason: str) -> None:
+        """The swarm's halt is the engine's existing /halt, not a second one.
+        If that path itself fails, the shared breaker is tripped directly:
+        a halt that could not run must not leave entries open."""
+        try:
+            from bot.skills.skill_registry import HaltSkill
+            await HaltSkill().execute(self, reason=f"swarm: {reason}")
+        except Exception as exc:
+            logger.error("swarm halt path failed: %s", type(exc).__name__)
+            self.risk.emergency_halt(f"swarm: {reason}")
+
+    def _swarm_enqueue_ticket(self, idea: TradeIdea, atr: Optional[float]) -> bool:
+        """The swarm Executor's only door: put a risk-approved thesis in the
+        pending book as a TICKET, the way a typed `/trade` is. It is not an
+        engine idea, so the auto-confirm batch never takes it; a Confirm goes
+        through `confirm_trade`, which re-runs the contextual risk gate and
+        the compliance mint. Nothing is placed here."""
+        if self._halted or self.risk.circuit_breaker_active:
+            return False
+        from bot.skills.manual_trade import register_manual_idea
+        register_manual_idea(self, idea)
+        if atr is not None and atr > 0:
+            self._pending_atr[idea.id] = atr
+        audit(trade_log, f"Swarm ticket queued for {idea.asset}",
+              action="swarm_ticket", result="QUEUED",
+              data={"trade_id": idea.id, "asset": idea.asset,
+                    "direction": idea.direction.value})
+        return True
+
     def _transition(self, new_state: AgentState, reason: str = "") -> None:
         """Transition the FSM to a new state. Every transition is audit-logged."""
         old_state = self.state
@@ -4576,6 +4704,11 @@ class RuneClawEngine:
             action="state_transition",
             data={"from": old_state.value, "to": new_state.value, "reason": reason},
         )
+        for _observer in list(getattr(self, "_transition_observers", ())):
+            try:
+                _observer(old_state, new_state, reason)
+            except Exception as _obs_exc:
+                logger.debug("transition observer failed: %s", type(_obs_exc).__name__)
 
     @property
     def state_history(self) -> list[StateTransition]:
@@ -4793,6 +4926,7 @@ class RuneClawEngine:
             data={"simulation": CONFIG.simulation_mode},
         )
         await self._refit_stale_learned_curves()
+        await self._start_swarm()
         # Start WebSocket feed for real-time price monitoring
         try:
             await self.ws_feed.start()
@@ -6141,6 +6275,8 @@ class RuneClawEngine:
 
     async def stop(self) -> None:
         self._running = False
+        if getattr(self, "_swarm", None) is not None:
+            await self._stop_swarm()
         # First, before any executor's session closes under it.
         await self._stop_position_guard()
         self._cancel_website_refresh()
@@ -8253,8 +8389,9 @@ class RuneClawEngine:
         # little history is the normal case, not a fault.
         try:
             _bs_vol = float(ohlcv[-1][5]) if ohlcv and len(ohlcv[-1]) > 5 else 0.0
-            self.black_swan.update(signal.symbol, price=float(signal.price),
-                                   volume=_bs_vol, atr=float(atr_value or 0.0))
+            _bs_new = self.black_swan.update(signal.symbol, price=float(signal.price),
+                                             volume=_bs_vol, atr=float(atr_value or 0.0))
+            self._swarm_report_anomalies(_bs_new)
         except Exception as _bs_exc:
             logger.debug("black swan update skipped for %s: %s", signal.symbol, _bs_exc)
 
