@@ -178,7 +178,9 @@ def test_the_refusal_is_derived_not_a_list():
     # THE FOUR SOURCES THAT REALLY WRITE INTO `_pending_ideas`, counted wrong
     # twice. An earlier draft listed eight -- every `source=` literal in the
     # tree -- and driven, `getclaw`, `swarm` and `mcp_shield` build a TradeIdea
-    # that never reaches that dict. The correction said five, counting
+    # that never reaches that dict (the swarm's engine ticket sink does now, as a
+    # non-engine ticket the auto-confirm batch never reads: tests/test_swarm.py
+    # drives it). The correction said five, counting
     # `"scan_skill_retry"`; that site builds through `drift_offer` now, so the
     # string is retired and nothing writes or reads it.
     cases = [

@@ -2753,6 +2753,20 @@ class AppConfig:
     # and OKX is never closed (its order path has not been driven).
     venue_router_close_residual: bool = _env_bool("VENUE_ROUTER_CLOSE_RESIDUAL", False)
 
+    # Async swarm (bot/core/swarm.py). When on, the engine runs a bounded
+    # asyncio queue bus with one worker per role beside its own loop: it hears
+    # every FSM transition, mirrors a halt both ways, and lets a critical
+    # black-swan anomaly halt new entries through the engine's existing /halt
+    # path. A queue overflow, a missed heartbeat or a worker exception HALTS
+    # (fail closed). Its Executor only enqueues a ticket into the confirm path;
+    # nothing it does places an order. Default off: the engine builds no swarm.
+    swarm_enabled: bool = _env_bool("SWARM_ENABLED", False)
+    swarm_queue_size: int = int(_env_float_bounded("SWARM_QUEUE_SIZE", 256.0, 8.0, 4096.0))
+    swarm_heartbeat_interval_s: float = _env_float_bounded(
+        "SWARM_HEARTBEAT_INTERVAL_S", 2.0, 0.1, 60.0)
+    swarm_heartbeat_timeout_s: float = _env_float_bounded(
+        "SWARM_HEARTBEAT_TIMEOUT_S", 15.0, 0.5, 600.0)
+
     # Paper auto-accept: a new Telegram user is admitted for PAPER trading on
     # first contact instead of waiting for an operator's /approve. The Arena is
     # designed as a zero-friction on-ramp and a manual gate in front of virtual

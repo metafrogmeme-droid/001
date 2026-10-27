@@ -26,7 +26,6 @@
       "bot/core/shadow_book.py": 1,
       "bot/core/slippage.py": 1,
       "bot/core/smart_money.py": 1,
-      "bot/core/swarm.py": 1,
       "bot/core/trade_journal.py": 2,
       "bot/core/ws_feed.py": 9,
       "bot/formatters/rich_cards.py": 10,

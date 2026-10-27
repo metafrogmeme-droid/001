@@ -175,11 +175,18 @@ bot/utils/attestation.py:AttestationEngine.verify_batch
 # these two rows are that fact arriving at method granularity.
 #
 # ACCESSORS OVER STATE SOMETHING ELSE READS. MacroEventProvider.event_count /
-# calendar_hash, SentimentEngine.current_regime, SwarmAgent.inbox_count and
+# calendar_hash, SentimentEngine.current_regime and
 # ProofOfPnLPublisher.last_publish_ts each expose one private field. They are
 # cheap and harmless, and they are also the surface a future card would read,
-# so deleting them would be as wrong as claiming they are live. SwarmAgent's
-# module is already on unreachable_baseline.txt.
+# so deleting them would be as wrong as claiming they are live.
+#
+# SwarmCoordinator.process_signal stays, and says why: it is the one-shot
+# "run an observation through all five workers and wait" entry the swarm's
+# tests drive. The engine reaches the swarm through on_transition,
+# report_anomaly, reset, start and stop, and does not yet feed it scan
+# signals (a burst of them against a bounded queue would halt a healthy
+# engine), so nothing in production calls it. inject_anomaly and
+# SwarmAgent.inbox_count left with the old synchronous bus.
 #
 # RiskEngine.check_timeframe_alignment is the one worth naming on its own: a
 # 2-of-3 multi-timeframe alignment rule, on the RISK ENGINE, with six callers
@@ -215,8 +222,6 @@ bot/core/smart_exits.py:TimeOfDayEdge.get_edge
 bot/core/smart_money.py:SmartMoneyEngine.analyze_exchange_flow
 bot/core/smart_money.py:SmartMoneyEngine.analyze_whale_activity
 bot/core/smart_money.py:SmartMoneyEngine.composite_flow_signal
-bot/core/swarm.py:SwarmAgent.inbox_count
-bot/core/swarm.py:SwarmCoordinator.inject_anomaly
 bot/core/swarm.py:SwarmCoordinator.process_signal
 bot/core/token_optimizer.py:OptimizationStats.record_batch
 bot/core/token_optimizer.py:SmartBatcher.build_batch_prompt

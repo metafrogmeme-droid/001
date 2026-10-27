@@ -829,7 +829,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 637 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 636 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -22046,7 +22046,7 @@ suite, and no source scan distinguishes them — reachability is a property of
 the *callers*, so it can only be checked from outside the file.
 
 `tests/test_no_new_unreachable_modules.py` checks it every run, against
-`tests/unreachable_baseline.txt` (**2** modules today). It is a ratchet in
+`tests/unreachable_baseline.txt` (**1** modules today, counting the one). It is a ratchet in
 both directions: a new entry means
 somebody just built another scorer nobody calls, and an entry that leaves must
 be deleted in the same commit — the `known_failures.txt` rule, for the same
@@ -29592,3 +29592,54 @@ the four groups that already count. Avalanche runs Snowman, so it does not
 join `ethereum-l2`. It is the fifth. The measured cost of one anchor that
 day was 25669 gas at 2.5 gwei, about 0.000064 AVAX, paid by the wallet. The
 server pays nothing.
+
+## THE SWARM WAS SCAFFOLDING NOBODY CONSTRUCTED, AND WIRING IT MEANT DECIDING WHO OWNS THE HALT
+
+`bot/core/swarm.py` was 428 lines of synchronous pub/sub on
+`tests/unreachable_baseline.txt`, and the old `RiskAgent` fell back, with no
+`RiskEngine`, to "approve any momentum of 0.3 or more", built a `TradeIdea` out
+of invented levels (entry 1.0, stop 0.95, target 1.10) and decided
+`Direction.LONG` from `abs(momentum)`, so every idea was a long. It is an asyncio
+queue bus now, one bounded `PriorityQueue` per role, one worker task per role,
+and an optional coordinator the engine starts in `run()` and stops in `stop()`
+behind `SWARM_ENABLED` (default off).
+
+**The halt is the engine's, and the swarm asks for it.** The coordinator holds a
+`halt_sink`; the engine's is `_swarm_halt`, which runs `HaltSkill` (breaker on
+the shared and every per-user engine, idea book cleared, FSM to HALTED), the one
+path `/halt` already takes. `HaltSkill` gained an optional `reason` so the audit
+row says what halted it instead of "MANUAL HALT". If that path itself raises, the
+shared breaker is tripped directly. An engine halt (`_transition` to HALTED)
+latches the swarm with `engine_halted`, and that reason is never handed back to
+the sink, so the two cannot echo. The FSM has one mutator: the coordinator
+OBSERVES `_transition` through `_transition_observers` and an exhaustive
+`ROLE_FOR_STATE` map, and holds no state machine of its own.
+
+**Fail closed, three ways, and each HALTS rather than drops:** a queue overflow,
+a missed heartbeat, a handler that raises. The halt is a latch on the bus set at
+once from any thread; it does not need the HALT message to fit in a full queue.
+A worker that raised keeps running and discards while halted, so `reset()` needs
+no restart. The exception's MESSAGE never reaches the reason; the class does.
+
+**Nothing is invented and nothing is placed.** No levels, no thesis. No
+`RiskEngine`, no approval. An anomaly whose severity cannot be read halts, as
+critical does. The Executor worker calls a `ticket_sink`; the engine's puts the
+idea in `_pending_ideas` but NOT in `_engine_idea_ids`, so `_auto_confirm_batch`
+(which reads only the engine's own) never takes it, and a Confirm goes through
+`confirm_trade`, which re-runs `RiskEngine.evaluate` with live context and the
+compliance mint. A ticket with no ATR is refused there, which is the honest
+outcome.
+
+**Recorded, not changed.** The engine does not feed scan signals into the
+Scanner. A scan sweeps dozens of symbols through `_analyze_signal` and a bounded
+queue that halts on overflow would halt a healthy engine on an ordinary burst;
+the engine feeds the Sentinel (new black-swan alerts) and the FSM observer only.
+`SwarmCoordinator.process_signal` stays on `tests/unreachable_methods_baseline.txt`
+for that reason. The black-swan detector still only observes; the swarm is what
+makes a critical alert a halt, and only when the flag is on.
+
+**Four ratchets moved in the same commit:** `swarm.py` left the module baseline,
+`inject_anomaly` and `inbox_count` left the method baseline, the honesty
+baseline lost the file's one `get-default-zero` hit, and ruff's I001 count fell.
+(`tests/test_swarm.py`, `tests/test_core.py::TestSwarmProtocol`.)
+

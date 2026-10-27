@@ -4339,7 +4339,30 @@ class TestSentimentEngine:
 # ══════════════════════════════════════════════════════════════════
 
 class TestSwarmProtocol:
-    """Tests for the multi-agent swarm communication protocol."""
+    """Tests for the multi-agent swarm communication protocol.
+
+    Ported from the synchronous bus to the asyncio one: the same eleven claims,
+    driven through real worker tasks and the real RiskEngine. The things that
+    changed on purpose: nothing is "executed" (the Executor only queues a
+    ticket), and a swarm with no RiskEngine approves nothing, where the old
+    fallback approved any momentum of 0.3 or more.
+    """
+
+    @staticmethod
+    def _coordinator(**kw):
+        from bot.core.swarm import SwarmCoordinator
+        queued = []
+
+        def sink(idea, atr):
+            queued.append(idea)
+            return True
+
+        kw.setdefault("risk_engine", _make_risk(_make_portfolio()))
+        kw.setdefault("ticket_sink", sink)
+        kw.setdefault("heartbeat_interval_s", 0.05)
+        coord = SwarmCoordinator(**kw)
+        coord.queued = queued
+        return coord
 
     def test_swarm_message_creation(self):
         from bot.core.swarm import SwarmMessage, SwarmMessageType, SwarmRole
@@ -4352,83 +4375,104 @@ class TestSwarmProtocol:
         assert msg.msg_type == SwarmMessageType.SIGNAL
         assert "BTC/USDT" in str(msg.payload)
 
-    def test_swarm_bus_publish(self):
+    async def test_swarm_bus_publish(self):
         from bot.core.swarm import SwarmBus, SwarmMessage, SwarmMessageType, SwarmRole
         bus = SwarmBus()
-        received = []
-        bus.subscribe(SwarmRole.ANALYST, lambda m: received.append(m))
         msg = SwarmMessage(
             msg_type=SwarmMessageType.SIGNAL,
             sender=SwarmRole.SCANNER,
             recipient=SwarmRole.ANALYST,
         )
-        bus.publish(msg)
-        assert len(received) == 1
+        assert bus.publish(msg) is True
+        assert (await bus.get(SwarmRole.ANALYST)).id == msg.id
+        assert bus.depth(SwarmRole.SCANNER) == 0  # only the recipient is served
 
-    def test_swarm_bus_broadcast(self):
+    async def test_swarm_bus_broadcast(self):
         from bot.core.swarm import SwarmBus, SwarmMessage, SwarmMessageType, SwarmRole
         bus = SwarmBus()
-        counts = {"a": 0, "b": 0}
-        bus.subscribe(SwarmRole.SCANNER, lambda m: counts.__setitem__("a", counts["a"] + 1))
-        bus.subscribe(SwarmRole.ANALYST, lambda m: counts.__setitem__("b", counts["b"] + 1))
-        msg = SwarmMessage(
+        bus.broadcast(SwarmMessage(
+            msg_type=SwarmMessageType.STATUS,
+            sender=SwarmRole.COORDINATOR,
+            recipient=SwarmRole.COORDINATOR,
+        ))
+        assert all(bus.depth(role) == 1 for role in SwarmRole)
+        # A broadcast HALT latches the halt, and reaches every queue too.
+        bus.broadcast(SwarmMessage(
             msg_type=SwarmMessageType.HALT,
             sender=SwarmRole.SENTINEL,
             recipient=SwarmRole.COORDINATOR,
-        )
-        bus.broadcast(msg)
-        assert counts["a"] == 1
-        assert counts["b"] == 1
+            payload={"reason": "test"},
+        ))
+        assert bus.halted and bus.halt_reason == "test"
+        assert all(bus.depth(role) == 2 for role in SwarmRole)
 
-    def test_coordinator_process_signal(self):
-        from bot.core.swarm import SwarmCoordinator
-        coord = SwarmCoordinator()
-        result = coord.process_signal("BTC/USDT", 67000.0, 2.5, 1e9, 0.7)
+    async def test_coordinator_process_signal(self):
+        async with self._coordinator() as coord:
+            result = await coord.process_signal(
+                "BTC/USDT", 67000.0, 2.5, 1e9, 0.7,
+                stop_loss=65000.0, take_profit=71000.0, atr=2600.0)
         assert result["status"] == "PROCESSED"
-        assert result["ideas_generated"] >= 1
+        assert result["stats"]["ideas_generated"] >= 1
 
-    def test_coordinator_high_momentum_executes(self):
-        from bot.core.swarm import SwarmCoordinator
-        coord = SwarmCoordinator()
-        result = coord.process_signal("ETH/USDT", 3500.0, 5.0, 5e8, 0.8)
-        assert result["executed"] >= 1  # momentum 0.8 > 0.3 threshold
+    async def test_coordinator_high_momentum_queues_a_ticket(self):
+        async with self._coordinator() as coord:
+            result = await coord.process_signal(
+                "ETH/USDT", 3500.0, 5.0, 5e8, 0.8,
+                stop_loss=3395.0, take_profit=3710.0, atr=105.0)
+            queued = coord.queued
+        # The real RiskEngine approved a 0.8 momentum thesis; nothing was placed.
+        assert result["stats"]["risk_approved"] >= 1
+        assert result["stats"]["tickets_queued"] >= 1
+        assert len(queued) == 1 and queued[0].source == "swarm"
 
-    def test_coordinator_low_momentum_rejected(self):
-        from bot.core.swarm import SwarmCoordinator
-        coord = SwarmCoordinator()
-        result = coord.process_signal("DOGE/USDT", 0.15, 0.1, 1e7, 0.1)
-        assert result["rejected"] >= 1  # momentum 0.1 < 0.3 threshold
-        assert result["executed"] == 0
+    async def test_coordinator_low_momentum_rejected(self):
+        async with self._coordinator() as coord:
+            result = await coord.process_signal(
+                "DOGE/USDT", 0.15, 0.1, 1e7, 0.1,
+                stop_loss=0.14, take_profit=0.18, atr=0.006)
+            queued = coord.queued
+        assert result["stats"]["risk_rejected"] >= 1  # the 0.6 confidence floor
+        assert result["stats"]["tickets_queued"] == 0
+        assert queued == []
 
-    def test_sentinel_anomaly_halt(self):
-        from bot.core.swarm import SwarmCoordinator
-        coord = SwarmCoordinator()
-        result = coord.inject_anomaly("FLASH_CRASH", 0.9, "BTC/USDT", "test crash")
-        assert result["swarm_halted"] is True
+    async def test_sentinel_anomaly_halt(self):
+        async with self._coordinator() as coord:
+            assert coord.report_anomaly("FLASH_CRASH", 0.9, "BTC/USDT", "test crash")
+            await coord.drain()
+            assert coord.status()["halted"] is True
 
-    def test_halted_swarm_rejects_signals(self):
-        from bot.core.swarm import SwarmCoordinator
-        coord = SwarmCoordinator()
-        coord.inject_anomaly("CRASH", 0.9, "BTC/USDT", "critical")
-        result = coord.process_signal("ETH/USDT", 3500.0, 5.0, 5e8, 0.8)
+    async def test_halted_swarm_rejects_signals(self):
+        async with self._coordinator() as coord:
+            coord.report_anomaly("CRASH", 0.9, "BTC/USDT", "critical")
+            await coord.drain()
+            result = await coord.process_signal(
+                "ETH/USDT", 3500.0, 5.0, 5e8, 0.8,
+                stop_loss=3395.0, take_profit=3710.0)
+            queued = coord.queued
         assert result["status"] == "HALTED"
+        assert queued == []
 
-    def test_swarm_reset(self):
-        from bot.core.swarm import SwarmCoordinator
-        coord = SwarmCoordinator()
-        coord.inject_anomaly("CRASH", 0.9, "BTC/USDT", "critical")
-        assert coord.status()["halted"] is True
-        coord.reset()
-        assert coord.status()["halted"] is False
+    async def test_swarm_reset(self):
+        async with self._coordinator() as coord:
+            coord.report_anomaly("CRASH", 0.9, "BTC/USDT", "critical")
+            await coord.drain()
+            assert coord.status()["halted"] is True
+            coord.reset()
+            assert coord.status()["halted"] is False
+            # The workers never exited, so the first signal after a reset runs.
+            result = await coord.process_signal(
+                "ETH/USDT", 3500.0, 5.0, 5e8, 0.8,
+                stop_loss=3395.0, take_profit=3710.0, atr=105.0)
+        assert result["status"] == "PROCESSED"
+        assert result["stats"]["tickets_queued"] >= 1
 
-    def test_swarm_status_structure(self):
-        from bot.core.swarm import SwarmCoordinator
-        coord = SwarmCoordinator()
-        status = coord.status()
+    async def test_swarm_status_structure(self):
+        async with self._coordinator() as coord:
+            status = coord.status()
         assert "halted" in status
-        assert "agents" in status
+        assert "workers" in status
         assert "stats" in status
-        assert len(status["agents"]) == 5
+        assert len(status["workers"]) == 6  # five roles and the coordinator
 
     def test_swarm_role_enum(self):
         from bot.core.swarm import SwarmRole
@@ -4436,9 +4480,9 @@ class TestSwarmProtocol:
         assert SwarmRole.SENTINEL.value == "SENTINEL"
         assert len(SwarmRole) == 6
 
-    def test_bus_message_log_capped(self):
+    async def test_bus_message_log_capped(self):
         from bot.core.swarm import SwarmBus, SwarmMessage, SwarmMessageType, SwarmRole
-        bus = SwarmBus()
+        bus = SwarmBus(queue_size=2000)
         for i in range(1100):
             bus.publish(SwarmMessage(
                 msg_type=SwarmMessageType.HEARTBEAT,

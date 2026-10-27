@@ -302,8 +302,8 @@ Price-derived sentiment proxy as the 11th confluence voter. Combines:
 - **Contrarian logic**: extreme fear -> bullish vote [+0.3, +0.6], extreme greed -> bearish vote [-0.6, -0.3]
 - **Funding-rate contrarian**: extreme positive funding adds bearish offset, extreme negative adds bullish
 
-### Multi-Agent Swarm Protocol (planned)
-In-process pub/sub scaffolding in `bot/core/swarm.py`: Scanner, Analyst, Risk, Executor and Sentinel over a SwarmBus. Nothing in the running bot constructs that bus — the module is on `tests/unreachable_baseline.txt`, and the roadmap row is planned. The limitations section is the live description.
+### Multi-Agent Swarm (optional, off by default)
+An in-process asyncio bus in `bot/core/swarm.py`: bounded per-role priority queues and one worker task each for Scanner, Analyst, Risk, Executor and Sentinel, plus a coordinator that watches heartbeats. The engine starts it in `run()` and stops it in `stop()` only when `SWARM_ENABLED=true` (default off). What it does in the running bot today: it observes every FSM transition through an observer on `_transition` (it holds no second FSM), mirrors a halt both ways, and lets a critical black-swan anomaly halt new entries through the engine's existing `/halt` path. A queue overflow, a missed heartbeat or a worker exception also halts (fail closed). The Risk worker calls `RiskEngine.evaluate`; the Executor worker only enqueues a ticket into the pending book, where a person confirms it through `confirm_trade` (the auto-confirm batch never takes it), and calls no executor. The engine does not yet feed scan signals into the Scanner, so the Scanner, Analyst, Risk and Executor chain runs only for signals handed to the coordinator with stated levels. It is not a production MCP deployment.
 
 ### Multi-User Live Trading (NEW)
 RUNECLAW supports **multiple users trading live on their own Bitget accounts**, each isolated from the others. Default OFF — set `PER_USER_LIVE_ENABLED=true` to enable. Every layer is gated and the operator path is byte-identical until enabled:
@@ -793,7 +793,7 @@ runeclaw/
 |   |   |-- red_team.py         # 30-scenario adversarial stress tester
 |   |   |-- black_swan.py       # Statistical anomaly detection (5 anomaly types)
 |   |   |-- sentiment.py        # Sentiment proxy engine (price/volume-based, 11th confluence voter)
-|   |   |-- swarm.py            # Multi-agent swarm protocol (experimental, in-process pub/sub)
+|   |   |-- swarm.py            # Async multi-agent swarm (optional, SWARM_ENABLED, off by default)
 |   |   |-- explainability.py   # Reasoning chains, factor attribution, compliance
 |   |   |-- ta_utils.py         # Shared TA utilities (EMA, ADX, Regime)
 |   |   |-- metrics.py          # Sharpe/Sortino/Calmar from per-trade returns
@@ -983,7 +983,7 @@ This is a **hackathon prototype** (maturity: early-stage). Known limitations:
 - **Security audit conducted** -- AI-assisted deep audit (v3.0) with all 5 critical issues fixed, 29 security tests added. No independent third-party audit has been performed.
 - **LLM dependency** -- AI analysis quality depends on model availability and cost
 - **No guaranteed uptime** -- no monitoring, alerting, or failover infrastructure
-- **Scalability:** Single-instance today -- swarm uses experimental in-process pub/sub (not a production MCP deployment)
+- **Scalability:** Single-instance today -- the optional swarm (`SWARM_ENABLED`, off by default) is an in-process asyncio bus (not a production MCP deployment)
 - **Correlation guard** -- currently implemented as a per-group count cap (max 2 positions per correlation group), not a full pairwise correlation matrix. `MAX_CORRELATION` (default 0.85) is read by the risk engine's `CORRELATION_V2` check, a pairwise return correlation between the proposed and open positions that runs only when the engine holds a price history for both and is not handed a live book (`bot/risk/risk_engine.py`), so it is not unimplemented; it is a different quantity from the voter-level threshold below.
 - **Confluence voters** -- the expanded 30+ voter model includes many indicators derived from the same price-volume series (RSI, MACD, OBV, VWAP, Bollinger Bands), which are not statistically independent. Naive summation may double-count momentum signals. Weighted scoring -- plus an optional family-cap de-correlation pass (`CONFLUENCE_FAMILY_CAP_ENABLED`) and learned per-voter weights -- mitigates this but does not eliminate it. A measured pass (`bot/core/voter_correlation.py`, under the same flag) also keeps a rolling per-voter vote history per symbol and timeframe, computes a pairwise Pearson matrix, and scales back the later of two actively-voting voters whose history correlation exceeds `CONFLUENCE_VOTER_MAX_CORRELATION` (default 0.70) and which echo each other again on the bar. It is reduce-only, a pair that cannot be measured (short, constant or missing history) is never penalised, and it needs `analyze()` history: the backtest and `/scan` paths score without it.
 
@@ -1070,7 +1070,7 @@ RUNECLAW is open for collaboration. If you're building for the Bitget AI Base Ca
 | **Portfolio Optimization** | Kelly criterion sizing, correlation-aware allocation, Markowitz frontier | Hard |
 | **Alerting System** | Push notifications for regime changes, anomaly detection, circuit breaker events | Easy |
 | **Backtesting UI** | Visual backtest results with equity curves, trade markers, drawdown charts | Medium |
-| **Multi-Agent Orchestration** | Expand swarm protocol -- specialist agents for different market regimes | Hard |
+| **Multi-Agent Orchestration** | Widen the async swarm (`SWARM_ENABLED`) -- feed it scan signals and add specialist agents for different market regimes | Hard |
 
 We believe the best hackathon projects are built on strong foundations. RUNECLAW provides the risk engine and market intelligence -- you bring the alpha.
 
