@@ -100,24 +100,6 @@ fi
 command -v forge >/dev/null 2>&1 || die "forge is not installed"
 command -v cast >/dev/null 2>&1 || die "cast is not installed"
 
-# 0x + 40 hex. A mixed-case address must carry a correct EIP-55 checksum:
-# vm.envAddress accepts a mistyped checksum, and a mistyped publisher is an
-# allowlist nobody holds.
-PUBLISHER_CASE=$(python3 - "$HASHKEY_SEAL_PUBLISHER" <<'PY'
-import sys
-raw = sys.argv[1]
-body = raw[2:] if raw[:2].lower() == "0x" else ""
-ok = len(raw) == 42 and len(body) == 40 and all(c in "0123456789abcdefABCDEF" for c in body)
-if not ok:
-    sys.stderr.write("HASHKEY_SEAL_PUBLISHER is not a 20-byte hex address\n")
-    sys.exit(1)
-print("mixed" if any(c.isupper() for c in body) else "lower")
-PY
-) || die "stopped before any deploy"
-if [ "$PUBLISHER_CASE" = "mixed" ]; then
-  CHECKSUMMED=$(cast to-check-sum-address "$HASHKEY_SEAL_PUBLISHER") || die "cast could not checksum the publisher"
-  [ "$CHECKSUMMED" = "$HASHKEY_SEAL_PUBLISHER" ] || die "HASHKEY_SEAL_PUBLISHER has a wrong EIP-55 checksum (expected $CHECKSUMMED). Fix the typo or pass it in lower case."
-fi
 
 NET_LINE=$(python3 - "$JSON" "$NETWORK" <<'PY'
 import json, sys
@@ -192,6 +174,25 @@ PY
 
 printf 'hashkey-seal: network %s chain %s\n' "$NETWORK" "$GOT" >&2
 
+# 0x + 40 hex. A mixed-case address must carry a correct EIP-55 checksum:
+# vm.envAddress accepts a mistyped checksum, and a mistyped publisher is an
+# allowlist nobody holds.
+PUBLISHER_CASE=$(python3 - "$HASHKEY_SEAL_PUBLISHER" <<'PY'
+import sys
+raw = sys.argv[1]
+body = raw[2:] if raw[:2].lower() == "0x" else ""
+ok = len(raw) == 42 and len(body) == 40 and all(c in "0123456789abcdefABCDEF" for c in body)
+if not ok:
+    sys.stderr.write("HASHKEY_SEAL_PUBLISHER is not a 20-byte hex address\n")
+    sys.exit(1)
+print("mixed" if any(c.isupper() for c in body) else "lower")
+PY
+) || die "stopped before any deploy"
+if [ "$PUBLISHER_CASE" = "mixed" ]; then
+  CHECKSUMMED=$(cast to-check-sum-address "$HASHKEY_SEAL_PUBLISHER") || die "cast could not checksum the publisher"
+  [ "$CHECKSUMMED" = "$HASHKEY_SEAL_PUBLISHER" ] || die "HASHKEY_SEAL_PUBLISHER has a wrong EIP-55 checksum (expected $CHECKSUMMED). Fix the typo or pass it in lower case."
+fi
+
 SIG="run(uint256,address,address)"
 WALLET=()
 if [ -n "${HASHKEY_WALLET:-}" ]; then
@@ -261,5 +262,7 @@ if [ "$NETWORK" = "mainnet" ]; then
 fi
 
 # The script contract compares the broadcaster with the owner shown above
-# and refuses to deploy for anyone else.
+# and refuses to deploy for anyone else. The EXIT trap does not run across
+# exec, so the simulation transcript is removed here.
+rm -f "$SIM_OUT"
 exec "${ARGS[@]}" "$EXPECT_CHAIN" "$HASHKEY_SEAL_PUBLISHER" "$OWNER" "${TAIL[@]}" --broadcast

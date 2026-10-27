@@ -357,6 +357,25 @@ contract HashKeySealTest {
         vm.expectRevert(HashKeySeal.NotOwner.selector);
         vm.prank(address(0));
         seal.renounceOwnership();
+        vm.expectRevert(HashKeySeal.NotPendingOwner.selector);
+        vm.prank(address(0));
+        seal.acceptOwnership();
+        require(seal.owner() == address(0) && seal.pendingOwner() == address(0), "nothing moved");
+    }
+
+    /// With nothing pending, pendingOwner is address(0); the accept check
+    /// refuses that sender explicitly rather than letting it match.
+    function testNobodyAcceptsWhileNothingIsPending() public {
+        vm.expectRevert(HashKeySeal.NotPendingOwner.selector);
+        vm.prank(address(0));
+        seal.acceptOwnership();
+        vm.expectRevert(HashKeySeal.NotPendingOwner.selector);
+        vm.prank(stranger);
+        seal.acceptOwnership();
+        vm.expectRevert(HashKeySeal.NotPendingOwner.selector);
+        vm.prank(owner);
+        seal.acceptOwnership();
+        require(seal.owner() == owner && seal.pendingOwner() == address(0), "unchanged");
     }
 
     // ---- value -------------------------------------------------------------

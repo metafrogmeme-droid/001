@@ -16,6 +16,7 @@ import shutil
 import stat
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -416,7 +417,8 @@ def test_a_node_that_refuses_the_send_is_rejected():
     out = _publish(env, endpoint, wallet)
     assert out["reason"] == "rejected"
     assert out["ok"] is False and out["signed"] is True and out["broadcast"] is False
-    assert out["anchored"] is False and out["tx_hash"] is None
+    assert out["anchored"] is False
+    assert out["tx_hash"] == TX_HASH, "the refused transaction is named by the hash computed before the send"
     assert RAW not in json.dumps(out) and KEY_BODY not in json.dumps(out)
 
 
@@ -552,8 +554,6 @@ def test_estimate_reverts_are_named_and_only_a_duplicate_contradicts_the_pre_rea
     endpoint.reject_nonce = True
     out = _publish(env, endpoint, _Wallet())
     assert out["reason"] == "node_error" and out["signed"] is False
-    for out in ():
-        pass
 
 
 def test_a_measured_zero_gas_is_not_called_unreadable():
@@ -606,12 +606,15 @@ def test_ceilings_refuse_before_signing_and_a_raised_ceiling_admits():
     out = _publish(env, endpoint, _Wallet())
     assert out["reason"] == "nonce_unusable"
 
-    endpoint, wallet = _Endpoint(), _Wallet()
-    out = _publish(_env(HASHKEY_SEAL_MAX_FEE_GWEI="lots"), endpoint, wallet)
-    assert out["reason"] == "fee_cap_unreadable" and endpoint.calls == [] and wallet.keys == []
-    endpoint, wallet = _Endpoint(), _Wallet()
-    out = _publish(_env(HASHKEY_SEAL_DEADLINE_SEC="-1"), endpoint, wallet)
-    assert out["reason"] == "deadline_unreadable" and endpoint.calls == []
+    for text in ("lots", "-1", "0", "inf", "-inf", "1e400", "nan"):
+        endpoint, wallet = _Endpoint(), _Wallet()
+        out = _publish(_env(HASHKEY_SEAL_MAX_FEE_GWEI=text), endpoint, wallet)
+        assert out["reason"] == "fee_cap_unreadable" and endpoint.calls == [] and wallet.keys == [], text
+        assert status(_env(HASHKEY_SEAL_MAX_FEE_GWEI=text))["max_fee_gwei"] is None, text
+        endpoint, wallet = _Endpoint(), _Wallet()
+        out = _publish(_env(HASHKEY_SEAL_DEADLINE_SEC=text), endpoint, wallet)
+        assert out["reason"] == "deadline_unreadable" and endpoint.calls == [], text
+        assert status(_env(HASHKEY_SEAL_DEADLINE_SEC=text))["deadline_sec"] is None, text
 
 
 def test_the_budget_refuses_before_signing_when_little_time_is_left():
@@ -839,6 +842,50 @@ def test_http_transport_refuses_a_spent_deadline_without_connecting(node):
     assert handler.seen == []
     call = http_transport(url, deadline=clock.now + 5, clock=clock)
     assert call("eth_chainId", []) == "0x85"
+
+
+class _Trickle(http.server.BaseHTTPRequestHandler):
+    """Answers the status line at once and then holds the body open."""
+
+    hold = 5.0
+
+    def do_POST(self):  # noqa: N802
+        self.rfile.read(int(self.headers["content-length"]))
+        out = json.dumps({"jsonrpc": "2.0", "id": 1, "result": "0x85"}).encode()
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out[:3])
+        self.wfile.flush()
+        time.sleep(type(self).hold)
+        try:
+            self.wfile.write(out[3:])
+        except OSError:
+            pass
+
+    def log_message(self, *_a):
+        return
+
+
+def test_http_transport_is_bounded_by_the_wall_clock_not_only_per_socket_read(monkeypatch):
+    for name in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    _Trickle.hold = 5.0
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Trickle)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        call = http_transport(url, deadline=time.monotonic() + 1.0)
+        started = time.monotonic()
+        with pytest.raises(RpcFailed):
+            call("eth_chainId", [])
+        assert time.monotonic() - started < 3.0, "the call outlived the deadline"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_http_transport_against_a_closed_port_is_unreadable(monkeypatch):
@@ -1118,7 +1165,9 @@ printf '%s\\n' "$@" >> "$SHIM_LOG"
 if [ "$1" = "verify-contract" ]; then exit 0; fi
 echo "== Logs =="
 SEAL_SHOWN=0x5fbdb2315678afecb367f032d93f642f64180aa3
-echo "  hashkey-seal: chain $CHAIN_SHOWN seal $SEAL_SHOWN owner $OWNER_SHOWN publisher $3"
+if [ -n "$OWNER_SHOWN" ]; then
+  echo "  hashkey-seal: chain $CHAIN_SHOWN seal $SEAL_SHOWN owner $OWNER_SHOWN publisher $3"
+fi
 """
 
 _CAST_SHIM = """#!/usr/bin/env bash
@@ -1247,11 +1296,78 @@ def test_deploy_script_broadcasts_on_testnet_after_the_simulation(deploy_tree):
     run, forge_calls, _log, _tree, owner = deploy_tree
     done = run("--network", "testnet", "--broadcast", HASHKEY_SEAL_PUBLISHER=ADDRESS, ETH_PRIVATE_KEY="0x" + KEY_BODY)
     assert done.returncode == 0, done.stderr
+    assert f"owner-to-be {owner}" in done.stderr
     calls = forge_calls()
     assert len(calls) == 2
     assert "--broadcast" not in calls[0]
     assert calls[1][-1] == "--broadcast"
     assert calls[1][4:7] == ["133", ADDRESS, owner], "the broadcast carries the owner the simulation showed"
+
+
+def test_deploy_script_stops_when_the_simulation_names_no_owner(deploy_tree):
+    run, forge_calls, _log, _tree, _owner = deploy_tree
+    done = run("--network", "testnet", "--broadcast", HASHKEY_SEAL_PUBLISHER=ADDRESS,
+               ETH_PRIVATE_KEY="0x" + KEY_BODY, OWNER_SHOWN="")
+    assert done.returncode != 0
+    assert "did not report the owner-to-be" in done.stderr
+    assert "owner-to-be 0x" not in done.stderr
+    assert len(forge_calls()) == 1, "the simulation ran, the broadcast did not"
+
+
+def _forge_toolchain_or_skip(tmp_path):
+    if shutil.which("forge") is None or shutil.which("anvil") is None:
+        pytest.skip("forge and anvil are not on PATH")
+    copy = tmp_path / "real" / "contracts" / "hashkey"
+    shutil.copytree(HASHKEY, copy, ignore=shutil.ignore_patterns("cache", "out", "broadcast"))
+    built = subprocess.run(["forge", "build"], cwd=copy, capture_output=True, text=True, check=False)
+    if built.returncode != 0:
+        pytest.skip("forge cannot compile here (no solc): " + built.stderr.strip().splitlines()[-1][:120])
+    return copy
+
+
+def test_the_real_forge_simulation_prints_the_owner_line_the_shell_parses(tmp_path, monkeypatch):
+    """The shim prints the owner line itself; this is the one check that the
+    real script contract and the shell's regex agree. Skipped without a
+    working forge, which CI's Python job does not have."""
+    for name in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    copy = _forge_toolchain_or_skip(tmp_path)
+    import socket
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    anvil = subprocess.Popen(["anvil", "--chain-id", "133", "--port", str(port), "--silent"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        table = json.loads(NETWORKS.read_text(encoding="utf-8"))
+        table["testnet"]["rpc"] = f"http://127.0.0.1:{port}"
+        (copy / "networks.json").write_text(json.dumps(table), encoding="utf-8")
+        deadline = time.monotonic() + 20
+        import urllib.request
+        while time.monotonic() < deadline:
+            try:
+                urllib.request.urlopen(urllib.request.Request(
+                    f"http://127.0.0.1:{port}", data=b'{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}',
+                    headers={"content-type": "application/json"}), timeout=2).read()
+                break
+            except OSError:
+                time.sleep(0.2)
+        env = dict(os.environ, HASHKEY_SEAL_PUBLISHER="0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+                   ETH_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+        for name in ("RUNECLAW_SERVER", "HASHKEY_SEAL_SIGNER_KEY", "HASHKEY_WALLET"):
+            env.pop(name, None)
+        done = subprocess.run(
+            ["bash", str(copy / "script" / "deploy.sh"), "--network", "testnet"],
+            cwd=tmp_path, env=env, capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL,
+        )
+        assert done.returncode == 0, done.stderr[-1500:]
+        assert "owner-to-be 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" in done.stderr
+        assert "simulation only" in done.stderr
+    finally:
+        anvil.kill()
+        anvil.wait()
 
 
 def test_deploy_script_asks_for_the_owner_on_mainnet(deploy_tree):

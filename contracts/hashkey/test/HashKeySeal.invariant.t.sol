@@ -188,6 +188,13 @@ contract HashKeySealInvariants {
         }
     }
 
+    /// Every successful anchor call stored exactly one fresh hash per
+    /// element: a contract that skipped or double-wrote a duplicate inside a
+    /// batch would break this before any unit test saw it.
+    function invariant_everySuccessfulAnchorStoredOneFreshHash() public view {
+        require(handler.successfulAnchors() == handler.count(), "anchors and stored hashes disagree");
+    }
+
     function invariant_zeroHashAndZeroPublisherNeverStored() public view {
         require(!seal.isAnchored(bytes32(0)), "zero hash");
         require(!seal.publishers(address(0)), "zero publisher");

@@ -1762,26 +1762,6 @@ deployment stays gated behind the roadmap's Phase 0 Guardrails". It is a per-
 user token-escrow vault whose staked amount bot/token/tier_gate.py reads to
 unl…
 
-### HashKey seal anchor
-
-Anchors Claw Guard and Agent Leash receipt hashes on HashKey Chain. The
-contract is `contracts/hashkey/src/HashKeySeal.sol`: an allowlisted
-publisher stores a hash with its kind, a stored hash reverts for everyone
-after that, and nothing in the contract holds or moves value. The server
-publishes on HashKey testnet only, behind `HASHKEY_SEAL_ENABLED` (off by
-default) and the admin door: `bot/hashkey_seal/publish.py::publish_anchor`
-signs after the flag, the inputs, the chain id, the RPC URL, a readable
-`isAnchored` and the fee ceilings all pass, carries chain id 133 in the
-signed transaction, and answers in three values (a receipt, a revert, or
-not yet answered). `bot/hashkey_seal/publish.py::read_anchor` reads the
-hash, its publisher and its kind. The routes are
-`app/routes/hashkey_seal.js::get('/')` and
-`app/routes/hashkey_seal.js::post('/anchor')`, both behind `optionalAuth`
-and `isOperator`. Mainnet is deployed by the owner from their own wallet
-with `contracts/hashkey/script/deploy.sh`; the server never signs chain
-177. No revenue: an anchor costs the publisher gas and earns nothing.
-Documented in `docs/hackathons/hashkey.md`.
-
 ## Capabilities this map has no leaf for
 
 The critic re-read the tree after the fifteen classifiers finished and found
@@ -2715,3 +2695,24 @@ RXB look-through node (`bot/xnav/graph.py::vault_exit_node`, which calls
 `app/routes/xnav.js::get('/quote')`. The ranking route is
 `app/routes/xnav.js::get('/rank')`. Admin only, behind `XNAV_ENABLED`,
 off by default. Basis points only. The narrative is `docs/xnav/README.md`.
+
+## HashKey seal anchor
+
+Anchors Claw Guard and Agent Leash receipt hashes on HashKey Chain. The
+contract is `contracts/hashkey/src/HashKeySeal.sol`: an allowlisted
+publisher stores a hash with its kind, a stored hash reverts for everyone
+after that, and the contract rejects any call that carries value and has
+no function that sends it. The server
+publishes on HashKey testnet only, behind `HASHKEY_SEAL_ENABLED` (off by
+default) and the admin door: `bot/hashkey_seal/publish.py::publish_anchor`
+signs after the flag, the inputs, the chain id, the RPC URL, a readable
+`isAnchored` and the fee ceilings all pass, carries chain id 133 in the
+signed transaction, and answers in three values (a receipt, a revert, or
+not yet answered). `bot/hashkey_seal/publish.py::read_anchor` reads the
+hash, its publisher and its kind. The routes are
+`app/routes/hashkey_seal.js::get('/')` and
+`app/routes/hashkey_seal.js::post('/anchor')`, both behind `optionalAuth`
+and `isOperator`. Mainnet is deployed by the owner from their own wallet
+with `contracts/hashkey/script/deploy.sh`; the server never signs chain
+177. No revenue: an anchor costs the publisher gas and earns nothing.
+Documented in `docs/hackathons/hashkey.md`.

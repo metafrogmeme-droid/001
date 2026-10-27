@@ -12,16 +12,21 @@ locally computed transaction hash is returned so the chain can be asked. A
 send the node accepted is not "ok" until a receipt says so: ``ok`` is
 ``None`` with reason ``submitted`` while the chain has not answered.
 
-The whole publish runs inside one deadline. Every RPC call's timeout is the
-time left, and a publish that cannot cover signing and sending refuses
-before it signs. The route that spawns this process allows more than the
-deadline, so the parent never kills a child that may already have sent.
+The whole publish runs inside one deadline. Every RPC call is bounded by
+the time left on a wall clock (a worker thread is abandoned when it runs
+over, so a trickling endpoint cannot hold a call open) as well as per
+socket operation, and a publish that cannot cover signing and sending
+refuses before it signs. The route that spawns this process allows more
+than the deadline, so the parent never kills a child that may already
+have sent.
 """
 from __future__ import annotations
 
 import http.client
 import json
+import math
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -233,7 +238,7 @@ def _positive_number(env: Mapping[str, str], name: str, default: float) -> Optio
         value = float(text)
     except ValueError:
         return None
-    if not value > 0 or value != value:
+    if not math.isfinite(value) or not value > 0:
         return None
     return value
 
@@ -286,14 +291,41 @@ def _rejected_from(error: object) -> RpcRejected:
     return RpcRejected(code, selector)
 
 
+def _within(fn: Callable[[], object], seconds: float) -> object:
+    """Run ``fn`` in a daemon thread and wait at most ``seconds`` of wall
+    clock. A socket timeout bounds each read, not the whole exchange, so a
+    node that answers in a trickle could otherwise hold one call open past
+    the deadline. A thread that runs over is abandoned; its socket timeout
+    ends it on its own."""
+    out: list = []
+    err: list = []
+
+    def run() -> None:
+        try:
+            out.append(fn())
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the caller's thread
+            err.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise RpcFailed
+    if err:
+        raise err[0]
+    return out[0]
+
+
 def http_transport(
     url: str,
     *,
     deadline: Optional[float] = None,
     clock: Clock = time.monotonic,
 ) -> Transport:
-    """One JSON-RPC call per invocation. With a deadline, each call waits at
-    most the time left; a call with no time left fails without connecting."""
+    """One JSON-RPC call per invocation. Each call waits at most the time
+    left on the deadline (or the per-call cap without one), on a wall clock
+    and per socket operation; a call with no time left fails without
+    connecting."""
 
     def call(method: str, params: list) -> object:
         timeout = CALL_TIMEOUT_CAP_SEC
@@ -308,9 +340,13 @@ def http_transport(
         req = urllib.request.Request(
             url, data=body, headers={"content-type": "application/json"}
         )
-        try:
+
+        def fetch() -> object:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
+                return json.loads(resp.read().decode("utf-8"))
+
+        try:
+            payload = _within(fetch, timeout)
         except (
             OSError,
             urllib.error.URLError,
@@ -668,7 +704,10 @@ def publish_anchor(
     try:
         sent = call("eth_sendRawTransaction", [raw])
     except RpcRejected:
-        return _refused("rejected", chain_id=chain, readable=True, anchored=False, signed=True)
+        # The node refused it; the hash names the transaction it refused.
+        return _refused(
+            "rejected", chain_id=chain, readable=True, anchored=False, signed=True, tx_hash=expected,
+        )
     except RpcFailed:
         return _unsettled("send_unconfirmed", tx_hash=expected, chain_id=chain, broadcast=None)
     if not isinstance(sent, str) or _word(sent) is None or sent.strip().lower() != expected:
