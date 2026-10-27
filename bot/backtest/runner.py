@@ -496,6 +496,42 @@ def _write_json(path: str, payload: dict) -> None:
     print(f"  Results saved to {path}")
 
 
+def trade_rows(folds: list[dict]) -> list[dict]:
+    """One dollar-free row per OOS position, tagged with its fold.
+
+    Percent and labels only, so the file can be compared across two arms and
+    shared. `net_pnl_pct` is None when the position carries no size to divide
+    by: an unreadable return is not a 0% one.
+    """
+    sizes = sorted(s for f in folds for t in f.get("_trades", [])
+                   if (s := getattr(t, "size_usd", None)) is not None and s > 0)
+    median = sizes[len(sizes) // 2] if sizes else None
+    rows: list[dict] = []
+    for idx, fold in enumerate(folds):
+        for t in fold.get("_trades", []):
+            size = getattr(t, "size_usd", None)
+            net = getattr(t, "net_pnl_usd", None)
+            rows.append({
+                "fold": idx,
+                "symbol": t.symbol,
+                "direction": t.direction,
+                "entry_time": t.entry_time.isoformat(),
+                "exit_time": t.exit_time.isoformat(),
+                # Position size over the run's median size: a ratio, so the
+                # file stays dollar-free. None without a size or a median.
+                "size_rel": (size / median
+                             if size is not None and size > 0 and median else None),
+                "net_pnl_pct": (net / size * 100.0
+                                if size is not None and net is not None and size > 0
+                                else None),
+                "exit_reason": t.exit_reason,
+                "entry_regime": t.entry_regime,
+                "setup": t.setup,
+                "signal_type": t.signal_type,
+            })
+    return rows
+
+
 def _record_walk_forward_validations(folds: list[dict], pooled: list,
                                      data_source: str) -> None:
     """Record the validation gate's evidence from a portfolio walk-forward.
@@ -814,6 +850,10 @@ Examples:
 
     # Output
     parser.add_argument("--output", "-o", type=str, help="Save JSON results to file")
+    parser.add_argument("--trades-out", type=str, default=None,
+                        help="Walk-forward only: save one dollar-free row per OOS "
+                             "position (fold, symbol, entry time, net %%) so two "
+                             "runs can be compared trade by trade")
 
     return parser
 
@@ -1199,6 +1239,8 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
         # the circuit breaker after a few losses — too thin to diagnose).
         pooled = [t for f in folds for t in f.get("_trades", [])]
         print(_pooled_attribution_report(pooled, label=f"{args.walk_forward}-fold OOS pooled"))
+        if getattr(args, "trades_out", None):
+            _write_json(args.trades_out, {"trades": trade_rows(folds)})
         if args.output:
             # This branch used to `return` here, so `-o` was accepted and wrote
             # NOTHING — silently, on the exact command docs/FROZEN_BENCHMARK.md
