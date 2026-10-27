@@ -29906,3 +29906,19 @@ dropping `bb_pct_b` lowers per-trade expectancy by 0.088 points (95% interval
 independent and so is narrower than it should be), `stoch` by 0.068 (interval
 includes zero) and `squeeze` by 0.008 (nothing). Bollinger %B looks like it
 carries edge; the other two are not established.
+
+**Every voter, tested once, pre-registered: nothing.** The all-voter edge study
+(`docs/research/prereg/voter_edge_2026-10/`) measured the forward move in the
+direction each voter voted, over the unconditional drift, at 1, 4, 12, 24 and
+48 bars, for every voter the analyzer cast on frozen data, the pattern voters
+included. The intervals bootstrap calendar weeks, one cluster per week across
+all symbols and files, discovery before 2026-05-22 and holdout from
+2026-07-06, with Benjamini-Hochberg across the 175 tests. None survived on
+discovery, and only 6 of 175 intervals excluded zero before correction, fewer
+than the 8.8 chance gives. The method points that carried it: the cluster is
+the week and not the symbol-week (the candidate-feature run that clustered by
+symbol-week passed seven features and the week run passed none); the
+holdout had to be powered before it could vote; and the family was fixed
+before the first look. The finding is that the electorate's directional signal
+is not where the result comes from, which turns attention to costs, size and
+stop distance.
