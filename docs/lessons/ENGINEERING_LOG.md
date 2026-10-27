@@ -29935,3 +29935,26 @@ of tight-stop trades explained the size-outcome correlation, were tested and not
 supported; the log's earlier sentence stating them as a mechanism was corrected
 in the sizing paragraph. Registering two arms after reading the code but
 before any result, and saying so in an addendum, is the honest way to add one.
+
+**A baseline arm is a claim, and the code decides what it is.** The maker-order
+test (`docs/research/prereg/maker_orders_2026-10/`) named
+`DEFAULT_ORDER_TYPE=market` for its all-taker arm, from an exploration report
+that was not checked. That setting only changes the default type; the analyzer
+still computes a pullback limit level and sets the order type to limit whenever
+it finds one, so the arm kept resting limits (1020 limit fills) and the first
+comparison, +0.22 and -0.43 points, was between two limit systems. The first
+report's own limit counts gave it away. The variable that disables limit
+entries is `LIMIT_ORDERS_ENABLED=0`; the arm was re-run and the correction
+written into the registration as an addendum. Read the counters a run prints
+before reading its return.
+
+**A pass can be a filter.** With the baseline right, realistic limit entries
+beat all-market entries by 2.6 points over all folds, with each dataset above
+one point, a holdout gain and no worse drawdown, which is the registered rule.
+They took 932 positions to the market's 1443 at an unchanged profit factor in
+three of four datasets. A system that loses on average improves by trading
+less, so the pass was made of fewer trades and not of better ones. Look at
+profit factor and trade count beside the return before calling a result an
+edge. Earlier backtests here used `--honest`, which forces the `next_open` fill
+and ignores limit prices, so they measured an all-taker system that live (with
+limit orders on by default) is not.
