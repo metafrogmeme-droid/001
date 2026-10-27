@@ -259,9 +259,11 @@ def _signal():
 _IND = {"rsi": 25, "macd_histogram": 1.0}
 
 
-def _score(history=None, *, family_cap=True, threshold=0.7, breakdown=None):
+def _score(history=None, *, family_cap=True, threshold=0.7, breakdown=None,
+           decorrelate=True):
     with patch("bot.core.analyzer.CONFIG") as cfg:
         cfg.confluence.family_cap_enabled = family_cap
+        cfg.confluence.voter_decorrelation_enabled = decorrelate
         cfg.confluence.mr_oscillator_weight_cap = 2.0
         cfg.confluence.pattern_weight_cap = 2.5
         cfg.confluence.voter_max_correlation = threshold
@@ -306,6 +308,10 @@ class TestAnalyzerHook:
     def test_flag_off_ignores_history(self):
         assert _weights(_ECHO, family_cap=False) == _weights(None, family_cap=False)
 
+    def test_its_own_flag_off_ignores_history(self):
+        assert (_weights(_ECHO, decorrelate=False) == _weights(None, decorrelate=False))
+        assert _weights(_ECHO, decorrelate=True) != _weights(_ECHO, decorrelate=False)
+
     def test_flag_on_and_off_differ_on_an_echo(self):
         assert _weights(_ECHO, family_cap=True) != _weights(_ECHO, family_cap=False)
 
@@ -337,6 +343,10 @@ class TestAnalyzerHook:
 
 
 class TestConfig:
+    def test_the_pass_is_off_by_default(self):
+        from bot.config import CONFIG
+        assert CONFIG.confluence.voter_decorrelation_enabled is False
+
     def test_default_threshold_is_point_seven_and_risk_gate_is_untouched(self):
         from bot.config import CONFIG
         assert CONFIG.confluence.voter_max_correlation == pytest.approx(0.70)
@@ -370,6 +380,22 @@ def _candles(n: int, *, drift: float, t0: int = 1_700_000_000_000):
 
 
 class TestAnalyzerRecordsHistory:
+    @pytest.fixture(autouse=True)
+    def _decorrelation_on(self):
+        import dataclasses
+
+        from bot.config import CONFIG
+        on = dataclasses.replace(CONFIG.confluence, voter_decorrelation_enabled=True)
+
+        class _Proxy:
+            confluence = on
+
+            def __getattr__(self, name):
+                return getattr(CONFIG, name)
+
+        with patch("bot.core.analyzer.CONFIG", _Proxy()):
+            yield
+
     def _analyze(self, analyzer, candles, **kw):
         import asyncio
         sig = MarketSignal(symbol="BTC/USDT", price=candles[-1][4],

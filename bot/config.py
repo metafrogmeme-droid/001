@@ -2310,6 +2310,11 @@ class ConfluenceConfig:
     # must not move the other.
     voter_max_correlation: float = _env_float_bounded(
         "CONFLUENCE_VOTER_MAX_CORRELATION", 0.70, 0.05, 0.99)
+    # The de-correlation pass itself is OFF until it has been backtested: the
+    # 0.70 threshold and the weight floor are not measured, and the pass
+    # changes the committed scorecards. It needs family_cap_enabled as well.
+    voter_decorrelation_enabled: bool = _env_bool(
+        "CONFLUENCE_VOTER_DECORRELATION_ENABLED", False)
 
 
 @dataclass(frozen=True)

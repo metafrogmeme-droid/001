@@ -1249,7 +1249,7 @@ class RuneClawEngine:
         # _analyze_signal; every call is wrapped so a detector fault can never
         # block a trade decision.
         self.black_swan = BlackSwanDetector()
-        # The optional async swarm (SWARM_ENABLED, default off) and the
+        # The optional async swarm (behind its own flag) and the
         # observers `_transition` tells. The observers only READ a transition:
         # `_transition` stays the one place the FSM changes.
         self._swarm: Any = None
@@ -3873,7 +3873,9 @@ class RuneClawEngine:
         engine, identical to a bare reset_circuit_breaker()."""
         reset = 0
         self._halted = False  # resume: allow execution again
-        self._swarm_reset()
+        _swarm = getattr(self, "_swarm", None)
+        if _swarm is not None:
+            _swarm.reset()
         try:
             self.risk.reset_circuit_breaker()
             reset += 1
@@ -4671,7 +4673,8 @@ class RuneClawEngine:
         the compliance mint. Nothing is placed here."""
         if self._halted or self.risk.circuit_breaker_active:
             return False
-        self._pending_ideas[idea.id] = idea
+        from bot.skills.manual_trade import register_manual_idea
+        register_manual_idea(self, idea)
         if atr is not None and atr > 0:
             self._pending_atr[idea.id] = atr
         audit(trade_log, f"Swarm ticket queued for {idea.asset}",
@@ -4915,7 +4918,6 @@ class RuneClawEngine:
     async def run(self) -> None:
         """Start the continuous scan-analyze-monitor loop."""
         self._running = True
-        await self._start_swarm()
         self._transition(AgentState.IDLE, "engine started")
         audit(
             system_log,
@@ -4924,6 +4926,7 @@ class RuneClawEngine:
             data={"simulation": CONFIG.simulation_mode},
         )
         await self._refit_stale_learned_curves()
+        await self._start_swarm()
         # Start WebSocket feed for real-time price monitoring
         try:
             await self.ws_feed.start()
@@ -6272,7 +6275,8 @@ class RuneClawEngine:
 
     async def stop(self) -> None:
         self._running = False
-        await self._stop_swarm()
+        if getattr(self, "_swarm", None) is not None:
+            await self._stop_swarm()
         # First, before any executor's session closes under it.
         await self._stop_position_guard()
         self._cancel_website_refresh()

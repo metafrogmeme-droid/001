@@ -1568,7 +1568,8 @@ class Analyzer:
         # itself). Only touched when the family-cap flag is on.
         _vh_key = (str(signal.symbol), str(timeframe))
         _vh_series = None
-        if CONFIG.confluence.family_cap_enabled:
+        if (CONFIG.confluence.family_cap_enabled
+                and CONFIG.confluence.voter_decorrelation_enabled):
             try:
                 _vh_series = self._voter_vote_history.series(_vh_key)
             except Exception as _vh_exc:
@@ -1587,7 +1588,9 @@ class Analyzer:
             cross_asset_context=_ca_context,
             voter_history=_vh_series,
         )
-        if CONFIG.confluence.family_cap_enabled and _confluence_votes:
+        if (CONFIG.confluence.family_cap_enabled
+                and CONFIG.confluence.voter_decorrelation_enabled
+                and _confluence_votes):
             try:
                 _bar = candles[-1][0] if candles and candles[-1] else None
                 _agg: dict[str, list[float]] = {}
@@ -4240,6 +4243,7 @@ class Analyzer:
         # unmeasurable pair (short/constant/missing history) is untouched.
         # `breakdown` below shows the scaled weights.
         if (voter_history and CONFIG.confluence.family_cap_enabled
+                and CONFIG.confluence.voter_decorrelation_enabled
                 and len(names) == len(votes) == len(weights)):
             try:
                 from bot.core.voter_correlation import redundancy_scales
