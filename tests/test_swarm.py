@@ -169,6 +169,62 @@ async def test_a_halt_from_a_thread_latches_before_the_loop_runs():
     await asyncio.wait_for(bus.wait_halted(), 2)  # and the loop side catches up
 
 
+async def test_a_reset_that_beats_an_off_loop_halt_announce_leaves_no_halt_behind():
+    """`halt()` from a thread latches at once and schedules its announce on the
+    loop. A `reset()` that runs on the loop first must win: the late announce
+    would otherwise set the event with no reason behind it."""
+    bus = SwarmBus()
+    bus.bind(asyncio.get_running_loop())
+    t = threading.Thread(target=lambda: bus.halt("from_thread"))
+    t.start()
+    t.join(2)
+    assert bus.halted                      # latched; the announce is still queued
+    bus.reset()                            # runs on the loop, before the announce
+    await asyncio.sleep(0.05)              # the queued announce runs now
+    assert not bus.halted
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(bus.wait_halted(), 0.1)    # no stale wake-up
+    assert bus.depth(R.COORDINATOR) == 0                  # and no stale HALT notice
+    # The other arm: a halt after the reset is announced as usual.
+    t = threading.Thread(target=lambda: bus.halt("second"))
+    t.start()
+    t.join(2)
+    await asyncio.wait_for(bus.wait_halted(), 2)
+    assert bus.halt_reason == "second"
+
+
+async def test_the_halt_watcher_yields_when_woken_with_nothing_latched():
+    """Defence in depth: even a set event with no reason must not turn the
+    watcher into a loop that never yields (a spin blocks the whole bot)."""
+    async with SwarmCoordinator(risk_engine=_real_risk(), heartbeat_interval_s=0.05) as coord:
+        calls = 0
+        real_wait = coord.bus.wait_halted
+
+        async def counting_wait():
+            nonlocal calls
+            calls += 1
+            if calls > 40:
+                raise RuntimeError("spin")      # the watcher died instead of hanging the loop
+            await real_wait()
+
+        coord.bus.wait_halted = counting_wait
+        watcher = next(t for t in coord._supervisors if t.get_name() == "swarm-halt-watch")
+        # Restart the watcher so it picks up the counting wait.
+        watcher.cancel()
+        try:
+            await watcher
+        except asyncio.CancelledError:
+            pass
+        coord._supervisors.remove(watcher)
+        task = asyncio.get_running_loop().create_task(coord._watch_halt())
+        coord._supervisors.append(task)
+        coord.bus._halt_event.set()             # set, with no reason latched
+        assert not coord.bus.halted
+        await asyncio.sleep(0.3)
+        assert not task.done() and calls <= 40
+        coord.bus._halt_event.clear()
+
+
 # ── fail closed ─────────────────────────────────────────────────────────────
 
 async def test_a_worker_exception_halts_and_names_only_the_class():

@@ -115,8 +115,10 @@ class ChannelForwarder:
         with self._lock:
             self._group_ids.add(chat_id)
             self._save_config()
-        audit(system_log, f"Marketing group added: {chat_id}",
-              action="channel_add", result="OK")
+        # The id is a person's or a room's address: the structured field is
+        # redacted by the logger, a number in the message text is not.
+        audit(system_log, "Marketing group added",
+              action="channel_add", result="OK", data={"chat_id": chat_id})
 
     def remove_group(self, chat_id: int) -> None:
         """Remove a group from auto-posting."""
@@ -136,9 +138,10 @@ class ChannelForwarder:
             else:
                 self._full_ids.discard(chat_id)
             self._save_config()
-        audit(system_log, f"Marketing group {chat_id} set to "
+        audit(system_log, "Marketing group set to "
               f"{'full calls' if full else 'teaser'}",
-              action="channel_full" if full else "channel_teaser", result="OK")
+              action="channel_full" if full else "channel_teaser", result="OK",
+              data={"chat_id": chat_id})
 
     @property
     def full_ids(self) -> list[int]:
@@ -182,7 +185,7 @@ class ChannelForwarder:
         if chat_id in self._group_ids:
             return False
         self.add_group(chat_id)
-        system_log.info("Auto-detected marketing group: %s (%s)", chat_title, chat_id)
+        system_log.info("Auto-detected marketing group: %s", chat_title)
         return True
 
     # ── Post methods ──────────────────────────────────────────

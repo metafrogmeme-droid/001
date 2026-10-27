@@ -35,9 +35,11 @@ THE RULES, EACH ONE A CLASS OF BUG THIS REPO HAS ALREADY HAD
   * Auth is `hmac.compare_digest`, on bytes, so a non-ASCII candidate is a
     mismatch and not a TypeError that closes the socket with a stack trace.
     The token is the dashboard token `require_dashboard_token` checks. It is
-    accepted from the `Authorization: Bearer` header, from a first
-    `{"op":"auth","token":...}` message, or from a `?token=` query parameter
-    (last resort: a URL is logged by every proxy it crosses).
+    accepted from the `Authorization: Bearer` header or from a first
+    `{"op":"auth","token":...}` message, and NEVER from the URL: uvicorn's
+    access log and every proxy record a WebSocket's path with its query string,
+    and the same token gates the bridge's other endpoints. A connection that
+    puts one in the URL is closed, so the client stops sending it.
   * A slow client is dropped, not waited for. Each connection has its own
     bounded queue; a queue that fills closes THAT connection (1013) and the
     others never notice. A send that takes longer than `SEND_TIMEOUT_S` is the
@@ -261,13 +263,23 @@ class TelemetryHub:
         if reason in ("slow_client", "send_timeout"):
             self.dropped_slow += 1
 
-    def watched_symbols(self) -> list[str]:
-        """Symbols any orderbook subscriber named, sorted, process-capped."""
+    def _named_symbols(self) -> list[str]:
+        """Every symbol any orderbook subscriber named, sorted."""
         names: set[str] = set()
         for sub in self._subs.values():
             if "orderbook" in sub.topics:
                 names |= sub.symbols
-        return sorted(names)[:MAX_POLLED_SYMBOLS]
+        return sorted(names)
+
+    def watched_symbols(self) -> list[str]:
+        """Symbols any orderbook subscriber named, sorted, process-capped."""
+        return self._named_symbols()[:MAX_POLLED_SYMBOLS]
+
+    def unpolled_symbols(self) -> list[str]:
+        """Symbols an orderbook subscriber named that `watched_symbols` cut off.
+        They are said, not left silent: a client watching one would otherwise
+        read the absence of frames as a quiet book."""
+        return self._named_symbols()[MAX_POLLED_SYMBOLS:]
 
     def has_topic(self, topic: str) -> bool:
         return any(topic in s.topics for s in self._subs.values())
@@ -578,6 +590,14 @@ class TelemetryFeeds:
                     log.warning("orderbook frame failed for %s: %s", symbol, type(exc).__name__)
                     frame = {"type": "orderbook", "symbol": symbol, "read": False, "ts": _now_iso()}
             self._hub.publish("orderbook", frame, symbol=symbol)
+        for symbol in self._hub.unpolled_symbols():
+            # Over the process cap: not read, and the client is told so. It is
+            # `read: false`, never a spread, and `polled: false` says why.
+            self._hub.publish(
+                "orderbook",
+                {"type": "orderbook", "symbol": symbol, "read": False, "polled": False,
+                 "reason": "over_capacity", "ts": _now_iso()},
+                symbol=symbol)
 
     def poll_risk_once(self) -> None:
         """One read of the risk log. Public for the same reason."""
@@ -673,10 +693,11 @@ async def serve_session(
         await _close(ws, CLOSE_POLICY, "not configured")
         return
 
-    # 1. authenticate: header, then query, then a first message.
+    # 1. authenticate: the header, then a first message. Never the URL.
+    if ws.query_params is not None and "token" in ws.query_params:
+        await _close(ws, CLOSE_POLICY, "token in url refused")
+        return
     candidate = bearer_from_header(ws.headers.get("authorization")) if ws.headers is not None else None
-    if candidate is None and ws.query_params is not None:
-        candidate = ws.query_params.get("token")
     if candidate is None:
         try:
             async with asyncio.timeout(auth_timeout_s):

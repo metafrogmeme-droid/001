@@ -277,16 +277,34 @@ def summarize_red_team(report: dict) -> dict:
             row["failed"] += 1
             slipped.append(str(s.get("name") or "unnamed")[:80])
     total = sum(r["passed"] + r["failed"] for r in by_category.values())
+    if total == 0:
+        # A harness that exercised nothing (drift, a filtered run) has no
+        # failures because it has no scenarios; that is not a clean run.
+        return {"ran": False, "error": "NoScenarios"}
     passed = sum(r["passed"] for r in by_category.values())
     return {
         "ran": True,
         "total_scenarios": total,
         "passed": passed,
         "failed": total - passed,
-        "pass_rate": round(passed / total * 100.0, 1) if total else None,
+        "pass_rate": round(passed / total * 100.0, 1),
         "by_category": by_category,
         "failed_scenarios": slipped[:20],
     }
+
+
+async def _reap(proc: "asyncio.subprocess.Process") -> None:
+    """Kill ``proc`` if it is still running and wait for it. Never raises."""
+    if proc.returncode is not None:
+        return
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+    try:
+        await proc.wait()
+    except Exception:  # noqa: BLE001 - nothing more to do for a child that will not reap
+        pass
 
 
 async def _run_red_team_child(timeout_s: float) -> dict:
@@ -303,11 +321,15 @@ async def _run_red_team_child(timeout_s: float) -> dict:
         async with asyncio.timeout(timeout_s):
             out, _ = await proc.communicate()
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
         return {"ran": False, "error": "TimeoutError"}
     except Exception as exc:  # noqa: BLE001
         return {"ran": False, "error": type(exc).__name__}
+    finally:
+        # Every way out that leaves the child running (the timeout, an error,
+        # and a CANCELLED request, which is a BaseException the handlers above
+        # do not see) kills and reaps it, so a cancelled call cannot leave a
+        # run behind for the next call to stack another on.
+        await _reap(proc)
     # Exit 1 means a scenario got through, which is an answer; so does 0. The
     # report is the last JSON line (the engine may print above it).
     lines = [ln for ln in out.decode("utf-8", "replace").splitlines() if ln.strip()]

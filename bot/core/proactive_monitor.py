@@ -755,7 +755,7 @@ class ProactiveMonitor:
         (see `_save_enabled_chats`)."""
         self._enabled_chats.add(str(chat_id))
         saved = self._save_enabled_chats()
-        audit(system_log, f"Proactive alerts enabled for chat {chat_id}",
+        audit(system_log, "Proactive alerts enabled for a chat",
               action="watch_on", data={"chat_id": chat_id, "saved": saved})
         return saved
 
@@ -764,7 +764,7 @@ class ProactiveMonitor:
         `enable_chat`."""
         self._enabled_chats.discard(str(chat_id))
         saved = self._save_enabled_chats()
-        audit(system_log, f"Proactive alerts disabled for chat {chat_id}",
+        audit(system_log, "Proactive alerts disabled for a chat",
               action="watch_off", data={"chat_id": chat_id, "saved": saved})
         return saved
 

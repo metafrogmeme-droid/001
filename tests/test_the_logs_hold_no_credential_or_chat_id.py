@@ -66,6 +66,8 @@ CHAT_IDS = {
     "private t.me link": "1357900011",
     "label in reasoning": "135790012",
     "label in result": "135790013",
+    "bare id after the word chat": "135790014",
+    "bare negative id after the word group": "-135790015",
 }
 
 DECOYS = [
@@ -74,6 +76,7 @@ DECOYS = [
     "0x9d5f7b3a9d5f7b3a9d5f7b3a9d5f7b3a9d5f7b3a9d5f7b3a9d5f7b3a9d5f7b3a",   # a tx hash
     "drawdown -100.5%",                 # a negative percentage near the supergroup shape
     "https://t.me/runeclaw",            # a public link
+    "chat 42",                          # a short number after the word
 ]
 
 
@@ -104,6 +107,10 @@ def plant(channel: logging.Logger) -> None:
     audit(channel, f"signer WEB3_SIGNER_PRIVATE_KEY={SIGNER_HEX} and "
           f"hook https://discord.com/api/webhooks/123456789012345678/{DISCORD_TOKEN}",
           action="config", result="ERROR")
+    audit(channel, "Proactive alerts enabled for chat %s" % CHAT_IDS["bare id after the word chat"],
+          action="watch_on")
+    audit(channel, "Marketing group %s set to teaser" % CHAT_IDS["bare negative id after the word group"],
+          action="channel_teaser", result="OK")
     audit(channel, "decoys: " + " | ".join(DECOYS), action="decoy", result="OK")
 
 
@@ -235,3 +242,40 @@ def test_the_string_rows_alone_catch_a_message(files, monkeypatch):
     monkeypatch.setattr(logmod, "CHAT_ID_KEY_RE", __import__("re").compile(r"(?!x)x"))
     audit(system_log, "send failed chat_id=135790001", action="send")
     assert "135790001" not in written(files)["system"]
+
+
+# ── the real call sites that used to print a bare id ─────────────────────────
+
+
+def test_the_proactive_toggle_and_the_channel_forwarder_log_no_bare_id(files, tmp_path, monkeypatch):
+    """`enable_chat` / `disable_chat` and the forwarder's `add_group`, `set_full`
+    and `detect_group` put the id in the MESSAGE text, with no label and no
+    `-100` prefix. They are driven for real and the bytes are grepped."""
+    from bot.core.proactive_monitor import ProactiveMonitor
+    from bot.marketing import channel_forwarder as cf
+
+    monitor = ProactiveMonitor.__new__(ProactiveMonitor)
+    monitor._enabled_chats = set()
+    monitor._save_enabled_chats = lambda: True
+    monitor.enable_chat("135790021")
+    monitor.disable_chat("135790021")
+
+    monkeypatch.setattr(cf, "_CONFIG_PATH", tmp_path / "channel_config.json")
+    fwd = cf.ChannelForwarder()
+    assert fwd.detect_group(-135790022, "group", "Ops room") is True
+    fwd.set_full(-135790022, True)
+
+    text = written(files)["system"]
+    assert "Proactive alerts enabled" in text and "Marketing group" in text   # the lines were written
+    assert "135790021" not in text and "135790022" not in text
+    assert "Ops room" in text                                  # the title is not an address
+    rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    added = next(r for r in rows if r.get("action") == "channel_add")
+    assert added["data"]["chat_id"] == REDACTED               # said, redacted, not dropped
+
+
+def test_the_bare_id_row_leaves_a_count_of_chats_alone():
+    from bot.utils.secret_shapes import scrub_secrets
+    assert scrub_secrets("3 chats 12345678 and chat 42") == "3 chats 12345678 and chat 42"
+    assert "123456789" not in scrub_secrets("enabled for chat 123456789")
+    assert "987654321" not in scrub_secrets("group -987654321")

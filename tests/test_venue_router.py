@@ -851,3 +851,117 @@ class TestAccountsWiring:
         assert row["venue_state"] == "unread" and row["venue_open"] is None
         assert row["venue_latency_ms"] is None             # absent, never 0
         assert row["equity_usd"] == 1000.0 and row["error"] is None
+
+
+# ── review findings: the audit, the budget, the log line ──────────────
+
+def _kill_switch_engine(operator, users=()):
+    eng = _engine(operator, users)
+    eng.risk = SimpleNamespace(emergency_halt=lambda reason: None)
+    eng._pending_ideas = {}
+    for name in ("_pending_atr", "_pending_timing", "_pending_turn", "_pending_pyramid"):
+        setattr(eng, name, {})
+    return eng
+
+
+async def _audited_kill_switch(eng):
+    """The ``data`` of the kill-switch's audit row."""
+    rows: list[dict] = []
+    with mock.patch("bot.core.engine.audit",
+                    lambda _log, _msg, **kw: rows.append(kw)):
+        await eng.emergency_halt_all("t")
+    (row,) = [r for r in rows if r.get("action") == "emergency_halt_all"]
+    return row["data"]
+
+
+class TestKillSwitchAudit:
+    async def test_a_flat_the_venue_confirmed_is_counted_flattened(self, router_on, live):
+        eng = _kill_switch_engine(_ex(None, "bybit"))
+        with _clients({("bybit", None): FakeClient(positions=[[]])}):
+            data = await _audited_kill_switch(eng)
+        assert data["accounts_flattened"] == 1 and data["accounts_unverified"] == []
+        assert data["accounts_failed"] == []
+
+    async def test_a_venue_that_was_never_read_is_not_counted_flattened(self, router_on, live):
+        eng = _kill_switch_engine(_ex(None, "bybit"))
+        dead = FakeClient(fail={"fetch_positions": ccxt.RequestTimeout("t")})
+        with _clients({("bybit", None): dead}):
+            data = await _audited_kill_switch(eng)
+        assert data["accounts_flattened"] == 0
+        assert data["accounts_unverified"] == ["operator"]
+        assert data["accounts_failed"] == []              # the executor did say ok
+
+    async def test_a_faulted_read_and_a_venue_with_no_adapter_are_unverified_too(self, router_on, live):
+        eng = _kill_switch_engine(
+            _ex(None, "bybit"), [_ex("carol", "bitget", {"marker": "c"})])
+        broken = FakeClient(fail={"fetch_positions": ValueError("bad")})
+        with _clients({("bybit", None): broken}):
+            data = await _audited_kill_switch(eng)
+        assert data["accounts_flattened"] == 0
+        assert sorted(data["accounts_unverified"]) == ["carol", "operator"]
+
+    async def test_with_the_router_off_the_executors_word_is_counted_as_before(self, live):
+        assert CONFIG.venue_router_enabled is False
+        eng = _kill_switch_engine(_ex(None, "bybit"))
+        data = await _audited_kill_switch(eng)
+        assert data["accounts_flattened"] == 1 and data["accounts_unverified"] == []
+
+
+class _SlowOrderClient(FakeClient):
+    """Reads at once; a residual close's order hangs."""
+
+    def create_order(self, symbol, type, side, amount, price, params):
+        self.calls.append(("create_order", symbol, type, side, amount, price, params))
+        time.sleep(1.5)
+        return {"id": "late"}
+
+
+class TestFlattenBudget:
+    async def test_a_hung_residual_close_cannot_hold_the_flatten_past_its_budget(self, router_on, live):
+        object.__setattr__(CONFIG, "venue_router_close_residual", True)
+        object.__setattr__(CONFIG, "venue_router_timeout_s", 0.4)   # budget 0.8s, close 1.2s
+        client = _SlowOrderClient(positions=[[_row("BTC/USDC:USDC", mark=50.0)]], sandbox=True)
+        eng = _engine(_ex(None, "hyperliquid"))
+        started = time.monotonic()
+        with _clients({("hyperliquid", None): client}):
+            (row,) = await eng.flatten_all_positions(reason="t")
+        elapsed = time.monotonic() - started
+        assert elapsed < 1.05, elapsed            # unbudgeted, the close alone waits 1.2s
+        # The read that said the venue holds a position stands; the close is not claimed.
+        assert row["venue_state"] == "open" and row["ok"] is False
+        assert "flatten budget" in row["venue_note"]
+
+    async def test_a_close_inside_the_budget_still_settles(self, router_on, live):
+        object.__setattr__(CONFIG, "venue_router_close_residual", True)
+        object.__setattr__(CONFIG, "venue_router_timeout_s", 0.4)
+        client = FakeClient(positions=[[_row("BTC/USDC:USDC", mark=50.0)],
+                                       [_row("BTC/USDC:USDC", mark=50.0)], []], sandbox=True)
+        eng = _engine(_ex(None, "hyperliquid"))
+        with _clients({("hyperliquid", None): client}):
+            (row,) = await eng.flatten_all_positions(reason="t")
+        assert row["venue_state"] == "flat" and row["ok"] is True
+        assert "flatten budget" not in (row.get("venue_note") or "")
+
+
+class TestLogsCarryNoAccountId:
+    async def test_a_users_id_never_reaches_the_router_log_lines(self, router_on, live, caplog):
+        import logging
+        object.__setattr__(CONFIG, "venue_router_close_residual", True)
+        uid = "135792468"
+        client = FakeClient(positions=[[_row("BTC/USDC:USDC", mark=50.0)],
+                                       [_row("BTC/USDC:USDC", mark=50.0)], []], sandbox=True)
+        eng = _engine(_ex(None, "bybit"), [_ex(uid, "hyperliquid", {"marker": "u"})])
+        caplog.set_level(logging.INFO, logger="bot.core.venue_router")
+        with _clients({("bybit", None): FakeClient(positions=[[]]),
+                       ("hyperliquid", "u"): client}):
+            await eng.flatten_all_positions(reason="t")
+        text = caplog.text
+        assert "venue router close sent" in text           # the line exists...
+        assert uid not in text                              # ...and carries no id
+        assert "user-" in text
+
+    def test_the_tag_is_stable_per_account_distinct_between_accounts_and_keeps_the_role(self):
+        assert vr.account_tag("operator") == "operator"
+        assert vr.account_tag("135792468") == vr.account_tag("135792468")
+        assert vr.account_tag("135792468") != vr.account_tag("135792469")
+        assert "135792468" not in vr.account_tag("135792468")

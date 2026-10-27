@@ -350,21 +350,33 @@ class SwarmBus:
                 return False
             self._halt_reason = text
             self._halt_generation += 1
+            generation = self._halt_generation
         message = SwarmMessage(
             msg_type=SwarmMessageType.HALT, sender=sender,
             recipient=SwarmRole.COORDINATOR,
             payload={"reason": text, "severity": severity})
         loop = self._loop
         if loop is None or self._on_bound_loop() or loop.is_closed():
-            self._announce_halt(message)
+            self._announce_halt(message, generation)
         else:
             try:
-                loop.call_soon_threadsafe(self._announce_halt, message)
+                loop.call_soon_threadsafe(self._announce_halt, message, generation)
             except RuntimeError:
-                self._announce_halt(message)
+                self._announce_halt(message, generation)
         return True
 
-    def _announce_halt(self, message: SwarmMessage) -> None:
+    def _announce_halt(self, message: SwarmMessage, generation: int) -> None:
+        """Wake the watchers for the halt of ``generation``, on the loop.
+
+        An off-loop ``halt`` schedules this, and a ``reset`` can run on the loop
+        first. Setting the event then would leave it set with no reason behind
+        it, and ``wait_halted`` returns at once on a set event: a watcher would
+        spin without ever yielding. So a halt that is no longer the latched one
+        announces nothing."""
+        with self._lock:
+            current = self._halt_reason is not None and self._halt_generation == generation
+        if not current:
+            return
         self._halt_event.set()
         self._fan_out(message)
 
@@ -884,6 +896,11 @@ class SwarmCoordinator:
             await self.bus.wait_halted()
             generation = self.bus.halt_generation
             reason = self.bus.halt_reason
+            if reason is None:
+                # Woken with nothing latched (a reset cleared it first). Yield,
+                # so a set event can never turn this loop into a spin.
+                await asyncio.sleep(0.05)
+                continue
             if reason is not None:
                 if self._halt_sink is not None and not reason.startswith(HALT_ENGINE):
                     try:

@@ -3844,12 +3844,19 @@ class RuneClawEngine:
         self._pending_turn.clear()
         self._pending_pyramid.clear()
         accounts = await self.flatten_all_positions(reason=reason)
+        # `ok` is the executor's word. With the venue router on, an account
+        # whose venue was unread, faulted or not routed is flat only by that
+        # word: the audit row counts it apart, never as a verified flatten.
+        from bot.formatters.drift_offer import flatten_unverified_accounts
+        unverified = flatten_unverified_accounts(accounts)
         audit(system_log, f"GLOBAL KILL-SWITCH engaged: {reason}",
               action="emergency_halt_all", result="OK",
               data={"engines_halted": engines_halted,
                     "pending_cleared": pending_cleared,
                     "accounts_attempted": len(accounts),
-                    "accounts_flattened": sum(1 for a in accounts if a.get("ok")),
+                    "accounts_flattened": sum(1 for a in accounts if a.get("ok"))
+                    - len(unverified),
+                    "accounts_unverified": unverified,
                     "accounts_failed": [a.get("account") for a in accounts
                                         if not a.get("ok")]})
         return {

@@ -64,8 +64,10 @@ a request body.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import math
+import os
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -93,6 +95,29 @@ VERDICT_NOT_ROUTED = "not_routed"
 
 #: How long the router waits on one venue before calling it unread.
 DEFAULT_TIMEOUT_S = 8.0
+
+#: A flatten waits on the router for at most this many per-venue timeouts in
+#: all (the position read, then the optional residual close and its read-back).
+#: `/closeall` and the kill-switch do not return until the router phase ends,
+#: and the executors have already closed what they hold, so a hung venue must
+#: not hold the emergency response for the sum of every stage's own timeout.
+FLATTEN_BUDGET_TIMEOUTS = 2.0
+
+#: Per-process salt for `account_tag`, so a logged tag cannot be matched against
+#: a list of Telegram ids, and is not the same from one run to the next.
+_TAG_SALT = os.urandom(8)
+
+
+def account_tag(account: object) -> str:
+    """The account as a LOG line may carry it. ``operator`` is a role and is
+    printed as is; any other account is a user id, which is a Telegram chat id
+    for a Telegram user, and no log row can tell it from a number. It becomes a
+    short salted tag: the same account has the same tag within a run."""
+    text = str(account)
+    if text == "operator":
+        return text
+    digest = hashlib.sha256(_TAG_SALT + text.encode("utf-8", "replace")).hexdigest()
+    return "user-" + digest[:8]
 
 
 class VenueReadError(Exception):
@@ -391,7 +416,7 @@ class CcxtVenueAdapter(ProductionVenueAdapter):
             # fully read, in the messages below.
             logger.warning("venue router: %s/%s has %d unreadable position "
                            "row(s); closing the readable ones only",
-                           self.account, self.venue_id, read.unreadable_rows)
+                           account_tag(self.account), self.venue_id, read.unreadable_rows)
         messages: list[str] = []
         for pos in read.rows:
             messages.append(await self._close_one(pos, reason))
@@ -424,7 +449,7 @@ class CcxtVenueAdapter(ProductionVenueAdapter):
             return f"{label}: close not confirmed ({kind})"
         oid = str((order or {}).get("id") or "") if isinstance(order, dict) else ""
         logger.info("venue router close sent: %s/%s %s reason=%s",
-                    self.account, self.venue_id, label, reason)
+                    account_tag(self.account), self.venue_id, label, reason)
         return f"{label}: close order sent" + (f" ({oid})" if oid else "")
 
 
@@ -685,7 +710,7 @@ class VenueRouter:
             # error in this module). Reported, with the class name only.
             kind = type(res).__name__
             logger.error("venue router: %s/%s escaped its guard: %s",
-                         adapter.account, adapter.venue_id, kind)
+                         account_tag(adapter.account), adapter.venue_id, kind)
             out.append(VenueOutcome(adapter.account, adapter.venue_id,
                                     STATUS_FAULTED, error=kind))
         return out
@@ -728,15 +753,29 @@ async def router_reads(executors: Sequence[Any], config: Any, *,
         return {}
     close_notes: dict[tuple[str, str], str] = {}
     try:
-        router = build_router(
-            executors, config.exchange,
-            timeout_s=float(getattr(config, "venue_router_timeout_s", DEFAULT_TIMEOUT_S)))
-        outcomes = await (router.account_overview() if full else router.verify_flat())
+        timeout_s = float(getattr(config, "venue_router_timeout_s", DEFAULT_TIMEOUT_S))
+        router = build_router(executors, config.exchange, timeout_s=timeout_s)
+        # A flatten is bounded as a whole; a read for a card is not (it has
+        # no one waiting on an emergency). The first read answers or the whole
+        # router has failed; the close gets what is left of the budget.
+        budget = timeout_s * FLATTEN_BUDGET_TIMEOUTS if flatten_reason is not None else None
+        started = time.monotonic()
+        async with asyncio.timeout(budget):
+            outcomes = await (router.account_overview() if full else router.verify_flat())
         if flatten_reason is not None and getattr(config, "venue_router_close_residual", False):
             still = {(o.account, o.venue) for o in outcomes if o.verdict == VERDICT_OPEN}
             if still:
-                closed = {(o.account, o.venue): o for o in
-                          await router.close_all(flatten_reason, only=still)}
+                closed: dict[tuple[str, str], VenueOutcome] = {}
+                left = (budget or 0.0) - (time.monotonic() - started)
+                try:
+                    async with asyncio.timeout(max(left, 0.0)):
+                        closed = {(o.account, o.venue): o for o in
+                                  await router.close_all(flatten_reason, only=still)}
+                except TimeoutError:
+                    # The read already said these venues hold a position; that
+                    # reading stands, and the close is reported as unsettled.
+                    for key in still:
+                        close_notes[key] = "close not settled within the flatten budget"
                 merged: list[VenueOutcome] = []
                 for o in outcomes:
                     c = closed.get((o.account, o.venue))

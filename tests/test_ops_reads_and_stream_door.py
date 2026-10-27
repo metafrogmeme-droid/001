@@ -343,6 +343,27 @@ def test_a_malformed_report_is_not_a_pass():
     assert ops_reads.summarize_red_team({"scenarios": "x"}) == {"ran": False, "error": "MalformedReport"}
 
 
+def test_a_report_with_no_scenarios_is_not_a_clean_run():
+    """A harness that exercised nothing has zero failures because it has zero
+    scenarios. Absent is not a measurement: it is `ran: false`, so the route
+    serves a 503 and the cache keeps it for the short failure TTL."""
+    for report in ({"scenarios": []}, {"scenarios": ["junk", 3, None]}):
+        assert ops_reads.summarize_red_team(report) == {"ran": False, "error": "NoScenarios"}
+    # The other arm: one scenario is a run, and a failing one is counted.
+    one = ops_reads.summarize_red_team(_report(passed=1))
+    assert one["ran"] is True and one["total_scenarios"] == 1 and one["pass_rate"] == 100.0
+
+
+def test_the_route_serves_an_empty_report_as_a_503_and_retries_it_soon(client, monkeypatch):
+    async def empty(_timeout):
+        return ops_reads.summarize_red_team({"scenarios": []})
+
+    monkeypatch.setattr(ops_reads, "_run_red_team_child", empty)
+    r = client.get("/redteam", headers=AUTH)
+    assert r.status_code == 503 and r.json()["ran"] is False
+    assert r.json()["error"] == "NoScenarios"
+
+
 def test_the_answer_is_cached_and_concurrent_callers_share_one_run():
     async def go():
         ops_reads._reset_red_team_cache()
@@ -429,6 +450,40 @@ def test_a_child_that_cannot_start_or_times_out_is_not_a_pass(monkeypatch):
         monkeypatch.setattr(ops_reads.asyncio, "create_subprocess_exec", spawn_sleeper)
         slow = await ops_reads._run_red_team_child(0.1)
         assert slow == {"ran": False, "error": "TimeoutError"}
+    asyncio.run(go())
+
+
+def test_a_cancelled_request_kills_and_reaps_the_red_team_child(monkeypatch):
+    """Cancellation is a BaseException: the timeout and error handlers never see
+    it. Without a `finally` the child kept running after the request went, the
+    lock was released, and the next call started a second one."""
+    async def go():
+        real_spawn = asyncio.create_subprocess_exec
+        spawned = []
+
+        async def spawn_sleeper(*_a, **_k):
+            proc = await real_spawn("sleep", "30", stdout=asyncio.subprocess.PIPE)
+            spawned.append(proc)
+            return proc
+
+        monkeypatch.setattr(ops_reads.asyncio, "create_subprocess_exec", spawn_sleeper)
+        task = asyncio.ensure_future(ops_reads._run_red_team_child(60.0))
+        try:
+            for _ in range(200):
+                if spawned:
+                    break
+                await asyncio.sleep(0.01)
+            assert spawned and spawned[0].returncode is None     # it is running
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert spawned[0].returncode is not None, "the child outlived its cancelled request"
+        finally:
+            for proc in spawned:
+                if proc.returncode is None:
+                    proc.kill()
+                    await proc.wait()
     asyncio.run(go())
 
 

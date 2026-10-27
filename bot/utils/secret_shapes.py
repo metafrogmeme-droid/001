@@ -63,7 +63,8 @@ instead of one for exactly that reason), and nothing scrubbed it: a send that
 failed logged `chat_id=123456789`, an unhandled handler error logged the update's
 repr (`Chat(first_name=…, id=123456789, …)`, `'chat': {'id': 123456789, …}`), and
 a forwarded-to-a-channel failure printed the supergroup id (`-100` and ten digits).
-Five rows cover the shapes a log line actually carries; each keeps its label so a
+Six rows cover the shapes a log line actually carries (the sixth, a bare id after
+the word `chat` or `group`, was added the same day); each keeps its label so a
 failure still says WHICH field it was, and each needs five or more digits so a
 status word, a small test id and a negative percentage are left alone. The
 structured side, where the id is an int under a `chat_id` key and no string row
@@ -184,6 +185,18 @@ TELEGRAM_CHAT_DICT_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: A chat id written as a bare number after the word for what it is:
+#: `Proactive alerts enabled for chat 123456789`, `group -987654321`,
+#: `channel id 1234567`. No label (`chat_id=`), no `Chat(` repr and no `-100`
+#: prefix, so none of the rows above sees it; a private-chat id and a basic
+#: group's negative id both read this way in a message line. Five or more
+#: digits, so `chat 42` and a count of chats are left alone, and the word has
+#: to stand directly in front of the number.
+TELEGRAM_CHAT_WORD_RE = re.compile(
+    r"\b((?:chat|group|channel)(?:\s+id)?\s+)-?\d{5,15}\b",
+    re.IGNORECASE,
+)
+
 #: A structured KEY that names a chat id (`chat_id`, `admin_chat_id`, `telegramId`,
 #: `chat_ids`). `logger._redact_dict` reads it: an id that is an int under such a
 #: key has no string for the rows above to match.
@@ -259,6 +272,9 @@ SHAPES: tuple[Shape, ...] = (
     Shape("telegram_chat_dict", TELEGRAM_CHAT_DICT_RE, r"\1" + REDACTED,
           "update {'message': {'chat': {'id': 123456789, 'type': 'private'}}}",
           "chat: {'id': 42} and a chat room {'id': 123456789} with no chat label"),
+    Shape("telegram_chat_word", TELEGRAM_CHAT_WORD_RE, r"\1" + REDACTED,
+          "Proactive alerts enabled for chat 123456789 and group -987654321",
+          "chat 42, 3 chats 12345678, a chat room 123456789 and group of 12345 users"),
     Shape("named_key_value", INLINE_SECRET_RE, r"\1=" + REDACTED,
           "auth failed: api_key=sk-abcdefghijklmnopqrs",
           "token: BTC"),

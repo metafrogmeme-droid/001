@@ -29727,3 +29727,50 @@ network load or behind a proxy.
 `tests/test_ops_reads_and_stream_door.py`,
 `tests/test_the_logs_hold_no_credential_or_chat_id.py`,
 `tests/test_one_secret_vocabulary.py`.)
+
+
+## NINE REVIEW FINDINGS ON THE FOUR NEW LAYERS: A SET EVENT WITH NOTHING BEHIND IT, A FLAT NOBODY VERIFIED, AND AN ID IN A SENTENCE
+
+An adversarial review of the swarm, the venue router, the telemetry doors and the
+chat-id scrub found nine defects; each is fixed with a test and was mutated back
+to confirm the test fails for the reason it names.
+
+**The swarm's halt watcher could freeze the loop.** `SwarmBus.halt` from an
+off-loop thread latches the reason and schedules `_announce_halt`; a `/reset` on
+the loop that runs first cleared the reason, and the late announce then set the
+event with no reason behind it. `Event.wait()` on a set event returns without
+suspending, so `_watch_halt` spun forever. `_announce_halt` now carries the halt's
+generation and announces nothing when that halt is no longer the latched one, and
+the watcher yields when woken with nothing latched (two layers, because a spin
+takes the whole bot).
+
+**An unverified flat was audited as a verified one.** `flatten_all_positions`
+leaves `ok` as the executor said when the venue was unread, faulted or not
+routed, and the kill-switch's audit row counted `ok`. `accounts_flattened` now
+excludes those accounts and `accounts_unverified` names them
+(`drift_offer.flatten_unverified_accounts`). **The router phase of a flatten is
+bounded** at two per-venue timeouts in all (`FLATTEN_BUDGET_TIMEOUTS`): a close
+that does not settle leaves the earlier `open` reading standing, with the reason.
+
+**Absent is not a measurement, twice more.** A red-team report with no scenarios
+is `ran: false` (`NoScenarios`), not a clean run; a symbol past the stream's
+process cap of eight gets one `read: false, polled: false` frame instead of
+silence. **A cancelled `/redteam` request** killed nothing: cancellation is a
+`BaseException` the timeout handler never sees; a `finally` now reaps the child.
+
+**Ids in sentences and URLs.** A bare number after the word `chat` or `group`
+("enabled for chat 123456789") matched no chat-id row; a sixth row,
+`telegram_chat_word`, covers it, and the three call sites that printed an id in
+their message text (`enable_chat`, `disable_chat`, the channel forwarder) no
+longer do (the structured `chat_id` field is redacted by the logger). The venue
+router logged `account`, which is a Telegram id for a user; it logs
+`account_tag` now, a per-process salted tag. `/ws/telemetry` no longer accepts
+`?token=` at all: uvicorn and every proxy log the query string, and the same
+token gates other endpoints; a connection that puts one there is closed.
+
+**Recorded, not changed.** `tests/test_one_signal_one_confidence.py::
+TestEveryReaderAsksIt::test_the_reason_for_parsing_raw_is_the_one_measured` fails
+on the tree before these changes and is in no baseline; it is not touched here.
+(`tests/test_swarm.py`, `tests/test_venue_router.py`,
+`tests/test_ops_reads_and_stream_door.py`, `tests/test_telemetry_stream.py`,
+`tests/test_the_logs_hold_no_credential_or_chat_id.py`.)

@@ -420,6 +420,40 @@ def test_the_orderbook_feed_publishes_a_frame_an_unread_frame_and_survives_a_rai
     run(go())
 
 
+def test_a_symbol_past_the_process_cap_is_told_it_is_not_polled_not_left_silent():
+    """Sixteen symbols, a cap of eight: the alphabetically late ones used to get
+    an ack and then nothing, which reads as a quiet book. Each now gets one
+    `read: false` frame that says it was not polled."""
+    async def go():
+        hub = ts.TelemetryHub()
+        names = [f"S{i:02d}/USDT" for i in range(16)]
+        subs = [hub.attach({"orderbook"}, set(names[i:i + 1])) for i in range(16)]
+        polled: list[str] = []
+        good = _signal(components_ok=["book"], spread_bps=1.0, bid_depth_usd=2.0, ask_depth_usd=2.0)
+
+        async def fetch(symbol):
+            polled.append(symbol)
+            return good
+
+        await _feeds(hub, fetch).poll_orderbooks_once()
+        assert polled == names[:ts.MAX_POLLED_SYMBOLS]            # only the cap is read
+        def drain(queue):
+            out = []
+            while not queue.empty():
+                out.append(json.loads(queue.get_nowait()))
+            return out
+
+        by_symbol = {n: drain(sub.queue) for n, sub in zip(names, subs)}
+        for n in names[:ts.MAX_POLLED_SYMBOLS]:
+            (frame,) = by_symbol[n]
+            assert frame["read"] is True and "polled" not in frame
+        for n in names[ts.MAX_POLLED_SYMBOLS:]:
+            (frame,) = by_symbol[n]
+            assert frame["read"] is False and frame["polled"] is False
+            assert frame["reason"] == "over_capacity" and "spread_bps" not in frame
+    run(go())
+
+
 def test_a_hung_venue_read_is_unread_after_its_timeout():
     async def go():
         hub = ts.TelemetryHub()
@@ -559,19 +593,21 @@ def test_no_token_configured_closes_the_socket_and_subscribes_nothing():
 
 def test_a_wrong_token_is_closed_before_anything_is_subscribed():
     async def go():
-        for headers, query in (({"authorization": "Bearer nope"}, {}), ({}, {"token": "nope"})):
-            ws = FakeSocket(headers=headers, query=query)
+        for headers, first in (({"authorization": "Bearer nope"}, None),
+                               ({}, {"op": "auth", "token": "nope"})):
+            ws = FakeSocket(headers=headers)
+            if first:
+                ws.say(first)
             hub = await _session(ws)
             assert ws.closed == (ts.CLOSE_POLICY, "unauthorized")
             assert ws.sent == [] and hub.subscribers == 0
     run(go())
 
 
-def test_the_header_the_query_and_the_first_message_each_authenticate():
+def test_the_header_and_the_first_message_each_authenticate():
     async def go():
         for kwargs, first in (
             ({"headers": {"authorization": f"Bearer {TOKEN}"}}, None),
-            ({"query": {"token": TOKEN}}, None),
             ({}, {"op": "auth", "token": TOKEN}),
         ):
             ws = FakeSocket(**kwargs)
@@ -581,6 +617,28 @@ def test_the_header_the_query_and_the_first_message_each_authenticate():
             ws.hang_up()
             await _session(ws)
             assert _types(ws)[:2] == ["hello", "pong"], (kwargs, ws.sent)
+    run(go())
+
+
+def test_a_token_in_the_url_is_refused_even_when_it_is_the_right_one():
+    """uvicorn's access log and every proxy record the query string of a
+    WebSocket path, and the dashboard token gates other endpoints too. The
+    connection is closed before anything is subscribed, right token or not, and
+    the right token in the URL does not authenticate."""
+    async def go():
+        for query in ({"token": TOKEN}, {"token": "nope"}, {"token": TOKEN, "topics": "risk"}):
+            ws = FakeSocket(headers={"authorization": f"Bearer {TOKEN}"}, query=query)
+            ws.say({"op": "auth", "token": TOKEN})
+            ws.hang_up()                      # a session that was let in ends here
+            hub = await _session(ws)
+            assert ws.closed == (ts.CLOSE_POLICY, "token in url refused"), query
+            assert ws.sent == [] and hub.subscribers == 0
+        # The other arm: the same socket with no token in the URL, and topics
+        # in the query string, still connects.
+        ok = FakeSocket(headers={"authorization": f"Bearer {TOKEN}"}, query={"topics": "risk"})
+        ok.hang_up()
+        await _session(ok)
+        assert _types(ok)[:1] == ["hello"]
     run(go())
 
 

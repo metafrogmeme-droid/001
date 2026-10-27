@@ -203,6 +203,21 @@ def flatten_closed_count(messages: Any) -> int:
     return sum(1 for t in texts if t != NOTHING_TO_CLOSE) - len(failed)
 
 
+#: The venue router's states that leave a flat UNVERIFIED: the venue did not
+#: answer, the read faulted, or the venue has no adapter to ask.
+FLATTEN_UNVERIFIED_STATES = ("unread", "faulted", "not_routed")
+
+
+def flatten_unverified_accounts(accounts: Any) -> list[str]:
+    """Accounts the executor reported flat (`ok`) whose venue was never read
+    back: unread, faulted or not routed. Empty when the router did not run, as
+    no row then carries a `venue_state`. The kill-switch's audit row counts
+    these apart from the verified ones."""
+    return [str(r.get("account", "?")) for r in (accounts or [])
+            if isinstance(r, dict) and r.get("ok")
+            and r.get("venue_state") in FLATTEN_UNVERIFIED_STATES]
+
+
 def flatten_headline(accounts: Any) -> str:
     """The emergency card's one-line count of what is actually flat.
 
