@@ -29958,3 +29958,15 @@ profit factor and trade count beside the return before calling a result an
 edge. Earlier backtests here used `--honest`, which forces the `next_open` fill
 and ignores limit prices, so they measured an all-taker system that live (with
 limit orders on by default) is not.
+
+**A control has to be matched on what you are controlling for.** The random-skip
+control for the maker-order result dropped the share of entries the limit arm
+failed to fill, and the skip arm still took 17% to 25% more positions than the
+limit arm, because a skipped entry frees a slot for a later idea. The limit arm
+beat it by 1.6 points over all folds with an interval above zero, but missed the
+registered bar (alts +0.0 against +1.0, holdout +0.95), and with equal profit
+factor in three of four datasets the residual is plausibly the remaining
+difference in trade count. A skip rate is not a position count: calibrate the
+control to the realised count, or report the count beside the return, which was
+done here, and say that the control was not matched. About 1.0 of the 2.6 points
+the limit arm gained came from skipping alone.
