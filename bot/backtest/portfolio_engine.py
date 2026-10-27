@@ -288,7 +288,7 @@ class PortfolioBacktester:
         # are the sum: the first engine's alone reported one symbol's limits
         # as the whole book's.
         for name in ("_limits_filled", "_limits_filled_same_bar", "_limits_expired",
-                     "_limits_cancelled_drift"):
+                     "_limits_cancelled_drift", "_entries_skipped_random"):
             setattr(first, name, sum(getattr(e, name) for e in self._engines.values()))
         # The card was reading the first symbol's gate counts and printing {}.
         first._rejections_by_gate = merge_rejections_by_gate(self._engines.values())
@@ -491,6 +491,7 @@ async def portfolio_walk_forward(
             "limits": {"filled": res.total_limits_filled,
                        "expired": res.total_limits_expired,
                        "cancelled_drift": res.total_limits_cancelled_drift},
+            "entries_skipped_random": res.total_entries_skipped_random,
             # Full OOS trade objects for pooled attribution across folds. The
             # runner merges these; excluded from any JSON dump (leading "_").
             "_trades": list(res.trades),

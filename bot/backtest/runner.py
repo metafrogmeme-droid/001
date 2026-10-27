@@ -353,6 +353,9 @@ def _limit_realism_kwargs(args: argparse.Namespace) -> dict:
         out["limit_reclaim"] = True
     if getattr(args, "limit_maker_entry", False):
         out["limit_maker_entry"] = True
+    if getattr(args, "entry_skip_p", None) is not None:
+        out["entry_skip_p"] = float(args.entry_skip_p)
+        out["entry_skip_seed"] = int(getattr(args, "entry_skip_seed", 0))
     return out
 
 
@@ -849,6 +852,13 @@ Examples:
     trade_group.add_argument("--limit-maker-entry", action="store_true",
                              help="Charge the maker rate and no slippage on a limit that fills "
                                   "under the realism knobs above.")
+    trade_group.add_argument("--entry-skip-p", type=float, default=None, metavar="P",
+                             help="Measurement control, off unless set: drop this share of "
+                                  "approved entries at random (a hash of symbol, bar and "
+                                  "--entry-skip-seed). The control for whether a fill model "
+                                  "picks better trades or only fewer.")
+    trade_group.add_argument("--entry-skip-seed", type=int, default=0,
+                             help="Seed for --entry-skip-p.")
     trade_group.add_argument("--honest", action="store_true",
                              help="Preset for trustworthy numbers: --strict-data (never silently "
                                   "substitute synthetic) + --fill-mode next_open (conservative "

@@ -123,6 +123,13 @@ class BacktestConfig(BaseModel):
     limit_queue_sure_bp: Optional[float] = None
     limit_maker_entry: bool = False
     limit_reclaim: bool = False
+    # Measurement only, off by default: drop this share of approved entries
+    # before they are queued, by a draw that depends only on the symbol, the bar
+    # and the seed. It is the control for asking whether a fill model (a resting
+    # limit that fills a fraction of its orders) selects better trades or only
+    # fewer: the same share skipped at random, with market fills.
+    entry_skip_p: Optional[float] = None
+    entry_skip_seed: int = 0
     # Auto-reset a tripped circuit breaker after this many bars (0 = never,
     # the default — breaker halts are preserved exactly like live). A
     # drawdown/streak trip normally requires MANUAL reset; in a months-long
@@ -293,6 +300,7 @@ class BacktestResult(BaseModel):
     total_limits_filled_same_bar: int = 0
     total_limits_expired: int = 0
     total_limits_cancelled_drift: int = 0
+    total_entries_skipped_random: int = 0
 
     # Per-gate risk-rejection tally (gate name -> count) so an A/B diff can SEE
     # which gates diverged. `stateful_rejections` sums the path-dependent gates

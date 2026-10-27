@@ -76,3 +76,40 @@ differences against the mis-specified arm were read before this correction
 (`touch` +0.22, `realistic` -0.43 pp over all folds), so they are recorded as a
 first, invalid comparison and carry no weight. The pass rule, the datasets and
 the other two arms are unchanged.
+
+## Addendum 2: is the limit arm better, or just smaller? (written before the control is run)
+
+The first result left one question open: `realistic` beat `market` while taking
+fewer trades at an unchanged profit factor in three of four datasets. A system
+that loses on average improves by trading less, so the control is the `market`
+arm with the same share of entries skipped at random.
+
+**Arm `skip`**: the `market` arm (`LIMIT_ORDERS_ENABLED=0`) with
+`--entry-skip-p P --entry-skip-seed k`, which drops that share of approved
+entries by a hash of the symbol, the bar and the seed (a measurement-only hook,
+off by default, that releases the entry's pending intent as an expired limit
+does). Three seeds, k = 0, 1, 2. `P` is fixed per dataset from the trade counts
+already on file, as 1 minus the ratio of the `realistic` arm's positions to the
+`market` arm's:
+
+| dataset | market positions | realistic positions | P |
+|---|---|---|---|
+| corr_dense_1h | 684 | 495 | 0.276 |
+| majors_1h_v2 | 492 | 241 | 0.510 |
+| majors_1h_v3 | 123 | 116 | 0.057 |
+| alts_1h_v3 | 144 | 80 | 0.444 |
+
+A skip changes which later ideas find a free slot, so the realised position
+count will not equal the target; it is reported beside the target.
+
+**Comparison**: the fold-wise mean over the three seeds is the baseline, and
+`realistic` against it is judged by the same stage 1 rule as before (at least
++1.0 percentage point in each of four datasets; at least +1.0 on the holdout
+with drawdown no worse; interval over calendar folds above zero). Reading:
+
+* **Passes**: the limit entries pick better trades than skipping at random.
+* **Does not pass**: the limit entries act as a trade filter; the earlier pass
+  was fewer trades, not better ones.
+
+`market` against the seed mean is reported too, to show what skipping alone
+does. Nothing else in the registration changes.
