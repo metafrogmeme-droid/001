@@ -35,7 +35,7 @@ STD_SYMBOLS = ",".join(f"{b}/USDT:USDT" for b in (
 # breakdown). Families (mtf_*, of_*, ew_*) are grouped where the harness can
 # mute the whole family by listing its members.
 CURATED = [
-    "rsi", "macd", "ema_ribbon", "adx", "stochastic", "bollinger", "keltner",
+    "rsi", "macd", "ema_ribbon", "adx", "stoch", "bb_pct_b", "squeeze", "keltner",
     "donchian", "mfi", "obv", "candlestick", "chart_patterns", "reversal",
     "volume_profile", "liquidity_sweep", "divergence", "supply_demand",
     "vwap", "vwap_bands", "fibonacci", "mtf_structure", "mtf_bos",
