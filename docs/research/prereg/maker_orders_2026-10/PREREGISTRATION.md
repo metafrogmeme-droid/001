@@ -25,7 +25,7 @@ limits. This test measures that difference.
 
 | arm | entry fills | settings |
 |---|---|---|
-| market | every entry a market order at the next open, taker fee and slippage | `DEFAULT_ORDER_TYPE=market` |
+| market | every entry a market order at the next open, taker fee and slippage | `LIMIT_ORDERS_ENABLED=0` (see Addendum 1) |
 | touch | limits rest from the next bar, fill on a bare touch at the limit, maker fee, no slippage | the `--as-live` default: the optimistic upper bound |
 | realistic | the same limits, but a fill needs 5 bp of trade-through, a 0.5 queue probability for a bare qualification, and a 10 bp trade-through fills for sure | `--limit-through-bp 5 --limit-queue-p 0.5 --limit-queue-sure-bp 10 --limit-maker-entry` |
 
@@ -61,3 +61,18 @@ bound on the chase's effect). A fill inside the signal bar is optimistic about
 the order of events within the bar. Queue position is a probability, not a
 book. Six folds per dataset is small; the interval is over calendar folds.
 Fees are the schedule in `bot/config.py`, not a venue's rebate tier.
+
+## Addendum 1: the `market` arm was mis-specified (written after the first report)
+
+The registration named `DEFAULT_ORDER_TYPE=market` for the all-taker arm. That
+was taken from an exploration report and not checked. It only changes the
+default order type: the analyzer still computes a pullback limit level and sets
+the order type to limit whenever it finds one, so that arm still rested limits
+(its first report showed 1020 limit fills and a 0.48 fill rate) and was not a
+taker baseline. The variable that turns limit entries off is
+`LIMIT_ORDERS_ENABLED=0`. Only the `market` arm was re-run. The `touch` and
+`realistic` arms do not depend on it. The first run's `touch` and `realistic`
+differences against the mis-specified arm were read before this correction
+(`touch` +0.22, `realistic` -0.43 pp over all folds), so they are recorded as a
+first, invalid comparison and carry no weight. The pass rule, the datasets and
+the other two arms are unchanged.

@@ -13,7 +13,7 @@ def test_arms_match_the_registration_and_the_repos_realistic_fill():
     text = (Path(__file__).resolve().parent.parent / "docs" / "research" / "prereg"
             / "maker_orders_2026-10" / "PREREGISTRATION.md").read_text()
     assert set(mt.ARMS) == {"market", "touch", "realistic"}
-    assert mt.ARMS["market"]["env"] == {"DEFAULT_ORDER_TYPE": "market"}
+    assert mt.ARMS["market"]["env"] == {"LIMIT_ORDERS_ENABLED": "0"}
     assert mt.ARMS["touch"] == {"env": {}, "args": []}
     from bot.core.limit_shadow import REALISTIC
     args = mt.ARMS["realistic"]["args"]
@@ -21,7 +21,7 @@ def test_arms_match_the_registration_and_the_repos_realistic_fill():
     assert float(args[args.index("--limit-queue-p") + 1]) == REALISTIC.queue_p
     assert args[args.index("--limit-queue-sure-bp") + 1] == str(int(REALISTIC.queue_sure_bp))
     for token in ("--limit-through-bp 5", "--limit-queue-p 0.5", "--limit-queue-sure-bp 10",
-                  "DEFAULT_ORDER_TYPE=market"):
+                  "LIMIT_ORDERS_ENABLED=0"):
         assert token in text
 
 
@@ -33,3 +33,12 @@ def test_lifecycle_sums_every_fold_and_a_run_with_no_limits_has_no_fill_rate():
     assert (lc["trades"], lc["ideas"], lc["filled"], lc["expired"]) == (22, 37, 10, 3)
     assert lc["fill_rate"] == 10 / 14
     assert mt.lifecycle([{"folds": [{"trades": 3, "ideas": 4}]}])["fill_rate"] is None
+
+
+def test_the_market_arm_turns_the_analyzers_limit_entries_off_not_just_their_default_type():
+    """DEFAULT_ORDER_TYPE=market still left limit entries on: the analyzer sets
+    order_type to limit whenever it finds a pullback level, so the arm that was
+    meant to be all-taker reported a 0.48 limit fill rate."""
+    src = (Path(__file__).resolve().parent.parent / "bot" / "core" / "analyzer.py").read_text()
+    assert 'if CONFIG.limit_orders.enabled else "market"' in src
+    assert "DEFAULT_ORDER_TYPE" not in mt.ARMS["market"]["env"]

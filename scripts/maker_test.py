@@ -26,7 +26,7 @@ import risk_sweep as rs  # noqa: E402
 
 BASE = "market"
 ARMS: dict[str, dict] = {
-    "market": {"env": {"DEFAULT_ORDER_TYPE": "market"}, "args": []},
+    "market": {"env": {"LIMIT_ORDERS_ENABLED": "0"}, "args": []},
     "touch": {"env": {}, "args": []},
     "realistic": {"env": {}, "args": [
         "--limit-through-bp", "5", "--limit-queue-p", "0.5",
