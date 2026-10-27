@@ -3670,7 +3670,13 @@ class RuneClawEngine:
         `account_risk_overview`". This is that door.
         """
         rows: list[dict] = []
-        for ex in self._all_live_executors():
+        executors = self._all_live_executors()
+        # One concurrent ask of every venue, before the per-account reads:
+        # `{}` unless VENUE_ROUTER_ENABLED, and then each row below carries its
+        # own venue's answer under `venue_*` keys.
+        from bot.core.venue_router import executor_key, router_reads
+        venue_reads = await router_reads(executors, CONFIG, full=True)
+        for ex in executors:
             uid = getattr(ex, "user_id", None)
             row = {
                 "account": str(uid or "operator"), "user_id": uid,
@@ -3746,6 +3752,8 @@ class RuneClawEngine:
             except Exception as exc:
                 row["error"] = str(exc)
                 logger.warning("Account overview: %s failed: %s", row["account"], exc)
+            if venue_reads:
+                row.update(venue_reads.get(executor_key(ex), {}))
             rows.append(row)
         return rows
 
@@ -3761,7 +3769,8 @@ class RuneClawEngine:
         results: list[dict] = []
         if not CONFIG.is_live():
             return results
-        for ex in self._all_live_executors():
+        executors = self._all_live_executors()
+        for ex in executors:
             label = getattr(ex, "user_id", None) or "operator"
             try:
                 msgs = await ex.close_all_positions(reason=reason)
@@ -3775,6 +3784,22 @@ class RuneClawEngine:
             from bot.formatters.drift_offer import flatten_account_ok
             results.append({"account": str(label), "messages": list(msgs),
                             "ok": flatten_account_ok(list(msgs))})
+        # ADDITIVE: ask each account's venue what it holds now. The executor's
+        # "closed" is its own book's word; this is the venue's. A venue that
+        # still holds a position makes the account NOT ok; one that did not
+        # answer leaves `ok` as the executor said it and is marked unread, so
+        # the card never prints it as verified flat. `{}` when the router is
+        # off, and then no row gains a key.
+        from bot.core.venue_router import VERDICT_OPEN, executor_key, router_reads
+        reads = await router_reads(executors, CONFIG, flatten_reason=reason)
+        if reads:
+            for ex, row in zip(executors, results):
+                extra = reads.get(executor_key(ex))
+                if extra is None:
+                    continue
+                row.update(extra)
+                if extra.get("venue_state") == VERDICT_OPEN:
+                    row["ok"] = False
         return results
 
     async def emergency_halt_all(self, reason: str = "emergency") -> dict:

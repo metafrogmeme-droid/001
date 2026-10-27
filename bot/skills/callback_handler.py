@@ -52,6 +52,7 @@ from bot.core.trade_costs import entry_rate_pct, exit_rate_pct, fee_usd
 from bot.formatters.drift_offer import (
     atr_from_ohlcv,
     flatten_headline,
+    flatten_venue_note,
     paper_close_price,
     reanalyzed_idea,
     render_reanalyzed_offer,
@@ -835,6 +836,9 @@ class CallbackHandler:
                 for acct in summary["accounts"]:
                     parts.append(f"\n<b>{acct['account']}:</b>")
                     parts.extend(f"• {m[:100]}" for m in acct["messages"][:10])
+                    venue_note = flatten_venue_note(acct)
+                    if venue_note:
+                        parts.append(f"\n↳ {venue_note[:160]}")
                 close_summary = "\n\n<b>Position closes:</b>" + "".join(parts)
 
             await self._send(update,

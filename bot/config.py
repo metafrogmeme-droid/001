@@ -2736,6 +2736,23 @@ class AppConfig:
     multi_venue_trading_enabled: bool = _env_bool("MULTI_VENUE_TRADING_ENABLED", False)
     multi_venue_trading_mode: str = os.getenv("MULTI_VENUE_TRADING_MODE", "shadow").strip().lower()
 
+    # Venue router (bot/core/venue_router.py). When on, `/closeall` and
+    # `/accounts` ask every account's venue what it holds, concurrently and
+    # with a per-venue timeout, after the executors have done their own work:
+    # a venue that does not answer is reported UNREAD, never flat. Default
+    # off: both commands read exactly what they read before. It sends nothing.
+    venue_router_enabled: bool = _env_bool("VENUE_ROUTER_ENABLED", False)
+    # How long the router waits on one venue before calling it unread.
+    venue_router_timeout_s: float = _env_float_bounded(
+        "VENUE_ROUTER_TIMEOUT_S", 8.0, 1.0, 60.0)
+    # Meaningful ONLY with VENUE_ROUTER_ENABLED on. When a flatten leaves a
+    # position the venue still holds (one the executor had no record of), send
+    # a reduce-only close for it through the router's adapter. Default off:
+    # a flatten closes the executor's own book and the router only reports.
+    # Hyperliquid mainnet is never closed here (the server does not sign it)
+    # and OKX is never closed (its order path has not been driven).
+    venue_router_close_residual: bool = _env_bool("VENUE_ROUTER_CLOSE_RESIDUAL", False)
+
     # Paper auto-accept: a new Telegram user is admitted for PAPER trading on
     # first contact instead of waiting for an operator's /approve. The Arena is
     # designed as a zero-friction on-ramp and a manual gate in front of virtual

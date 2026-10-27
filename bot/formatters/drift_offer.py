@@ -219,4 +219,25 @@ def flatten_headline(accounts: Any) -> str:
     if failed:
         line += (f" — ⚠️ closes FAILED on {', '.join(failed)}; exposure may "
                  f"remain, check /positions and the exchange")
+    # The venue router's read-back (VENUE_ROUTER_ENABLED), when it ran. An
+    # account whose venue did not answer is counted above as the executor
+    # reported it, and said here as NOT verified: unread is never flat.
+    unverified = [str(r.get("account", "?")) for r in rows
+                  if r.get("ok") and r.get("venue_state") in ("unread", "faulted")]
+    if unverified:
+        line += (f" — ⚠️ the venue could not be read back for "
+                 f"{', '.join(unverified)}; flat is NOT verified there")
     return line
+
+
+def flatten_venue_note(account: Any) -> Optional[str]:
+    """The venue router's one sentence for a flatten row, or None.
+
+    None when the router did not run (the row carries no ``venue_note``), so a
+    caller prints nothing extra by default. The sentence is the router's own
+    (``VenueOutcome.describe``), built from a venue id and an exception class.
+    """
+    if not isinstance(account, dict):
+        return None
+    note = account.get("venue_note")
+    return str(note) if note else None
