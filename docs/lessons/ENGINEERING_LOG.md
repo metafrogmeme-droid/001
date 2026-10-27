@@ -29819,3 +29819,73 @@ chain id into the script contract as an argument and compares it with
 would have overridden `block.chainid` in the simulation while the broadcast
 still signed for the endpoint's real chain, turning the new check into a
 tautology. The flag is named in a comment so nobody adds it later.
+
+## A VOTER THAT MUTED NOTHING READ AS DEAD WEIGHT, AND THE SAME A/B GAVE OPPOSITE VERDICTS ON TWO METRICS
+
+27 October 2026. The four new layers merged (PR #736), then a follow-up asked
+whether the voter de-correlation pass, and the confluence voters in general,
+earn their weight. The figures below are from the frozen `benchmark/`
+datasets, 6-fold walk-forward, `--honest`, breaker reset 24, run offline on
+27 October 2026 at the commit that merged #736 and the two commits after it
+(PR #737). They are re-derivable with `bot.backtest.runner --dataset ...
+--walk-forward 6 --trades-out`, and they are not restated live anywhere.
+
+**Local green was the touched files, and CI is the neighbours.** The first
+push of #736 failed nine tests that no touched suite ran, in five shapes:
+engine methods called on a hand-written stand-in that binds the real
+`stop` and `reset_circuit_breaker_all` but not the new swarm methods; a
+whole-tree rule that the engine writes its pending book only through the
+registration, which a new ticket door broke; a rule that the startup refit is
+the first awaited call of `run`; a comment scanner that read a comment
+naming one flag's default beside a read of another; and the committed
+scorecards, which a new default-on pass changed. Each had a fix that cost a
+line. The habit stands, and it is the one CLAUDE.md already states: run the
+full gate before pushing, or at least every test file that imports a module
+you touched.
+
+**A pass that moves the committed scorecards is not default-on.** The voter
+de-correlation was first gated by the family-cap flag, which is default on, so
+the offline scorecards (one 1500-bar window went from 32 to 26 trades)
+stopped being the rerun of their own rules. It now has its own flag, off, and
+needs the family cap as well. Its threshold (0.70) and weight floor (0.25)
+were never measured when it was written, which is the reason to ship it dark.
+
+**An ablation mutes by label, and a label that matches nothing mutes
+nothing.** `scripts/voter_ablation.py` listed `bollinger` and `stochastic`;
+the analyzer's labels are `bb_pct_b` and `stoch`, and `squeeze` was never
+listed. Muting an unknown name is a no-op, so those runs reproduced the
+baseline to the trade and the voters read as "dead weight". Eighteen
+voters showed exactly zero effect in the first pass; two were this
+mismatch, and the rest never fire in offline data (the order-flow voters need
+a snapshot, `mfi` and the SMC voters sit behind flags). Zero effect is not a
+finding about a voter until a run shows it voting. A test now checks every
+listed name against the bot's source. The same reading applies to the
+ablation's own verdict text: "dead weight" needs "and it cast votes".
+
+**One A/B, two metrics, opposite verdicts.** On mean out-of-sample return per
+fold, dropping `vwap` or `adx` looked helpful on both baskets tried first
+(about +0.7pp, +1.1pp). On per-trade net percent, paired by (symbol,
+direction, entry time) and bootstrapped over folds, dropping `vwap` lowers
+expectancy in both a discovery group and a held-out group, and `adx` changes
+sign between them. The equity figure carries sizing, the circuit breaker and
+which trades happened to be taken, so six folds of it is noise: the pooled
+de-correlation effect over 42 folds was +0.03pp with a 95% interval of about
+plus or minus 0.4pp. The per-trade figure has its own trap: a sum of trade
+percents rewards fewer trades whenever the average trade loses, so compare
+expectancy per trade, never the sum. State the metric next to every verdict,
+and when two sound metrics disagree the finding is that nothing is
+established.
+
+**Discovery and holdout, decided before the run.** The seven frozen baskets
+were split into three to find leads and four to confirm them. A lead that
+flips sign between the groups (`adx`) is a different basket, not a different
+voter. Only `ew_corrective` was positive on both, with intervals that include
+zero; it is a lead, not a change.
+
+**An average that is positive while the dollar total is negative is a
+sizing question.** Pooled over the seven baskets, per-trade net percent of
+position size was positive while the portfolio profit factors were below one.
+That fits larger positions losing more, which is a hypothesis here and not
+a measurement. The saved rows carry a position's size as a ratio to
+the run's median (`size_rel`), never in dollars, so the question can be asked
+without putting a private figure in a file.
