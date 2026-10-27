@@ -35,3 +35,11 @@ def test_a_fold_with_no_trades_adds_no_rows_and_the_flag_is_optional():
     args = build_parser().parse_args([])
     assert args.trades_out is None
     assert build_parser().parse_args(["--trades-out", "x.json"]).trades_out == "x.json"
+
+
+def test_size_is_a_ratio_to_the_runs_median_never_a_dollar_amount():
+    rows = trade_rows([{"_trades": [_t(size=500.0), _t(size=1000.0, hours=1),
+                                    _t(size=2000.0, hours=2)]}])
+    assert [r["size_rel"] for r in rows] == [0.5, 1.0, 2.0]
+    assert not any("usd" in k for r in rows for k in r)
+    assert trade_rows([{"_trades": [_t(size=None)]}])[0]["size_rel"] is None

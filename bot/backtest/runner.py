@@ -503,6 +503,9 @@ def trade_rows(folds: list[dict]) -> list[dict]:
     shared. `net_pnl_pct` is None when the position carries no size to divide
     by: an unreadable return is not a 0% one.
     """
+    sizes = sorted(s for f in folds for t in f.get("_trades", [])
+                   if (s := getattr(t, "size_usd", None)) is not None and s > 0)
+    median = sizes[len(sizes) // 2] if sizes else None
     rows: list[dict] = []
     for idx, fold in enumerate(folds):
         for t in fold.get("_trades", []):
@@ -514,6 +517,10 @@ def trade_rows(folds: list[dict]) -> list[dict]:
                 "direction": t.direction,
                 "entry_time": t.entry_time.isoformat(),
                 "exit_time": t.exit_time.isoformat(),
+                # Position size over the run's median size: a ratio, so the
+                # file stays dollar-free. None without a size or a median.
+                "size_rel": (size / median
+                             if size is not None and size > 0 and median else None),
                 "net_pnl_pct": (net / size * 100.0
                                 if size is not None and net is not None and size > 0
                                 else None),
