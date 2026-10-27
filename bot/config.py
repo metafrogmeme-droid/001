@@ -2297,6 +2297,19 @@ class ConfluenceConfig:
     # family_cap_enabled is on.
     pattern_weight_cap: float = _env_float_bounded(
         "CONFLUENCE_PATTERN_WEIGHT_CAP", 2.5, 0.1, 100.0)
+    # MEASURED voter de-correlation (bot/core/voter_correlation.py). The family
+    # caps above are hand-written lists; this one reads the recent per-voter
+    # vote history and scales back the LATER of any two actively-voting voters
+    # whose votes have a pairwise Pearson |rho| above this threshold and agree
+    # again on this bar (RSI/OBV, MACD/VWAP ...). Reduce-only; a pair whose
+    # correlation cannot be measured (short, constant or missing history) is
+    # never penalised. Applies only when family_cap_enabled is on.
+    #
+    # This is a VOTER-level setting, deliberately separate from the risk
+    # engine's MAX_CORRELATION (0.85, a cross-position gate): changing one
+    # must not move the other.
+    voter_max_correlation: float = _env_float_bounded(
+        "CONFLUENCE_VOTER_MAX_CORRELATION", 0.70, 0.05, 0.99)
 
 
 @dataclass(frozen=True)
