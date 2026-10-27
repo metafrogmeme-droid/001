@@ -89,6 +89,7 @@ test('the route is authenticated and does not sign', () => {
   assert.match(src, /flag_on_for|accessFor/);
   assert.doesNotMatch(src, /signTransaction|sendRawTransaction|new Wallet\(|eth_sendRawTransaction/);
   assert.doesNotMatch(src, /chainId\s*[:=]\s*177\b/);
+  assert.doesNotMatch(src, /spawnSync/);
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(server, /\/api\/hashkey-seal/);
 });
@@ -174,6 +175,121 @@ test('an unreadable chain read is not reported as not anchored', async () => {
     assert.notEqual(got.body.anchored, false);
   } finally {
     delete process.env.HASHKEY_SEAL_ENABLED;
+    route.setRunnerForTests(null);
+    await close(server);
+  }
+});
+
+test('the parent waits longer than the child\'s own deadline', () => {
+  assert.equal(route.childDeadlineSec({}), route.DEFAULT_CHILD_DEADLINE_SEC);
+  assert.equal(route.childDeadlineSec({ HASHKEY_SEAL_DEADLINE_SEC: '9' }), 9);
+  assert.equal(route.childDeadlineSec({ HASHKEY_SEAL_DEADLINE_SEC: 'soon' }), null);
+  assert.equal(route.childDeadlineSec({ HASHKEY_SEAL_DEADLINE_SEC: '-1' }), null);
+  assert.ok(route.parentTimeoutMs({}) > route.DEFAULT_CHILD_DEADLINE_SEC * 1000);
+  assert.ok(route.parentTimeoutMs({ HASHKEY_SEAL_DEADLINE_SEC: '30' }) > 30000);
+  assert.ok(route.parentTimeoutMs({ HASHKEY_SEAL_DEADLINE_SEC: 'soon' }) > route.DEFAULT_CHILD_DEADLINE_SEC * 1000);
+});
+
+test('a child that times out, crashes, or prints garbage is unknown on a publish and unreadable on a read', async () => {
+  process.env.HASHKEY_SEAL_ENABLED = '1';
+  const server = await listen(app());
+  const reported = '0x' + 'ab'.repeat(32);
+  const runs = [
+    { status: null, signal: 'SIGTERM', timedOut: true, stdout: '', stderr: `tx_hash=${reported} nonce=3 sender=0x1\n`, expectReason: 'timed_out', expectHash: reported },
+    { status: 1, stdout: '', stderr: 'RuntimeError\n', expectReason: 'child_failed', expectHash: null },
+    { status: 0, stdout: 'not json\n', expectReason: 'child_failed', expectHash: null },
+    { status: 0, stdout: '[]\n', expectReason: 'child_failed', expectHash: null },
+    { status: 0, stdout: '', expectReason: 'child_failed', expectHash: null },
+  ];
+  try {
+    for (const run of runs) {
+      route.setRunnerForTests(() => run);
+      const got = await hit(server, '/api/hashkey-seal?hash=' + HASH, { bearer: adminToken });
+      assert.equal(got.status, 503);
+      assert.equal(got.body.readable, false);
+      assert.equal(got.body.anchored, null);
+      assert.ok(!('signed' in got.body), 'a read never signs, and says nothing about it');
+      const posted = await hit(server, '/api/hashkey-seal/anchor', {
+        bearer: adminToken, method: 'POST', body: { hash: HASH, kind: KIND },
+      });
+      assert.equal(posted.status, 503);
+      assert.equal(posted.body.reason, run.expectReason);
+      assert.equal(posted.body.signed, null);
+      assert.equal(posted.body.broadcast, null);
+      assert.equal(posted.body.anchored, null);
+      assert.equal(posted.body.readable, null);
+      assert.equal(posted.body.tx_hash, run.expectHash);
+      assert.notEqual(posted.body.signed, false);
+      assert.notEqual(posted.body.broadcast, false);
+    }
+    route.setRunnerForTests(() => Promise.resolve({ status: 0, stdout: JSON.stringify({ ok: true, signed: true, broadcast: true, anchored: true, reason: null }) + '\n' }));
+    const awaited = await hit(server, '/api/hashkey-seal/anchor', {
+      bearer: adminToken, method: 'POST', body: { hash: HASH, kind: KIND },
+    });
+    assert.equal(awaited.status, 200, 'a runner that returns a promise is awaited');
+  } finally {
+    delete process.env.HASHKEY_SEAL_ENABLED;
+    route.setRunnerForTests(null);
+    await close(server);
+  }
+});
+
+test('an unread reason is 503 on a publish too, and a submitted publish is 202', async () => {
+  process.env.HASHKEY_SEAL_ENABLED = '1';
+  const server = await listen(app());
+  const tx = '0x' + 'cd'.repeat(32);
+  try {
+    for (const reason of ['rpc_unreadable', 'chain_unreadable', 'result_unreadable']) {
+      route.setRunnerForTests(scripted({ ok: false, signed: false, broadcast: false, reason, anchored: null }));
+      const posted = await hit(server, '/api/hashkey-seal/anchor', {
+        bearer: adminToken, method: 'POST', body: { hash: HASH, kind: KIND },
+      });
+      assert.equal(posted.status, 503, reason);
+      assert.equal(posted.body.anchored, null);
+      const read = await hit(server, '/api/hashkey-seal?hash=' + HASH, { bearer: adminToken });
+      assert.equal(read.status, 503, reason);
+    }
+    for (const reason of ['submitted', 'send_unconfirmed', 'hash_mismatch', 'receipt_unreadable']) {
+      route.setRunnerForTests(scripted({ ok: null, signed: true, broadcast: reason === 'submitted' ? true : null, reason, tx_hash: tx, anchored: null }));
+      const posted = await hit(server, '/api/hashkey-seal/anchor', {
+        bearer: adminToken, method: 'POST', body: { hash: HASH, kind: KIND },
+      });
+      assert.equal(posted.status, 202, reason);
+      assert.equal(posted.body.ok, null);
+      assert.equal(posted.body.tx_hash, tx);
+    }
+    route.setRunnerForTests(scripted({ ok: false, signed: true, broadcast: true, reason: 'reverted', tx_hash: tx, anchored: false }));
+    const reverted = await hit(server, '/api/hashkey-seal/anchor', {
+      bearer: adminToken, method: 'POST', body: { hash: HASH, kind: KIND },
+    });
+    assert.equal(reverted.status, 200);
+    assert.equal(reverted.body.ok, false);
+    assert.equal(reverted.body.reason, 'reverted');
+  } finally {
+    delete process.env.HASHKEY_SEAL_ENABLED;
+    route.setRunnerForTests(null);
+    await close(server);
+  }
+});
+
+test('the route adds nothing from its own environment to a publish body', async () => {
+  process.env.HASHKEY_SEAL_ENABLED = '1';
+  process.env.HASHKEY_SEAL_SIGNER_KEY = 'ab'.repeat(32);
+  process.env.HASHKEY_SEAL_RPC_URL = 'https://rpc.example/secret-path';
+  const server = await listen(app());
+  try {
+    route.setRunnerForTests(scripted({ ok: true, signed: true, broadcast: true, reason: null, tx_hash: '0x' + 'cd'.repeat(32), anchored: true }));
+    const posted = await hit(server, '/api/hashkey-seal/anchor', {
+      bearer: adminToken, method: 'POST', body: { hash: HASH, kind: KIND },
+    });
+    assert.equal(posted.status, 200);
+    const text = JSON.stringify(posted.body);
+    assert.doesNotMatch(text, /ab{32}|secret-path|HASHKEY_SEAL_SIGNER_KEY/);
+    assert.deepEqual(Object.keys(posted.body).sort(), ['anchored', 'banner', 'broadcast', 'ok', 'preview', 'reason', 'signed', 'tx_hash']);
+  } finally {
+    delete process.env.HASHKEY_SEAL_ENABLED;
+    delete process.env.HASHKEY_SEAL_SIGNER_KEY;
+    delete process.env.HASHKEY_SEAL_RPC_URL;
     route.setRunnerForTests(null);
     await close(server);
   }

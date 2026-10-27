@@ -29592,3 +29592,48 @@ the four groups that already count. Avalanche runs Snowman, so it does not
 join `ethereum-l2`. It is the fifth. The measured cost of one anchor that
 day was 25669 gas at 2.5 gwei, about 0.000064 AVAX, paid by the wallet. The
 server pays nothing.
+
+## A STAND-IN SIGNER ACCEPTED WHAT THE REAL ONE REFUSED, AND A HASH-ONLY REGISTRY GAVE THE FIRST PUBLISHER THE LAST WORD
+
+26 October 2026. The HashKey seal anchor (PR #718) was audited the day after
+it landed. The contract was sound for its purpose: no path holds or moves
+value, no upgradeability, the allowlist held under fuzzing and an invariant
+suite. The two findings that mattered were off-chain and in the design.
+
+**The stand-in forgot the next attribute.** The publisher's tests inject a
+wallet that records what it is handed and returns a fixed raw transaction.
+The real `eth-account` validates `to` as a checksum address or raw bytes,
+and the publisher lowercases every address it reads. So every test passed,
+with an all-digit fixture address, while the real signer raised `TypeError`
+for any address containing a letter, and the route turned that into a 503.
+The publisher could not broadcast to a real contract at all. The fix hands
+the address to the library as bytes at the one seam the library sees, and
+turns the library's refusal into its own reason (`signer_rejected`, a
+third word beside "not installed" and "signed"). The test now drives the
+real signer when it is importable. The habit stands: a hand-written
+stand-in forgets the next attribute; prefer the real object at the seam.
+
+**A hash-only registry.** The duplicate check was keyed by hash alone and
+the sender and kind lived only in the event. Whichever allowlisted key
+anchored a hash first fixed its attribution forever, revoking that key did
+not free the hash, and after renounce nothing could. The contract now
+stores the publisher and the kind beside the hash and exposes `anchorOf`,
+ownership moves in two steps, the first owner is emitted at construction,
+and the doc says what renounce does to a hot key. The contract was not
+deployed anywhere, so the ABI could still change; this is the moment to
+decide such things, and the audit is in `HashKey Seal: Fable 5.1 audit`.
+
+**Three values after signing, too.** A send whose answer was lost was
+reported as "rejected"; a reverted transaction as "ok"; a child killed by
+the route's timeout as "signed: false, broadcast: false". The publisher now
+computes the transaction hash itself before sending and writes it to
+stderr, polls for the receipt inside one deadline the parent waits beyond,
+and answers `ok` true, false or null with a reason for each. The route
+runs the child off the event loop and answers 202 for "not yet answered".
+
+**`--chain` is not a guard.** The deploy script now passes the expected
+chain id into the script contract as an argument and compares it with
+`block.chainid`. A verifier found that adding `--chain` to the forge argv
+would have overridden `block.chainid` in the simulation while the broadcast
+still signed for the endpoint's real chain, turning the new check into a
+tautology. The flag is named in a comment so nobody adds it later.

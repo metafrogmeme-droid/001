@@ -1,17 +1,22 @@
 {
   "source": "https://docs.hskchain.net/docs/Build-on-HashKey-Chain/network-info",
   "also": "https://docs.hskchain.net/docs/Developer-QuickStart",
-  "checked": "2026-10-25",
+  "rpc_checked": {
+    "date": "2026-10-25",
+    "method": "eth_chainId",
+    "testnet_answered": "0x85",
+    "mainnet_answered": "0xb1"
+  },
+  "explorer_checked": null,
+  "explorer_note": "Hosts as printed on the network page. No check in this repository has reached them. The ethereum-lists registry prints hsk.blockscout.com for 177 and testnet-explorer.hskchain.net for 133. A verify run that succeeds is what records explorer_checked.",
   "testnet": {
     "chain_id": 133,
-    "chain_id_hex": "0x85",
     "rpc": "https://testnet.hsk.xyz",
     "explorer": "https://testnet-explorer.hsk.xyz",
     "explorer_api": "https://testnet-explorer.hsk.xyz/api"
   },
   "mainnet": {
     "chain_id": 177,
-    "chain_id_hex": "0xb1",
     "rpc": "https://mainnet.hsk.xyz",
     "explorer": "https://hashkey.blockscout.com",
     "explorer_api": "https://hashkey.blockscout.com/api"

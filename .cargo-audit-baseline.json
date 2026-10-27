@@ -1,6 +1,6 @@
 {
   "_comment": "Known RustSec advisories in Cargo.lock, recorded deliberately. This is a RATCHET floor, not an approval: every entry is an outstanding advisory. 'shipped' means the crate is reachable through non-dev dependencies of the program and therefore belongs to its real supply chain; the rest are test-harness only. Regenerate with `python3 scripts/cargo_audit_gate.py --update` only after reviewing the delta.",
-  "recorded": "2026-10-20",
+  "recorded": "2026-10-27",
   "advisories": {
     "RUSTSEC-2022-0093": {
       "crate": "ed25519-dalek",
@@ -10,21 +10,9 @@
     },
     "RUSTSEC-2024-0344": {
       "crate": "curve25519-dalek",
-      "version": "3.2.1",
+      "version": "3.2.0",
       "title": "Timing variability in `curve25519-dalek`'s `Scalar29::sub`/`Scalar52::sub`",
       "shipped": true
-    },
-    "RUSTSEC-2025-0009": {
-      "crate": "ring",
-      "version": "0.16.20",
-      "title": "Some AES functions may panic when overflow checking is enabled.",
-      "shipped": false
-    },
-    "RUSTSEC-2026-0037": {
-      "crate": "quinn-proto",
-      "version": "0.10.6",
-      "title": "Denial of service in Quinn endpoints",
-      "shipped": false
     },
     "RUSTSEC-2026-0098": {
       "crate": "rustls-webpki",
@@ -44,34 +32,10 @@
       "title": "Reachable panic in certificate revocation list parsing",
       "shipped": false
     },
-    "RUSTSEC-2026-0185": {
-      "crate": "quinn-proto",
-      "version": "0.10.6",
-      "title": "Remote memory exhaustion in quinn-proto from unbounded out-of-order stream reassembly",
-      "shipped": false
-    },
     "RUSTSEC-2026-0258": {
       "crate": "h2",
       "version": "0.3.27",
       "title": "h2 unbounded empty DATA frames",
-      "shipped": false
-    },
-    "RUSTSEC-2026-0338": {
-      "crate": "quinn-proto",
-      "version": "0.10.6",
-      "title": "Remote peer can panic quinn-proto with zero-length STREAM frames during unordered reads",
-      "shipped": false
-    },
-    "RUSTSEC-2026-0339": {
-      "crate": "quinn-proto",
-      "version": "0.10.6",
-      "title": "Unbounded growth of pending connection ID retirements in quinn-proto",
-      "shipped": false
-    },
-    "RUSTSEC-2026-0342": {
-      "crate": "quinn-proto",
-      "version": "0.10.6",
-      "title": "Zero-length DATAGRAM frames bypass the receive buffer limit in quinn-proto",
       "shipped": false
     },
     "RUSTSEC-2026-0346": {
@@ -96,6 +60,24 @@
       "crate": "rustls-webpki",
       "version": "0.101.7",
       "title": "Certificate verification may accept distrusted intermediates",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0391": {
+      "crate": "zstd",
+      "version": "0.13.3",
+      "title": "Data from an abandoned stream leaks into the next stream on a reused context",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0398": {
+      "crate": "zstd-safe",
+      "version": "7.3.0",
+      "title": "`Seekable::decompress` sets a `Vec` length beyond its capacity for offsets past the end",
+      "shipped": false
+    },
+    "RUSTSEC-2026-0403": {
+      "crate": "zstd-safe",
+      "version": "7.3.0",
+      "title": "Uninitialized memory exposed when streaming decompression of a legacy frame fails",
       "shipped": false
     }
   }
