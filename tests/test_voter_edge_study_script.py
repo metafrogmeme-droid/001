@@ -24,14 +24,20 @@ def _file(tmp_path, name, calls, unc=0.0):
     return str(path)
 
 
-def test_a_short_vote_is_scored_on_the_negated_move_and_drift_is_removed(tmp_path):
-    calls = [({"x": -1.0}, {1: -0.5}), ({"x": 1.0}, {1: 0.5})]
-    f = _file(tmp_path, "a.json", calls, unc=0.1)
+def _total(tmp_path, calls, unc):
+    f = _file(tmp_path, "a.json", calls, unc=unc)
     s = ves.excess_sums(f, "discovery", datetime(2027, 1, 1, tzinfo=timezone.utc).timestamp())
-    tot = sum(v[0] for v in s["x"][1].values())
-    n = sum(v[1] for v in s["x"][1].values())
-    # short: +0.5 - (-0.1) = 0.6 ; long: 0.5 - 0.1 = 0.4
-    assert n == 2 and abs(tot - 1.0) < 1e-9
+    return sum(v[0] for v in s["x"][1].values()), sum(v[1] for v in s["x"][1].values())
+
+
+def test_a_long_vote_loses_the_long_drift(tmp_path):
+    tot, n = _total(tmp_path, [({"x": 1.0}, {1: 0.5})] * 2, unc=0.1)
+    assert n == 2 and abs(tot - 0.8) < 1e-9          # 2 x (0.5 - 0.1); no drift would give 1.0
+
+
+def test_a_short_vote_is_scored_on_the_negated_move_against_the_short_drift(tmp_path):
+    tot, n = _total(tmp_path, [({"x": -1.0}, {1: -0.5})] * 2, unc=0.1)
+    assert n == 2 and abs(tot - 1.2) < 1e-9          # 2 x (0.5 - (-0.1)); not negated would give -1.0
 
 
 def test_the_windows_split_on_the_cut(tmp_path):
