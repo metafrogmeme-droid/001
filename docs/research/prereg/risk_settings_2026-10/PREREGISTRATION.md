@@ -12,7 +12,7 @@ move with luck, not with the setup. The question is whether any single setting
 change improves out-of-sample results on frozen data, without overfitting a
 large grid to six calendar folds.
 
-## Arms: one change at a time, fixed here, ten of them
+## Arms: one change at a time, fixed here, twelve of them (see Addendum 1)
 
 | id | change (env vars read at import) | mechanism tested |
 |---|---|---|
@@ -26,6 +26,8 @@ large grid to six calendar folds.
 | open_3 | MAX_OPEN_POSITIONS=3 | less concurrent exposure |
 | streak_3 | MAX_CONSECUTIVE_LOSSES=3 | earlier loss-streak halt |
 | regime_off | REGIME_SIZING_ENABLED=0 | remove regime size scaling |
+| fee_gate_3 | FEE_AWARE_ENTRY_GATE_ENABLED=1, FEE_AWARE_MIN_MULTIPLE=3 | skip entries whose take-profit is under 3x the round-trip cost |
+| fee_gate_6 | FEE_AWARE_ENTRY_GATE_ENABLED=1, FEE_AWARE_MIN_MULTIPLE=6 | the same at 6x, which binds on calm tight-stop trades |
 
 Baseline is the code defaults. Every run uses `--honest --breaker-reset-bars 24
 --walk-forward 6` and the runner's honest costs and leverage, so arms differ
@@ -54,7 +56,7 @@ arm's fold return minus the baseline's.
    above zero, resampling calendar fold positions (so datasets covering the
    same dates move together).
 
-Ten arms and four sign conditions would pass by luck about once in two
+Twelve arms and four sign conditions would pass by luck about once in two
 attempts on signs alone, which is why the rule asks for a size, a drawdown
 condition and an interval.
 
@@ -71,3 +73,14 @@ repeated with the per-trade comparison and an explicit decision by the owner.
 Six calendar folds per dataset is small. Fold returns are equity returns and
 carry sizing and breaker effects. Several settings interact (Kelly with the risk budget and the caps), and one-at-a-time arms cannot see interactions.
 Results describe one crypto regime sample.
+
+## Addendum 1 (written before any stage 1 result was seen)
+
+Two arms were added, `fee_gate_3` and `fee_gate_6`, after reading the code of
+the existing fee-aware entry gate. The sizing finding says the largest
+positions are tight-stop calm-market trades, where a fixed round-trip cost is
+a large share of the risk; the gate rejects an entry whose take-profit is under
+a multiple of the round-trip cost, which is that mechanism stated as a rule.
+It was off by default and not in the original list. At the moment of writing
+the stage 1 runs were in progress and no result file had been read. The family
+is twelve arms, and the pass rule is unchanged.

@@ -40,6 +40,8 @@ ARMS: dict[str, dict[str, str]] = {
     "open_3": {"MAX_OPEN_POSITIONS": "3"},
     "streak_3": {"MAX_CONSECUTIVE_LOSSES": "3"},
     "regime_off": {"REGIME_SIZING_ENABLED": "0"},
+    "fee_gate_3": {"FEE_AWARE_ENTRY_GATE_ENABLED": "1", "FEE_AWARE_MIN_MULTIPLE": "3"},
+    "fee_gate_6": {"FEE_AWARE_ENTRY_GATE_ENABLED": "1", "FEE_AWARE_MIN_MULTIPLE": "6"},
 }
 BASELINE = "baseline"
 STAGE1 = (("corr_dense_1h", "discovery"), ("majors_1h_v2", "discovery"),

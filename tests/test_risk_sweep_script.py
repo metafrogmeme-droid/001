@@ -61,10 +61,10 @@ def test_a_missing_measurement_is_nan_and_never_a_pass():
     assert np.isnan(j["holdout_mean"]) and j["passed"] is False
 
 
-def test_the_arm_list_is_ten_and_matches_the_registration():
+def test_the_arm_list_is_twelve_and_matches_the_registration():
     text = (Path(__file__).resolve().parent.parent / "docs" / "research" / "prereg"
             / "risk_settings_2026-10" / "PREREGISTRATION.md").read_text()
-    assert len(rs.ARMS) == 10
+    assert len(rs.ARMS) == 12
     for arm, env in rs.ARMS.items():
         assert f"| {arm} |" in text
         for key in env:
