@@ -42,3 +42,26 @@ def test_the_market_arm_turns_the_analyzers_limit_entries_off_not_just_their_def
     src = (Path(__file__).resolve().parent.parent / "bot" / "core" / "analyzer.py").read_text()
     assert 'if CONFIG.limit_orders.enabled else "market"' in src
     assert "DEFAULT_ORDER_TYPE" not in mt.ARMS["market"]["env"]
+
+
+def test_skip_arms_use_the_registered_rates_and_three_seeds():
+    text = (Path(__file__).resolve().parent.parent / "docs" / "research" / "prereg"
+            / "maker_orders_2026-10" / "PREREGISTRATION.md").read_text()
+    for ds, p in mt.SKIP_P.items():
+        assert f"| {ds} |" in text and f"| {p:.3f} |" in text, (ds, p)
+    assert mt.SKIP_ARMS == ("skip_s0", "skip_s1", "skip_s2")
+    spec = mt.arm_spec("skip_s2", "majors_1h_v2")
+    assert spec["env"] == {"LIMIT_ORDERS_ENABLED": "0"}
+    assert spec["args"] == ["--entry-skip-p", "0.51", "--entry-skip-seed", "2"]
+    assert mt.arm_spec("realistic", "alts_1h_v3") == mt.ARMS["realistic"]
+
+
+def test_average_runs_is_the_foldwise_mean():
+    def f(k, r, dd, n):
+        return {"fold": k, "oos_start": "a", "oos_end": "b",
+                "return_pct": r, "max_dd_pct": dd, "trades": n}
+
+    avg = mt.average_runs([{"folds": [f(0, -2.0, 4.0, 10), f(1, 1.0, 2.0, 6)]},
+                           {"folds": [f(0, -4.0, 6.0, 20), f(1, 3.0, 4.0, 8)]}])
+    assert [(x["fold"], x["return_pct"], x["max_dd_pct"], x["trades"]) for x in avg["folds"]] == [
+        (0, -3.0, 5.0, 15.0), (1, 2.0, 3.0, 7.0)]
