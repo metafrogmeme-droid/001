@@ -64,9 +64,11 @@ test('every row leaves its own decoy alone', () => {
   }
 });
 
-test('the table is the nine rows the bot renders, in its order', () => {
+test('the table is the rows the bot renders, in its order', () => {
   assert.deepEqual(ROWS.map((r) => r.name), [
     'telegram_bot_token', 'bearer_token', 'provider_key', 'jwt', 'discord_webhook',
+    'telegram_chat_id_label', 'telegram_supergroup_id', 'telegram_private_link',
+    'telegram_chat_repr', 'telegram_chat_dict',
     'named_key_value', 'prose_key_label', 'env_name_value', 'secret_query_param',
   ]);
 });

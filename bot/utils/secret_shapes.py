@@ -57,6 +57,18 @@ kind of message that prints the URL it was fetching, and no other row sees it
 (no `=`, no `Bearer`, no prefix). The row keeps the host and the hook's id, so a
 failure still says which hook it was, and takes the token.
 
+THE TELEGRAM CHAT-ID ROWS (27 October 2026). A chat id is not a credential, but
+it is an identifier of a person (the anonymous Daily Duel bot stores a salted hash
+instead of one for exactly that reason), and nothing scrubbed it: a send that
+failed logged `chat_id=123456789`, an unhandled handler error logged the update's
+repr (`Chat(first_name=…, id=123456789, …)`, `'chat': {'id': 123456789, …}`), and
+a forwarded-to-a-channel failure printed the supergroup id (`-100` and ten digits).
+Five rows cover the shapes a log line actually carries; each keeps its label so a
+failure still says WHICH field it was, and each needs five or more digits so a
+status word, a small test id and a negative percentage are left alone. The
+structured side, where the id is an int under a `chat_id` key and no string row
+sees it, is `CHAT_ID_KEY_RE`, read by `logger._redact_dict`.
+
 Order matters and is the order of `SHAPES`: token-shaped patterns first, because
 they carry no `key=value` the next family could see; the `key=value` families
 next; query parameters last.
@@ -144,6 +156,39 @@ DISCORD_WEBHOOK_RE = re.compile(
     r"(https?://(?:(?:canary|ptb)\.)?discord(?:app)?\.com/api(?:/v\d+)?/webhooks/\d+/)[A-Za-z0-9_-]{20,}"
 )
 
+#: `chat_id=123456789`, `chat id: -1001234567890`, `telegram_id=…`, `tg-id: …`: the
+#: label and a signed integer of five to fifteen digits. A label with no digits
+#: after it (`chat_id=required`) and a short number (`chat id: 42`) are left alone.
+CHAT_ID_LABEL_RE = re.compile(
+    r"\b((?:chat|telegram|tg)[_\s-]?id)\s*[=:]\s*['\"]?-?\d{5,15}\b",
+    re.IGNORECASE,
+)
+
+#: A bare supergroup / channel id: `-100` and nine to twelve more digits. The
+#: `\B` means "not glued to a word", so `BTC-1001234567890` and `1-1001234567890`
+#: are left alone and `-100.5%` is not long enough to be one.
+TELEGRAM_SUPERGROUP_ID_RE = re.compile(r"\B-100\d{9,12}\b")
+
+#: A private channel's message link, `https://t.me/c/<channel id>/<message>`. The
+#: channel id is the credential-adjacent part; a public `t.me/<name>` link is not.
+TELEGRAM_PRIVATE_LINK_RE = re.compile(r"(https?://t\.me/c/)\d{6,}")
+
+#: python-telegram-bot's `repr(Chat)`, which is what an unhandled handler error
+#: prints: `Chat(first_name='A', id=123456789, type=<ChatType.PRIVATE>)`.
+TELEGRAM_CHAT_REPR_RE = re.compile(r"(\bChat\([^)\n]{0,200}?\bid=)-?\d{5,15}")
+
+#: The same chat as a dict, in a printed `Update` or a JSON body:
+#: `'chat': {'id': 123456789, 'type': 'private'}`.
+TELEGRAM_CHAT_DICT_RE = re.compile(
+    r"(\bchat['\"]?\s*:\s*\{\s*['\"]id['\"]\s*:\s*)-?\d{5,15}",
+    re.IGNORECASE,
+)
+
+#: A structured KEY that names a chat id (`chat_id`, `admin_chat_id`, `telegramId`,
+#: `chat_ids`). `logger._redact_dict` reads it: an id that is an int under such a
+#: key has no string for the rows above to match.
+CHAT_ID_KEY_RE = re.compile(r"(?:chat|telegram|tg)[_-]?ids?(?![a-z])", re.IGNORECASE)
+
 #: `key=value` / `key: value` under a credential word. The logger's original
 #: shape, unchanged: seven words, a value of four or more characters, the
 #: separator normalised to `=` on output (tests pin `api_key=***REDACTED***`).
@@ -199,6 +244,21 @@ SHAPES: tuple[Shape, ...] = (
     Shape("discord_webhook", DISCORD_WEBHOOK_RE, r"\1" + REDACTED,
           "post failed: https://discord.com/api/webhooks/123456789012345678/tokentokentokentokentokentokentokentoken",
           "join us at https://discord.gg/runeclaw or https://discord.com/channels/1/2"),
+    Shape("telegram_chat_id_label", CHAT_ID_LABEL_RE, r"\1=" + REDACTED,
+          "send failed: chat_id=123456789 retrying in 5s",
+          "chat_id=required, chat id: 42 and telegram_id not set"),
+    Shape("telegram_supergroup_id", TELEGRAM_SUPERGROUP_ID_RE, REDACTED,
+          "forward to -1001234567890 failed: bot was kicked",
+          "drawdown -100.5% on BTC-1001234567890 and 1-1001234567890"),
+    Shape("telegram_private_link", TELEGRAM_PRIVATE_LINK_RE, r"\1" + REDACTED,
+          "see https://t.me/c/1234567890/55 for the thread",
+          "join https://t.me/runeclaw or https://t.me/c/ and https://t.me/c/12"),
+    Shape("telegram_chat_repr", TELEGRAM_CHAT_REPR_RE, r"\1" + REDACTED,
+          "handler error on Chat(first_name='A', id=123456789, type=<ChatType.PRIVATE>)",
+          "Chat(id=42) and Chat(type='private') and Chat(first_name='A', id=required)"),
+    Shape("telegram_chat_dict", TELEGRAM_CHAT_DICT_RE, r"\1" + REDACTED,
+          "update {'message': {'chat': {'id': 123456789, 'type': 'private'}}}",
+          "chat: {'id': 42} and a chat room {'id': 123456789} with no chat label"),
     Shape("named_key_value", INLINE_SECRET_RE, r"\1=" + REDACTED,
           "auth failed: api_key=sk-abcdefghijklmnopqrs",
           "token: BTC"),
@@ -311,6 +371,12 @@ __all__ = [
     "TELEGRAM_BOT_TOKEN_RE",
     "URL_QUERY_RE",
     "INLINE_SECRET_RE",
+    "CHAT_ID_KEY_RE",
+    "CHAT_ID_LABEL_RE",
+    "TELEGRAM_SUPERGROUP_ID_RE",
+    "TELEGRAM_PRIVATE_LINK_RE",
+    "TELEGRAM_CHAT_REPR_RE",
+    "TELEGRAM_CHAT_DICT_RE",
     "looks_like_credential",
     "scrub_secrets",
     "drop_url_queries",

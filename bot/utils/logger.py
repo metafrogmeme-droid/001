@@ -23,7 +23,7 @@ from bot.compat import UTC
 from pathlib import Path
 from typing import Any
 
-from bot.utils.secret_shapes import INLINE_SECRET_RE, REDACTED, scrub_secrets
+from bot.utils.secret_shapes import CHAT_ID_KEY_RE, INLINE_SECRET_RE, REDACTED, scrub_secrets
 
 
 LOG_DIR = Path("logs")
@@ -57,6 +57,10 @@ def _redact_dict(obj: Any, depth: int = 0) -> Any:
         cleaned: dict[str, Any] = {}
         for k, v in obj.items():
             if isinstance(k, str) and _SENSITIVE_KEY_RE.search(k):
+                cleaned[k] = _REDACTED
+            elif isinstance(k, str) and CHAT_ID_KEY_RE.search(k) and v is not None:
+                # An int under `chat_id` has no string for a shape row to match.
+                # An ABSENT id is not an identifier, so None keeps its meaning.
                 cleaned[k] = _REDACTED
             else:
                 cleaned[k] = _redact_dict(v, depth + 1)

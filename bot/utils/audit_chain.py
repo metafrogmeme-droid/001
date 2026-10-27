@@ -245,6 +245,12 @@ class AuditChain:
         self._entries_since_sign = 0
         self._auto_sign_interval = 50  # F-12 FIX: auto-sign every N entries
 
+    @property
+    def path(self) -> Path:
+        """The log file, for a READER that verifies it (`AuditChain.verify`
+        takes a path). Read-only: nothing re-points a chain at another file."""
+        return self._path
+
     # -- public API -----------------------------------------------------------
 
     def append(

@@ -29643,3 +29643,87 @@ makes a critical alert a halt, and only when the flag is on.
 baseline lost the file's one `get-default-zero` hit, and ruff's I001 count fell.
 (`tests/test_swarm.py`, `tests/test_core.py::TestSwarmProtocol`.)
 
+
+## THE TELEMETRY DOORS: A GAUGE IS A CLAIM, A SOCKET IS A SURFACE, AND A CHAT ID IS A PERSON
+
+Four things were asked for and the repo already held three of their premises
+wrong: there was no server-side WebSocket anywhere, `api_bridge.py` is at the
+repository root and is NOT the bot (its engine is a detached reader of the bot's
+state), and `/metrics` is `dashboard_server._render_prometheus`, a hand-rolled
+exposition with no client library. Each was built on what exists.
+
+**Three metric families, each omitted when unmeasured.** Scan latency reads
+`RuneClawEngine._phase_durations["scan"]` and the heartbeat stamp; there is no
+histogram because the engine keeps the last and the peak, not the samples, and
+buckets derived from two numbers would be a distribution nobody observed. A scan
+that timed out recorded its CAP as its duration, which is a floor, so the
+last-run gauge is left out for it and `runeclaw_scan_last_timed_out` says why.
+Risk rejections are labelled by gate from `RiskEngine.gate_stats()`: the label is
+escaped and the set capped, and a rejection that fails several gates counts under
+each, so the sum over gates can exceed the total (the help text says so). The
+swarm's worker count is absent when no swarm is attached, because "no swarm" is
+not "zero workers".
+
+**The stream tails the bot's risk log, not this process's engine.** The bridge's
+`engine.risk` counts evaluations THIS process ran, which describe nothing the bot
+did, so risk alerts come from `logs/risk.jsonl` (`action=risk_check`,
+`result=REJECTED`, plus WARNING-or-worse lines) read from the end of the file.
+The reason text is never forwarded: it carries amounts. An unreadable log is
+announced as `source_unreadable` and `source_recovered`, never as a quiet stretch.
+Orderbook frames are ratios and basis points gated on the signal's own
+`components_ok`: `OrderFlowSignal` defaults its numbers to 0.0, so a spread from a
+book nobody answered would have been a 0 bps spread.
+
+**Four things the tests caught in the first draft.**
+(1) The dollar-key net matched `balance` and so removed `book_imbalance`, the
+stream's headline field; `imbalance` is excluded by name now.
+(2) On Python 3.11 `asyncio.wait_for` swallows an outer cancel when its inner call
+completes in the same tick, so the session's writer survived its own cancellation
+and blocked on an empty queue for ever. Every bounded await in the new code is
+`asyncio.timeout`.
+(3) `TelemetryHub.__len__` made an empty hub falsy, and `hub or TelemetryHub()`
+quietly built a second one; it is a `subscribers` property now.
+(4) `subscribe`, `unsubscribe` and `shutdown` are method names other classes
+share, and the methods ratchet counts a name it cannot resolve: the hub's are
+`attach`, `detach` and `stop_all`, so the count stays at 53.
+
+**Auth and bounds.** The socket takes the dashboard token from the Authorization
+header, a first `{"op":"auth"}` message, or `?token=` (last resort: a proxy logs
+the URL), compared as bytes with `hmac.compare_digest` so a non-ASCII probe is a
+mismatch and not a TypeError. Nothing is subscribed, queued or polled before it
+matches. Each connection has a bounded queue; a full queue or a send that outlasts
+five seconds closes THAT connection with 1013 and no other notices. Inbound
+messages are bounded in size and rate. Every frame is dollar-free (a key or
+string naming an amount is dropped, not zeroed), then `scrub_secrets`, then
+checked to be JSON and under 4 KiB.
+
+**The three read routes.** `/parity` is a whitelist over `parity_summary`, whose
+net, gross, fees and notional are dollars and whose verdict sentence prints the
+mean net per trade; a key the summary grows tomorrow does not reach the route. A
+closed-trade file that exists and will not parse is a 503 `unreadable`, where
+`load_closed_trades` returns `[]` for it by design. `/attestation` derives the
+audit-attestation PUBLIC key from the seed on disk without creating one when none
+exists, and re-derives the audit chain (cached on size and mtime, bounded in
+size); the chain's start and linking are unchanged. `/redteam` runs
+`scripts/red_team.py --json` in a child with credential-named variables removed
+from its environment, because run in this process the red team would write thirty
+synthetic rejections into the risk log the stream tails as the bot's alerts. It is
+cached, one run at a time, and a run that could not complete is a 503, not a pass.
+
+**Chat ids.** Five rows in `secret_shapes.py` (a labelled id, a bare `-100…`
+supergroup id, a `t.me/c/` link, `repr(Chat)`, a printed `'chat': {'id': …}`), each
+with its example and decoy, and `CHAT_ID_KEY_RE` read by `logger._redact_dict`
+because an int under `chat_id` has no string for a row to match. The test plants
+credentials and ids in every way a call can carry them, through the real
+`trade_log`, `risk_log` and `system_log` formatter, and greps the bytes written;
+a control run with the rows removed shows the same grep finding the ids.
+
+**Recorded, not changed.** The logger's hash chain still restarts at `GENESIS`
+for each process. The streams are served by `uvicorn` on the loopback-bound
+bridge; nginx is not given a WebSocket upgrade, so a browser reaches them only
+where the operator adds one. None of the socket behaviour was exercised under real
+network load or behind a proxy.
+(`tests/test_telemetry_metrics.py`, `tests/test_telemetry_stream.py`,
+`tests/test_ops_reads_and_stream_door.py`,
+`tests/test_the_logs_hold_no_credential_or_chat_id.py`,
+`tests/test_one_secret_vocabulary.py`.)
