@@ -29882,10 +29882,27 @@ flips sign between the groups (`adx`) is a different basket, not a different
 voter. Only `ew_corrective` was positive on both, with intervals that include
 zero; it is a lead, not a change.
 
-**An average that is positive while the dollar total is negative is a
-sizing question.** Pooled over the seven baskets, per-trade net percent of
-position size was positive while the portfolio profit factors were below one.
-That fits larger positions losing more, which is a hypothesis here and not
-a measurement. The saved rows carry a position's size as a ratio to
-the run's median (`size_rel`), never in dollars, so the question can be asked
-without putting a private figure in a file.
+**An average that is positive while the dollar total is negative was a sizing
+question, and it is answered.** Pooled over the seven baskets (3181 positions,
+dates overlapping, so the count overstates what is independent), per-trade net
+percent of position size correlates -0.30 with the position's size relative to
+the run's median (`size_rel`, a ratio, so the rows stay dollar-free). Split by
+date, the discovery window (`corr_dense_1h` and `majors_1h_v2`, before
+2026-05-22) gives -0.27 and the holdout (`majors_1h_v3`, from 2026-07-06) gives
+-0.29. On the holdout, using the discovery tercile cuts, the largest third of
+positions averaged -0.31% per trade, the middle +0.15% and the smallest third
++1.49%. Weighted by size the holdout average is -0.06%, equal-weighted +0.37%.
+Capping the size weight at 0.5 to 1.0 times the median improves the weighted
+result monotonically on both windows. The mechanism is in the code, not
+measured here: size is Kelly risk over stop distance, so the large positions
+are the tight-stop calm-market ones, where a fixed round-trip cost is a large
+share of the risk, and Kelly's record-based fraction grows after a winning
+stretch on a win rate that does not persist. The pre-registered risk sweep
+(`docs/research/prereg/risk_settings_2026-10/`) tests the levers one at a time.
+
+**The voters the first ablation could not see.** With the labels corrected,
+dropping `bb_pct_b` lowers per-trade expectancy by 0.088 points (95% interval
+-0.173 to -0.013, resampling dataset-folds, which treats overlapping baskets as
+independent and so is narrower than it should be), `stoch` by 0.068 (interval
+includes zero) and `squeeze` by 0.008 (nothing). Bollinger %B looks like it
+carries edge; the other two are not established.
