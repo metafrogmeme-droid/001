@@ -484,6 +484,13 @@ async def portfolio_walk_forward(
             # folds whose `trades` is non-zero.
             "sharpe": res.sharpe_ratio,
             "per_symbol": dict(pb.per_symbol),
+            # How many ideas became positions: ideas the strategy generated,
+            # and what became of the limits among them. A fold's return says
+            # nothing about the signals a resting limit never filled.
+            "ideas": res.total_ideas_generated,
+            "limits": {"filled": res.total_limits_filled,
+                       "expired": res.total_limits_expired,
+                       "cancelled_drift": res.total_limits_cancelled_drift},
             # Full OOS trade objects for pooled attribution across folds. The
             # runner merges these; excluded from any JSON dump (leading "_").
             "_trades": list(res.trades),
