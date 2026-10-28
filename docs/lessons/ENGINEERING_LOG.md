@@ -29984,3 +29984,15 @@ the arm that would separate them charges the taker rate on the limit fills.
 Position count is a noisy function of a skip rate (the path moves when a freed
 slot is filled by a later idea), so a calibration to within 5% is a calibration
 of one seed; report the counts of every seed beside the return, which was done.
+
+**Isolate a cost by holding the fills fixed.** The count-matched control left a
++1.17 point residual that "looked like cost". A measurement-only flag charging
+the same limit fills the taker commission and entry slippage turned that into a
+number: the maker entry saves +0.70 points per fold (interval +0.33 to +1.03,
+positive in all four datasets), and what is left for the fill selection is +0.47
+(interval -0.23 to +1.15, failing the registered rule). Under taker costs the
+limit fills have a lower profit factor and win rate than a matched random skip
+in three of four datasets, which is adverse selection showing: the saving is
+real and the selection is no better, and may be worse. The way to attribute a
+gain to a cost is an arm that differs from its comparator in the cost and
+nothing else, not an argument from equal profit factors.
