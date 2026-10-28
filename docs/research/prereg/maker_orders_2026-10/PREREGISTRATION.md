@@ -144,3 +144,37 @@ same stage 1 rule as before. Realised counts are reported beside the target.
   explained by trading less.
 
 Nothing else in the registration changes.
+
+## Addendum 4: separating the cost saving from the fill selection (written before it is run)
+
+The count-matched control left a gain of about +1.2 points over all folds at
+equal position count, with the same or lower profit factor, and two readings:
+the limit fills pick better trades, or the maker entry simply costs less than
+the taker control's market entry. This arm separates them.
+
+**Arm `realistic_taker`**: the `realistic` arm with `--limit-fills-pay-taker`.
+The fills, the limit prices and the exits are the same; each filled limit is
+charged the taker commission and the entry slippage a market entry pays,
+instead of the maker rate with no slippage (a measurement-only
+`BacktestConfig.limit_fills_pay_taker`, off by default). It runs on the four
+stage 1 datasets.
+
+**Two comparisons**, both by the stage 1 rule's quantities (paired fold return
+difference, per dataset, holdout, interval over calendar folds):
+
+1. **Cost saving**: `realistic` minus `realistic_taker`. The fills are the same,
+   so this is what the maker rate and the absent slippage are worth. A positive
+   interval means the maker entry saves cost.
+2. **Selection at equal cost**: `realistic_taker` minus the count-matched skip
+   control (`skipm`, market entries at the taker cost and the calibrated count).
+   Both pay taker costs; both take about the same number of positions. A pass by
+   the stage 1 rule (at least +1.0 in each dataset and on the holdout, with the
+   holdout drawdown no worse, interval above zero) means the limit fills pick
+   better trades. A fail means they do not, and the +1.2 residual in the
+   count-matched control is the cost saving.
+
+`realised position counts of the new arm are reported beside the realistic arm's,
+because taker slippage on the entry moves sizing and exits and can shift the
+count.
+
+Nothing else in the registration changes.
