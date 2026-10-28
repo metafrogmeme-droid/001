@@ -73,17 +73,25 @@ def _months(first: tuple[int, int], last: date) -> list[tuple[int, int]]:
 
 
 def _get_zip(url: str) -> bytes | None:
+    import time
+
     import requests  # local import: the study itself needs no network
 
-    for attempt in range(4):
-        resp = requests.get(url, timeout=60)
+    status: Any = "no response"
+    for attempt in range(6):
+        try:
+            resp = requests.get(url, timeout=60)
+        except requests.RequestException as exc:  # transient TLS/connection errors are retried, never skipped
+            status = type(exc).__name__
+            time.sleep(2 * (attempt + 1))
+            continue
         if resp.status_code == 200:
             return resp.content
         if resp.status_code == 404:
             return None
-        import time
+        status = resp.status_code
         time.sleep(2 * (attempt + 1))
-    raise CannotCheck(f"{url} HTTP {resp.status_code}")
+    raise CannotCheck(f"{url} {status}")
 
 
 def parse_funding(text: str) -> dict[date, tuple[float, int]]:
@@ -123,7 +131,26 @@ def _fetch_coin(coin: str) -> tuple[dict[date, tuple[float, int]], dict[date, fl
         if z is not None:
             with zipfile.ZipFile(io.BytesIO(z)) as zf:
                 perp.update(parse_klines(zf.read(zf.namelist()[0]).decode()))
+    fill_perp_gaps(coin, perp)
     return fund, perp
+
+
+def fill_perp_gaps(coin: str, perp: dict[date, float]) -> list[date]:
+    """Addendum 1: a day missing INSIDE a coin's monthly perp klines is read from the venue's own daily file
+    for that day (same source, same field). A day still missing after that stays missing (CANNOT CHECK at load)."""
+    if not perp:
+        return []
+    got = []
+    d = min(perp)
+    while d < max(perp):
+        if d not in perp:
+            z = _get_zip(f"{BASE.replace('monthly', 'daily')}/klines/{coin}USDT/1d/{coin}USDT-1d-{d.isoformat()}.zip")
+            if z is not None:
+                with zipfile.ZipFile(io.BytesIO(z)) as zf:
+                    perp.update({k: v for k, v in parse_klines(zf.read(zf.namelist()[0]).decode()).items() if k == d})
+                got.append(d)
+        d += timedelta(days=1)
+    return got
 
 
 def cmd_fetch(outdir: Path) -> None:

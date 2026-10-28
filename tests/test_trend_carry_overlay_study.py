@@ -183,6 +183,7 @@ def test_run_study_reports_every_config_and_bars_on_a_synthetic_universe(monkeyp
     monkeypatch.setattr(tc, "DEV_END", D0 + timedelta(days=449))
     monkeypatch.setattr(tc, "HOLD_START", D0 + timedelta(days=450))
     s = _series(n=700)
+    s["BTC"] = s.pop("C0")
     aux = {}
     for nm, (ds, o, c) in s.items():
         aux[nm] = ({d: 0.0003 for d in ds}, {d: float(v) for d, v in zip(ds, o)})
@@ -191,3 +192,28 @@ def test_run_study_reports_every_config_and_bars_on_a_synthetic_universe(monkeyp
     assert set(res["tests"]) == set(tc.CONFIGS)
     t = res["tests"]["TC"]
     assert {"dev", "holdout", "bars", "passes", "btc_holdout"} <= set(t)
+
+
+def test_a_day_missing_inside_the_monthly_file_is_read_from_the_daily_file_only(monkeypatch):
+    import io
+    import zipfile
+
+    def fake_zip(url):
+        if "/daily/" in url and url.endswith("2022-02-27.zip"):
+            buf = io.BytesIO()
+            ms = int(datetime(2022, 2, 27, tzinfo=timezone.utc).timestamp() * 1000)
+            with zipfile.ZipFile(buf, "w") as zf:
+                zf.writestr("x.csv", f"{ms},5.5,6,5,5.6,1,0\n")
+            return buf.getvalue()
+        return None
+    monkeypatch.setattr(tc, "_get_zip", fake_zip)
+    perp = {date(2022, 2, 25): 1.0, date(2022, 2, 28): 2.0}
+    got = tc.fill_perp_gaps("X", perp)
+    assert got == [date(2022, 2, 27)] and perp[date(2022, 2, 27)] == 5.5
+    assert date(2022, 2, 26) not in perp  # still missing: never interpolated
+    with pytest.raises(tc.CannotCheck):
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        (d / "funding_X.csv").write_text("date,sum,n\n2022-02-25,0.0001,3\n")
+        (d / "perp_X.csv").write_text("date,open\n" + "\n".join(f"{k},{v}" for k, v in sorted(perp.items())) + "\n")
+        tc.load_aux(d, "X")
