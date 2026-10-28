@@ -113,3 +113,66 @@ filter, and it is not clearly better either.
 * A matched-count control (skipping until the realised count equals the limit
   arm's, per dataset) would remove the confound. It was not registered and was
   not run.
+
+## Addendum 3 result: the count-matched control (28 October 2026)
+
+`scripts/maker_test.py calibrate`, then `run --matched` and `report --control
+--matched`. Calibration read position counts only. Three seeds at each
+calibrated rate; the fold-wise mean is the baseline.
+
+| dataset | calibrated P | target | calibration run | seed counts | mean count |
+|---|---|---|---|---|---|
+| corr_dense_1h | 0.567 | 495 | 513 | 513, 502, 510 | 508 |
+| majors_1h_v2 | 0.699 | 241 | 235 | 235, 222, 225 | 227 |
+| majors_1h_v3 | 0.034 | 116 | 114 | 114, 132, 134 | 127 |
+| alts_1h_v3 | 0.580 | 80 | 66 (not matched, closest of 6) | 66, 93, 97 | 85 |
+
+| comparison (paired fold return, pp) | corr_dense | majors_v2 | majors_v3 | alts_v3 | holdout | all folds, 95% interval | verdict |
+|---|---|---|---|---|---|---|---|
+| realistic vs matched skip | +1.75 | +1.17 | +1.99 | -0.14 | +0.92 | +1.17 [+0.45, +1.95] | **fail** |
+| market vs matched skip | -1.43 | -3.52 | +0.06 | -1.22 | -0.58 | -1.44 [-2.36, -0.58] | not scored |
+
+The registered rule needed +1.0 in each dataset and +1.0 on the holdout.
+`alts_1h_v3` is -0.14 and the holdout is +0.92, so the rule fails.
+
+| dataset | arm | positions | profit factor | win rate | mean OOS return | mean max drawdown |
+|---|---|---|---|---|---|---|
+| corr_dense_1h | matched skip | 508 | 0.55 | 41.0% | -6.35% | 7.45% |
+| corr_dense_1h | realistic | 495 | 0.56 | 38.6% | -4.83% | 5.30% |
+| majors_1h_v2 | matched skip | 227 | 0.50 | 38.4% | -3.42% | 4.41% |
+| majors_1h_v2 | realistic | 241 | 0.53 | 37.8% | -2.64% | 3.42% |
+| majors_1h_v3 | matched skip | 127 | 0.48 | 36.5% | -1.84% | 2.37% |
+| majors_1h_v3 | realistic | 116 | 1.07 | 50.9% | +0.15% | 1.27% |
+| alts_1h_v3 | matched skip | 85 | 0.71 | 43.3% | -0.66% | 1.60% |
+| alts_1h_v3 | realistic | 80 | 0.57 | 37.5% | -0.80% | 1.29% |
+
+## Reading it
+
+* **At equal position count the limit entries still gain about 1.2 points** over
+  all folds, with an interval above zero. So the first answer, that the gain was
+  fewer trades, was incomplete: the count-matched control removes most of the
+  trade-count effect (the market-versus-skip gap is now -1.44, the filter
+  effect) and a positive residual remains.
+* **It is not better picking.** The profit factor is the same or lower than the
+  control's in three of four datasets (0.55 against 0.56, 0.50 against 0.53,
+  0.71 against 0.57 in reverse, on `alts_1h_v3`), and win rates are no higher.
+  A return gain at equal quality and equal count is what a lower cost per trade
+  looks like: the maker entry saves the entry fee and the entry slippage the
+  taker control pays (about 0.09 points of notional per round trip in these
+  runs). That is a plausible explanation and it was not isolated by an arm that
+  charges the taker fee on the limit fills.
+* **Only `majors_1h_v3` moves in quality** (profit factor 0.48 to 1.07, win rate
+  36.5% to 50.9%), on 116 positions in one dataset.
+* **Not matched on `alts_1h_v3`:** the calibration stopped at 66 positions
+  against a target of 80 (the control then ran 66, 93 and 97 across seeds).
+  Position count turned out to be a noisy function of the skip rate (on
+  `corr_dense_1h` a higher rate gave more positions at one step), so a 5% match
+  is partly luck of the path. The mean count of 85 is close to the target.
+* **The registered verdict is fail.** The residual is real in the data and is
+  smaller than the bar and not shown to be selection.
+
+## What was not tested
+
+An arm with the same limit fills charged the taker fee and slippage, which would
+isolate the cost saving from the fill selection; maker take-profit exits; the
+drift-to-market chase live uses; more than three seeds.

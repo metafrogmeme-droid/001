@@ -29970,3 +29970,17 @@ difference in trade count. A skip rate is not a position count: calibrate the
 control to the realised count, or report the count beside the return, which was
 done here, and say that the control was not matched. About 1.0 of the 2.6 points
 the limit arm gained came from skipping alone.
+
+**Matching the control moved the answer from "it is a filter" to "it is mostly a
+cost saving".** A skip control calibrated to the realised position count
+(508, 227, 127 and 85 against 495, 241, 116 and 80) left the limit arm +1.17
+points ahead over all folds with an interval above zero, below the registered
+bar, at the same or lower profit factor in three of four datasets. The first
+control, which took 17% to 25% more positions than the limit arm, had made the
+limit arm look like a filter plus something; matched, it looks like the same
+trade quality at lower cost per trade, the maker entry's saved fee and
+slippage. Both readings were stated before the result and neither was isolated:
+the arm that would separate them charges the taker rate on the limit fills.
+Position count is a noisy function of a skip rate (the path moves when a freed
+slot is filled by a later idea), so a calibration to within 5% is a calibration
+of one seed; report the counts of every seed beside the return, which was done.
