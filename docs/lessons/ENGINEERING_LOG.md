@@ -29935,3 +29935,38 @@ of tight-stop trades explained the size-outcome correlation, were tested and not
 supported; the log's earlier sentence stating them as a mechanism was corrected
 in the sizing paragraph. Registering two arms after reading the code but
 before any result, and saying so in an addendum, is the honest way to add one.
+
+**A baseline arm is a claim, and the code decides what it is.** The maker-order
+test (`docs/research/prereg/maker_orders_2026-10/`) named
+`DEFAULT_ORDER_TYPE=market` for its all-taker arm, from an exploration report
+that was not checked. That setting only changes the default type; the analyzer
+still computes a pullback limit level and sets the order type to limit whenever
+it finds one, so the arm kept resting limits (1020 limit fills) and the first
+comparison, +0.22 and -0.43 points, was between two limit systems. The first
+report's own limit counts gave it away. The variable that disables limit
+entries is `LIMIT_ORDERS_ENABLED=0`; the arm was re-run and the correction
+written into the registration as an addendum. Read the counters a run prints
+before reading its return.
+
+**A pass can be a filter.** With the baseline right, realistic limit entries
+beat all-market entries by 2.6 points over all folds, with each dataset above
+one point, a holdout gain and no worse drawdown, which is the registered rule.
+They took 932 positions to the market's 1443 at an unchanged profit factor in
+three of four datasets. A system that loses on average improves by trading
+less, so the pass was made of fewer trades and not of better ones. Look at
+profit factor and trade count beside the return before calling a result an
+edge. Earlier backtests here used `--honest`, which forces the `next_open` fill
+and ignores limit prices, so they measured an all-taker system that live (with
+limit orders on by default) is not.
+
+**A control has to be matched on what you are controlling for.** The random-skip
+control for the maker-order result dropped the share of entries the limit arm
+failed to fill, and the skip arm still took 17% to 25% more positions than the
+limit arm, because a skipped entry frees a slot for a later idea. The limit arm
+beat it by 1.6 points over all folds with an interval above zero, but missed the
+registered bar (alts +0.0 against +1.0, holdout +0.95), and with equal profit
+factor in three of four datasets the residual is plausibly the remaining
+difference in trade count. A skip rate is not a position count: calibrate the
+control to the realised count, or report the count beside the return, which was
+done here, and say that the control was not matched. About 1.0 of the 2.6 points
+the limit arm gained came from skipping alone.

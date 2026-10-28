@@ -339,6 +339,26 @@ async def _load_bars(args: argparse.Namespace, config) -> tuple[list, bool, str]
         return bars, True, "synthetic_fallback"
 
 
+def _limit_realism_kwargs(args: argparse.Namespace) -> dict:
+    """BacktestConfig kwargs for resting-limit realism. Empty unless a flag is
+    set, so spreading it into a config is a no-op for a normal run."""
+    out: dict = {}
+    for flag, field in (("limit_through_bp", "limit_through_bp"),
+                        ("limit_queue_p", "limit_queue_p"),
+                        ("limit_queue_sure_bp", "limit_queue_sure_bp")):
+        value = getattr(args, flag, None)
+        if value is not None:
+            out[field] = float(value)
+    if getattr(args, "limit_reclaim", False):
+        out["limit_reclaim"] = True
+    if getattr(args, "limit_maker_entry", False):
+        out["limit_maker_entry"] = True
+    if getattr(args, "entry_skip_p", None) is not None:
+        out["entry_skip_p"] = float(args.entry_skip_p)
+        out["entry_skip_seed"] = int(getattr(args, "entry_skip_seed", 0))
+    return out
+
+
 def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
     """BacktestConfig kwargs for the named-agent preset entry gates (marketplace
     Strategy-Agent replay). Every value is OFF unless set on args, so spreading
@@ -817,6 +837,28 @@ Examples:
                                   "TIME_STOP_LIVE_AUTO_CLOSE as in live). Not modelled: the "
                                   "drift-to-market chase (counted as drift cancels, an upper "
                                   "bound), live's wider universe.")
+    trade_group.add_argument("--limit-through-bp", type=float, default=None, metavar="BP",
+                             help="Resting-limit realism (live fills): the bar must trade this "
+                                  "many basis points THROUGH the limit; a bare touch no longer "
+                                  "fills. Off unless set (bot/backtest/limit_fill.py).")
+    trade_group.add_argument("--limit-queue-p", type=float, default=None, metavar="P",
+                             help="A qualified touch fills with this probability (a hash of "
+                                  "order and bar, so a re-run takes the same fills).")
+    trade_group.add_argument("--limit-queue-sure-bp", type=float, default=None, metavar="BP",
+                             help="A trade-through this deep fills regardless of the queue draw.")
+    trade_group.add_argument("--limit-reclaim", action="store_true",
+                             help="The close must come back through the limit: a close that "
+                                  "stays through is the adverse fill and the order keeps resting.")
+    trade_group.add_argument("--limit-maker-entry", action="store_true",
+                             help="Charge the maker rate and no slippage on a limit that fills "
+                                  "under the realism knobs above.")
+    trade_group.add_argument("--entry-skip-p", type=float, default=None, metavar="P",
+                             help="Measurement control, off unless set: drop this share of "
+                                  "approved entries at random (a hash of symbol, bar and "
+                                  "--entry-skip-seed). The control for whether a fill model "
+                                  "picks better trades or only fewer.")
+    trade_group.add_argument("--entry-skip-seed", type=int, default=0,
+                             help="Seed for --entry-skip-p.")
     trade_group.add_argument("--honest", action="store_true",
                              help="Preset for trustworthy numbers: --strict-data (never silently "
                                   "substitute synthetic) + --fill-mode next_open (conservative "
@@ -1146,6 +1188,7 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
         use_recorded_order_flow=args.use_recorded_order_flow,
         recorded_order_flow_path=args.of_snapshot_path,
         **_preset_gate_kwargs(args),
+        **_limit_realism_kwargs(args),
     )
     data = {}
     # What data this run measured, in `_load_bars`'s vocabulary, and which of

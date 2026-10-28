@@ -106,6 +106,15 @@ class BreakerResetClock:
             self._tripped_at = None
 
 
+
+def entry_skip_draw(asset: str, bar_ts: float, seed: int) -> float:
+    """A uniform draw in [0, 1) that depends only on the asset, the bar and the
+    seed, so a re-run skips the same entries (`BacktestConfig.entry_skip_p`)."""
+    import hashlib
+    digest = hashlib.blake2b(f"{asset}|{bar_ts}|{seed}".encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big") / 2.0 ** 64
+
+
 class BacktestEngine:
     """
     Event-driven backtesting engine.
@@ -271,6 +280,7 @@ class BacktestEngine:
         self._limits_filled_same_bar = 0
         self._limits_expired = 0
         self._limits_cancelled_drift = 0
+        self._entries_skipped_random = 0
         self._et_bar_win: list[tuple[float, float, float, float]] = []
         self._et_armed = 0
         self._et_fired = 0
@@ -979,6 +989,15 @@ class BacktestEngine:
         next bar and fills only on a touch, at its own price; a market idea
         fills at the next open. The entry-timing engine hands a FIRE here too.
         """
+        skip_p = getattr(self.config, "entry_skip_p", None)
+        if skip_p is not None and entry_skip_draw(
+                getattr(idea, "asset", ""), bar.timestamp.timestamp(),
+                int(getattr(self.config, "entry_skip_seed", 0))) < float(skip_p):
+            # The idea passed the gate and registered its intent; a skipped
+            # entry releases it the way an expired limit does.
+            self.risk.clear_pending_intent(idea.id)
+            self._entries_skipped_random += 1
+            return
         mode = getattr(self.config, "fill_mode", "next_open")
         if mode == "live":
             px = getattr(idea, "entry_price", None)
@@ -2231,6 +2250,7 @@ class BacktestEngine:
             total_limits_filled_same_bar=self._limits_filled_same_bar,
             total_limits_expired=self._limits_expired,
             total_limits_cancelled_drift=self._limits_cancelled_drift,
+            total_entries_skipped_random=self._entries_skipped_random,
             # The portfolio loop compiles through its first engine, whose
             # risk engine is the one every symbol shares, so this is the
             # whole run's count on both loops.
