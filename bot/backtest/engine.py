@@ -1138,8 +1138,9 @@ class BacktestEngine:
                 # the as-live model prices it so; the close-mode lifecycle
                 # keeps the run's one commission. The realistic model can ask
                 # for the maker rate on its own fills without turning as-live on.
-                _maker = self._as_live or (
+                _maker = (self._as_live or (
                     _fill == "fill" and bool(getattr(self.config, "limit_maker_entry", False)))
+                    ) and not bool(getattr(self.config, "limit_fills_pay_taker", False))
                 self._execute_fill(idea, order["risk_check"], px, bar, maker=_maker)
                 continue
             if now_ts - order["placed_ts"] >= float(cfg.expire_seconds):

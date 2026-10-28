@@ -113,3 +113,68 @@ with drawdown no worse; interval over calendar folds above zero). Reading:
 
 `market` against the seed mean is reported too, to show what skipping alone
 does. Nothing else in the registration changes.
+
+## Addendum 3: the count-matched control (written before it is run)
+
+The first random-skip control was not matched on what it controls for: its
+realised position counts (596, 305, 107 on three datasets) were 17% to 25%
+above the limit arm's, because a skipped entry frees a slot for a later idea.
+This control calibrates the skip rate until the realised count matches.
+
+**Targets**: the `realistic` arm's pooled position count per dataset, already
+on file: corr_dense_1h 495, majors_1h_v2 241, majors_1h_v3 116, alts_1h_v3 80.
+
+**Calibration** (reads only position counts, never returns): the `market` arm
+with `--entry-skip-p P --entry-skip-seed 0`, starting at the Addendum 2 rate
+(0.276, 0.510, 0.057, 0.444). Each step reads the realised pooled count `T`
+and moves `P` by a secant step on the last two points (a first step of
+`(T - target) / market positions`), clamped to [0, 0.95], rounded to 3 places.
+It stops when `|T - target| <= max(5% of target, 3 positions)` or after 6
+runs, and then uses the closest point. The calibrated `P` per dataset is
+written down before the comparison is run.
+
+**Comparison**: seeds 0, 1 and 2 at the calibrated `P` (the calibration run is
+seed 0), the fold-wise mean as the baseline, and `realistic` against it by the
+same stage 1 rule as before. Realised counts are reported beside the target.
+
+* **Passes**: at the same number of positions, the limit entries pick better
+  trades than a random subset.
+* **Does not pass**: at equal count the limit entries are no better than
+  skipping at random. They are a trade filter, and the earlier pass is
+  explained by trading less.
+
+Nothing else in the registration changes.
+
+## Addendum 4: separating the cost saving from the fill selection (written before it is run)
+
+The count-matched control left a gain of about +1.2 points over all folds at
+equal position count, with the same or lower profit factor, and two readings:
+the limit fills pick better trades, or the maker entry simply costs less than
+the taker control's market entry. This arm separates them.
+
+**Arm `realistic_taker`**: the `realistic` arm with `--limit-fills-pay-taker`.
+The fills, the limit prices and the exits are the same; each filled limit is
+charged the taker commission and the entry slippage a market entry pays,
+instead of the maker rate with no slippage (a measurement-only
+`BacktestConfig.limit_fills_pay_taker`, off by default). It runs on the four
+stage 1 datasets.
+
+**Two comparisons**, both by the stage 1 rule's quantities (paired fold return
+difference, per dataset, holdout, interval over calendar folds):
+
+1. **Cost saving**: `realistic` minus `realistic_taker`. The fills are the same,
+   so this is what the maker rate and the absent slippage are worth. A positive
+   interval means the maker entry saves cost.
+2. **Selection at equal cost**: `realistic_taker` minus the count-matched skip
+   control (`skipm`, market entries at the taker cost and the calibrated count).
+   Both pay taker costs; both take about the same number of positions. A pass by
+   the stage 1 rule (at least +1.0 in each dataset and on the holdout, with the
+   holdout drawdown no worse, interval above zero) means the limit fills pick
+   better trades. A fail means they do not, and the +1.2 residual in the
+   count-matched control is the cost saving.
+
+Realised position counts of the new arm are reported beside the realistic arm's,
+because taker slippage on the entry moves sizing and exits and can shift the
+count.
+
+Nothing else in the registration changes.

@@ -128,6 +128,12 @@ class BacktestConfig(BaseModel):
     # and the seed. It is the control for asking whether a fill model (a resting
     # limit that fills a fraction of its orders) selects better trades or only
     # fewer: the same share skipped at random, with market fills.
+    # Measurement only, off by default: a resting limit that fills is charged the
+    # run's taker commission and entry slippage instead of the maker rate with no
+    # slippage. The fills themselves are unchanged, so an A/B against the same
+    # run without it isolates what the maker entry saves in cost from what the
+    # limit's fill selection does.
+    limit_fills_pay_taker: bool = False
     entry_skip_p: Optional[float] = None
     entry_skip_seed: int = 0
     # Auto-reset a tripped circuit breaker after this many bars (0 = never,
