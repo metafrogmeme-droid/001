@@ -18,7 +18,9 @@ def panel(n=500, drifts=None, seed=1, start="2019-01-01"):
     rng = np.random.default_rng(seed)
     idx = pd.date_range(start, periods=n, freq="D")
     drifts = drifts or {"BTC": 0.002, "ETH": 0.003, "XRP": 0.001, "ADA": -0.001, "LTC": 0.0015}
-    cl = pd.DataFrame({c: 100 * np.exp(np.cumsum(d + 0.02 * rng.standard_normal(n))) for c, d in drifts.items()}, index=idx)
+    cl = pd.DataFrame(
+        {c: 100 * np.exp(np.cumsum(d + 0.02 * rng.standard_normal(n))) for c, d in drifts.items()}, index=idx
+    )
     op = cl.shift(1).fillna(cl.iloc[0])
     return op, cl
 

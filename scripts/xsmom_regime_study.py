@@ -253,13 +253,16 @@ def evaluate(op: pd.DataFrame, cl: pd.DataFrame, a: str, b: str | None, grid: bo
     ex = window(bt["exposure"], a, b)
     out["primary"] = summarize(r) | {
         "by_year": by_year(r, ex), "avg_exposure": float(ex.mean()),
-        "turnover_cost_share_of_gross": float(window(bt["cost"], a, b).sum() / max(window(bt["gross"], a, b).abs().sum(), 1e-12)),
+        "turnover_cost_share_of_gross": float(
+            window(bt["cost"], a, b).sum() / max(window(bt["gross"], a, b).abs().sum(), 1e-12)
+        ),
         "cost_per_year": float(window(bt["cost"], a, b).mean() * 365)}
     btc = window(buy_hold(op, cl, False), a, b)
     out["btc_buy_hold"] = summarize(btc)
     out["equal_weight_universe"] = summarize(window(buy_hold(op, cl, True), a, b))
     out["btc_regime_only"] = summarize(window(backtest(op, cl, PRIMARY, hold_btc_only=True)["net"], a, b))
-    out["primary_funding_0.03pct_day"] = summarize(window(backtest(op, cl, replace(PRIMARY, funding_per_day=FUNDING_PER_DAY))["net"], a, b))
+    funded = backtest(op, cl, replace(PRIMARY, funding_per_day=FUNDING_PER_DAY))
+    out["primary_funding_0.03pct_day"] = summarize(window(funded["net"], a, b))
     out["primary_cost_0.20pct_side"] = summarize(window(backtest(op, cl, replace(PRIMARY, fee=0.002))["net"], a, b))
     if grid:
         out["grid"] = {f"lb{g.lookback}_rb{g.rebalance}_ma{g.regime_ma}":
