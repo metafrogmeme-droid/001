@@ -65,3 +65,35 @@ def test_average_runs_is_the_foldwise_mean():
                            {"folds": [f(0, -4.0, 6.0, 20), f(1, 3.0, 4.0, 8)]}])
     assert [(x["fold"], x["return_pct"], x["max_dd_pct"], x["trades"]) for x in avg["folds"]] == [
         (0, -3.0, 5.0, 15.0), (1, 2.0, 3.0, 7.0)]
+
+
+def test_next_p_moves_toward_the_target_and_stays_in_bounds():
+    # more positions than the target: skip more; fewer: skip less
+    assert mt.next_p([(0.30, 600.0)], 500, 700) > 0.30
+    assert mt.next_p([(0.30, 400.0)], 500, 700) < 0.30
+    # secant on two points: counts 600 at 0.2 and 500 at 0.4 -> target 550 is p 0.3
+    assert mt.next_p([(0.2, 600.0), (0.4, 500.0)], 550, 700) == 0.3
+    # a flat or upward slope falls back to the first-step rule, never divides by zero
+    assert 0.0 <= mt.next_p([(0.3, 500.0), (0.3, 500.0)], 400, 700) <= 0.95
+    assert mt.next_p([(0.9, 900.0)], 100, 100) == 0.95          # clamped high
+    assert mt.next_p([(0.01, 10.0)], 500, 100) == 0.0            # clamped low
+
+
+def test_the_tolerance_is_five_percent_or_three_positions():
+    # 5% of 495 is 24.75; 5% of 80 is 4, above the 3-position floor
+    assert mt.within_tolerance(519, 495) and not mt.within_tolerance(520, 495)
+    assert mt.within_tolerance(84, 80) and not mt.within_tolerance(85, 80)
+    # a tiny target falls back to the 3-position floor
+    assert mt.within_tolerance(13, 10) and not mt.within_tolerance(14, 10)
+
+
+def test_matched_arms_need_a_calibrated_rate_and_use_the_targets_on_file():
+    import pytest
+    with pytest.raises(KeyError):
+        mt.arm_spec("skipm_s1", "alts_1h_v3")
+    spec = mt.arm_spec("skipm_s1", "alts_1h_v3", 0.123)
+    assert spec["args"] == ["--entry-skip-p", "0.123", "--entry-skip-seed", "1"]
+    text = (Path(__file__).resolve().parent.parent / "docs" / "research" / "prereg"
+            / "maker_orders_2026-10" / "PREREGISTRATION.md").read_text()
+    for ds, n in mt.TARGETS.items():
+        assert f"{ds} {n}" in text.replace(",", ""), (ds, n)

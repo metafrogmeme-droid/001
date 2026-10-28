@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -42,16 +43,53 @@ SKIP_P = {"corr_dense_1h": 0.276, "majors_1h_v2": 0.510,
 SKIP_SEEDS = (0, 1, 2)
 SKIP_ARMS = tuple(f"skip_s{k}" for k in SKIP_SEEDS)
 
+# The count-matched control (Addendum 3): the skip rate is calibrated per
+# dataset until the realised position count matches the realistic arm's. The
+# calibration reads position counts only, never returns.
+TARGETS = {"corr_dense_1h": 495, "majors_1h_v2": 241,
+           "majors_1h_v3": 116, "alts_1h_v3": 80}
+MATCHED_ARMS = tuple(f"skipm_s{k}" for k in SKIP_SEEDS)
+CAL_FILE = "calibrated_skip_p.json"
+CAL_MAX_RUNS = 6
+CAL_REL_TOL = 0.05
+CAL_ABS_TOL = 3
 
-def arm_spec(arm: str, dataset: str) -> dict:
+
+def within_tolerance(count: float, target: int) -> bool:
+    return abs(count - target) <= max(CAL_REL_TOL * target, CAL_ABS_TOL)
+
+
+def next_p(points: list[tuple[float, float]], target: int, market_n: int) -> float:
+    """The next skip rate to try, from (rate, realised count) points so far.
+
+    First step: move by (count - target) / market positions. After that, a
+    secant step on the last two points, falling back to the first rule when
+    the points do not slope downward. Clamped to [0, 0.95], three places.
+    """
+    p2, t2 = points[-1]
+    new = p2 + (t2 - target) / max(market_n, 1)
+    if len(points) >= 2:
+        p1, t1 = points[-2]
+        if p2 != p1 and (t2 - t1) / (p2 - p1) < 0:
+            new = p2 + (target - t2) * (p2 - p1) / (t2 - t1)
+    return round(min(0.95, max(0.0, new)), 3)
+
+
+def skip_spec(p: float, seed: int) -> dict:
+    return {"env": dict(ARMS["market"]["env"]),
+            "args": ["--entry-skip-p", str(p), "--entry-skip-seed", str(seed)]}
+
+
+def arm_spec(arm: str, dataset: str, matched_p: float | None = None) -> dict:
     """Environment and extra runner arguments for one arm on one dataset."""
     if arm in ARMS:
         return ARMS[arm]
     if arm in SKIP_ARMS:
-        seed = SKIP_SEEDS[SKIP_ARMS.index(arm)]
-        return {"env": dict(ARMS["market"]["env"]),
-                "args": ["--entry-skip-p", str(SKIP_P[dataset]),
-                         "--entry-skip-seed", str(seed)]}
+        return skip_spec(SKIP_P[dataset], SKIP_SEEDS[SKIP_ARMS.index(arm)])
+    if arm in MATCHED_ARMS:
+        if matched_p is None:
+            raise KeyError(f"{arm}: no calibrated skip rate for {dataset}")
+        return skip_spec(matched_p, SKIP_SEEDS[MATCHED_ARMS.index(arm)])
     raise KeyError(arm)
 
 
@@ -59,7 +97,10 @@ def run_one(out: Path, dataset: str, arm: str) -> int:
     path = rs.out_path(out, dataset, arm)
     if path.exists() and path.stat().st_size > 0:
         return 0
-    spec = arm_spec(arm, dataset)
+    matched_p = None
+    if arm in MATCHED_ARMS:
+        matched_p = json.loads((out / CAL_FILE).read_text())[dataset]["p"]
+    spec = arm_spec(arm, dataset, matched_p)
     cmd = [sys.executable, "-m", "bot.backtest.runner", "--dataset", f"benchmark/{dataset}",
            "--as-live", "--breaker-reset-bars", "24", "--walk-forward", "6",
            "-o", str(path), *spec["args"]]
@@ -68,9 +109,10 @@ def run_one(out: Path, dataset: str, arm: str) -> int:
     return done.returncode
 
 
-def run(out: Path, jobs: int, control: bool = False) -> None:
+def run(out: Path, jobs: int, control: bool = False, matched: bool = False) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    work = [(d, a) for d, _ in rs.STAGE1 for a in (SKIP_ARMS if control else tuple(ARMS))]
+    arms = MATCHED_ARMS if matched else SKIP_ARMS if control else tuple(ARMS)
+    work = [(d, a) for d, _ in rs.STAGE1 for a in arms]
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         for (d, a), rc in zip(work, pool.map(lambda w: run_one(out, *w), work)):
             print(f"{d} {a} rc={rc}", flush=True)
@@ -121,6 +163,47 @@ def report(out: Path) -> None:
               f"{j['mean']:+6.2f} [{j['lo']:+.2f},{j['hi']:+.2f}]  {tag}")
 
 
+def calibrate_one(out: Path, dataset: str) -> dict:
+    """Walk the skip rate until the realised count matches the target."""
+    target = TARGETS[dataset]
+    market_n = rs.load(out, dataset, BASE)["pooled_trades"]
+    points: list[tuple[float, float]] = []
+    p = SKIP_P[dataset]
+    for i in range(CAL_MAX_RUNS):
+        path = out / f"{dataset}__cal_{i}.json"
+        if not (path.exists() and path.stat().st_size > 0):
+            spec = skip_spec(p, 0)
+            subprocess.run([sys.executable, "-m", "bot.backtest.runner", "--dataset",
+                            f"benchmark/{dataset}", "--as-live", "--breaker-reset-bars", "24",
+                            "--walk-forward", "6", "-o", str(path), *spec["args"]],
+                           cwd=ROOT, env={**os.environ, **spec["env"]},
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        count = json.loads(path.read_text())["pooled_trades"]
+        points.append((p, count))
+        print(f"{dataset} cal {i}: p={p} -> {count} positions (target {target})", flush=True)
+        if within_tolerance(count, target):
+            break
+        p = next_p(points, target, market_n)
+    best = min(range(len(points)), key=lambda k: abs(points[k][1] - target))
+    return {"p": points[best][0], "count": points[best][1], "target": target,
+            "matched": within_tolerance(points[best][1], target),
+            "runs": [list(x) for x in points], "chosen_run": best}
+
+
+def calibrate(out: Path, jobs: int) -> None:
+    """Calibrate every dataset (in parallel) and write the chosen rates."""
+    out.mkdir(parents=True, exist_ok=True)
+    names = [d for d, _ in rs.STAGE1]
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        results = dict(zip(names, pool.map(lambda d: calibrate_one(out, d), names)))
+    for d, r in results.items():  # seed 0 of the matched arm is the chosen calibration run
+        src = out / f"{d}__cal_{r['chosen_run']}.json"
+        (out / f"{d}__skipm_s0.json").write_bytes(src.read_bytes())
+    (out / CAL_FILE).write_text(json.dumps(results, indent=2))
+    print(json.dumps({d: {k: r[k] for k in ("p", "count", "target", "matched")}
+                      for d, r in results.items()}, indent=2))
+
+
 def average_runs(runs: list[dict]) -> dict:
     """The fold-wise mean over runs of the same dataset (here, the three seeds)."""
     folds = []
@@ -133,20 +216,25 @@ def average_runs(runs: list[dict]) -> dict:
     return {"folds": folds}
 
 
-def report_control(out: Path) -> None:
-    print("random-skip control: the market arm with the same share of entries dropped\n")
+def report_control(out: Path, matched: bool = False) -> None:
+    arms = MATCHED_ARMS if matched else SKIP_ARMS
+    cal = json.loads((out / CAL_FILE).read_text()) if matched else {}
+    rate = {d: (cal[d]["p"] if matched else SKIP_P[d]) for d, _ in rs.STAGE1}
+    print("count-matched random-skip control\n" if matched else
+          "random-skip control: the market arm with the same share of entries dropped\n")
     print(f"{'dataset':14} {'P':>6} {'market':>7} {'target':>7} {'skip(mean)':>10} {'realistic':>9}")
     per_real, per_market = {}, {}
     for d, w in rs.STAGE1:
-        skips = [rs.load(out, d, a) for a in SKIP_ARMS]
+        skips = [rs.load(out, d, a) for a in arms]
         base, real = rs.load(out, d, BASE), rs.load(out, d, PRIMARY)
         if base is None or real is None or any(x is None for x in skips):
             print(f"{d:14} missing runs")
             return
         avg = average_runs(skips)
         n_skip = sum(r["pooled_trades"] for r in skips) / len(skips)
-        print(f"{d:14} {SKIP_P[d]:6.3f} {base['pooled_trades']:7} "
-              f"{base['pooled_trades'] * (1 - SKIP_P[d]):7.0f} {n_skip:10.0f} {real['pooled_trades']:9}")
+        target = TARGETS[d] if matched else base["pooled_trades"] * (1 - rate[d])
+        print(f"{d:14} {rate[d]:6.3f} {base['pooled_trades']:7} "
+              f"{target:7.0f} {n_skip:10.0f} {real['pooled_trades']:9}")
         per_real[d] = (w, rs.paired(avg, real, w))
         per_market[d] = (w, rs.paired(avg, base, w))
     print()
@@ -155,6 +243,9 @@ def report_control(out: Path) -> None:
         cells = "  ".join(f"{d[:13]}:{j['means'][d]:+6.2f}" for d, _ in rs.STAGE1)
         tag = ("PASS (limits pick better trades)" if j["passed"] else
                "fail (consistent with a trade filter)") if label.startswith("realistic") else ""
+        if matched and label.startswith("realistic"):
+            tag = ("PASS (better trades at equal count)" if j["passed"] else
+                   "fail (no better than random at equal count)")
         print(f"{label:18} {cells}  holdout {j['holdout_mean']:+.2f} ddOK "
               f"{'y' if j['holdout_dd_not_worse'] else 'n'}  all folds {j['mean']:+.2f} "
               f"[{j['lo']:+.2f},{j['hi']:+.2f}]  {tag}")
@@ -162,15 +253,21 @@ def report_control(out: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", choices=("run", "report"))
+    ap.add_argument("cmd", choices=("run", "report", "calibrate"))
     ap.add_argument("--out", required=True)
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--control", action="store_true",
                     help="the random-skip control (Addendum 2) instead of the three arms")
+    ap.add_argument("--matched", action="store_true",
+                    help="the count-matched control (Addendum 3); needs `calibrate` first")
     args = ap.parse_args()
     out = Path(args.out)
-    if args.cmd == "run":
-        run(out, args.jobs, args.control)
+    if args.cmd == "calibrate":
+        calibrate(out, args.jobs)
+    elif args.cmd == "run":
+        run(out, args.jobs, args.control, args.matched)
+    elif args.matched:
+        report_control(out, matched=True)
     elif args.control:
         report_control(out)
     else:
