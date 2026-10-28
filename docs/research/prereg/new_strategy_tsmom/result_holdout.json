@@ -1,0 +1,469 @@
+{
+ "split": "holdout",
+ "first_date": "2017-08-17",
+ "last_date": "2026-10-27",
+ "tests": {
+  "A_LF": {
+   "lookbacks": [
+    20,
+    50,
+    100,
+    200
+   ],
+   "variant": "LF",
+   "scored_from": "2018-03-12",
+   "dev": {
+    "days": 1756,
+    "sharpe": 1.016978618753517,
+    "cagr": 0.19580542502773013,
+    "ann_vol": 0.19449233689109738,
+    "max_dd": 0.35184665949276805,
+    "turnover_per_year": 6.001144386176839,
+    "trades": 773,
+    "mean_long_exposure": 0.16746946864473564,
+    "costs_sum_of_daily": 0.02887125901952474,
+    "gross_sum_of_daily": 0.9804527015282064,
+    "costs_share_of_gross": 0.02944686569227037
+   },
+   "years_full_so_far": {
+    "2018": {
+     "days": 295,
+     "ret": -0.03682108456839239
+    },
+    "2019": {
+     "days": 365,
+     "ret": 0.17929578003845537
+    },
+    "2020": {
+     "days": 366,
+     "ret": 0.8248021633580058
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.5582619464710394
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.26812720606899965
+    },
+    "2023": {
+     "days": 365,
+     "ret": 0.285591854621706
+    },
+    "2024": {
+     "days": 366,
+     "ret": 0.4210323108737366
+    },
+    "2025": {
+     "days": 365,
+     "ret": -0.06804265597980674
+    },
+    "2026": {
+     "days": 300,
+     "ret": -0.05803084465397634
+    }
+   },
+   "holdout": {
+    "days": 1396,
+    "sharpe": 0.7522999958379464,
+    "cagr": 0.13145195665936305,
+    "ann_vol": 0.18748724112872883,
+    "max_dd": 0.2503992691700315,
+    "turnover_per_year": 10.809211603067677,
+    "trades": 914,
+    "mean_long_exposure": 0.3294593485490632,
+    "costs_sum_of_daily": 0.04134153259693829,
+    "gross_sum_of_daily": 0.5807966679565323,
+    "costs_share_of_gross": 0.07118073308236052
+   },
+   "holdout_boot_lb5": -0.26397477965575233,
+   "holdout_boot_ci90": [
+    -0.26397477965575233,
+    1.7283235810570248
+   ],
+   "btc_holdout": {
+    "sharpe": 1.1214561424390412,
+    "max_dd": 0.5297176591351056,
+    "cagr": 0.5091614223866874
+   },
+   "btc_dev": {
+    "sharpe": 0.5521596621106448,
+    "max_dd": 0.7662925085545051
+   },
+   "bars": {
+    "dev_sharpe": true,
+    "holdout_sharpe": true,
+    "holdout_boot_lb_gt_0": false,
+    "holdout_dd_le_btc": true,
+    "years_majority_positive": true
+   },
+   "passes": false,
+   "sensitivity": {
+    "cost0.20_decision_funding": {
+     "dev_sharpe": 0.9859373382856623,
+     "holdout_sharpe": 0.6948333335000643,
+     "holdout_cagr": 0.11930164198505167,
+     "holdout_max_dd": 0.2611318958689993
+    },
+    "no_funding": {
+     "dev_sharpe": 1.016978618753517,
+     "holdout_sharpe": 0.7522999958379464,
+     "holdout_cagr": 0.13145195665936305,
+     "holdout_max_dd": 0.2503992691700315
+    },
+    "with_funding": {
+     "dev_sharpe": 0.9228652837650186,
+     "holdout_sharpe": 0.5600411365824117,
+     "holdout_cagr": 0.09138060833858952,
+     "holdout_max_dd": 0.2831795766358427
+    }
+   }
+  },
+  "A_LS": {
+   "lookbacks": [
+    20,
+    50,
+    100,
+    200
+   ],
+   "variant": "LS",
+   "scored_from": "2018-03-12",
+   "dev": {
+    "days": 1756,
+    "sharpe": 1.2228088615972275,
+    "cagr": 0.26486681839186077,
+    "ann_vol": 0.21022159348505223,
+    "max_dd": 0.19340755342512195,
+    "turnover_per_year": 11.178262311065462,
+    "trades": 1491,
+    "mean_long_exposure": 0.14273657112782878,
+    "costs_sum_of_daily": 0.053778160597893025,
+    "gross_sum_of_daily": 1.3656808628065167,
+    "costs_share_of_gross": 0.039378277943631156
+   },
+   "years_full_so_far": {
+    "2018": {
+     "days": 295,
+     "ret": 0.28591946846970395
+    },
+    "2019": {
+     "days": 365,
+     "ret": 0.11054376897537876
+    },
+    "2020": {
+     "days": 366,
+     "ret": 0.4458602559941669
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.5421714540175842
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.027420957701212
+    },
+    "2023": {
+     "days": 365,
+     "ret": -0.1319620112851383
+    },
+    "2024": {
+     "days": 366,
+     "ret": 0.025829583989521288
+    },
+    "2025": {
+     "days": 365,
+     "ret": -0.18508293566259093
+    },
+    "2026": {
+     "days": 300,
+     "ret": -0.12037396194694083
+    }
+   },
+   "holdout": {
+    "days": 1396,
+    "sharpe": -0.4156131127957552,
+    "cagr": -0.11075446219807339,
+    "ann_vol": 0.22252396477914677,
+    "max_dd": 0.4309280854544594,
+    "turnover_per_year": 20.580664139136857,
+    "trades": 1764,
+    "mean_long_exposure": 0.2714722487434997,
+    "costs_sum_of_daily": 0.07871399215954808,
+    "gross_sum_of_daily": -0.16131258960701902,
+    "costs_share_of_gross": null
+   },
+   "holdout_boot_lb5": -1.1568408455938546,
+   "holdout_boot_ci90": [
+    -1.1568408455938546,
+    0.5408283313859011
+   ],
+   "btc_holdout": {
+    "sharpe": 1.1214561424390412,
+    "max_dd": 0.5297176591351056,
+    "cagr": 0.5091614223866874
+   },
+   "btc_dev": {
+    "sharpe": 0.5521596621106448,
+    "max_dd": 0.7662925085545051
+   },
+   "bars": {
+    "dev_sharpe": true,
+    "holdout_sharpe": false,
+    "holdout_boot_lb_gt_0": false,
+    "holdout_dd_le_btc": true,
+    "years_majority_positive": true
+   },
+   "passes": false,
+   "sensitivity": {
+    "cost0.20_decision_funding": {
+     "dev_sharpe": 1.1691436708399312,
+     "holdout_sharpe": -0.5078325263875942,
+     "holdout_cagr": -0.12889854931438982,
+     "holdout_max_dd": 0.4571506097664457
+    },
+    "no_funding": {
+     "dev_sharpe": 1.29683580312039,
+     "holdout_sharpe": -0.2819181622213842,
+     "holdout_cagr": -0.0839314825797347,
+     "holdout_max_dd": 0.3959088459058979
+    },
+    "with_funding": {
+     "dev_sharpe": 1.2228088615972275,
+     "holdout_sharpe": -0.4156131127957552,
+     "holdout_cagr": -0.11075446219807339,
+     "holdout_max_dd": 0.4309280854544594
+    }
+   }
+  },
+  "B_LF": {
+   "lookbacks": [
+    50,
+    100,
+    200
+   ],
+   "variant": "LF",
+   "scored_from": "2018-03-12",
+   "dev": {
+    "days": 1756,
+    "sharpe": 0.8149090555357716,
+    "cagr": 0.1507566411905783,
+    "ann_vol": 0.19598544955262928,
+    "max_dd": 0.377936429099633,
+    "turnover_per_year": 4.602236616283732,
+    "trades": 732,
+    "mean_long_exposure": 0.18100263346752743,
+    "costs_sum_of_daily": 0.022141171227929413,
+    "gross_sum_of_daily": 0.7905009457334471,
+    "costs_share_of_gross": 0.028009038252808496
+   },
+   "years_full_so_far": {
+    "2018": {
+     "days": 295,
+     "ret": -0.08160157210090713
+    },
+    "2019": {
+     "days": 365,
+     "ret": 0.11553499263833489
+    },
+    "2020": {
+     "days": 366,
+     "ret": 0.7097296782570401
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.5880044643137292
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.29352700604238124
+    },
+    "2023": {
+     "days": 365,
+     "ret": 0.347205835578436
+    },
+    "2024": {
+     "days": 366,
+     "ret": 0.3528586819621349
+    },
+    "2025": {
+     "days": 365,
+     "ret": -0.08112209445649365
+    },
+    "2026": {
+     "days": 300,
+     "ret": -0.11000625134840392
+    }
+   },
+   "holdout": {
+    "days": 1396,
+    "sharpe": 0.6426099737738213,
+    "cagr": 0.10999083237711083,
+    "ann_vol": 0.19060677432282022,
+    "max_dd": 0.29805818824750485,
+    "turnover_per_year": 8.42787228065875,
+    "trades": 913,
+    "mean_long_exposure": 0.3503044275808057,
+    "costs_sum_of_daily": 0.03223372521588935,
+    "gross_sum_of_daily": 0.5007000175205073,
+    "costs_share_of_gross": 0.06437731992803285
+   },
+   "holdout_boot_lb5": -0.36016085316543234,
+   "holdout_boot_ci90": [
+    -0.36016085316543234,
+    1.575384562431876
+   ],
+   "btc_holdout": {
+    "sharpe": 1.1214561424390412,
+    "max_dd": 0.5297176591351056,
+    "cagr": 0.5091614223866874
+   },
+   "btc_dev": {
+    "sharpe": 0.5521596621106448,
+    "max_dd": 0.7662925085545051
+   },
+   "bars": {
+    "dev_sharpe": true,
+    "holdout_sharpe": true,
+    "holdout_boot_lb_gt_0": false,
+    "holdout_dd_le_btc": true,
+    "years_majority_positive": true
+   },
+   "passes": false,
+   "sensitivity": {
+    "cost0.20_decision_funding": {
+     "dev_sharpe": 0.7913857459078129,
+     "holdout_sharpe": 0.5985875050876532,
+     "holdout_cagr": 0.10069021819533996,
+     "holdout_max_dd": 0.30559286508464145
+    },
+    "no_funding": {
+     "dev_sharpe": 0.8149090555357716,
+     "holdout_sharpe": 0.6426099737738213,
+     "holdout_cagr": 0.10999083237711083,
+     "holdout_max_dd": 0.29805818824750485
+    },
+    "with_funding": {
+     "dev_sharpe": 0.7138933586771041,
+     "holdout_sharpe": 0.44147420326320636,
+     "holdout_cagr": 0.06823566904465128,
+     "holdout_max_dd": 0.3309392952300122
+    }
+   }
+  },
+  "B_LS": {
+   "lookbacks": [
+    50,
+    100,
+    200
+   ],
+   "variant": "LS",
+   "scored_from": "2018-03-12",
+   "dev": {
+    "days": 1756,
+    "sharpe": 1.0125720324280645,
+    "cagr": 0.21299828897206607,
+    "ann_vol": 0.21312648125858802,
+    "max_dd": 0.21246327823983313,
+    "turnover_per_year": 8.919739954967119,
+    "trades": 1263,
+    "mean_long_exposure": 0.15093724720082557,
+    "costs_sum_of_daily": 0.042912502358691124,
+    "gross_sum_of_daily": 1.1606596291078983,
+    "costs_share_of_gross": 0.03697251225294565
+   },
+   "years_full_so_far": {
+    "2018": {
+     "days": 295,
+     "ret": 0.041765484994812585
+    },
+    "2019": {
+     "days": 365,
+     "ret": 0.0724705500911027
+    },
+    "2020": {
+     "days": 366,
+     "ret": 0.26728968461630265
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.5466487409390948
+    },
+    "2022": {
+     "days": 365,
+     "ret": 0.1561787612980745
+    },
+    "2023": {
+     "days": 365,
+     "ret": -0.2152068210667032
+    },
+    "2024": {
+     "days": 366,
+     "ret": 0.1925367581180617
+    },
+    "2025": {
+     "days": 365,
+     "ret": -0.19036321685667135
+    },
+    "2026": {
+     "days": 300,
+     "ret": -0.07465152855851187
+    }
+   },
+   "holdout": {
+    "days": 1396,
+    "sharpe": -0.31291407476176253,
+    "cagr": -0.08864295060675653,
+    "ann_vol": 0.21937861465846936,
+    "max_dd": 0.33051029679766086,
+    "turnover_per_year": 15.426248695981268,
+    "trades": 1458,
+    "mean_long_exposure": 0.2895018786895387,
+    "costs_sum_of_daily": 0.059000118300246165,
+    "gross_sum_of_daily": -0.08230644584925337,
+    "costs_share_of_gross": null
+   },
+   "holdout_boot_lb5": -1.034650261223124,
+   "holdout_boot_ci90": [
+    -1.034650261223124,
+    0.634711353708731
+   ],
+   "btc_holdout": {
+    "sharpe": 1.1214561424390412,
+    "max_dd": 0.5297176591351056,
+    "cagr": 0.5091614223866874
+   },
+   "btc_dev": {
+    "sharpe": 0.5521596621106448,
+    "max_dd": 0.7662925085545051
+   },
+   "bars": {
+    "dev_sharpe": true,
+    "holdout_sharpe": false,
+    "holdout_boot_lb_gt_0": false,
+    "holdout_dd_le_btc": true,
+    "years_majority_positive": true
+   },
+   "passes": false,
+   "sensitivity": {
+    "cost0.20_decision_funding": {
+     "dev_sharpe": 0.970615774612201,
+     "holdout_sharpe": -0.383060504852691,
+     "holdout_cagr": -0.1026182120059651,
+     "holdout_max_dd": 0.3567345251632237
+    },
+    "no_funding": {
+     "dev_sharpe": 1.08987533398164,
+     "holdout_sharpe": -0.16835438995827698,
+     "holdout_cagr": -0.059297120122485114,
+     "holdout_max_dd": 0.30123549203480804
+    },
+    "with_funding": {
+     "dev_sharpe": 1.0125720324280645,
+     "holdout_sharpe": -0.31291407476176253,
+     "holdout_cagr": -0.08864295060675653,
+     "holdout_max_dd": 0.33051029679766086
+    }
+   }
+  }
+ }
+}

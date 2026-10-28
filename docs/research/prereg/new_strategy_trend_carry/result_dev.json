@@ -1,0 +1,266 @@
+{
+ "split": "dev",
+ "first_date": "2017-08-17",
+ "last_date": "2022-12-31",
+ "cost_side": 0.001,
+ "tests": {
+  "TC": {
+   "cfg": {
+    "trend": true,
+    "venue": "spot",
+    "carry": true,
+    "degear": true
+   },
+   "scored_from": "2020-01-01",
+   "dev": {
+    "days": 1096,
+    "sharpe": 1.855927637996101,
+    "cagr": 0.396608622633853,
+    "ann_vol": 0.18974689548910462,
+    "max_dd": 0.173275788150699,
+    "total_return": 1.7266012036943161,
+    "sum_trend_gross": 0.9984084799719211,
+    "sum_trend_perp_funding_paid": 0.0,
+    "sum_carry_funding": 0.127174863,
+    "sum_carry_basis": -0.005692788063171627,
+    "sum_costs": 0.06245621987270317,
+    "trend_turnover_per_year": 6.945730158336365,
+    "carry_turnover_per_year": 6.927007299270073,
+    "mean_trend_gross": 0.17453800398732836,
+    "mean_carry_notional": 0.22290145985401458,
+    "mean_gear": 0.781021897810219,
+    "share_days_geared_down": 0.43795620437956206
+   },
+   "years": {
+    "2020": {
+     "days": 366,
+     "ret": 0.7430578582177905
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.6769312660028419
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.06718707102513
+    }
+   },
+   "perp_funding_fills": 0
+  },
+  "P1": {
+   "cfg": {
+    "trend": true,
+    "venue": "spot",
+    "carry": false,
+    "degear": false
+   },
+   "scored_from": "2020-01-01",
+   "dev": {
+    "days": 1096,
+    "sharpe": 1.5799939195157355,
+    "cagr": 0.37238742573675565,
+    "ann_vol": 0.21506137135348286,
+    "max_dd": 0.23018591083666284,
+    "total_return": 1.5870620146052041,
+    "sum_trend_gross": 1.0405130395642483,
+    "sum_trend_perp_funding_paid": 0.0,
+    "sum_carry_funding": 0.0,
+    "sum_carry_basis": 0.0,
+    "sum_costs": 0.020195115369465895,
+    "trend_turnover_per_year": 6.725563056437091,
+    "carry_turnover_per_year": 0.0,
+    "mean_trend_gross": 0.20792186429308318,
+    "mean_carry_notional": 0.0,
+    "mean_gear": 1.0,
+    "share_days_geared_down": 0.0
+   },
+   "years": {
+    "2020": {
+     "days": 366,
+     "ret": 0.8334701735212167
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.5656820530952906
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.0987829145669713
+    }
+   },
+   "perp_funding_fills": 0
+  },
+  "P0": {
+   "cfg": {
+    "trend": true,
+    "venue": "perp",
+    "carry": false,
+    "degear": false
+   },
+   "scored_from": "2020-01-01",
+   "dev": {
+    "days": 1096,
+    "sharpe": 1.3686684009698524,
+    "cagr": 0.3099426948732962,
+    "ann_vol": 0.21406393115168199,
+    "max_dd": 0.22680301016425697,
+    "total_return": 1.2494592549073138,
+    "sum_trend_gross": 1.0395319839154353,
+    "sum_trend_perp_funding_paid": 0.13961755949550247,
+    "sum_carry_funding": 0.0,
+    "sum_carry_basis": 0.0,
+    "sum_costs": 0.020164117469949863,
+    "trend_turnover_per_year": 6.71523985085009,
+    "carry_turnover_per_year": 0.0,
+    "mean_trend_gross": 0.20815454755186505,
+    "mean_carry_notional": 0.0,
+    "mean_gear": 1.0,
+    "share_days_geared_down": 0.0
+   },
+   "years": {
+    "2020": {
+     "days": 366,
+     "ret": 0.7175275002253538
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.43760033811430654
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.0889624756300118
+    }
+   },
+   "perp_funding_fills": 1795
+  },
+  "TD": {
+   "cfg": {
+    "trend": true,
+    "venue": "spot",
+    "carry": false,
+    "degear": true
+   },
+   "scored_from": "2020-01-01",
+   "dev": {
+    "days": 1096,
+    "sharpe": 1.6970907931078267,
+    "cagr": 0.3552492348125187,
+    "ann_vol": 0.18978457792235626,
+    "max_dd": 0.19332850604041096,
+    "total_return": 1.4912608811626984,
+    "sum_trend_gross": 0.9877915898943188,
+    "sum_trend_perp_funding_paid": 0.0,
+    "sum_carry_funding": 0.0,
+    "sum_carry_basis": 0.0,
+    "sum_costs": 0.020664194790179835,
+    "trend_turnover_per_year": 6.881780199284343,
+    "carry_turnover_per_year": 0.0,
+    "mean_trend_gross": 0.17348403823846872,
+    "mean_carry_notional": 0.0,
+    "mean_gear": 0.7750912408759124,
+    "share_days_geared_down": 0.4498175182481752
+   },
+   "years": {
+    "2020": {
+     "days": 366,
+     "ret": 0.7142752617951542
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.5875971248740881
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.0846264760188159
+    }
+   },
+   "perp_funding_fills": 0
+  },
+  "TK": {
+   "cfg": {
+    "trend": true,
+    "venue": "spot",
+    "carry": true,
+    "degear": false
+   },
+   "scored_from": "2020-01-01",
+   "dev": {
+    "days": 1096,
+    "sharpe": 1.7057971454471208,
+    "cagr": 0.4090947175522961,
+    "ann_vol": 0.21462962907177252,
+    "max_dd": 0.22281118734074867,
+    "total_return": 1.8004551114376746,
+    "sum_trend_gross": 1.039650094267816,
+    "sum_trend_perp_funding_paid": 0.0,
+    "sum_carry_funding": 0.127174863,
+    "sum_carry_basis": -0.005692788063171627,
+    "sum_costs": 0.061785289685443355,
+    "trend_turnover_per_year": 6.722290816776297,
+    "carry_turnover_per_year": 6.927007299270073,
+    "mean_trend_gross": 0.2075196761845874,
+    "mean_carry_notional": 0.22290145985401458,
+    "mean_gear": 1.0,
+    "share_days_geared_down": 0.0
+   },
+   "years": {
+    "2020": {
+     "days": 366,
+     "ret": 0.8733500017431013
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.6523926769196944
+    },
+    "2022": {
+     "days": 365,
+     "ret": -0.0953170009168165
+    }
+   },
+   "perp_funding_fills": 0
+  },
+  "K": {
+   "cfg": {
+    "trend": false,
+    "venue": "spot",
+    "carry": true,
+    "degear": false
+   },
+   "scored_from": "2020-01-01",
+   "dev": {
+    "days": 1096,
+    "sharpe": 7.253341372196735,
+    "cagr": 0.10349651249929881,
+    "ann_vol": 0.013592263830435785,
+    "max_dd": 0.0077265060175112366,
+    "total_return": 0.3440953405893834,
+    "sum_trend_gross": 0.0,
+    "sum_trend_perp_funding_paid": 0.0,
+    "sum_carry_funding": 0.353494739,
+    "sum_carry_basis": -0.006656642498378072,
+    "sum_costs": 0.0508,
+    "trend_turnover_per_year": 0.0,
+    "carry_turnover_per_year": 8.458941605839417,
+    "mean_trend_gross": 0.0,
+    "mean_carry_notional": 0.36468978102189786,
+    "mean_gear": 1.0,
+    "share_days_geared_down": 0.0
+   },
+   "years": {
+    "2020": {
+     "days": 366,
+     "ret": 0.09256747155048495
+    },
+    "2021": {
+     "days": 365,
+     "ret": 0.22459691679571625
+    },
+    "2022": {
+     "days": 365,
+     "ret": 0.004589530030818745
+    }
+   },
+   "perp_funding_fills": 0
+  }
+ }
+}
