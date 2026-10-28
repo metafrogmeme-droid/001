@@ -35,6 +35,10 @@ ARMS: dict[str, dict] = {
 }
 PRIMARY = "realistic"
 
+# Addendum 4: the realistic fills charged the taker commission and entry
+# slippage, to separate the maker entry's cost saving from the fill selection.
+TAKER_ARM = "realistic_taker"
+
 # The random-skip control (Addendum 2): the market arm with this share of
 # entries dropped at random, three seeds. P is 1 minus the realistic arm's
 # positions over the market arm's, fixed from the trade counts on file.
@@ -75,6 +79,9 @@ def next_p(points: list[tuple[float, float]], target: int, market_n: int) -> flo
     return round(min(0.95, max(0.0, new)), 3)
 
 
+ARMS[TAKER_ARM] = {"env": {}, "args": [*ARMS["realistic"]["args"], "--limit-fills-pay-taker"]}
+
+
 def skip_spec(p: float, seed: int) -> dict:
     return {"env": dict(ARMS["market"]["env"]),
             "args": ["--entry-skip-p", str(p), "--entry-skip-seed", str(seed)]}
@@ -109,9 +116,11 @@ def run_one(out: Path, dataset: str, arm: str) -> int:
     return done.returncode
 
 
-def run(out: Path, jobs: int, control: bool = False, matched: bool = False) -> None:
+def run(out: Path, jobs: int, control: bool = False, matched: bool = False,
+        taker: bool = False) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    arms = MATCHED_ARMS if matched else SKIP_ARMS if control else tuple(ARMS)
+    arms = ((TAKER_ARM,) if taker else MATCHED_ARMS if matched else SKIP_ARMS if control
+            else tuple(a for a in ARMS if a != TAKER_ARM))
     work = [(d, a) for d, _ in rs.STAGE1 for a in arms]
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         for (d, a), rc in zip(work, pool.map(lambda w: run_one(out, *w), work)):
@@ -134,7 +143,7 @@ def lifecycle(results: list[dict]) -> dict:
 
 def report(out: Path) -> None:
     print(f"datasets: {[d for d, _ in rs.STAGE1]}\n")
-    for arm in ARMS:
+    for arm in (a for a in ARMS if a != TAKER_ARM):
         runs = [r for d, _ in rs.STAGE1 if (r := rs.load(out, d, arm)) is not None]
         if len(runs) < len(rs.STAGE1):
             print(f"{arm}: missing runs")
@@ -251,6 +260,40 @@ def report_control(out: Path, matched: bool = False) -> None:
               f"[{j['lo']:+.2f},{j['hi']:+.2f}]  {tag}")
 
 
+def report_taker(out: Path) -> None:
+    """Addendum 4: the cost saving of the maker entry, and selection at equal cost."""
+    print("same limit fills, charged the taker commission and slippage\n")
+    names = [d for d, _ in rs.STAGE1]
+    print(f"{'dataset':14} {'realistic':>9} {'realistic_taker':>15} {'matched skip(mean)':>18}")
+    saving, selection, vs_market = {}, {}, {}
+    for d, w in rs.STAGE1:
+        real, tak = rs.load(out, d, PRIMARY), rs.load(out, d, TAKER_ARM)
+        market = rs.load(out, d, BASE)
+        skips = [rs.load(out, d, a) for a in MATCHED_ARMS]
+        if real is None or tak is None or market is None or any(x is None for x in skips):
+            print(f"{d:14} missing runs")
+            return
+        avg = average_runs(skips)
+        print(f"{d:14} {real['pooled_trades']:9} {tak['pooled_trades']:15} "
+              f"{sum(r['pooled_trades'] for r in skips) / len(skips):18.0f}")
+        saving[d] = (w, rs.paired(tak, real, w))
+        selection[d] = (w, rs.paired(avg, tak, w))
+        vs_market[d] = (w, rs.paired(market, tak, w))
+    print()
+    for label, per, note in (
+            ("1 cost saving: realistic - realistic_taker", saving, ""),
+            ("2 selection: realistic_taker - matched skip", selection, "stage 1 rule"),
+            ("  (realistic_taker - market)", vs_market, "")):
+        j = rs.judge_stage1(per)
+        cells = "  ".join(f"{d[:13]}:{j['means'][d]:+6.2f}" for d in names)
+        tag = ("PASS (selection at equal cost)" if j["passed"] else
+               "fail (no better at equal cost)") if label.startswith("2") else (
+               "interval above zero" if label.startswith("1") and j["lo"] > 0 else "")
+        print(f"{label:46} {cells}  holdout {j['holdout_mean']:+.2f} ddOK "
+              f"{'y' if j['holdout_dd_not_worse'] else 'n'}  all folds {j['mean']:+.2f} "
+              f"[{j['lo']:+.2f},{j['hi']:+.2f}]  {tag}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("cmd", choices=("run", "report", "calibrate"))
@@ -260,12 +303,16 @@ def main() -> int:
                     help="the random-skip control (Addendum 2) instead of the three arms")
     ap.add_argument("--matched", action="store_true",
                     help="the count-matched control (Addendum 3); needs `calibrate` first")
+    ap.add_argument("--taker", action="store_true",
+                    help="the realistic fills charged taker costs (Addendum 4)")
     args = ap.parse_args()
     out = Path(args.out)
     if args.cmd == "calibrate":
         calibrate(out, args.jobs)
     elif args.cmd == "run":
-        run(out, args.jobs, args.control, args.matched)
+        run(out, args.jobs, args.control, args.matched, args.taker)
+    elif args.taker:
+        report_taker(out)
     elif args.matched:
         report_control(out, matched=True)
     elif args.control:

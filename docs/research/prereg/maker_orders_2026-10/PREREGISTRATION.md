@@ -173,7 +173,7 @@ difference, per dataset, holdout, interval over calendar folds):
    better trades. A fail means they do not, and the +1.2 residual in the
    count-matched control is the cost saving.
 
-`realised position counts of the new arm are reported beside the realistic arm's,
+Realised position counts of the new arm are reported beside the realistic arm's,
 because taker slippage on the entry moves sizing and exits and can shift the
 count.
 

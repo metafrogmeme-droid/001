@@ -12,7 +12,7 @@ import maker_test as mt  # noqa: E402
 def test_arms_match_the_registration_and_the_repos_realistic_fill():
     text = (Path(__file__).resolve().parent.parent / "docs" / "research" / "prereg"
             / "maker_orders_2026-10" / "PREREGISTRATION.md").read_text()
-    assert set(mt.ARMS) == {"market", "touch", "realistic"}
+    assert set(mt.ARMS) == {"market", "touch", "realistic", "realistic_taker"}
     assert mt.ARMS["market"]["env"] == {"LIMIT_ORDERS_ENABLED": "0"}
     assert mt.ARMS["touch"] == {"env": {}, "args": []}
     from bot.core.limit_shadow import REALISTIC
@@ -97,3 +97,14 @@ def test_matched_arms_need_a_calibrated_rate_and_use_the_targets_on_file():
             / "maker_orders_2026-10" / "PREREGISTRATION.md").read_text()
     for ds, n in mt.TARGETS.items():
         assert f"{ds} {n}" in text.replace(",", ""), (ds, n)
+
+
+def test_the_taker_arm_is_the_realistic_arm_plus_the_cost_flag_and_nothing_else():
+    real, taker = mt.ARMS["realistic"], mt.ARMS[mt.TAKER_ARM]
+    assert taker["env"] == real["env"]
+    assert taker["args"] == [*real["args"], "--limit-fills-pay-taker"]
+    # the original three-arm report and run do not pick it up by accident
+    assert mt.TAKER_ARM not in [a for a in mt.ARMS if a != mt.TAKER_ARM]
+    text = (Path(__file__).resolve().parent.parent / "docs" / "research" / "prereg"
+            / "maker_orders_2026-10" / "PREREGISTRATION.md").read_text()
+    assert "realistic_taker" in text and "--limit-fills-pay-taker" in text
