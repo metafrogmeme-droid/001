@@ -60,6 +60,12 @@
     "axios": "1.20.0",
     "protobufjs": "^7.6.3",
     "jayson": "5.0.0",
-    "toml": "5.0.1"
+    "toml": "5.0.1",
+    "@wormhole-foundation/sdk-solana": {
+      "rpc-websockets": {
+        "uuid": "11.1.1"
+      }
+    },
+    "bn.js": "5.2.5"
   }
 }
