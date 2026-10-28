@@ -113,3 +113,34 @@ with drawdown no worse; interval over calendar folds above zero). Reading:
 
 `market` against the seed mean is reported too, to show what skipping alone
 does. Nothing else in the registration changes.
+
+## Addendum 3: the count-matched control (written before it is run)
+
+The first random-skip control was not matched on what it controls for: its
+realised position counts (596, 305, 107 on three datasets) were 17% to 25%
+above the limit arm's, because a skipped entry frees a slot for a later idea.
+This control calibrates the skip rate until the realised count matches.
+
+**Targets**: the `realistic` arm's pooled position count per dataset, already
+on file: corr_dense_1h 495, majors_1h_v2 241, majors_1h_v3 116, alts_1h_v3 80.
+
+**Calibration** (reads only position counts, never returns): the `market` arm
+with `--entry-skip-p P --entry-skip-seed 0`, starting at the Addendum 2 rate
+(0.276, 0.510, 0.057, 0.444). Each step reads the realised pooled count `T`
+and moves `P` by a secant step on the last two points (a first step of
+`(T - target) / market positions`), clamped to [0, 0.95], rounded to 3 places.
+It stops when `|T - target| <= max(5% of target, 3 positions)` or after 6
+runs, and then uses the closest point. The calibrated `P` per dataset is
+written down before the comparison is run.
+
+**Comparison**: seeds 0, 1 and 2 at the calibrated `P` (the calibration run is
+seed 0), the fold-wise mean as the baseline, and `realistic` against it by the
+same stage 1 rule as before. Realised counts are reported beside the target.
+
+* **Passes**: at the same number of positions, the limit entries pick better
+  trades than a random subset.
+* **Does not pass**: at equal count the limit entries are no better than
+  skipping at random. They are a trade filter, and the earlier pass is
+  explained by trading less.
+
+Nothing else in the registration changes.
