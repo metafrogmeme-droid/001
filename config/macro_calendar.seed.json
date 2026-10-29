@@ -1,6 +1,6 @@
 {
-  "version": "2026-07-06-refresh",
-  "generated_utc": "2026-07-06T00:00:00Z",
+  "version": "2026-10-29-refresh",
+  "generated_utc": "2026-10-29T00:00:00Z",
   "max_stale_hours": 720,
   "events": [
     {
@@ -197,21 +197,21 @@
       "label": "Nonfarm Payrolls - November 2026",
       "scheduled_utc": "2026-11-06T13:30:00Z",
       "severity": "HIGH",
-      "date_confidence": "estimated"
+      "date_confidence": "confirmed"
     },
     {
       "type": "CPI_RELEASE",
       "label": "CPI Release - November 2026",
       "scheduled_utc": "2026-11-10T13:30:00Z",
       "severity": "HIGH",
-      "date_confidence": "estimated"
+      "date_confidence": "confirmed"
     },
     {
       "type": "NFP_RELEASE",
       "label": "Nonfarm Payrolls - December 2026",
       "scheduled_utc": "2026-12-04T13:30:00Z",
       "severity": "HIGH",
-      "date_confidence": "estimated"
+      "date_confidence": "confirmed"
     },
     {
       "type": "FOMC_DECISION",
@@ -225,7 +225,21 @@
       "label": "CPI Release - December 2026",
       "scheduled_utc": "2026-12-10T13:30:00Z",
       "severity": "HIGH",
-      "date_confidence": "estimated"
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - January 2027",
+      "scheduled_utc": "2027-01-08T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - January 2027",
+      "scheduled_utc": "2027-01-13T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
     },
     {
       "type": "FOMC_DECISION",
@@ -235,11 +249,53 @@
       "date_confidence": "tentative"
     },
     {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - February 2027",
+      "scheduled_utc": "2027-02-05T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - February 2027",
+      "scheduled_utc": "2027-02-11T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - March 2027",
+      "scheduled_utc": "2027-03-05T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - March 2027",
+      "scheduled_utc": "2027-03-10T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
       "type": "FOMC_DECISION",
       "label": "FOMC Rate Decision \u2014 March 2027",
       "scheduled_utc": "2027-03-17T18:00:00Z",
       "severity": "CRITICAL",
       "date_confidence": "tentative"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - April 2027",
+      "scheduled_utc": "2027-04-02T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - April 2027",
+      "scheduled_utc": "2027-04-13T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
     },
     {
       "type": "FOMC_DECISION",
@@ -249,11 +305,53 @@
       "date_confidence": "tentative"
     },
     {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - May 2027",
+      "scheduled_utc": "2027-05-07T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - May 2027",
+      "scheduled_utc": "2027-05-12T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - June 2027",
+      "scheduled_utc": "2027-06-04T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
       "type": "FOMC_DECISION",
       "label": "FOMC Rate Decision \u2014 June 2027",
       "scheduled_utc": "2027-06-09T18:00:00Z",
       "severity": "CRITICAL",
       "date_confidence": "tentative"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - June 2027",
+      "scheduled_utc": "2027-06-10T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - July 2027",
+      "scheduled_utc": "2027-07-02T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - July 2027",
+      "scheduled_utc": "2027-07-14T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
     },
     {
       "type": "FOMC_DECISION",
@@ -263,11 +361,53 @@
       "date_confidence": "tentative"
     },
     {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - August 2027",
+      "scheduled_utc": "2027-08-06T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - August 2027",
+      "scheduled_utc": "2027-08-11T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - September 2027",
+      "scheduled_utc": "2027-09-03T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - September 2027",
+      "scheduled_utc": "2027-09-14T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
       "type": "FOMC_DECISION",
       "label": "FOMC Rate Decision \u2014 September 2027",
       "scheduled_utc": "2027-09-15T18:00:00Z",
       "severity": "CRITICAL",
       "date_confidence": "tentative"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - October 2027",
+      "scheduled_utc": "2027-10-08T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - October 2027",
+      "scheduled_utc": "2027-10-14T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
     },
     {
       "type": "FOMC_DECISION",
@@ -277,11 +417,39 @@
       "date_confidence": "tentative"
     },
     {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - November 2027",
+      "scheduled_utc": "2027-11-05T12:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - November 2027",
+      "scheduled_utc": "2027-11-10T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
+      "type": "NFP_RELEASE",
+      "label": "Nonfarm Payrolls - December 2027",
+      "scheduled_utc": "2027-12-03T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
+    },
+    {
       "type": "FOMC_DECISION",
       "label": "FOMC Rate Decision \u2014 December 2027",
       "scheduled_utc": "2027-12-08T19:00:00Z",
       "severity": "CRITICAL",
       "date_confidence": "tentative"
+    },
+    {
+      "type": "CPI_RELEASE",
+      "label": "CPI Release - December 2027",
+      "scheduled_utc": "2027-12-10T13:30:00Z",
+      "severity": "HIGH",
+      "date_confidence": "confirmed"
     }
   ]
 }
