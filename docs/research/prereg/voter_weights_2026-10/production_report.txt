@@ -1,0 +1,8 @@
+majors_1h_v3 production rc=0
+alts_1h_v3 production rc=0
+majors_1h_v3: holdout trades default 167, production 162
+alts_1h_v3: holdout trades default 170, production 170
+
+production - default, per fold (pp): majors_1h_v3 -0.65  alts_1h_v3 +0.10
+holdout mean -0.28, drawdown not worse: False, mean -0.28 [95% -0.95, +0.12]
+same rules, post hoc: FAIL
