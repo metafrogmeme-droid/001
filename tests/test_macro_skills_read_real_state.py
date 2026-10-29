@@ -173,7 +173,18 @@ def test_a_loaded_calendar_is_never_reported_as_no_events_loaded():
 
     assert "No upcoming events loaded" not in out
     # Whatever the horizon holds, the next event is named one way or the other.
-    nxt = eng.macro_provider.get_upcoming_events(hours=24 * 365)[0]
+    # The two arms read two clocks, so each is asked the way the card asks it:
+    # the week's list reads the wall clock, while a quiet week names
+    # `ctx.next_event`, which the harness reads at QUIET_MACRO_INSTANT
+    # (tests/conftest.py). Taking the first event of the next year from the
+    # wall clock for both held only while the real date was before the first
+    # event after that instant, and broke the day the 2026-10-28 FOMC passed.
+    week = eng.macro_provider.get_upcoming_events(hours=24 * 7)
+    if week:
+        nxt = week[0]
+    else:
+        nxt = eng.macro_provider.get_context().next_event
+        assert nxt is not None, "a quiet week with a loaded calendar names no next event"
     assert str(nxt["label"]) in out
 
 
