@@ -550,6 +550,7 @@ def trade_rows(folds: list[dict]) -> list[dict]:
                 "entry_regime": t.entry_regime,
                 "setup": t.setup,
                 "signal_type": t.signal_type,
+                "voter_votes": getattr(t, "voter_votes", None),
             })
     return rows
 

@@ -206,6 +206,10 @@ class BacktestTrade(BaseModel):
     # Bar volume / rolling average at the entry signal. None when the bar
     # did not carry a ratio — not 0, which is a real "no spike" reading.
     volume_spike_ratio: Optional[float] = None
+    #: Each voter's ``[name, vote, weight]`` at entry, read off the idea's
+    #: ``_confluence_votes``: what the voter-weight learner fits on. None when
+    #: the analyzer recorded no breakdown, not an empty vote.
+    voter_votes: Optional[list] = None
 
 
 class EquityPoint(BaseModel):
