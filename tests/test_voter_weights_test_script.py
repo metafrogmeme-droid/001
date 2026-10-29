@@ -74,3 +74,15 @@ def test_holdout_runs_refuse_before_the_weights_are_fixed(tmp_path, monkeypatch)
     monkeypatch.setattr("sys.argv", ["x", "test-runs", "--out", str(tmp_path)])
     assert m.main() == 2
     assert not any(tmp_path.glob("*__learned.json"))
+
+
+def test_an_extra_arm_needs_its_own_name_a_file_and_the_default_runs(tmp_path, monkeypatch):
+    m = _script()
+    w = tmp_path / "w.json"
+    w.write_text("{}")
+    for argv in (["extra-arm", "--name", "learned", "--weights", str(w)],   # reserved name
+                 ["extra-arm", "--name", "prod"],                            # no weights
+                 ["extra-arm", "--name", "prod", "--weights", str(w)]):      # no default runs
+        monkeypatch.setattr("sys.argv", ["x", *argv, "--out", str(tmp_path)])
+        assert m.main() == 2
+    assert not any(tmp_path.glob("*__prod.json"))

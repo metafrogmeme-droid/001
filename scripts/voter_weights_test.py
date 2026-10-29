@@ -52,8 +52,9 @@ def run_one(out: Path, dataset: str, arm: str, trades: bool = False) -> int:
     (state / "learning").mkdir(parents=True)
     env = {**os.environ, "RUNECLAW_STATE_DIR": str(state),
            "VOTER_WEIGHT_LEARNING_ENABLED": "0"}
-    if arm == "learned":
-        shutil.copyfile(out / WEIGHTS, state / "learning" / WEIGHTS)
+    if arm != "default":
+        src = out / (WEIGHTS if arm == "learned" else f"{arm}__{WEIGHTS}")
+        shutil.copyfile(src, state / "learning" / WEIGHTS)
         env["VOTER_WEIGHT_LEARNING_ENABLED"] = "1"
     cmd = [sys.executable, "-m", "bot.backtest.runner", "--dataset", f"benchmark/{dataset}",
            "--honest", "--breaker-reset-bars", "24", "--walk-forward", "6", "-o", str(path)]
@@ -141,9 +142,34 @@ def report(out: Path) -> None:
     print(f"\nreported only: holdout trade_ranking {ranking(out)}")
 
 
+def extra_report(out: Path, name: str) -> None:
+    """A weights file that was not fitted by this procedure, against the same
+    default runs. Not pre-registered: the verdict is labelled post hoc."""
+    per = {}
+    for d in HOLDOUT:
+        base, arm = rs.load(out, d, "default"), rs.load(out, d, name)
+        if base is None or arm is None:
+            print(f"{d}: missing runs")
+            return
+        per[d] = ("holdout", rs.paired(base, arm, "holdout"))
+        trades = {a: sum(int(f["trades"]) for f in rs.window_folds(r, "holdout").values())
+                  for a, r in (("default", base), (name, arm))}
+        print(f"{d}: holdout trades default {trades['default']}, {name} {trades[name]}")
+    j = rs.judge_stage1(per)
+    cells = "  ".join(f"{d} {j['means'][d]:+.2f}" for d in HOLDOUT)
+    print(f"\n{name} - default, per fold (pp): {cells}")
+    print(f"holdout mean {j['holdout_mean']:+.2f}, drawdown not worse: {j['holdout_dd_not_worse']}, "
+          f"mean {j['mean']:+.2f} [95% {j['lo']:+.2f}, {j['hi']:+.2f}]")
+    print(f"same rules, post hoc: {'PASS' if j['passed'] else 'FAIL'}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", choices=["fit-runs", "fit", "test-runs", "report"])
+    ap.add_argument("cmd", choices=["fit-runs", "fit", "test-runs", "report", "extra-arm"])
+    ap.add_argument("--name", default="production",
+                    help="extra-arm: the arm's name")
+    ap.add_argument("--weights", type=Path, default=None,
+                    help="extra-arm: a weights file fitted elsewhere")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--jobs", type=int, default=4)
     a = ap.parse_args()
@@ -157,6 +183,20 @@ def main() -> int:
             return 2
         work = [(d, arm) for d in HOLDOUT for arm in ARMS]
         trades = True
+    elif a.cmd == "extra-arm":
+        if a.name in ARMS or a.weights is None:
+            print("extra-arm needs --weights and a --name other than default/learned")
+            return 2
+        if not rs.out_path(a.out, HOLDOUT[0], "default").exists():
+            print("run test-runs first: the extra arm is compared with its default runs")
+            return 2
+        shutil.copyfile(a.weights, a.out / f"{a.name}__{WEIGHTS}")
+        work = [(d, a.name) for d in HOLDOUT]
+        with ThreadPoolExecutor(max_workers=a.jobs) as pool:
+            for (d, arm), rc in zip(work, pool.map(lambda w: run_one(a.out, *w), work)):
+                print(f"{d} {arm} rc={rc}", flush=True)
+        extra_report(a.out, a.name)
+        return 0
     elif a.cmd == "fit":
         print(json.dumps(fit(a.out), indent=1, default=str))
         return 0
