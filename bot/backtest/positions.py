@@ -65,6 +65,8 @@ class Position:
     setup: str
     signal_type: str
     volume_spike_ratio: Optional[float]
+    #: The first fill's entry votes (`BacktestTrade.voter_votes`).
+    voter_votes: Optional[list] = None
 
 
 def _merge(rows: list) -> Position:
@@ -101,6 +103,7 @@ def _merge(rows: list) -> Position:
         setup=first.setup,
         signal_type=first.signal_type,
         volume_spike_ratio=first.volume_spike_ratio,
+        voter_votes=getattr(first, "voter_votes", None),
     )
 
 

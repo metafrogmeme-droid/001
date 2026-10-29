@@ -354,17 +354,29 @@ class TestConfig:
         # keeps its own default.
         assert CONFIG.risk.max_correlation == pytest.approx(0.85)
 
-    def test_threshold_is_bounded(self, monkeypatch):
-        import importlib
+    def test_threshold_is_bounded(self):
+        """IN A SUBPROCESS, not importlib.reload(bot.config).
 
-        import bot.config as config
-        monkeypatch.setenv("CONFLUENCE_VOTER_MAX_CORRELATION", "5")
-        try:
-            importlib.reload(config)
-            assert config.CONFIG.confluence.voter_max_correlation < 1.0
-        finally:
-            monkeypatch.delenv("CONFLUENCE_VOTER_MAX_CORRELATION")
-            importlib.reload(config)
+        A reload builds a new CONFIG and RUNTIME (and a new Config class) while
+        every module that bound them at import keeps the old ones. The first
+        version reloaded here, and later tests in the same run patched or read
+        objects nothing else used: test_web_reports' stance test and two
+        yield-card tests failed in every full run and were forgiven by the
+        flake filter because they passed alone. tests/test_bg_scan_valve.py
+        records the same lesson.
+        """
+        import os
+        import subprocess
+        import sys
+
+        env = dict(os.environ, CONFLUENCE_VOTER_MAX_CORRELATION="5")
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "from bot.config import CONFIG;"
+             "print(CONFIG.confluence.voter_max_correlation)"],
+            capture_output=True, text=True, env=env, cwd=os.getcwd(), timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        assert float(out.stdout.strip().splitlines()[-1]) < 1.0
 
 
 # ── analyze() records the history it later reads ──────────────────────────

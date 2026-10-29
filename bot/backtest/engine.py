@@ -76,6 +76,23 @@ def _preset_direction(raw: str) -> str:
     return side_rule(raw) or ""
 
 
+def entry_votes(idea) -> Optional[list]:
+    """The idea's per-voter ``[name, vote, weight]`` rows, or None when the
+    analyzer attached none. Rows that do not read as (str, number, number)
+    are dropped rather than coerced to zero."""
+    raw = getattr(idea, "_confluence_votes", None)
+    if not raw:
+        return None
+    rows = []
+    for item in raw:
+        try:
+            name, vote, weight = item
+            rows.append([str(name), float(vote), float(weight)])
+        except (TypeError, ValueError):
+            continue
+    return rows or None
+
+
 class BreakerResetClock:
     """``breaker_reset_bars``: emulate an operator resetting a tripped breaker
     after N bars, so one early losing streak does not silently halt a
@@ -1697,6 +1714,7 @@ class BacktestEngine:
             setup=getattr(idea, "strategy_type", ""),
             signal_type=getattr(idea, "signal_type", ""),
             volume_spike_ratio=bt_meta.get("volume_spike_ratio"),
+            voter_votes=entry_votes(idea),
         )
         self._trades.append(bt_trade)
 
@@ -2012,6 +2030,7 @@ class BacktestEngine:
             setup=getattr(idea, "strategy_type", ""),
             signal_type=getattr(idea, "signal_type", ""),
             volume_spike_ratio=bt_meta.get("volume_spike_ratio"),
+            voter_votes=entry_votes(idea),
         )
         self._trades.append(bt_trade)
 
