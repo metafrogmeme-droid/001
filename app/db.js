@@ -368,6 +368,8 @@ class MemoryDB {
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
     this.piPayments = [];     // Pi tips (routes/pi_payments.js), unique payment_id
     this.piCoachUsage = [];   // Ask the Claw allowance (lib/pi_coach.js), one row per (user_id, day)
+    this.piTestnetSignins = []; // Testnet Pi app sign-in uids (lib/pi_testnet_a2u.js)
+    this.piTestnetA2u = [];   // Testnet App-to-User payouts, one row per uid
     this.memeclawPlans = [];  // Memeclaw terms planned for a wallet (lib/memeclaw_store.js)
     this.memeclawCoins = [];  // Memeclaw coins the chain says the factory created
     this.memeclawTrades = []; // Memeclaw Trade events, (tx_hash, log_index) unique
@@ -2824,6 +2826,94 @@ class MemoryDB {
       return [row ? [{ count: row.count }] : [], []];
     }
 
+    // ── pi_testnet_signins / pi_testnet_a2u (lib/pi_testnet_a2u.js) ──────
+    // Guards are read from the statement, as the pi_payments branch is:
+    // payment_id IS NULL is what keeps a second id off a row that already
+    // has one, and the duplicate uid is a real duplicate-key error.
+    if (pp.startsWith('INSERT INTO PI_TESTNET_SIGNINS')) {
+      this.piTestnetSignins = this.piTestnetSignins || [];
+      const existing = this.piTestnetSignins.find((r) => r.uid === params[0]);
+      if (existing) {
+        if (pp.includes('ON DUPLICATE KEY UPDATE')) existing.signed_in_at = params[1];
+        else {
+          const err = new Error(`Duplicate entry '${params[0]}' for key 'PRIMARY'`);
+          err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+          throw err;
+        }
+      } else {
+        this.piTestnetSignins.push({ uid: params[0], signed_in_at: params[1] });
+      }
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('SELECT UID, SIGNED_IN_AT FROM PI_TESTNET_SIGNINS')) {
+      this.piTestnetSignins = this.piTestnetSignins || [];
+      const rows = this.piTestnetSignins.map((r) => ({ ...r }))
+        .sort((a, b) => new Date(b.signed_in_at) - new Date(a.signed_in_at));
+      return [pp.includes('LIMIT 50') ? rows.slice(0, 50) : rows, []];
+    }
+    if (pp.startsWith('SELECT UID FROM PI_TESTNET_SIGNINS WHERE UID = ?')) {
+      this.piTestnetSignins = this.piTestnetSignins || [];
+      const hit = this.piTestnetSignins.filter((r) => r.uid === params[0]);
+      return [hit.map((r) => ({ uid: r.uid })), []];
+    }
+    if (pp.startsWith('INSERT INTO PI_TESTNET_A2U')) {
+      this.piTestnetA2u = this.piTestnetA2u || [];
+      if (this.piTestnetA2u.some((r) => r.uid === params[0])) {
+        const err = new Error(`Duplicate entry '${params[0]}' for key 'PRIMARY'`);
+        err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+        throw err;
+      }
+      this.piTestnetA2u.push({
+        uid: params[0], amount: params[1], payment_id: null, txid: null,
+        status: params[2], created_at: params[3], updated_at: params[4],
+      });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('SELECT UID, AMOUNT, PAYMENT_ID, TXID, STATUS, CREATED_AT, UPDATED_AT FROM PI_TESTNET_A2U WHERE UID = ?')) {
+      this.piTestnetA2u = this.piTestnetA2u || [];
+      return [this.piTestnetA2u.filter((r) => r.uid === params[0]).map((r) => ({ ...r })), []];
+    }
+    if (pp.startsWith('SELECT UID, AMOUNT, PAYMENT_ID, TXID, STATUS, CREATED_AT, UPDATED_AT FROM PI_TESTNET_A2U')) {
+      this.piTestnetA2u = this.piTestnetA2u || [];
+      return [this.piTestnetA2u.map((r) => ({ ...r })), []];
+    }
+    if (pp.startsWith('UPDATE PI_TESTNET_A2U SET PAYMENT_ID = ?')) {
+      this.piTestnetA2u = this.piTestnetA2u || [];
+      if (this.piTestnetA2u.some((r) => r.payment_id === params[0] && r.uid !== params[2])) {
+        const err = new Error(`Duplicate entry '${params[0]}' for key 'uq_pi_testnet_a2u_payment'`);
+        err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+        throw err;
+      }
+      const row = this.piTestnetA2u.find((r) => r.uid === params[2]
+        && (!pp.includes('PAYMENT_ID IS NULL') || r.payment_id == null));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.payment_id = params[0]; row.updated_at = params[1];
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('UPDATE PI_TESTNET_A2U SET TXID = ?')) {
+      this.piTestnetA2u = this.piTestnetA2u || [];
+      const guarded = pp.includes('(TXID IS NULL OR TXID = ?)');
+      const row = this.piTestnetA2u.find((r) => r.uid === params[2]
+        && (!guarded || r.txid == null || r.txid === params[3]));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.txid = params[0]; row.updated_at = params[1];
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('UPDATE PI_TESTNET_A2U SET STATUS = ?')) {
+      this.piTestnetA2u = this.piTestnetA2u || [];
+      const row = this.piTestnetA2u.find((r) => r.uid === params[2]);
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.status = params[0]; row.updated_at = params[1];
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('DELETE FROM PI_TESTNET_A2U')) {
+      this.piTestnetA2u = this.piTestnetA2u || [];
+      const before = this.piTestnetA2u.length;
+      this.piTestnetA2u = this.piTestnetA2u.filter((r) => !(r.uid === params[0]
+        && (!pp.includes('PAYMENT_ID IS NULL') || r.payment_id == null)));
+      return [{ affectedRows: before - this.piTestnetA2u.length }, []];
+    }
+
     // ── memeclaw: the testnet launchpad (lib/memeclaw_store.js) ──────────
     // Every guard is read from the statement, as the pi branches above do:
     // `seal IS NULL`, `used_at IS NULL` and the newest-trade comparison ARE
@@ -3137,6 +3227,8 @@ const EXPECTED_TABLES = Object.freeze([
   'siwf_nonces',
   'pi_payments',
   'pi_coach_usage',
+  'pi_testnet_signins',
+  'pi_testnet_a2u',
   'memeclaw_plans',
   'memeclaw_coins',
   'memeclaw_trades',
@@ -4655,6 +4747,30 @@ async function migrate() {
         day CHAR(10) NOT NULL,
         count INT NOT NULL DEFAULT 0,
         PRIMARY KEY (user_id, day)
+      )
+    `);
+    // Testnet Pi app sign-ins (lib/pi_testnet_a2u.js). The uid /v2/me returned
+    // when the request was the Testnet app. A payout is only offered to one
+    // of these, and only while PI_TESTNET_A2U_ENABLED is exactly 1.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pi_testnet_signins (
+        uid VARCHAR(64) NOT NULL PRIMARY KEY,
+        signed_in_at TIMESTAMP NOT NULL
+      )
+    `);
+    // One Testnet App-to-User payment per uid, at most ten rows. payment_id
+    // is Pi's id, written before the transaction is signed. status: open,
+    // completed.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pi_testnet_a2u (
+        uid VARCHAR(64) NOT NULL PRIMARY KEY,
+        amount DECIMAL(20,7) NOT NULL,
+        payment_id VARCHAR(64) NULL,
+        txid VARCHAR(128) NULL,
+        status VARCHAR(16) NOT NULL,
+        created_at TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP NOT NULL,
+        UNIQUE KEY uq_pi_testnet_a2u_payment (payment_id)
       )
     `);
     // Memeclaw, the DogeOS-testnet launchpad (lib/memeclaw_store.js). No

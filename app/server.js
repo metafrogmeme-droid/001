@@ -530,6 +530,10 @@ app.use('/api/pi/payments', require('./routes/pi_payments'));
 app.use('/api/pi/coach', require('./routes/pi_coach'));
 // Season prizes in Pi: the table and the operator's payout plan. Off unless set; pays nothing.
 app.use('/api/pi/prizes', require('./routes/pi_prizes'));
+// Temporary Testnet-only App-to-User payout. Off unless PI_TESTNET_A2U_ENABLED
+// is exactly 1. Mounted before /api/pi so the sign-in router's IP limit does
+// not count an operator payout as a sign-in.
+app.use('/api/pi/testnet-a2u', require('./routes/pi_testnet_a2u'));
 app.use('/api/pi', require('./routes/pi_auth'));
 app.use('/pi', require('./routes/piapp'));
 // The Daily Duel as a Telegram Mini App, opened from the Duel bot: signed in
