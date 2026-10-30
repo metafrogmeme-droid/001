@@ -224,6 +224,24 @@ TIER_RANK: dict[str, int] = {name: i for i, name in enumerate(TIERS)}
 
 # Default tier for new auto-approved users
 DEFAULT_TIER = "basic"
+
+
+def _now_ts() -> float:
+    """Now, epoch seconds. One seam for a paid period's clock."""
+    return datetime.now(UTC).timestamp()
+
+
+def paid_tier_buys_nothing(held: Optional[str], until: Optional[float],
+                           tier: str, now: float) -> bool:
+    """Whether a paid period of ``tier`` would change nothing for a member
+    holding ``held`` (ending ``until``, None for no end): the same or a higher
+    tier with no end date, or a higher paid tier still running. The one
+    reading both the checkout and the grant ask."""
+    if held not in TIER_RANK or tier not in TIER_RANK or TIER_RANK[held] < TIER_RANK[tier]:
+        return False
+    if until is None:
+        return True
+    return now < float(until) and held != tier
 # Default role for new auto-approved users. Every caller of register() leaves
 # auto_role empty, so this one name covers BOTH self-provisioning doors: a
 # stranger messaging the bot on Telegram and a stranger signing up on the
@@ -1123,14 +1141,72 @@ class UserStore:
     # ── Tier management ────────────────────────────────────────
 
     def get_tier(self, telegram_id: int | str) -> str:
-        """Get user's current tier. Returns 'basic' for unknown users."""
+        """Get user's current tier. Returns 'basic' for unknown users.
+
+        A paid period (``tier_until``, written by `grant_paid_tier`) that has
+        ended answers Basic: the stored word is what was bought, not what is
+        held now.
+        """
         user = self.get(telegram_id)
         if not user:
             return DEFAULT_TIER
+        until = user.get("tier_until")
+        if until is not None and _now_ts() >= float(until):
+            return DEFAULT_TIER
         return user.get("tier", DEFAULT_TIER)
 
+    def tier_until(self, telegram_id: int | str) -> Optional[float]:
+        """When the caller's paid period ends (epoch seconds), or None for a
+        grant with no end (the operator's ``/set_tier``) or no record."""
+        user = self.get(telegram_id) or {}
+        until = user.get("tier_until")
+        return float(until) if until is not None else None
+
+    def grant_paid_tier(self, telegram_id: int | str, tier: str, days: int,
+                        charge_id: str) -> Optional[dict]:
+        """Record a paid period of ``tier`` for ``days``. None if refused.
+
+        Idempotent on ``charge_id``: Telegram may deliver one payment twice,
+        and a second delivery must not buy a second period. A period of the
+        same tier still running is extended from its end; anything else
+        starts now. Refused (None) when the record is missing, the tier is not
+        sold (only Pro and Elite are), or the member already holds the same or
+        a higher tier with no end date or a higher paid tier still running:
+        the caller refunds, because selling it would buy nothing.
+        """
+        if tier not in ("pro", "elite") or int(days) <= 0 or not charge_id:
+            return None
+        key = str(telegram_id)
+        now = _now_ts()
+        with self._lock:
+            rec = self._users.get(key)
+            if rec is None:
+                return None
+            charges = rec.setdefault("paid_charges", [])
+            if charge_id in charges:
+                return {"tier": rec.get("tier"), "until": rec.get("tier_until"),
+                        "duplicate": True}
+            held = rec.get("tier", DEFAULT_TIER)
+            until = rec.get("tier_until")
+            running = until is not None and now < float(until)
+            if paid_tier_buys_nothing(held, until, tier, now):
+                return None
+            start = float(until) if (running and held == tier) else now
+            new_until = start + int(days) * 86_400
+            charges.append(charge_id)
+            rec["tier"] = tier
+            rec["tier_until"] = new_until
+            self._save()
+            audit(system_log,
+                  f"Paid tier: {key} {held} -> {tier} for {int(days)}d",
+                  action="tier_paid", result="OK")
+            return {"tier": tier, "until": new_until, "duplicate": False}
+
     def set_tier(self, telegram_id: int | str, tier: str) -> bool:
-        """Set a user's tier. Admin only operation."""
+        """Set a user's tier. Admin only operation.
+
+        An operator grant has no end date, so it clears any paid period.
+        """
         if tier not in TIERS:
             return False
         key = str(telegram_id)
@@ -1139,6 +1215,7 @@ class UserStore:
                 return False
             old_tier = self._users[key].get("tier", DEFAULT_TIER)
             self._users[key]["tier"] = tier
+            self._users[key].pop("tier_until", None)
             self._save()
             audit(system_log,
                   f"User tier changed: {key} {old_tier} -> {tier}",

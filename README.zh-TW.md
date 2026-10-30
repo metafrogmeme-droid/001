@@ -476,6 +476,7 @@ python -m bot.main --mode scan
 | `/unlink` | 解除此 Telegram 與網站帳戶的連結 |
 | `/me` | 你的帳戶：電郵、方案與設定 |
 | `/tier` | 你的等級與各等級包含的功能 |
+| `/upgrade` | 取得 Pro 或 Elite：各自在此增加什麼，以及如何取得 |
 | `/sync` | 說明儀表板為何不需推送 — 它載入時會直接讀取你的帳號 |
 | `/connect` | 連結你自己的交易所帳戶 |
 | `/exchange` | 你的帳戶連結狀態（永不顯示金鑰） |

@@ -129,6 +129,7 @@ _cmd_tier tier
 _cmd_token token
 _cmd_trade trade
 _cmd_unstake stake
+_cmd_upgrade tier
 _cmd_venue_router venue_router
 _cmd_venues trade
 _cmd_volrotation run

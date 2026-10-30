@@ -320,8 +320,12 @@ def plan_ladder(users=None, uid=None) -> dict:
                                 else bool(routed and routing_for_user_tier(tier))),
         })
     stake = gate_enabled()
+    from bot.token import stars
     return {
         "enforced": tiers_enforced(),
+        # True: /upgrade sells periods in Telegram Stars; False: it sends the
+        # operator a request. The card's "how to get one" line reads this.
+        "stars": stars.enabled(),
         "stake": stake,
         "stake_min": ({"pro": int(_env_float("RCLAW_TIER_PRO_MIN", 10_000.0)),
                        "elite": int(_env_float("RCLAW_TIER_ELITE_MIN", 100_000.0))}

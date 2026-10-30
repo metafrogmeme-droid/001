@@ -98,6 +98,7 @@ from bot.skills.sigdecoder_commands import SigDecoderCommands
 from bot.skills.silent_fee_commands import SilentFeeCommands
 from bot.skills.srb_commands import SrbCommands
 from bot.skills.start_commands import StartCommands
+from bot.skills.upgrade_commands import UpgradeCommands
 from bot.skills.t2c_commands import T2CCommands
 from bot.skills.trading_commands import TradingCommands
 from bot.skills.yield_commands import YieldCommands
@@ -882,6 +883,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PreCheckoutQueryHandler,
     filters,
 )
 
@@ -1154,7 +1156,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                       EngineOpsCommands, T2CCommands, SrbCommands, QuarantineCommands,
                       PortfolioCommands, ScanCommands,
                       TradingCommands, StartCommands, AlertsMonitor, ClawHeuristicsCommands,
-                      CallbackHandler, SigDecoderCommands):
+                      CallbackHandler, SigDecoderCommands, UpgradeCommands):
     #: The signal-card sender start_monitor installs on the instance once the
     #: bot is running; None until then, and /latest_signal checks before it
     #: calls. A class default so the trading mixin's contract can name it.
@@ -1358,6 +1360,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # Multi-user commands
             ("link", _cmd_link), ("unlink", _cmd_unlink), ("me", _cmd_me),
             ("tier", self._cmd_tier),
+            ("upgrade", self._cmd_upgrade),
             ("sync", _cmd_sync),
             ("lang", self._cmd_lang),
             ("autoconfirm", self._cmd_autoconfirm),
@@ -1436,6 +1439,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # on the door registered directly below it.
         app.add_handler(
             CallbackQueryHandler(self._remembering_button(self._handle_callback)))
+        # Telegram Stars (bot/token/stars.py): the checkout question and the
+        # payment receipt. Inert while STARS_PAYMENTS_ENABLED is off, because
+        # /upgrade then issues no invoice for either to answer.
+        app.add_handler(PreCheckoutQueryHandler(self._on_pre_checkout))
+        app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT,
+                                       self._on_successful_payment))
         # AI-5: photo messages → operator vision chat. The agent reads a pasted
         # chart / positions / PnL screenshot and describes what it sees. Admin-
         # only (it spends the operator's Claude key); non-admins get a note.

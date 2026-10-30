@@ -117,12 +117,13 @@
     }
     notes.push('Never tier-gated: the kill switch, your own positions and risk, why a trade '
       + 'was refused, and live trading limits.');
-    let route = 'Tiers are granted by the operator';
+    let route = ladder.stars === true ? 'Pro and Elite can be bought with Telegram Stars'
+      : 'Tiers are granted by the operator';
     if (ladder.stake === true && ladder.stake_min) {
       route += ', or earned by a stake of ' + Number(ladder.stake_min.pro).toLocaleString('en-US')
         + ' $RCLAW (Pro) or ' + Number(ladder.stake_min.elite).toLocaleString('en-US') + ' (Elite)';
     }
-    notes.push(route + '. Ask in <a href="https://t.me/HTRUNECLAW_bot" target="_blank" '
+    notes.push(route + '. Send /upgrade to <a href="https://t.me/HTRUNECLAW_bot" target="_blank" '
       + 'rel="noopener">@HTRUNECLAW_bot</a>.');
     return headline(reading, ladder, esc)
       + '<div class="row" style="gap:var(--s3);flex-wrap:wrap;align-items:stretch">' + tiles + '</div>'

@@ -544,6 +544,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/unlink` | disconnect this Telegram from your website account |
 | `/me` | your account: email, plan and settings |
 | `/tier` | your tier and what each tier includes |
+| `/upgrade` | get Pro or Elite: what each adds here, and how |
 | `/sync` | why the dashboard needs no push — it reads your account when it loads |
 | `/connect` | link your own exchange account |
 | `/exchange` | your linked-account status (never shows keys) |
