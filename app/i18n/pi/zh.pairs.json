@@ -375,5 +375,7 @@
 ["of {n} high-confidence calls","共 {n} 次高信心判斷"],
 ["How often your high-confidence calls were right","你的高信心判斷有多少次是對的"],
 ["High confidence","高信心"],
-["Choose low, medium or high. Your call was not recorded.","請選擇低、中或高。這次判斷沒有記錄。"]
+["Choose low, medium or high. Your call was not recorded.","請選擇低、中或高。這次判斷沒有記錄。"],
+["You are talking to the Coach, an AI. It is not a person.","你正在和教練說話。教練是 AI，不是人。"],
+["AI-generated","AI 生成"]
 ]

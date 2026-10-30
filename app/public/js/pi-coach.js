@@ -19,6 +19,11 @@
  * THREE STATES FOR THE ALLOWANCE. Read ("12 of 20 left today"), used up (when
  * it resets, and Coach Plus when it is offered), and unread (said to be, and
  * the question can still be asked: the server counts, not this page).
+ *
+ * THE AI DISCLOSURE is the server's (lib/coach_ai_disclosure.js). This page
+ * draws it only when the response carries that notice, and it marks a reply
+ * only when the response says the reply was generated. A missing field is
+ * not drawn as off and is not drawn as on.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -27,6 +32,11 @@
   'use strict';
 
   var MAX_TEXT = 1000;
+  /** The sentences in lib/coach_ai_disclosure.js. A test holds them equal. */
+  var NOTICE = 'You are talking to the Coach, an AI. It is not a person.';
+  var MARK = 'AI-generated';
+  /** The admin-preview banner (lib/admin_preview.js BANNER). */
+  var PREVIEW = 'Admin preview. Not public.';
   /** The intents of the coach's fixed answers (bot/web/user_gateway.py, the Pi coach turn). */
   var FIXED_INTENTS = ['pi_coach_token', 'pi_coach_no_feed', 'pi_coach_withheld', 'pi_coach_unavailable'];
   /** The starter questions in the language on screen; a chip asks what it shows. */
@@ -87,16 +97,25 @@
     var typed = '';
     var scrollEnd = false;
     var plusNote = null;  // [kind, text]
+    var aiView = null;    // the server's ai_disclosure, or null when it sent none
+
+    function takeDisclosure(body) {
+      var d = body && body.ai_disclosure;
+      aiView = d && d.notice === NOTICE ? d : null;
+    }
 
     function read() {
       if (!ctx) return Promise.resolve();
       return ctx.api('/api/pi/coach').then(function (r) {
-        if (r.ok && r.body && typeof r.body.enabled === 'boolean') { state = r.body; readFailed = false; }
-        else readFailed = true;
+        if (r.ok && r.body && typeof r.body.enabled === 'boolean') {
+          state = r.body;
+          readFailed = false;
+          takeDisclosure(r.body);
+        } else readFailed = true;
       }, function () { readFailed = true; }).then(function () { if (ctx) ctx.render(); });
     }
 
-    function signedIn(c) { ctx = c; read(); }
+    function signedIn(c) { ctx = c; return read(); }
 
     function allowanceHtml() {
       if (readFailed) return '<p class="p-coach-left">' + esc(T('How many questions are left could not be read just now.')) + '</p>';
@@ -119,6 +138,15 @@
         : T('You have used today’s questions.')) + '</p>' + offer + '</div>';
     }
 
+    function disclosureHtml() {
+      if (!aiView || aiView.notice !== NOTICE) return '';
+      var banner = aiView.preview === true
+        ? '<p class="admin-preview" role="note">' + esc(PREVIEW) + '</p>'
+        : '';
+      return banner + '<p class="p-coach-ai" role="note">'
+        + esc(T('You are talking to the Coach, an AI. It is not a person.')) + '</p>';
+    }
+
     function logHtml() {
       if (!log.length) {
         return '<div class="p-coach-start"><p class="p-coach-hi">'
@@ -130,7 +158,9 @@
       return '<div class="p-coach-log" aria-live="polite">' + log.map(function (m) {
         if (m.who === 'me') return '<div class="p-coach-msg p-coach-msg--me">' + esc(m.text) + '</div>';
         if (m.who === 'claw') {
-          return '<div class="p-coach-msg p-coach-msg--claw">'
+          var gen = m.generated === true;
+          return '<div class="p-coach-msg p-coach-msg--claw"' + (gen ? ' data-ai-generated="true"' : '') + '>'
+            + (gen ? '<p class="p-coach-ai-mark">' + esc(T('AI-generated')) + '</p>' : '')
             + (typeof m.html === 'string' ? safeReply(m.html) : esc(m.text)) + '</div>';
         }
         return '<div class="p-coach-msg p-coach-msg--note">' + esc(m.text) + '</div>';
@@ -146,7 +176,9 @@
           + '<textarea class="p-coach-in" rows="2" maxlength="' + MAX_TEXT + '" placeholder="' + esc(T('e.g. what does leverage do?')) + '">'
           + esc(typed) + '</textarea></label>'
           + '<button type="button" class="p-coach-send"' + (busy || (state && state.left === 0) ? ' disabled' : '') + '>' + esc(T('Ask')) + '</button></div>';
-      return '<section class="m-open p-coach"><div class="p-sig-head"><h2>' + esc(T('Ask the Claw')) + '</h2></div>'
+      var disclosed = aiView && aiView.notice === NOTICE;
+      return '<section class="m-open p-coach"' + (disclosed ? ' data-ai-system="coach"' : '') + '><div class="p-sig-head"><h2>' + esc(T('Ask the Claw')) + '</h2></div>'
+        + disclosureHtml()
         + allowanceHtml() + logHtml() + usedUpHtml()
         + (plusNote ? M.actionNoteHtml(plusNote[0], plusNote[1]) : '')
         + form
@@ -170,16 +202,18 @@
       if (about) body.about = about;
       var l = lang();
       if (l) body.lang = l;
-      cx.api('/api/pi/coach', { method: 'POST', body: body }).then(function (r) {
+      return cx.api('/api/pi/coach', { method: 'POST', body: body }).then(function (r) {
         busy = false;
         var b = r.body || {};
         if (r.ok && typeof b.reply_html === 'string') {
+          takeDisclosure(b);
           // A fixed answer (its intent names which) is one of the coach's four
           // sentences, which the Pi table translates (build_pi_i18n.js reads
           // them from bot/web/pi_coach.py); it is drawn as text, in the
           // language on screen. A model's answer is drawn as the bot sent it.
+          // generated is only the server's true: a missing field is not a mark.
           if (FIXED_INTENTS.indexOf(b.intent) >= 0) log.push({ who: 'claw', text: T(b.reply_html) });
-          else log.push({ who: 'claw', html: b.reply_html });
+          else log.push({ who: 'claw', html: b.reply_html, generated: b.ai_generated === true });
           if (typeof b.left === 'number') state = Object.assign({}, state || {}, { enabled: true, limit: b.limit, left: b.left, resets_at: b.resets_at, plus: b.plus });
         } else if (r.status === 429) {
           state = Object.assign({}, state || {}, { enabled: true, limit: b.limit, left: 0, resets_at: b.resets_at, plus: b.plus });
@@ -245,5 +279,6 @@
       signedIn: signedIn, mounted: mounted, reload: read, ask: ask };
   }
 
-  return { create: create, safeReply: safeReply, starters: starters, MAX_TEXT: MAX_TEXT, FIXED_INTENTS: FIXED_INTENTS };
+  return { create: create, safeReply: safeReply, starters: starters, MAX_TEXT: MAX_TEXT, FIXED_INTENTS: FIXED_INTENTS,
+    NOTICE: NOTICE, MARK: MARK, PREVIEW: PREVIEW };
 }));

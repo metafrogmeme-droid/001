@@ -375,5 +375,7 @@
 ["of {n} high-confidence calls","높은 확신의 콜 {n}건 중"],
 ["How often your high-confidence calls were right","높은 확신의 콜이 얼마나 맞았는지"],
 ["High confidence","높은 확신"],
-["Choose low, medium or high. Your call was not recorded.","낮음, 중간, 높음 중에서 고르세요. 콜은 기록되지 않았습니다."]
+["Choose low, medium or high. Your call was not recorded.","낮음, 중간, 높음 중에서 고르세요. 콜은 기록되지 않았습니다."],
+["You are talking to the Coach, an AI. It is not a person.","대화 상대는 코치이며, AI입니다. 사람이 아닙니다."],
+["AI-generated","AI가 생성함"]
 ]

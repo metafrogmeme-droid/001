@@ -375,5 +375,7 @@
 ["of {n} high-confidence calls","van {n} calls met hoge zekerheid"],
 ["How often your high-confidence calls were right","Hoe vaak je calls met hoge zekerheid klopten"],
 ["High confidence","Hoge zekerheid"],
-["Choose low, medium or high. Your call was not recorded.","Kies laag, gemiddeld of hoog. Je call is niet vastgelegd."]
+["Choose low, medium or high. Your call was not recorded.","Kies laag, gemiddeld of hoog. Je call is niet vastgelegd."],
+["You are talking to the Coach, an AI. It is not a person.","Je praat met de Coach, een AI. Het is geen persoon."],
+["AI-generated","Door AI gemaakt"]
 ]

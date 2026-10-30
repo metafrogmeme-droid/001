@@ -375,5 +375,7 @@
 ["of {n} high-confidence calls","di {n} chiamate ad alta sicurezza"],
 ["How often your high-confidence calls were right","Quanto spesso le tue chiamate ad alta sicurezza erano giuste"],
 ["High confidence","Alta sicurezza"],
-["Choose low, medium or high. Your call was not recorded.","Scegli bassa, media o alta. La tua chiamata non è stata registrata."]
+["Choose low, medium or high. Your call was not recorded.","Scegli bassa, media o alta. La tua chiamata non è stata registrata."],
+["You are talking to the Coach, an AI. It is not a person.","Stai parlando con il Coach, un’IA. Non è una persona."],
+["AI-generated","Generato dall’IA"]
 ]

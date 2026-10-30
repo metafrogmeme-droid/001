@@ -375,5 +375,7 @@
 ["of {n} high-confidence calls","{n} उच्च-आत्मविश्वास वाली कॉल में से"],
 ["How often your high-confidence calls were right","आपकी उच्च-आत्मविश्वास वाली कॉल कितनी बार सही रहीं"],
 ["High confidence","उच्च आत्मविश्वास"],
-["Choose low, medium or high. Your call was not recorded.","कम, मध्यम या उच्च चुनें। आपकी कॉल दर्ज नहीं हुई।"]
+["Choose low, medium or high. Your call was not recorded.","कम, मध्यम या उच्च चुनें। आपकी कॉल दर्ज नहीं हुई।"],
+["You are talking to the Coach, an AI. It is not a person.","आप कोच से बात कर रहे हैं, जो एक एआई है। यह कोई व्यक्ति नहीं है।"],
+["AI-generated","एआई द्वारा बनाया गया"]
 ]

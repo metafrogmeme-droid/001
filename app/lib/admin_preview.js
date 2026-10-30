@@ -202,3 +202,10 @@ READERS.SIG_DECODER_ENABLED = function (env) {
   return require('./sig_decoder_flag').flagOn(env) === true;
 };
 // --- Signature decoder end ---
+// --- Coach AI disclosure begin ---
+// Lazy: coach_ai_disclosure requires this module. The public reader is
+// publicOn (the flag and the testnet network), not flagOn alone.
+READERS.COACH_AI_DISCLOSURE_ENABLED = function (env) {
+  return require('./coach_ai_disclosure').publicOn(env) === true;
+};
+// --- Coach AI disclosure end ---

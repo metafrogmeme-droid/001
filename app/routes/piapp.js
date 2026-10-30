@@ -145,7 +145,7 @@ const SCRIPTS = [
   '/js/pi-receipt.js?v=5',
   '/js/pi-duel.js?v=13',
   // Ask the Claw, the coach tab.
-  '/js/pi-coach.js?v=3',
+  '/js/pi-coach.js?v=4',
   // The Leaders tab: the season's standings and your name on them.
   '/js/pi-leaders.js?v=3',
   // The daily proof, read-only, behind the header's Proof button.
