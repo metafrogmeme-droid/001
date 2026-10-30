@@ -93,3 +93,7 @@ def test_universe_rule_filters_launch_type_status_and_hedge():
     ]
     tick = [{"symbol": "AAA", "turnover24h": "10"}, {"symbol": "EEE", "turnover24h": "20"}]
     assert m.universe(inst, tick) == ["EEE", "AAA"]
+    # An unreadable turnover ranks after every read one, not as a zero: here a
+    # read 0 still ranks above it.
+    tick = [{"symbol": "AAA", "turnover24h": None}, {"symbol": "EEE", "turnover24h": "0"}]
+    assert m.universe(inst, tick) == ["EEE", "AAA"]

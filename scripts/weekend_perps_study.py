@@ -66,8 +66,15 @@ def universe(instruments: list[dict], tickers: list[dict]) -> list[str]:
                 if i.get("symbolType") == "stock" and i.get("status") == "online"
                 and i.get("launchTime") and 0 < int(i["launchTime"]) <= cutoff
                 and i["symbol"] != HEDGE}
-    turnover = {t["symbol"]: float(t.get("turnover24h") or 0.0) for t in tickers}
-    ranked = sorted(eligible, key=lambda s: (-turnover.get(s, 0.0), s))
+    turnover: dict[str, float] = {}
+    for t in tickers:
+        try:
+            turnover[t["symbol"]] = float(t["turnover24h"])
+        except (KeyError, TypeError, ValueError):
+            continue          # unreadable turnover is unknown, not zero
+    # Readable turnover first, highest first; a symbol whose turnover could not
+    # be read ranks after every read one rather than as a zero.
+    ranked = sorted(eligible, key=lambda s: (s not in turnover, -turnover.get(s, 0.0), s))
     return ranked[:TOP_N]
 
 
