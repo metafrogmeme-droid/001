@@ -55,3 +55,12 @@ By setup and direction (gross, mean % per position; small groups, descriptive on
 - The holdout halves are strong partly because of their market windows (the alts holdout
   rallied). A fresh period the bot was never tuned on is required before any claim, which is
   why stage 2 must run on data outside these two sets.
+
+## Addendum (2026-10-30, after stage 2): the per-position mean is not the account's result
+
+The sealed measure here was the unweighted mean return per position. Stage 2 showed that this
+can be positive while the account loses, because the bot sizes positions differently and the
+larger ones lost. On this stage's own runs, weighted by position size (`size_rel`), the gross
+mean per position is +0.110 on majors and -0.064 on alts (dollar profit factor 1.22 and 0.92).
+The stage 1 verdict stands as sealed, but "the calls point the right way before costs" holds
+for majors only once position size is counted.

@@ -1,0 +1,285 @@
+{
+ "per": {
+  "A0": {
+   "F1": {
+    "n": 234,
+    "unreadable": 0,
+    "mean": 0.011073094118658911,
+    "lower": -0.4896506506612263,
+    "makes_money": false,
+    "by_coin": {
+     "ADA/USDT:USDT": {
+      "n": 26,
+      "unreadable": 0,
+      "mean": 0.19284877434577447,
+      "lower": -0.9237801100224805
+     },
+     "AVAX/USDT:USDT": {
+      "n": 26,
+      "unreadable": 0,
+      "mean": 0.20773298245720445,
+      "lower": -1.3919890753269033
+     },
+     "BNB/USDT:USDT": {
+      "n": 27,
+      "unreadable": 0,
+      "mean": -0.48176191778852134,
+      "lower": -0.9032734035061111
+     },
+     "BTC/USDT:USDT": {
+      "n": 15,
+      "unreadable": 0,
+      "mean": 0.019492456970848056,
+      "lower": -0.539610581942898
+     },
+     "DOGE/USDT:USDT": {
+      "n": 22,
+      "unreadable": 0,
+      "mean": -0.7531791907846237,
+      "lower": -1.4078540597142055
+     },
+     "ETH/USDT:USDT": {
+      "n": 17,
+      "unreadable": 0,
+      "mean": -0.5748850223240862,
+      "lower": -1.2062873822827451
+     },
+     "LINK/USDT:USDT": {
+      "n": 29,
+      "unreadable": 0,
+      "mean": 0.6270817860565018,
+      "lower": -0.9372547635061385
+     },
+     "LTC/USDT:USDT": {
+      "n": 26,
+      "unreadable": 0,
+      "mean": 0.3997077654042668,
+      "lower": -0.49016871200112316
+     },
+     "SOL/USDT:USDT": {
+      "n": 26,
+      "unreadable": 0,
+      "mean": -0.29101735262830064,
+      "lower": -0.7477932257261788
+     },
+     "XRP/USDT:USDT": {
+      "n": 20,
+      "unreadable": 0,
+      "mean": 0.5111414160786805,
+      "lower": -1.3805705424849744
+     }
+    }
+   },
+   "F2": {
+    "n": 580,
+    "unreadable": 0,
+    "mean": 0.06377521732406416,
+    "lower": -0.16114642522423198,
+    "makes_money": false,
+    "by_coin": {
+     "ETH/USDT": {
+      "n": 357,
+      "unreadable": 0,
+      "mean": 0.0662739354199228,
+      "lower": -0.19798250150049
+     },
+     "SOL/USDT": {
+      "n": 223,
+      "unreadable": 0,
+      "mean": 0.05977502736791384,
+      "lower": -0.28507420633989944
+     }
+    }
+   }
+  },
+  "A80": {
+   "F1": {
+    "n": 49,
+    "unreadable": 0,
+    "mean": 0.2294191816353274,
+    "lower": -0.8173555668137397,
+    "makes_money": false,
+    "by_coin": {
+     "ADA/USDT:USDT": {
+      "n": 5,
+      "unreadable": 0,
+      "mean": 0.05055144875017028,
+      "lower": -2.04644205427737
+     },
+     "AVAX/USDT:USDT": {
+      "n": 6,
+      "unreadable": 0,
+      "mean": -0.6505385792336794,
+      "lower": -2.3498610240010254
+     },
+     "BNB/USDT:USDT": {
+      "n": 2,
+      "unreadable": 0,
+      "mean": -0.3170052465276024,
+      "lower": -1.1594597189770508
+     },
+     "BTC/USDT:USDT": {
+      "n": 3,
+      "unreadable": 0,
+      "mean": -1.3619857191837068,
+      "lower": -2.255053656101822
+     },
+     "DOGE/USDT:USDT": {
+      "n": 4,
+      "unreadable": 0,
+      "mean": -0.25438695020890256,
+      "lower": -1.3703587949305696
+     },
+     "ETH/USDT:USDT": {
+      "n": 2,
+      "unreadable": 0,
+      "mean": -1.5777334288018436,
+      "lower": null
+     },
+     "LINK/USDT:USDT": {
+      "n": 5,
+      "unreadable": 0,
+      "mean": 2.2738781216107675,
+      "lower": -1.0967451471065233
+     },
+     "LTC/USDT:USDT": {
+      "n": 11,
+      "unreadable": 0,
+      "mean": 1.472158881377492,
+      "lower": -0.40597161806353854
+     },
+     "SOL/USDT:USDT": {
+      "n": 8,
+      "unreadable": 0,
+      "mean": -0.2776087199080481,
+      "lower": -1.0164946449124754
+     },
+     "XRP/USDT:USDT": {
+      "n": 3,
+      "unreadable": 0,
+      "mean": -0.5190907010379912,
+      "lower": -0.8156994698424114
+     }
+    }
+   },
+   "F2": {
+    "n": 117,
+    "unreadable": 0,
+    "mean": 0.5597700870970626,
+    "lower": -0.07957193264268574,
+    "makes_money": false,
+    "by_coin": {
+     "ETH/USDT": {
+      "n": 67,
+      "unreadable": 0,
+      "mean": 0.2428619699918106,
+      "lower": -0.3379762656543124
+     },
+     "SOL/USDT": {
+      "n": 50,
+      "unreadable": 0,
+      "mean": 0.9844269640181003,
+      "lower": -0.24688837966420352
+     }
+    }
+   }
+  },
+  "A0_gross": {
+   "F1": {
+    "n": 241,
+    "unreadable": 0,
+    "mean": 0.24278292510871932,
+    "lower": -0.22759498475911935,
+    "makes_money": false,
+    "by_coin": {
+     "ADA/USDT:USDT": {
+      "n": 23,
+      "unreadable": 0,
+      "mean": 0.6152010722776463,
+      "lower": -0.36248963251730476
+     },
+     "AVAX/USDT:USDT": {
+      "n": 26,
+      "unreadable": 0,
+      "mean": 0.32814776472759444,
+      "lower": -1.064890336983159
+     },
+     "BNB/USDT:USDT": {
+      "n": 36,
+      "unreadable": 0,
+      "mean": 0.011064002131343386,
+      "lower": -0.49073568816868884
+     },
+     "BTC/USDT:USDT": {
+      "n": 16,
+      "unreadable": 0,
+      "mean": 0.23472745630498143,
+      "lower": -0.256449176983283
+     },
+     "DOGE/USDT:USDT": {
+      "n": 20,
+      "unreadable": 0,
+      "mean": -0.3458294022211315,
+      "lower": -1.0765572156064669
+     },
+     "ETH/USDT:USDT": {
+      "n": 16,
+      "unreadable": 0,
+      "mean": -0.2915971484178379,
+      "lower": -0.9875968194149676
+     },
+     "LINK/USDT:USDT": {
+      "n": 29,
+      "unreadable": 0,
+      "mean": 0.5427817936266913,
+      "lower": -0.5963001482404386
+     },
+     "LTC/USDT:USDT": {
+      "n": 30,
+      "unreadable": 0,
+      "mean": 0.8527822411307027,
+      "lower": -0.2885459898712267
+     },
+     "SOL/USDT:USDT": {
+      "n": 27,
+      "unreadable": 0,
+      "mean": -0.14809925649770483,
+      "lower": -0.5543370609367999
+     },
+     "XRP/USDT:USDT": {
+      "n": 18,
+      "unreadable": 0,
+      "mean": 0.3295532290967173,
+      "lower": -2.0513414469860907
+     }
+    }
+   },
+   "F2": {
+    "n": 672,
+    "unreadable": 0,
+    "mean": 0.35179024276344706,
+    "lower": 0.09948110482814686,
+    "makes_money": true,
+    "by_coin": {
+     "ETH/USDT": {
+      "n": 407,
+      "unreadable": 0,
+      "mean": 0.29039270699384234,
+      "lower": 0.041738389689819445
+     },
+     "SOL/USDT": {
+      "n": 265,
+      "unreadable": 0,
+      "mean": 0.44608759015299093,
+      "lower": 0.022419877211619962
+     }
+    }
+   }
+  }
+ },
+ "verdict": {
+  "A0": false,
+  "A80": false,
+  "information": true
+ }
+}
