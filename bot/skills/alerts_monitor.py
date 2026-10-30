@@ -557,6 +557,10 @@ class AlertsMonitor:
                 pass
 
         self.engine.set_close_notify_callback(_on_trade_closed)
+        # Looked up when a call is made, so it posts through whichever
+        # forwarder the handler holds then.
+        self.engine.set_sleeve_call_callback(
+            lambda call_html: self.forwarder.post_sleeve_call(call_html))
 
         # Register limit-fill notification callback
         async def _on_limit_filled(msg: str) -> None:

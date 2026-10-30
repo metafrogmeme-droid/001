@@ -447,7 +447,11 @@ def test_the_engine_hook_is_off_with_the_flag_and_runs_once_a_day_with_it(
 
     async def _get_exchange():
         return venue
-    eng = NS(scanner=NS(_exchange=venue, _get_exchange=_get_exchange))
+    eng = NS(scanner=NS(_exchange=venue, _get_exchange=_get_exchange),
+             _sleeve_call_callback=None)
+    # The real announce step, bound: a RECORDED run asks it, and with no
+    # poster registered it hands nothing on.
+    eng._announce_sleeve_call = RuneClawEngine._announce_sleeve_call.__get__(eng)
     hook = RuneClawEngine._record_sleeve_paper_day
 
     flag(False)

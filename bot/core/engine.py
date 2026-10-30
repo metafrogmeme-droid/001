@@ -1011,6 +1011,7 @@ class RuneClawEngine:
         self._running = False
         self._confirm_callback: Optional[Callable] = None
         self._close_notify_callback: Optional[Callable] = None
+        self._sleeve_call_callback: Optional[Callable] = None
         self._fill_notify_callback: Optional[Callable] = None
         self._sync_notify_callback: Optional[Callable] = None
         self._adopt_notify_callback: Optional[Callable] = None
@@ -1413,7 +1414,15 @@ class RuneClawEngine:
         own, and a failed run is tried again no sooner than half an hour on.
         Returns the runner's word.
         """
-        from bot.sleeve.paper import ALREADY, DISABLED, NOT_ASKED, record_is_current, run_once, sleeve_paper_enabled
+        from bot.sleeve.paper import (
+            ALREADY,
+            DISABLED,
+            NOT_ASKED,
+            RECORDED,
+            record_is_current,
+            run_once,
+            sleeve_paper_enabled,
+        )
         if not sleeve_paper_enabled():
             return DISABLED
         if record_is_current():
@@ -1425,7 +1434,37 @@ class RuneClawEngine:
             return NOT_ASKED
         self._sleeve_paper_next_try = now + 1800.0
         exchange = await self.scanner._get_exchange()
-        return (await run_once(exchange)).outcome
+        outcome = (await run_once(exchange)).outcome
+        if outcome == RECORDED:
+            await self._announce_sleeve_call()
+        return outcome
+
+    async def _announce_sleeve_call(self) -> bool:
+        """Post the sleeve's rebalance to the marketing groups, once, right
+        after the run that recorded it. True only when a call was handed on.
+
+        Off unless ``SLEEVE_CHANNEL_CALLS_ENABLED``. The run records a day at
+        most once, so this is asked at most once per closed day; a failed
+        post is not retried, because a late call is a different claim.
+        """
+        from bot.config import CONFIG
+        from bot.sleeve.paper import channel_call_text, load_record
+        from bot.utils.json_store import READ
+        cb = self._sleeve_call_callback
+        if cb is None or not getattr(CONFIG, "sleeve_channel_calls_enabled", False):
+            return False
+        record = load_record()
+        if record.state != READ:
+            return False
+        text = channel_call_text(record.data)
+        if text is None:
+            return False
+        try:
+            await cb(text)
+        except Exception as exc:  # noqa: BLE001
+            system_log.warning("Sleeve call not posted (%s)", type(exc).__name__)
+            return False
+        return True
 
     def live_balance_cached(self, max_age_s: float = 900.0) -> Optional[dict]:
         """The cached live balance ONLY when fresh enough to state as current.
@@ -4746,6 +4785,11 @@ class RuneClawEngine:
     def set_close_notify_callback(self, cb: Callable) -> None:
         """Register a callback to notify users when a trade is closed."""
         self._close_notify_callback = cb
+
+    def set_sleeve_call_callback(self, cb: Callable) -> None:
+        """Register the poster of the paper sleeve's channel call
+        (``SLEEVE_CHANNEL_CALLS_ENABLED``); handed the call's HTML."""
+        self._sleeve_call_callback = cb
 
     def set_fill_notify_callback(self, cb: Callable) -> None:
         """Register a callback to notify users when a limit order is filled (opened)."""

@@ -423,6 +423,13 @@ class ChannelForwarder:
         except Exception as exc:
             system_log.debug("post_scan_result error: %s", exc)
 
+    async def post_sleeve_call(self, call_html: str) -> None:
+        """The paper sleeve's rebalance call, composed by
+        ``bot/sleeve/paper.py::channel_call_text`` (percent only)."""
+        if not self._enabled or not self._group_ids:
+            return
+        await self._post(call_html)
+
     async def post_custom(self, text: str) -> None:
         """Post custom content (admin command)."""
         await self._post(text)
