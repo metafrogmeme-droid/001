@@ -72,6 +72,29 @@ def test_the_parallel_shadow_is_the_same_gate_and_does_not_block():
     # The serial environment is the one the baseline was recorded against.
     serial_runs = " ".join(str(step.get("run") or "") for step in _job(_SERIAL)["steps"])
     assert "pytest-xdist" not in serial_runs
+    # The required gate is not wrapped. A hang-stop belongs only to the shadow.
+    serial_test = [
+        str(step.get("run") or "")
+        for step in _job(_SERIAL)["steps"]
+        if step.get("run") == "python3 scripts/ci_test_gate.py"
+    ]
+    assert serial_test == ["python3 scripts/ci_test_gate.py"]
+
+
+def test_a_shadow_hang_fails_the_step_instead_of_cancelling_the_workflow():
+    """The job timeout cancels the run, continue-on-error included.
+
+    The step stops its own process group first, so the workers die with it
+    and the job fails rather than the workflow being cancelled.
+    """
+    job = _job(_SHADOW)
+    step = next(
+        s for s in job["steps"]
+        if "ci_test_gate.py --parallel" in str(s.get("run") or "")
+    )
+    run = str(step["run"])
+    assert "timeout --kill-after=30s 40m" in run
+    assert job["timeout-minutes"] > 40
 
 
 def test_a_contract_job_stays_on_ci_and_off_the_local_plan(name, workdir):

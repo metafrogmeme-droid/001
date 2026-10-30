@@ -314,12 +314,24 @@ jobs:
   # collection before a test runs. A duration of that abort is not a
   # measurement of the suite. A failure that remains is still allowed: this
   # job is a comparison, not a second verdict.
+  #
+  # The hang was the loadfile scheduler, not the suite. A worker will not
+  # run the test it already holds until the next index or SHUTDOWN is
+  # queued, and xdist 3.8.0 only queues the next file once that worker is
+  # down to two pending tests. It then blocks in TestQueue.get and the
+  # completion that would unblock it is never sent. Run 2056 finished the
+  # same command in 892s; the runs around it sat until this job's timeout
+  # with the workers still alive, and that timeout cancels the workflow
+  # (continue-on-error does not cover a cancellation). The scheduler in
+  # tests/xdist_loadfile.py keeps a second file queued. The step below also
+  # stops its own process group, so a stall that remains fails this job
+  # instead of cancelling the run.
   test-parallel:
     name: Tests (parallel shadow, non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
-    # Same cap as the serial job. Run 40165377427 cut this step at 60m
-    # while the workers were still alive.
+    # Above the step's own stop. This one cancels the workflow if it fires,
+    # which is why the step does not rely on it.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -343,7 +355,12 @@ jobs:
           pip install "pytest-xdist==3.8.0"
 
       - name: Tests — parallel shadow of the baseline gate
-        run: python3 scripts/ci_test_gate.py --parallel
+        # GNU timeout kills the process group it creates. execnet workers do
+        # not call setsid, so they die with the group instead of being left
+        # for the runner to sweep after a cancelled job. 40m is above a
+        # finished shadow (run 2056: the pytest pass was 892s) and below the
+        # job cap. A finish returns pytest's own status.
+        run: timeout --kill-after=30s 40m python3 scripts/ci_test_gate.py --parallel
 
   staking:
     name: Staking program (cargo)
