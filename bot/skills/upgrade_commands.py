@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import html
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from telegram import LabeledPrice, Update
 from telegram.ext import ContextTypes
@@ -118,9 +118,12 @@ class UpgradeCommands:
             await self._send(update, text)
             return
         await self._send(update, upgrade_card(ladder, offers, paid=True))
+        chat = update.effective_chat
+        if chat is None:
+            return
         for o in offers:
             await ctx.bot.send_invoice(
-                chat_id=update.effective_chat.id,
+                chat_id=chat.id,
                 title=f"RUNECLAW {o['tier'].capitalize()}, {o['days']} days",
                 description=("; ".join(o["benefits"]))[:255],
                 payload=stars.payload(tg_id, o["tier"], o["days"], o["stars"]),
@@ -134,7 +137,10 @@ class UpgradeCommands:
         bot would issue now, to this buyer, that changes what they hold."""
         from bot.token import stars, tier_gate
         q = update.pre_checkout_query
+        if q is None:
+            return
         uid = str(q.from_user.id)
+        why: Optional[str]
         try:
             if self.users.get(uid) is None:
                 why = "Send /start to the bot first, then /upgrade."
@@ -157,8 +163,11 @@ class UpgradeCommands:
                                      ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """The Stars landed: grant the period, or refund one that buys nothing."""
         from bot.token import stars
-        pay = update.message.successful_payment
-        uid = str(update.effective_user.id)
+        msg, user = update.message, update.effective_user
+        pay = msg.successful_payment if msg is not None else None
+        if pay is None or user is None:
+            return
+        uid = str(user.id)
         p = stars.parse_payload(pay.invoice_payload)
         charge = pay.telegram_payment_charge_id
         grant = None

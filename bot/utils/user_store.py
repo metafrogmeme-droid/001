@@ -1188,10 +1188,11 @@ class UserStore:
                         "duplicate": True}
             held = rec.get("tier", DEFAULT_TIER)
             until = rec.get("tier_until")
-            running = until is not None and now < float(until)
             if paid_tier_buys_nothing(held, until, tier, now):
                 return None
-            start = float(until) if (running and held == tier) else now
+            start = now
+            if until is not None and held == tier and now < float(until):
+                start = float(until)
             new_until = start + int(days) * 86_400
             charges.append(charge_id)
             rec["tier"] = tier
