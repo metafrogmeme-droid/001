@@ -1413,8 +1413,7 @@ class RuneClawEngine:
         own, and a failed run is tried again no sooner than half an hour on.
         Returns the runner's word.
         """
-        from bot.sleeve.paper import (ALREADY, DISABLED, NOT_ASKED, record_is_current,
-                                      run_once, sleeve_paper_enabled)
+        from bot.sleeve.paper import ALREADY, DISABLED, NOT_ASKED, record_is_current, run_once, sleeve_paper_enabled
         if not sleeve_paper_enabled():
             return DISABLED
         if record_is_current():
