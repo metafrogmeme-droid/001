@@ -1403,6 +1403,31 @@ class RuneClawEngine:
         board = await scan(self, "daily trend")
         return record_book(board)
 
+    async def _record_sleeve_paper_day(self) -> str:
+        """One run a UTC day of the xsmom + BTC regime PAPER sleeve.
+
+        Off unless ``SLEEVE_PAPER_ENABLED``: nothing is read or written. It
+        places nothing (``bot/sleeve/paper.py``). A record that already holds
+        the newest closed day is not fetched again. Like the daily trend book
+        it rides the scan phase's public spot connection and opens none of its
+        own, and a failed run is tried again no sooner than half an hour on.
+        Returns the runner's word.
+        """
+        from bot.sleeve.paper import (ALREADY, DISABLED, NOT_ASKED, record_is_current,
+                                      run_once, sleeve_paper_enabled)
+        if not sleeve_paper_enabled():
+            return DISABLED
+        if record_is_current():
+            return ALREADY
+        now = time.monotonic()
+        if now < getattr(self, "_sleeve_paper_next_try", 0.0):
+            return NOT_ASKED
+        if getattr(getattr(self, "scanner", None), "_exchange", None) is None:
+            return NOT_ASKED
+        self._sleeve_paper_next_try = now + 1800.0
+        exchange = await self.scanner._get_exchange()
+        return (await run_once(exchange)).outcome
+
     def live_balance_cached(self, max_age_s: float = 900.0) -> Optional[dict]:
         """The cached live balance ONLY when fresh enough to state as current.
 
@@ -6906,6 +6931,14 @@ class RuneClawEngine:
                 self._record_daily_trend_book(), "daily trend book")
         except Exception as exc:  # noqa: BLE001
             system_log.debug("Daily trend book not written: %s", type(exc).__name__)
+        # The xsmom paper sleeve, once a day, only while SLEEVE_PAPER_ENABLED
+        # is on: a simulated book, never an order. Behind the same cap.
+        if CONFIG.sleeve_paper_enabled:
+            try:
+                await self._with_maintenance_cap(
+                    self._record_sleeve_paper_day(), "sleeve paper book")
+            except Exception as exc:  # noqa: BLE001
+                system_log.debug("Sleeve paper book not written: %s", type(exc).__name__)
 
         # Sync WebSocket status to health monitor
         self.health.set_ws_status(self.ws_feed.is_connected())

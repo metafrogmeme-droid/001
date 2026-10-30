@@ -163,6 +163,7 @@ shadow is_admin
 share is_authorized
 sigdecode is_admin
 signals guard
+sleeve guard
 slippage is_admin
 spot guard
 squeeze guard

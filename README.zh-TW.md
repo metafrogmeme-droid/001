@@ -618,6 +618,7 @@ python -m bot.main --mode scan
 | `/montecarlo` | 蒙地卡羅風險模擬 |
 | `/calibration` | 學習疊加與校準 |
 | `/patterns` | 學習庫依市場狀態分組的平倉結果，附勝率與區間 |
+| `/sleeve` | 截面動量 + BTC 狀態閘門的紙上策略袖：狀態、權重、相對 BTC 的百分比、回撤、略過的再平衡；不下單 |
 
 ### 🛡 Guardian（操作員） — *僅限操作員*
 

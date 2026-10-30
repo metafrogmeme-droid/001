@@ -1037,6 +1037,22 @@ class EngineOpsCommands:
         ]
         await self._reply(update, "\n".join(lines))
 
+    @guard("admin")
+    async def _cmd_sleeve(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin only: /sleeve — the xsmom + BTC regime PAPER sleeve's record.
+
+        Read-only: it reads the record `bot/sleeve/paper.py` writes and runs
+        nothing. Last and next rebalance, the regime, the weights, the sleeve
+        and BTC buy-and-hold as percent since the start, each one's max
+        drawdown and the skipped rebalances. A record that does not read is
+        said to, never shown as an empty book."""
+        import asyncio as _aio
+
+        from bot.sleeve.paper import card_text, load_record, sleeve_paper_enabled
+
+        record = await _aio.to_thread(load_record)
+        await self._send(update, card_text(record, flag_on=sleeve_paper_enabled()))
+
     async def _cmd_parity(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /parity — the live↔backtest parity report, on demand
         from Telegram (previously shell-only: bot/backtest/parity.py). Live
