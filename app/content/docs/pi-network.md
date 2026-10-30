@@ -113,7 +113,11 @@ Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn fro
 | `PI_TESTNET_HOST` | The Testnet app's hostname, for example `pi.humanoid-traders.com`. Unset, every host is served `PI_VALIDATION_KEY` |
 | `PI_TESTNET_PROXY_SECRET` | Shared with the Cloudflare Worker's `PI_PROXY_SECRET`. A request whose `X-Runeclaw-Pi-Proxy` header matches it is the Testnet app even when Host is www. Unset, or shorter than 32 characters, that header is ignored. Generate it locally; never commit it |
 | `PI_TESTNET_VALIDATION_KEY` | That app's **Verify App Domain** key, served on both paths only for the Testnet app. Unset, those requests are 404, not the Mainnet key |
-| `PI_TESTNET_API_KEY` | That app's server API key for payments. Used for the Testnet app when set; otherwise payments keep `PI_NETWORK_API_KEY`. Sign-in does not use either key |
+| `PI_TESTNET_API_KEY` | That app's server API key for payments. Used for the Testnet app when set; otherwise payments keep `PI_NETWORK_API_KEY`. Sign-in does not use either key. The temporary Testnet payout below reads this key only |
+| `PI_TESTNET_A2U_ENABLED` | Exactly `1` turns on the temporary Testnet App-to-User payout. Anything else is off, and the seed is not read |
+| `PI_TESTNET_APP_WALLET_SEED` | The Testnet app wallet seed. Set it only while the five payouts are run, then remove it. Never commit it |
+| `PI_TESTNET_A2U_AMOUNT` | Test-Pi per payout, `0.01` by default, refused above `0.1` |
+| `PI_MAINNET_APP_WALLET` | Optional Mainnet app wallet public key. A Testnet seed whose public key matches it, `PI_MAINNET_WALLET` or `PI_MAINNET_WALLETS` is refused |
 | `PI_FRAME_ANCESTORS` | Replaces Pi's frame list (for `/pi`, `/privacy` and `/terms`) if Pi's hosts change |
 
 **Listing it.** In Pi's App Studio, choose **Use External AI**, then **Convert App**, with `https://www.humanoid-traders.com/pi` as the App Link. That route is free. Step 2 gives a prompt for the validation file and Pi Auth; after the deploy, **Verify My App** checks both.
@@ -163,3 +167,38 @@ Payments for that app use `PI_TESTNET_API_KEY` when it is set, and `PI_NETWORK_A
 3. In the Pi Developer Portal, set the Testnet app's URL to `https://pi.humanoid-traders.com/pi`. Pi Browser and the sandbox also request that directory's default document, `/pi/index.html` (with `?sandbox=true` in the sandbox). That path is the same Arena page.
 4. Set `PI_TESTNET_HOST`, `PI_TESTNET_PROXY_SECRET` (the same value as the Worker secret), `PI_TESTNET_VALIDATION_KEY` and, for payments, `PI_TESTNET_API_KEY` in the website server's secret settings, then republish `app/`.
 5. Press **Verify**. The portal reads `https://pi.humanoid-traders.com/pi/validation-key.txt`.
+
+## Temporary Testnet App-to-User payout
+
+The Pi Developer Portal asks the paired Testnet app to make App-to-User payments to 5 unique wallets before it grants a Mainnet app wallet. `lib/pi_testnet_a2u.js` does that, and only that. It is off unless `PI_TESTNET_A2U_ENABLED` is exactly `1`. While it is off the process does not read `PI_TESTNET_APP_WALLET_SEED`. The payout uses `PI_TESTNET_API_KEY` and never the Mainnet key. It signs only with the passphrase `Pi Testnet`, submits only to `https://api.testnet.minepi.com`, and refuses a payment Pi describes as any other network, a horizon that is not that host, or a seed whose public key equals `PI_MAINNET_APP_WALLET`, `PI_MAINNET_WALLET` or `PI_MAINNET_WALLETS`.
+
+Each payout is one uid, `0.01` Test-Pi unless `PI_TESTNET_A2U_AMOUNT` sets another amount at most `0.1`. A uid is paid only if that person has signed in to the Testnet app (`POST /api/pi/signin` on the Testnet host, checked with `GET /v2/me`). One uid once, and at most 10 payments.
+
+**On MuleRun**
+
+1. In the Pi Developer Portal, copy the **Testnet** app's server API key and the **Testnet** app wallet seed.
+2. Put them in `~/runeclaw-persist/web.env` (the website env, not the bot's `.env`). Keys already in that file are kept when `scripts/prepare_web_env.py` rebuilds it:
+
+   ```text
+   PI_TESTNET_A2U_ENABLED=1
+   PI_TESTNET_API_KEY=<the Testnet app server API key>
+   PI_TESTNET_APP_WALLET_SEED=<the Testnet app wallet seed>
+   ```
+
+   Optional: `PI_TESTNET_A2U_AMOUNT=0.01` and `PI_MAINNET_APP_WALLET=<the Mainnet app wallet public key>`.
+3. Publish `app/` so the website process restarts with those values.
+4. Have 5 Pioneers open the Testnet app and sign in.
+5. On the server, with that same environment (so `DATABASE_URL` is the website's database):
+
+   ```text
+   set -a
+   . ~/runeclaw-persist/web.env
+   set +a
+   node scripts/pi_testnet_a2u.js list
+   node scripts/pi_testnet_a2u.js pay <uid>
+   ```
+
+   `list` prints the recent Testnet sign-in uids. `pay` sends one uid `0.01` Test-Pi. Run it once for each of 5 uids. A second pay to the same uid is refused. An 11th payment is refused. If a pay stops after Pi has created it, run `pay` again for that same uid: the incomplete server payment is finished instead of a second one being created.
+
+   The same pay is `POST /api/pi/testnet-a2u/pay` with `{ "uid": "<uid>" }` and the operator's session. `GET /api/pi/testnet-a2u/signins` lists the uids. Both require a signed-in operator.
+6. Remove `PI_TESTNET_APP_WALLET_SEED` from `web.env` and set `PI_TESTNET_A2U_ENABLED=0` (or delete the flag). Publish `app/` again so the process no longer holds the seed.

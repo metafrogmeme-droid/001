@@ -26,6 +26,8 @@ const express = require('express');
 const { pool } = require('../db');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const piAuth = require('../lib/pi_auth');
+const { isTestnetHost } = require('../lib/pi_host');
+const testnetA2u = require('../lib/pi_testnet_a2u');
 const { findOrCreateOAuthUser, signToken } = require('../auth');
 
 const router = express.Router();
@@ -52,6 +54,17 @@ router.post('/signin', async (req, res) => {
 
   if (!verdict.ok) {
     return res.status(401).json({ error: 'pi_rejected', reason: verdict.reason });
+  }
+
+  // The Testnet app's uid, so a later payout can require this sign-in.
+  // A failure here is ours: the person is still signed in.
+  const hostEnv = (router._deps && router._deps.env) || process.env;
+  if (isTestnetHost(req, hostEnv)) {
+    try {
+      await testnetA2u.recordSignin(verdict.uid);
+    } catch (err) {
+      console.error('Pi testnet sign-in record failed:', err && err.name);
+    }
   }
 
   try {
