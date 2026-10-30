@@ -58,7 +58,7 @@ def price(tier: str) -> Optional[int]:
     return _positive_int(f"STARS_{tier.upper()}_PRICE")
 
 
-def enabled() -> bool:
+def payments_on() -> bool:
     """Whether /upgrade sells anything: the switch is on and a price is set."""
     on = _env("STARS_PAYMENTS_ENABLED").lower() in ("1", "true", "yes", "on")
     return on and any(price(t) is not None for t in SOLD)
@@ -93,7 +93,7 @@ def benefits(ladder: dict, tier: str) -> list[str]:
 
 def offers(ladder: dict) -> list[dict]:
     """The tiers on sale right now: priced, and adding something."""
-    if not enabled():
+    if not payments_on():
         return []
     out = []
     for tier in SOLD:

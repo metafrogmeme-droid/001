@@ -820,7 +820,10 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # board, typed bare it reaches no rule either.
     # And again for /fvb: a bare "fvb" reaches no rule, so the fair-value
     # card is a command a caller types. The web door is /fvb, behind the flag.
-    assert (named, nothing, len(hits)) == (114, 105, 9), (named, nothing, hits)
+    # And again for /upgrade: a bare "upgrade" reaches no rule, so it lands on
+    # the model; it is a Telegram door (Stars invoices are a Telegram thing),
+    # and the web's door to the same answer is the plan card.
+    assert (named, nothing, len(hits)) == (115, 106, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

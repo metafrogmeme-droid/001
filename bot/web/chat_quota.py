@@ -204,8 +204,8 @@ def uncapped_offer(lang: str = "en") -> str:
     names = [n for tier, n in (("pro", "Pro"), ("elite", "Elite")) if is_quota_exempt(tier)]
     if not names:
         return ""
-    joiner = " 與 " if lang == "zh" else " and "
-    return t("chat_quota_offer", lang, names=joiner.join(names))
+    # A slash, not a word: the names are product names in every language.
+    return t("chat_quota_offer", lang, names=" / ".join(names))
 
 
 def unmetered() -> dict:

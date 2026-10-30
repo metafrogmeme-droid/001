@@ -106,12 +106,12 @@ def test_only_pro_and_elite_are_sold(store):
 def test_payments_are_off_until_the_switch_and_a_price_are_both_set(monkeypatch):
     monkeypatch.delenv("STARS_PAYMENTS_ENABLED", raising=False)
     monkeypatch.setenv("STARS_PRO_PRICE", "250")
-    assert stars.enabled() is False
+    assert stars.payments_on() is False
     monkeypatch.setenv("STARS_PAYMENTS_ENABLED", "true")
-    assert stars.enabled() is True
+    assert stars.payments_on() is True
     monkeypatch.delenv("STARS_PRO_PRICE")
     monkeypatch.setenv("STARS_ELITE_PRICE", "zero")
-    assert stars.enabled() is False, "an unparseable price sells nothing"
+    assert stars.payments_on() is False, "an unparseable price sells nothing"
 
 
 def test_commands_count_as_a_benefit_only_while_tiers_are_enforced():
@@ -301,7 +301,7 @@ def test_upgrade_with_payments_issues_one_invoice_per_tier_on_sale(store, sellin
 def test_the_web_quota_wall_sells_only_what_the_cap_decides():
     from bot.web import chat_quota
     web = chat_quota.exhausted_notice({"limit": 5, "reset_in_seconds": 3600}, "en", surface="web")
-    assert "Pro and Elite: no daily cap" in web and "/upgrade" in web
+    assert "Pro / Elite: no daily cap" in web and "/upgrade" in web
     assert "#account/aplan" in web
     for promise in ("live signals", "deeper research", "priority models"):
         assert promise not in web

@@ -1,7 +1,7 @@
 """The /upgrade command group: how a member gets Pro or Elite.
 
 Two doors, one command. While Telegram Stars payments are off (the default,
-`bot/token/stars.py::enabled`), /upgrade says what each tier adds on this bot
+`bot/token/stars.py::payments_on`), /upgrade says what each tier adds on this bot
 and sends the operator one request, the way an unadmitted newcomer's /start
 does. While they are on, it shows a Stars invoice for each tier on sale.
 
@@ -104,7 +104,7 @@ class UpgradeCommands:
                              "Please try again in a few minutes.")
             return
         ladder = tier_gate.plan_ladder(self.users, tg_id)
-        paid = stars.enabled()
+        paid = stars.payments_on()
         offers = stars.offers(ladder) if paid else []
         if not paid:
             sent = await self._notify_operator_upgrade(
