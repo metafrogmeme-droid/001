@@ -1,0 +1,480 @@
+{
+  "mode": "portfolio_walk_forward",
+  "recorded_at": "2026-10-30T11:46:35+00:00",
+  "code_sha": "fe572aa7a044da0e62265b92e4940210f888f526",
+  "dataset": "benchmark/majors_1h_tf",
+  "honest": true,
+  "folds_requested": 6,
+  "folds_run": 6,
+  "profitable_folds": 1,
+  "mean_oos_return_pct": -2.5599999999999996,
+  "worst_oos_return_pct": -9.69,
+  "pooled_trades": 383,
+  "pooled": {
+    "trades": 383,
+    "fills": 419,
+    "wins": 201,
+    "losses": 182,
+    "flat": 0,
+    "net_usd": -1536.6,
+    "gross_win_usd": 6864.05,
+    "gross_loss_usd": 8400.65,
+    "win_rate": 0.5248041775456919,
+    "pf": 0.8170855826632464,
+    "mean_net_usd": -4.01201044386423
+  },
+  "data_source": "frozen_snapshot:d12d70e00b6b0c78d2cfa673cc1c262a0d77a82421ffab54e03e10f9f4bdd178",
+  "universe": {
+    "requested": [
+      "ADA/USDT:USDT",
+      "AVAX/USDT:USDT",
+      "BNB/USDT:USDT",
+      "BTC/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "ETH/USDT:USDT",
+      "LINK/USDT:USDT",
+      "LTC/USDT:USDT",
+      "SOL/USDT:USDT",
+      "XRP/USDT:USDT"
+    ],
+    "measured": [
+      "ADA/USDT:USDT",
+      "AVAX/USDT:USDT",
+      "BNB/USDT:USDT",
+      "BTC/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "ETH/USDT:USDT",
+      "LINK/USDT:USDT",
+      "LTC/USDT:USDT",
+      "SOL/USDT:USDT",
+      "XRP/USDT:USDT"
+    ],
+    "dropped": []
+  },
+  "commission_pct": 0.06,
+  "slippage_pct": 0.05,
+  "fill_mode": "next_open",
+  "leverage": 5,
+  "folds": [
+    {
+      "fold": 0,
+      "oos_start": "2026-06-02 11:00:00+00:00",
+      "oos_end": "2026-06-27 10:00:00+00:00",
+      "trades": 46,
+      "return_pct": -0.94,
+      "win_rate": 0.6739,
+      "max_dd_pct": 10.22,
+      "profit_factor": 0.93,
+      "sharpe": -0.44,
+      "per_symbol": {
+        "ADA/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": 152.08,
+          "win_rate": 1.0
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": 196.57,
+          "win_rate": 0.6
+        },
+        "BNB/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": 49.67,
+          "win_rate": 1.0
+        },
+        "BTC/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -228.06,
+          "win_rate": 0.25
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": 127.96,
+          "win_rate": 1.0
+        },
+        "ETH/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": 187.53,
+          "win_rate": 1.0
+        },
+        "LINK/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -35.68,
+          "win_rate": 0.5
+        },
+        "LTC/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -108.99,
+          "win_rate": 0.75
+        },
+        "SOL/USDT:USDT": {
+          "trades": 8,
+          "net_pnl": -438.0,
+          "win_rate": 0.25
+        },
+        "XRP/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 2.93,
+          "win_rate": 0.5
+        }
+      },
+      "ideas": 513,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 1,
+      "oos_start": "2026-06-27 11:00:00+00:00",
+      "oos_end": "2026-07-22 10:00:00+00:00",
+      "trades": 68,
+      "return_pct": -9.69,
+      "win_rate": 0.4559,
+      "max_dd_pct": 10.84,
+      "profit_factor": 0.33,
+      "sharpe": -8.04,
+      "per_symbol": {
+        "ADA/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -88.19,
+          "win_rate": 0.6
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -124.36,
+          "win_rate": 0.25
+        },
+        "BNB/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -95.06,
+          "win_rate": 0.0
+        },
+        "BTC/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": -134.87,
+          "win_rate": 0.4545
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -72.64,
+          "win_rate": 0.6667
+        },
+        "ETH/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": -158.3,
+          "win_rate": 0.4545
+        },
+        "LINK/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": -219.73,
+          "win_rate": 0.2727
+        },
+        "LTC/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": -48.49,
+          "win_rate": 0.6667
+        },
+        "SOL/USDT:USDT": {
+          "trades": 9,
+          "net_pnl": -55.74,
+          "win_rate": 0.4444
+        },
+        "XRP/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": 28.2,
+          "win_rate": 0.8
+        }
+      },
+      "ideas": 437,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 2,
+      "oos_start": "2026-07-22 11:00:00+00:00",
+      "oos_end": "2026-08-16 10:00:00+00:00",
+      "trades": 66,
+      "return_pct": -5.52,
+      "win_rate": 0.4848,
+      "max_dd_pct": 6.42,
+      "profit_factor": 0.58,
+      "sharpe": -5.39,
+      "per_symbol": {
+        "ADA/USDT:USDT": {
+          "trades": 15,
+          "net_pnl": -98.84,
+          "win_rate": 0.6667
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 8,
+          "net_pnl": -144.21,
+          "win_rate": 0.375
+        },
+        "BNB/USDT:USDT": {
+          "trades": 10,
+          "net_pnl": -169.69,
+          "win_rate": 0.4
+        },
+        "BTC/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": 70.44,
+          "win_rate": 0.3333
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -140.67,
+          "win_rate": 0.2
+        },
+        "ETH/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -112.33,
+          "win_rate": 0.4
+        },
+        "LINK/USDT:USDT": {
+          "trades": 12,
+          "net_pnl": 208.27,
+          "win_rate": 0.75
+        },
+        "LTC/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -147.65,
+          "win_rate": 0.2
+        },
+        "SOL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "XRP/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -17.28,
+          "win_rate": 0.3333
+        }
+      },
+      "ideas": 379,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 3,
+      "oos_start": "2026-08-16 11:00:00+00:00",
+      "oos_end": "2026-09-10 10:00:00+00:00",
+      "trades": 74,
+      "return_pct": 14.46,
+      "win_rate": 0.6216,
+      "max_dd_pct": 5.7,
+      "profit_factor": 1.97,
+      "sharpe": 4.6,
+      "per_symbol": {
+        "ADA/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": 294.79,
+          "win_rate": 1.0
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 7,
+          "net_pnl": 158.47,
+          "win_rate": 0.8571
+        },
+        "BNB/USDT:USDT": {
+          "trades": 8,
+          "net_pnl": -89.1,
+          "win_rate": 0.5
+        },
+        "BTC/USDT:USDT": {
+          "trades": 10,
+          "net_pnl": -178.38,
+          "win_rate": 0.4
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": -355.24,
+          "win_rate": 0.3333
+        },
+        "ETH/USDT:USDT": {
+          "trades": 10,
+          "net_pnl": -26.38,
+          "win_rate": 0.5
+        },
+        "LINK/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": 756.99,
+          "win_rate": 1.0
+        },
+        "LTC/USDT:USDT": {
+          "trades": 9,
+          "net_pnl": 345.0,
+          "win_rate": 0.7778
+        },
+        "SOL/USDT:USDT": {
+          "trades": 9,
+          "net_pnl": 350.68,
+          "win_rate": 0.5556
+        },
+        "XRP/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": 188.7,
+          "win_rate": 0.6667
+        }
+      },
+      "ideas": 403,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 4,
+      "oos_start": "2026-09-10 11:00:00+00:00",
+      "oos_end": "2026-10-05 10:00:00+00:00",
+      "trades": 89,
+      "return_pct": -6.61,
+      "win_rate": 0.5169,
+      "max_dd_pct": 6.58,
+      "profit_factor": 0.61,
+      "sharpe": -4.7,
+      "per_symbol": {
+        "ADA/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": 38.77,
+          "win_rate": 0.5455
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 8,
+          "net_pnl": -136.6,
+          "win_rate": 0.375
+        },
+        "BNB/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": -29.97,
+          "win_rate": 0.6364
+        },
+        "BTC/USDT:USDT": {
+          "trades": 8,
+          "net_pnl": -124.13,
+          "win_rate": 0.375
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -108.25,
+          "win_rate": 0.4
+        },
+        "ETH/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -94.7,
+          "win_rate": 0.4
+        },
+        "LINK/USDT:USDT": {
+          "trades": 14,
+          "net_pnl": -90.41,
+          "win_rate": 0.5
+        },
+        "LTC/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": 40.72,
+          "win_rate": 0.6364
+        },
+        "SOL/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": -147.55,
+          "win_rate": 0.4545
+        },
+        "XRP/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -8.77,
+          "win_rate": 0.8
+        }
+      },
+      "ideas": 418,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 5,
+      "oos_start": "2026-10-05 11:00:00+00:00",
+      "oos_end": "2026-10-30 10:00:00+00:00",
+      "trades": 40,
+      "return_pct": -7.06,
+      "win_rate": 0.375,
+      "max_dd_pct": 7.19,
+      "profit_factor": 0.37,
+      "sharpe": -6.39,
+      "per_symbol": {
+        "ADA/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 21.39,
+          "win_rate": 1.0
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 35.56,
+          "win_rate": 0.5
+        },
+        "BNB/USDT:USDT": {
+          "trades": 10,
+          "net_pnl": -182.15,
+          "win_rate": 0.4
+        },
+        "BTC/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -198.57,
+          "win_rate": 0.0
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -57.27,
+          "win_rate": 0.0
+        },
+        "ETH/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -104.42,
+          "win_rate": 0.25
+        },
+        "LINK/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": -9.37,
+          "win_rate": 0.6667
+        },
+        "LTC/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -79.47,
+          "win_rate": 0.25
+        },
+        "SOL/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -103.95,
+          "win_rate": 0.0
+        },
+        "XRP/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -27.86,
+          "win_rate": 0.4
+        }
+      },
+      "ideas": 577,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    }
+  ]
+}
