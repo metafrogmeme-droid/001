@@ -277,28 +277,20 @@ def xdist_importable() -> bool:
 def apply_parallel(cmd: list[str], *, parallel: bool) -> list[str]:
     """The first-pass pytest command. The serial command is returned unchanged.
 
-    ``loadfile`` keeps one module on one worker. pytest-timeout's ``signal``
-    method does not survive an xdist worker, so the parallel command asks for
-    ``thread`` instead. Flake re-runs do not come through here: they stay serial.
+    ``loadfile`` keeps one module on one worker. The timeout stays ``signal``.
+
+    The thread method does not. On expiry it calls ``os._exit``
+    (``pytest_timeout.timeout_timer``), which xdist records as a crashed
+    worker and replaces. The replacement parks in the same prefetch wait the
+    crashed one was in, so a single slow test turns into a hung job. xdist's
+    workers run on their own main thread (``execmodel=main_thread_only``), and
+    SIGALRM is delivered there: a 1s signal timeout fails the test, it does
+    not kill the worker. Measured 2026-10-30 against pytest-timeout 2.4.0 and
+    pytest-xdist 3.8.0. Flake re-runs do not come through here.
     """
     if not parallel:
         return list(cmd)
-    out: list[str] = []
-    skip_next = False
-    for arg in cmd:
-        if skip_next:
-            skip_next = False
-            continue
-        if arg == "--timeout-method=signal":
-            out.append("--timeout-method=thread")
-            continue
-        if arg == "--timeout-method":
-            out.extend(["--timeout-method", "thread"])
-            skip_next = True
-            continue
-        out.append(arg)
-    out.extend(["-n", "auto", "--dist", "loadfile"])
-    return out
+    return list(cmd) + ["-n", "auto", "--dist", "loadfile"]
 
 
 def rerun_command(node: str, *, cov_available: bool) -> list[str]:

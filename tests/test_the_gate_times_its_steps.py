@@ -47,12 +47,14 @@ def test_the_serial_command_is_not_rewritten():
     assert gate.apply_parallel(cmd, parallel=False) == cmd
 
 
-def test_the_parallel_command_keeps_loadfile_and_drops_the_signal_timeout():
+def test_the_parallel_command_keeps_loadfile_and_the_signal_timeout():
+    """Signal stays. The thread method os._exit's the worker, and xdist
+    restarts that worker into the same wait the hang is made of."""
     gate = _load_gate()
     cmd = [sys.executable, "-m", "pytest", "--timeout-method=signal", "-q"]
     out = gate.apply_parallel(cmd, parallel=True)
-    assert "--timeout-method=signal" not in out
-    assert "--timeout-method=thread" in out
+    assert "--timeout-method=signal" in out
+    assert "--timeout-method=thread" not in out
     assert out[-4:] == ["-n", "auto", "--dist", "loadfile"]
 
 

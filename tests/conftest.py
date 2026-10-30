@@ -1230,6 +1230,26 @@ def _runtime_state_path(rel: str) -> str:
     return str(pathlib.Path(root) / rel)
 
 
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_make_scheduler(config, log):
+    """Replace xdist's loadfile scheduler with one that prefetches a file.
+
+    xdist's own hook is ``trylast`` and the spec is ``firstresult``, so a
+    scheduler returned here is the one the controller uses. Any other
+    ``--dist`` is xdist's. ``optionalhook`` is what keeps a serial run — which
+    does not install pytest-xdist and so has no such spec — from warning.
+    The hook runs only when xdist asks for a scheduler.
+    """
+    try:
+        dist = config.getoption("dist")
+    except (AttributeError, ValueError):
+        return None
+    if dist != "loadfile":
+        return None
+    from tests.xdist_loadfile import prefetching_loadfile_scheduler
+    return prefetching_loadfile_scheduler()(config, log)
+
+
 def pytest_configure(config):
     _register_module_timings(config)
     _refuse_a_live_store()
