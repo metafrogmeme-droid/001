@@ -2846,6 +2846,10 @@ class AppConfig:
     # bot. This NEVER affects other users or the live execution path: the opt-in
     # branch runs before any exchange call. Default OFF = byte-identical to today.
     paper_sim_opt_in_enabled: bool = _env_bool("PAPER_SIM_OPT_IN_ENABLED", False)
+    # The xsmom + BTC regime paper sleeve (bot/sleeve/paper.py). Default OFF:
+    # nothing is fetched or written. On, it reads public daily candles once a
+    # UTC day and records a simulated book; it never places an order.
+    sleeve_paper_enabled: bool = _env_bool("SLEEVE_PAPER_ENABLED", False)
 
     # -- Scan settings --
     scan_interval_seconds: int = int(_env_float("SCAN_INTERVAL", 60))

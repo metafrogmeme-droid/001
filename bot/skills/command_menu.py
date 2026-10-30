@@ -47,6 +47,7 @@ ADMIN_EXTRA_MENU: List[Tuple[str, str]] = [
     ("classpf", "📊 Live PnL by asset class"),
     ("funding", "📡 Funding rates across venues"),
     ("parity", "📏 Live vs backtest parity report"),
+    ("sleeve", "📒 Paper sleeve: regime, weights, index vs BTC"),
     ("golive", "🔥 Arm live trading"),
     ("livebalance", "💰 Live exchange balance"),
     ("livepositions", "📌 Live exchange positions"),
@@ -176,6 +177,7 @@ MENU_ZH: Dict[str, str] = {
     "classpf": "📊 各資產類別的實盤損益",
     "funding": "📡 各交易所的資金費率",
     "parity": "📏 實盤與回測一致性報告",
+    "sleeve": "📒 紙上策略袖：市場狀態、權重、相對 BTC 指數",
     "golive": "🔥 啟用實盤交易",
 }
 

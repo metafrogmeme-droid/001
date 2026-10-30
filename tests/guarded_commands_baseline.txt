@@ -117,6 +117,7 @@ _cmd_sell trade
 _cmd_session scan
 _cmd_settier mode
 _cmd_signals scan
+_cmd_sleeve admin
 _cmd_spot spot
 _cmd_squeeze scan
 _cmd_stake stake
