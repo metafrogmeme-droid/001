@@ -632,8 +632,22 @@ function _showTokenForm(note) {
     ev.preventDefault();
     var v = input.value.trim();
     if (!v) return;
-    localStorage.setItem('dashboard_token', v);
-    window.location.reload();
+    btn.disabled = true;
+    // The token is posted once and comes back as an HttpOnly cookie. It is
+    // not written to localStorage, where any script on the page could read it.
+    fetch('/session', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: v }),
+    }).then(function (r) {
+      if (r.ok) { window.location.reload(); return; }
+      btn.disabled = false;
+      hint.textContent = 'The bot refused that token, or has no DASHBOARD_TOKEN set. Enter the token it was started with.';
+    }).catch(function () {
+      btn.disabled = false;
+      hint.textContent = 'The dashboard could not be reached. Nothing was saved.';
+    });
   });
   document.body.appendChild(f);
   try { input.focus(); } catch (e) { /* focus is a courtesy */ }
@@ -642,16 +656,9 @@ function _showTokenForm(note) {
 // Other fragment params are PRESERVED. Nothing here uses the hash for state
 // today, and a security fix that silently ate a future view-router's state
 // would be found the hard way.
-const _token = _takeTokenFromHash()
-  || localStorage.getItem('dashboard_token')
-  || _askForToken();
-// RESIDUAL, stated rather than left implied: the token still lands in
-// localStorage, so it survives a browser restart and is readable by any script
-// that gets onto the page. Narrowing that to sessionStorage costs the operator
-// a re-prompt every session — a UX decision, not mine to make silently. The
-// fragment was the defect this finding names, and it is closed.
-if (_token) localStorage.setItem('dashboard_token', _token);
-const AUTH_HEADERS = _token ? {'Authorization': 'Bearer ' + _token} : {};
+// The session is the HttpOnly cookie set by POST /session. A token still in
+// localStorage from before that change is traded for the cookie once and
+// deleted; it is never sent as a header and never written back.
 
 // ── Helpers ────────────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
@@ -971,13 +978,13 @@ const PROBE_LABEL = {
 async function fetchAll() {
   try {
     const [stateRes, posRes, sigRes] = await Promise.all([
-      fetch(API + '/api/state', {headers: AUTH_HEADERS}),
-      fetch(API + '/api/positions', {headers: AUTH_HEADERS}),
-      fetch(API + '/api/signals', {headers: AUTH_HEADERS}),
+      fetch(API + '/api/state', {credentials: 'same-origin'}),
+      fetch(API + '/api/positions', {credentials: 'same-origin'}),
+      fetch(API + '/api/signals', {credentials: 'same-origin'}),
     ]);
     if (stateRes.status === 401 || stateRes.status === 403) {
-      // A refused token is not a dropped connection: say so, and ask again.
-      localStorage.removeItem('dashboard_token');
+      // A refused cookie is not a dropped connection: say so, and ask again.
+      try { localStorage.removeItem('dashboard_token'); } catch (e) { /* already gone */ }
       _showTokenForm('The bot refused that token, or has no DASHBOARD_TOKEN set. Enter the token it was started with.');
     }
     if (!stateRes.ok || !posRes.ok || !sigRes.ok) throw new Error('API ' + stateRes.status);
@@ -1003,9 +1010,46 @@ async function fetchAll() {
   }
 }
 
-// Poll every 3 seconds
-setInterval(fetchAll, 3000);
-fetchAll();
+// Poll only after a session exists. Starting the interval at parse time
+// would 401 and pop the token form over the prompt.
+var _poll = null;
+function startPolling() {
+  fetchAll();
+  if (_poll) return;
+  _poll = setInterval(fetchAll, 3000);
+}
+// Establish the cookie, then read. A token from the URL fragment or from the
+// old localStorage key is posted once; a prompt is only offered when there is
+// nothing else and the API has no session yet.
+async function _exchange(token) {
+  try {
+    var r = await fetch('/session', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token }),
+    });
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function boot() {
+  var legacy = null;
+  try { legacy = localStorage.getItem('dashboard_token'); } catch (e) { legacy = null; }
+  try { localStorage.removeItem('dashboard_token'); } catch (e) { /* private mode */ }
+  var incoming = _takeTokenFromHash() || legacy;
+  if (!incoming) {
+    try {
+      var probe = await fetch(API + '/api/state', { credentials: 'same-origin' });
+      if (probe.ok) { startPolling(); return; }
+    } catch (e) { /* fall through to the prompt */ }
+    incoming = _askForToken();
+  }
+  if (incoming) {
+    if (await _exchange(incoming)) { startPolling(); return; }
+    _showTokenForm('The bot refused that token, or has no DASHBOARD_TOKEN set. Enter the token it was started with.');
+    return;
+  }
+}
+boot();
 tickClock();
 
 // Redraw chart on resize

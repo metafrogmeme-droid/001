@@ -128,7 +128,7 @@
      parse time, and an i18n.js loaded below would arrive after every T() had
      already fallen back to English. Same boot-order bug the escape page had. -->
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=210"></script>
+<script src="/js/i18n-core.js?v=211"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/intent-model.js?v=2"></script>
 <script>
@@ -271,19 +271,13 @@
   // (not this page) recompiles the text and refuses violating opens. The
   // armed card states what is enforced there and what is only stated —
   // the envelope never claims more protection than it delivers.
-  function rcToken() {
-    try {
-      var t = localStorage.getItem('token');
-      if (t) return t;
-      var sx = JSON.parse(localStorage.getItem('rc_session') || 'null');
-      return (sx && sx.token) || null;
-    } catch (e) { return null; }
+  function hasSession() {
+    return /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
   }
   function envFetch(method, body) {
-    var t = rcToken();
-    var h = t ? { Authorization: 'Bearer ' + t } : {};
+    var h = {};
     if (body) h['Content-Type'] = 'application/json';
-    return fetch('/api/arena/envelope', { method: method, headers: h,
+    return fetch('/api/arena/envelope', { method: method, credentials: 'same-origin', headers: h,
       body: body ? JSON.stringify(body) : undefined })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; },
         function () { return { ok: r.ok, data: null }; }); })
@@ -348,18 +342,16 @@
       + '</div>';
   }
 
-  // Signed-in, not token-bearing: the session is a cookie now and rcToken()
-  // is null for every migrated user, which hid this control from all of them.
-  if (rcToken() || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '')) {
+  // The session is the cookie. A leftover localStorage token is not a
+  // credential this page sends.
+  if (hasSession()) {
     $('prevBtn').hidden = false;
     $('prevBtn').addEventListener('click', function () {
       var text = $('intent').value.trim();
       if (!text) { flash('Type a policy first.'); return; }
       $('prevBtn').disabled = true;
-      var t = rcToken();
-      var h = Object.assign({ 'Content-Type': 'application/json' },
-        t ? { Authorization: 'Bearer ' + t } : {});
-      fetch('/api/arena/envelope/preview', { method: 'POST', headers: h,
+      fetch('/api/arena/envelope/preview', { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text }) })
         .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
         .then(function (r) {

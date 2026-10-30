@@ -200,8 +200,8 @@
     "sha": "20d58329b49e89a0"
   },
   "js/guard-page.js": {
-    "v": 2,
-    "sha": "b260fdd6554737b0"
+    "v": 3,
+    "sha": "1e0e9008126d5ab4"
   },
   "js/guardian-console.js": {
     "v": 4,
@@ -216,8 +216,8 @@
     "sha": "173436196745d52c"
   },
   "js/i18n-core.js": {
-    "v": 210,
-    "sha": "2e76e6c25c2f0f1a"
+    "v": 211,
+    "sha": "dcaa984b28230408"
   },
   "js/icons.js": {
     "v": 6,

@@ -33,6 +33,13 @@ router.use(rateLimit({ name: 'tgapp', windowMs: 60000, max: 120, key: ipKey }));
 
 /** Telegram's script, as core.telegram.org/bots/webapps prints it (read 2026-10-22). */
 const TELEGRAM_JS = 'https://telegram.org/js/telegram-web-app.js?64';
+/**
+ * sha384 of that exact URL, fetched 2026-10-30 (etag 6ac4bef5-1d3b3,
+ * last-modified 2026-10-06). The host sends Access-Control-Allow-Origin: *,
+ * so the browser can check it. The login widget is a different file and is
+ * not pinned: Telegram rewrites that one in place.
+ */
+const TELEGRAM_SRI = 'sha384-PyI6uk8O3pfRRl4+CaepaS++FqtEbco/HaV3jzdYl4y+U7HMQvn3gWVfKhjuzfzG';
 const TG_FRAME_ANCESTORS = "'self' https://web.telegram.org";
 
 function frameAncestors(env = process.env) {
@@ -103,7 +110,7 @@ function page(lang = 'en', offered = piapp._chunks(), preview = false) {
 <meta name="robots" content="noindex">
 <title>RUNECLAW Daily Duel</title>
 <script src="/js/api-retry.js?v=3"></script>
-<script src="${TELEGRAM_JS}"></script>
+<script src="${TELEGRAM_JS}" integrity="${TELEGRAM_SRI}" crossorigin="anonymous"></script>
 <meta name="pi-i18n" content="${escAttr(JSON.stringify(offered))}">
 <link rel="stylesheet" href="/embed.css?v=20">
 </head><body class="e-arena m-app">

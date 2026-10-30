@@ -1251,6 +1251,19 @@ async def redteam(_token: str = Depends(require_dashboard_token), _rl: None = De
 
 
 if os.path.isdir(_WEBSITE_DIR):
+    # The marketing footer's "Hackathon archive" link. StaticFiles with
+    # html=True redirects a directory to a slash, and a host that falls
+    # unknown paths through to the app shell paints a 404 for this path
+    # instead of website/archive/hackathon/index.html. Name the file.
+    _HACKATHON_ARCHIVE = os.path.join(_WEBSITE_DIR, "archive", "hackathon", "index.html")
+
+    @app.get("/archive/hackathon")
+    @app.get("/archive/hackathon/")
+    async def hackathon_archive():
+        if not os.path.isfile(_HACKATHON_ARCHIVE):
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(_HACKATHON_ARCHIVE)
+
     @app.get("/warroom")
     @app.get("/warroom.html")
     @app.get("/live-signals")

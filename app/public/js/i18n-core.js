@@ -2701,21 +2701,15 @@
   function persistServer(lang) {
     // Best-effort: store the logged-in user's prefs.lang so AI chat localizes.
     try {
-      // M14: the token left localStorage, so reading it here and returning
-      // early silently stopped this sync for every logged-in user — the
-      // language preference simply never reached the server again. The session
-      // is the cookie now; `rc_auth` says whether one exists.
-      var token = null;
-      try { token = localStorage.getItem('token'); } catch (e) { token = null; }
-      var signedIn = !!token
-        || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+      // The session is the rc_auth cookie. A localStorage token is not a
+      // credential this call sends; app.js and migrateLegacySession trade
+      // one for the cookie.
+      var signedIn = /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
       if (!signedIn) return;
-      var hdrs = Object.assign({ 'Content-Type': 'application/json' },
-        token ? { Authorization: 'Bearer ' + token } : {});
       fetch('/api/profile', {
         method: 'PUT',
         credentials: 'same-origin',
-        headers: hdrs,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prefs: { lang: lang } }),
         signal: AbortSignal.timeout(8000),
       }).catch(function () {});
@@ -2850,6 +2844,28 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof document !== 'undefined') {
     root.RCI18N = api;
+    // A pre-cookie `localStorage` token is not the session. Trade it for the
+    // cookie once, then delete it. Pages that do not load app.js (the duel,
+    // the study room, and the rest of that set) still get the trade, and
+    // their own requests authenticate by the cookie alone.
+    (function migrateLegacySession() {
+      var legacy = null;
+      try { legacy = localStorage.getItem('token'); } catch (e) { return; }
+      if (!legacy) return;
+      var has = /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+      if (has) {
+        try { localStorage.removeItem('token'); localStorage.removeItem('rc_session'); } catch (e) { /* private mode */ }
+        return;
+      }
+      fetch('/api/auth/me', {
+        credentials: 'same-origin',
+        headers: legacy ? { Authorization: 'Bearer ' + legacy } : {},
+      }).then(function (r) {
+        if (!r.ok) return;
+        try { localStorage.removeItem('token'); localStorage.removeItem('rc_session'); } catch (e) { /* private mode */ }
+        if (/(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '')) location.reload();
+      }).catch(function () {});
+    })();
     // Resolve the language at PARSE time, not at DOMContentLoaded.
     //
     // Page scripts that render synchronously — dashboard.js does — execute

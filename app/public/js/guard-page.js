@@ -223,14 +223,9 @@
     if (!body) return;
     $('g-out').innerHTML = '<section class="panel g-out"><p class="s n">' + T('grd.busy', 'Checking…') + '</p></section>';
     var headers = { 'content-type': 'application/json' };
-    // The session is the cookie, and a same-origin fetch sends it. A token left
-    // in localStorage from before the cookie migration rides along only when
-    // there is no cookie session (its rc_auth flag), so it never overrides one.
-    try {
-      var tok = /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '') ? null : localStorage.getItem('token');
-      if (tok) headers.Authorization = 'Bearer ' + tok;
-    } catch (e) { /* no storage */ }
-    fetch('/api/guard/check', { method: 'POST', headers: headers, body: JSON.stringify(body) })
+    // The session is the cookie. A same-origin fetch sends it. A leftover
+    // localStorage token is traded for that cookie by i18n, not sent here.
+    fetch('/api/guard/check', { method: 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify(body) })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
       .then(function (b) {
