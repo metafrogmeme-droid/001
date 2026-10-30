@@ -62,6 +62,12 @@ def _rr_words(idea) -> str:
     return idea_rr_words(idea, wrap=lambda s: f"<code>{s}</code>")
 
 
+#: Under every call that names levels. A claim about the record, so it names
+#: the record's sign and nothing it cannot back.
+_NOT_ADVICE = ("Not investment advice. The record of these calls is net negative "
+               "after costs to date.")
+
+
 class ChannelForwarder:
     """Forwards cleaned-up bot content to public Telegram groups/channels.
 
@@ -277,6 +283,12 @@ class ChannelForwarder:
                 f"Confidence: <code>{confidence}</code>\n\n"
                 f"{_sep}\n"
                 f"{_decided_by_words(idea)}{now}\n"
+                # Specific levels are trade instructions; the image card has
+                # carried this line for as long as it has existed, and the
+                # out-of-sample test (docs/research/prereg/
+                # signal_edge_stage2_2026-10/REPORT.md) is why the record is
+                # named beside it.
+                f"<i>{_NOT_ADVICE}</i>\n"
                 f"#RUNECLAW #{asset.split('/')[0] if '/' in asset else asset}"
             )
             await self._post(teaser, members_text=msg)

@@ -296,6 +296,8 @@ def test_a_group_reads_a_teaser_and_a_members_room_the_card(tmp_path, monkeypatc
     for secret in ("SHORT", "0.5882", "0.6016", "0.5506", "Confidence"):
         assert secret not in teaser, f"the teaser told a room the call's {secret}"
     assert "SHORT" in card and "0.5882" in card, "the members' room did not get the card"
+    assert "Not investment advice." in card and "net negative" in card, (
+        "a call that names levels went out without the line the image card carries")
 
 
 def test_an_open_is_a_teaser_and_a_close_is_posted_whole(tmp_path, monkeypatch):
