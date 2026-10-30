@@ -64,4 +64,14 @@ function coachNudges(trades) {
   return nudges.slice(0, 2);
 }
 
-module.exports = { coachNudges, PLANNED };
+/**
+ * The diary coach's reply mark. `on` is the disclosure view for this caller.
+ * No nudges means the coach said nothing, so the mark is absent.
+ */
+function withDisclosure(nudges, on) {
+  const rows = Array.isArray(nudges) ? nudges : [];
+  if (on !== true || !rows.length) return { nudges: rows };
+  return { nudges: rows, ai_generated: true };
+}
+
+module.exports = { coachNudges, PLANNED, withDisclosure };

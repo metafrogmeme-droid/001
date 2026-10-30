@@ -1475,14 +1475,25 @@ async def handle_pi_coach(request: web.Request) -> web.Response:
         return web.json_response({"error": "message too long"}, status=400)
     reply_lang = str(body.get("lang") or "").strip()[:12]
 
+    def _reply(payload: dict) -> web.Response:
+        # The website sends session_first only when the disclosure is on for
+        # this caller. The bot applies the prefix only when its own reader is
+        # on too, so a flag that is off leaves the reply unchanged.
+        if body.get("session_first") is True and pi_coach.disclosure_on():
+            payload = dict(payload)
+            html = payload.get("reply_html")
+            if isinstance(html, str):
+                payload["reply_html"] = pi_coach.prefix_first_reply(html, True)
+        return web.json_response(payload)
+
     if pi_coach.token_ask(text):
-        return web.json_response({"reply_html": pi_coach.TOKEN_ANSWER,
-                                  "intent": "pi_coach_token", "answered": False})
+        return _reply({"reply_html": pi_coach.TOKEN_ANSWER,
+                       "intent": "pi_coach_token", "answered": False})
     # A price question goes to the model only when the website could read
     # live prices for it; otherwise the coach says it could not.
     if needs_live_market_data(text) and not pi_coach.has_live_prices(body.get("context")):
-        return web.json_response({"reply_html": pi_coach.NO_FEED_ANSWER,
-                                  "intent": "pi_coach_no_feed", "answered": False})
+        return _reply({"reply_html": pi_coach.NO_FEED_ANSWER,
+                       "intent": "pi_coach_no_feed", "answered": False})
 
     # The same provenance scan the public turn runs, fail-open to the
     # denylist exactly as there.
@@ -1504,15 +1515,15 @@ async def handle_pi_coach(request: web.Request) -> web.Response:
     if not meta:
         # No model answered: a budget refusal or an outage. Its own wording
         # names the website's doors, so the coach says its own sentence.
-        return web.json_response({"reply_html": pi_coach.UNAVAILABLE_ANSWER,
-                                  "intent": "pi_coach_unavailable", "answered": False})
+        return _reply({"reply_html": pi_coach.UNAVAILABLE_ANSWER,
+                       "intent": "pi_coach_unavailable", "answered": False})
     why = pi_coach.withheld_reason(answer)
     if why is not None:
         system_log.warning("Pi coach reply withheld (%s)", why)
-        return web.json_response({"reply_html": pi_coach.WITHHELD_ANSWER,
-                                  "intent": "pi_coach_withheld", "answered": True,
-                                  "withheld": why})
-    return web.json_response({"reply_html": answer, "intent": "pi_coach", "answered": True})
+        return _reply({"reply_html": pi_coach.WITHHELD_ANSWER,
+                       "intent": "pi_coach_withheld", "answered": True,
+                       "withheld": why})
+    return _reply({"reply_html": answer, "intent": "pi_coach", "answered": True})
 
 
 #: The most `client_capabilities` rows the card will print, and the longest

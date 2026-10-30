@@ -376,6 +376,8 @@
 ["How often your high-confidence calls were right","Yüksek güvenli çağrıların ne sıklıkla doğru çıktı"],
 ["High confidence","Yüksek güven"],
 ["Choose low, medium or high. Your call was not recorded.","Düşük, orta veya yüksek seç. Çağrın kaydedilmedi."],
-["You are talking to the Coach, an AI. It is not a person.","Koç ile konuşuyorsun. O bir yapay zekâ, bir kişi değil."],
-["AI-generated","Yapay zekâ üretti"]
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Bir yapay zekâ koçuyla yazışıyorsun, bir kişiyle değil. Yanılabilir. Bu finansal tavsiye değildir."],
+["AI","YZ"],
+["AI-generated reply","Yapay zekânın ürettiği yanıt"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 Yapay zekâ koçu. Bir kişi değil, finansal tavsiye değil."]
 ]

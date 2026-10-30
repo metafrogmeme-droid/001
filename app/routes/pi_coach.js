@@ -121,7 +121,11 @@ router.post('/', authMiddleware, limit, async (req, res) => {
     }
     const context = await coach.facts(userId, ab.about, { arena: deps().arena, duel: deps().duel, tickers: deps().tickers }, text);
     const lang = typeof body.lang === 'string' && /^[a-zA-Z-]{2,12}$/.test(body.lang) ? body.lang : '';
-    const r = await gw().postGateway('/chat/pi-coach', { text, context, ...(lang ? { lang } : {}) }, TIMEOUT_MS);
+    const view = await disclosure.viewFor(req, env());
+    const first = body.session_first === true && view.show === true;
+    const r = await gw().postGateway('/chat/pi-coach', {
+      text, context, ...(lang ? { lang } : {}), ...(first ? { session_first: true } : {}),
+    }, TIMEOUT_MS);
     const data = r && r.data;
     if (!r || r.status !== 200 || !data || typeof data.reply_html !== 'string') {
       await coach.giveBack(userId, day);
@@ -135,11 +139,10 @@ router.post('/', authMiddleware, limit, async (req, res) => {
     }
     const after = await allowance(userId, t);
     const intent = data.intent || 'pi_coach';
-    const view = await disclosure.viewFor(req, env());
     return res.json({
-      reply_html: data.reply_html, intent,
+      ...disclosure.presentReply(data.reply_html, intent, view, first),
+      intent,
       limit: after.limit, left: after.left, resets_at: after.resets_at, plus: after.plus,
-      ...disclosure.replyFields(view, intent),
     });
   } catch (err) {
     console.error('Pi coach error:', err.constructor.name);

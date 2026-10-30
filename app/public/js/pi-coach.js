@@ -21,9 +21,9 @@
  * the question can still be asked: the server counts, not this page).
  *
  * THE AI DISCLOSURE is the server's (lib/coach_ai_disclosure.js). This page
- * draws it only when the response carries that notice, and it marks a reply
- * only when the response says the reply was generated. A missing field is
- * not drawn as off and is not drawn as on.
+ * draws the panel notice and the reply badge only when the response carries
+ * that notice. A missing field is not drawn as off and is not drawn as on.
+ * The first reply of the session starts with the session sentence.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -33,8 +33,10 @@
 
   var MAX_TEXT = 1000;
   /** The sentences in lib/coach_ai_disclosure.js. A test holds them equal. */
-  var NOTICE = 'You are talking to the Coach, an AI. It is not a person.';
-  var MARK = 'AI-generated';
+  var NOTICE = 'You\'re chatting with an AI coach, not a person. It can be wrong. It is not financial advice.';
+  var BADGE = 'AI';
+  var BADGE_TIP = 'AI-generated reply';
+  var PREFIX = '🤖 AI coach. Not a person, not financial advice.';
   /** The admin-preview banner (lib/admin_preview.js BANNER). */
   var PREVIEW = 'Admin preview. Not public.';
   /** The intents of the coach's fixed answers (bot/web/user_gateway.py, the Pi coach turn). */
@@ -138,13 +140,21 @@
         : T('You have used today’s questions.')) + '</p>' + offer + '</div>';
     }
 
+    function disclosed() { return !!(aiView && aiView.notice === NOTICE); }
+
     function disclosureHtml() {
-      if (!aiView || aiView.notice !== NOTICE) return '';
+      if (!disclosed()) return '';
       var banner = aiView.preview === true
         ? '<p class="admin-preview" role="note">' + esc(PREVIEW) + '</p>'
         : '';
       return banner + '<p class="p-coach-ai" role="note">'
-        + esc(T('You are talking to the Coach, an AI. It is not a person.')) + '</p>';
+        + esc(T('You\'re chatting with an AI coach, not a person. It can be wrong. It is not financial advice.')) + '</p>';
+    }
+
+    function badgeHtml() {
+      var tip = T('AI-generated reply');
+      return '<span class="p-coach-ai-badge" title="' + esc(tip) + '" aria-label="' + esc(tip) + '">'
+        + esc(T('AI')) + '</span> ';
     }
 
     function logHtml() {
@@ -158,10 +168,15 @@
       return '<div class="p-coach-log" aria-live="polite">' + log.map(function (m) {
         if (m.who === 'me') return '<div class="p-coach-msg p-coach-msg--me">' + esc(m.text) + '</div>';
         if (m.who === 'claw') {
-          var gen = m.generated === true;
-          return '<div class="p-coach-msg p-coach-msg--claw"' + (gen ? ' data-ai-generated="true"' : '') + '>'
-            + (gen ? '<p class="p-coach-ai-mark">' + esc(T('AI-generated')) + '</p>' : '')
-            + (typeof m.html === 'string' ? safeReply(m.html) : esc(m.text)) + '</div>';
+          var on = disclosed();
+          var html = typeof m.html === 'string' ? m.html : '';
+          var text = typeof m.html === 'string' ? '' : m.text;
+          if (html.indexOf(PREFIX) === 0) html = html.slice(PREFIX.length).replace(/^\n/, '');
+          var lead = (on && m.first) ? '<p class="p-coach-session">' + esc(T('🤖 AI coach. Not a person, not financial advice.')) + '</p>' : '';
+          return '<div class="p-coach-msg p-coach-msg--claw"' + (on ? ' data-ai-generated="true"' : '') + '>'
+            + (on ? badgeHtml() : '')
+            + lead
+            + (typeof m.html === 'string' ? safeReply(html) : esc(text)) + '</div>';
         }
         return '<div class="p-coach-msg p-coach-msg--note">' + esc(m.text) + '</div>';
       }).join('') + (busy ? '<div class="p-coach-msg p-coach-msg--claw p-coach-typing">' + esc(T('Thinking…')) + '</div>' : '') + '</div>';
@@ -176,10 +191,9 @@
           + '<textarea class="p-coach-in" rows="2" maxlength="' + MAX_TEXT + '" placeholder="' + esc(T('e.g. what does leverage do?')) + '">'
           + esc(typed) + '</textarea></label>'
           + '<button type="button" class="p-coach-send"' + (busy || (state && state.left === 0) ? ' disabled' : '') + '>' + esc(T('Ask')) + '</button></div>';
-      var disclosed = aiView && aiView.notice === NOTICE;
-      return '<section class="m-open p-coach"' + (disclosed ? ' data-ai-system="coach"' : '') + '><div class="p-sig-head"><h2>' + esc(T('Ask the Claw')) + '</h2></div>'
-        + disclosureHtml()
+      return '<section class="m-open p-coach"' + (disclosed() ? ' data-ai-system="coach"' : '') + '><div class="p-sig-head"><h2>' + esc(T('Ask the Claw')) + '</h2></div>'
         + allowanceHtml() + logHtml() + usedUpHtml()
+        + disclosureHtml()
         + (plusNote ? M.actionNoteHtml(plusNote[0], plusNote[1]) : '')
         + form
         + '<p class="m-open-note">' + esc(T('Education and practice, not advice. Your question and a summary of your practice trades and Duel calls go to an AI provider to answer it.'))
@@ -202,18 +216,20 @@
       if (about) body.about = about;
       var l = lang();
       if (l) body.lang = l;
+      if (!log.some(function (m) { return m.who === 'claw'; })) body.session_first = true;
       return cx.api('/api/pi/coach', { method: 'POST', body: body }).then(function (r) {
         busy = false;
         var b = r.body || {};
         if (r.ok && typeof b.reply_html === 'string') {
           takeDisclosure(b);
+          var first = disclosed() && !log.some(function (m) { return m.who === 'claw'; });
           // A fixed answer (its intent names which) is one of the coach's four
           // sentences, which the Pi table translates (build_pi_i18n.js reads
           // them from bot/web/pi_coach.py); it is drawn as text, in the
           // language on screen. A model's answer is drawn as the bot sent it.
-          // generated is only the server's true: a missing field is not a mark.
-          if (FIXED_INTENTS.indexOf(b.intent) >= 0) log.push({ who: 'claw', text: T(b.reply_html) });
-          else log.push({ who: 'claw', html: b.reply_html, generated: b.ai_generated === true });
+          // The website leaves a fixed answer unprefixed so this lookup still hits.
+          if (FIXED_INTENTS.indexOf(b.intent) >= 0) log.push({ who: 'claw', text: T(b.reply_html), first: first });
+          else log.push({ who: 'claw', html: b.reply_html, first: first });
           if (typeof b.left === 'number') state = Object.assign({}, state || {}, { enabled: true, limit: b.limit, left: b.left, resets_at: b.resets_at, plus: b.plus });
         } else if (r.status === 429) {
           state = Object.assign({}, state || {}, { enabled: true, limit: b.limit, left: 0, resets_at: b.resets_at, plus: b.plus });
@@ -280,5 +296,5 @@
   }
 
   return { create: create, safeReply: safeReply, starters: starters, MAX_TEXT: MAX_TEXT, FIXED_INTENTS: FIXED_INTENTS,
-    NOTICE: NOTICE, MARK: MARK, PREVIEW: PREVIEW };
+    NOTICE: NOTICE, BADGE: BADGE, BADGE_TIP: BADGE_TIP, PREFIX: PREFIX, PREVIEW: PREVIEW };
 }));

@@ -1,13 +1,9 @@
 'use strict';
 /**
- * Coach AI disclosure for Ask the Claw.
+ * Coach disclosure for Ask the Claw and the diary coach.
  *
- * Two sentences, owned here. The Pi page draws the same words
+ * The sentences live here. The Pi page draws the same words
  * (public/js/pi-coach.js); a test holds the copies equal.
- *
- *   NOTICE  the reader is talking to an AI, not a person.
- *   MARK    a reply a model generated. A fixed answer written in the repo
- *           is not marked: the notice still covers the conversation.
  *
  * COACH_AI_DISCLOSURE_ENABLED is off unless it is "1" or "true".
  * The public sees it only when that is on and
@@ -16,19 +12,19 @@
  * off, an operator sees the same sentences as an admin preview.
  *
  * This module does not sign, does not read a key, and does not call a chain.
- *
- * product/spec-ai-disclosure-2026-10-26.md was not in the repository on
- * 2026-10-30 (main and every remote branch). These sentences are the
- * disclosure. No statute is named.
  */
 
 const { flag_on_for } = require('./admin_preview');
 
 const FLAG = 'COACH_AI_DISCLOSURE_ENABLED';
 const NETWORK = 'COACH_AI_DISCLOSURE_NETWORK';
-const NOTICE = 'You are talking to the Coach, an AI. It is not a person.';
-const MARK = 'AI-generated';
-const MODEL_INTENT = 'pi_coach';
+const NOTICE = "You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.";
+const BADGE = 'AI';
+const BADGE_TIP = 'AI-generated reply';
+const SESSION_PREFIX = '🤖 AI coach. Not a person, not financial advice.';
+const FIXED_INTENTS = new Set([
+  'pi_coach_token', 'pi_coach_no_feed', 'pi_coach_withheld', 'pi_coach_unavailable',
+]);
 
 function source(env) {
   return env || process.env;
@@ -72,23 +68,53 @@ async function viewFor(req, env) {
 /** The object a response carries, or null when this caller does not see it. */
 function payload(view) {
   if (!view || view.show !== true) return null;
-  return { notice: NOTICE, mark: MARK, preview: view.preview === true };
+  return {
+    notice: NOTICE,
+    badge: BADGE,
+    badge_tip: BADGE_TIP,
+    session_prefix: SESSION_PREFIX,
+    preview: view.preview === true,
+  };
+}
+
+/** Fields for one coach reply. Off adds nothing. On marks the reply. */
+function replyFields(view) {
+  const body = payload(view);
+  if (!body) return {};
+  return { ai_generated: true, ai_disclosure: body };
+}
+
+function stripPrefix(reply) {
+  const text = String(reply == null ? '' : reply);
+  if (!text.startsWith(SESSION_PREFIX)) return text;
+  return text.slice(SESSION_PREFIX.length).replace(/^\n/, '');
+}
+
+/** The session's first reply starts with the prefix. A later one does not. */
+function prefixReply(reply, first) {
+  const text = stripPrefix(reply);
+  if (first !== true) return text;
+  return SESSION_PREFIX + '\n' + text;
 }
 
 /**
- * Fields for one coach reply. A model answer is marked. A fixed answer
- * carries the notice only. An off view adds nothing.
+ * The JSON for one Pi coach reply. A fixed answer stays translatable, and
+ * carries session_prefix when this is the first reply of the session. A
+ * model's answer starts with the prefix in reply_html as well.
  */
-function replyFields(view, intent) {
-  const body = payload(view);
-  if (!body) return {};
-  if (intent === MODEL_INTENT) {
-    return { ai_generated: true, ai_mark: MARK, ai_disclosure: body };
-  }
-  return { ai_disclosure: body };
+function presentReply(replyHtml, intent, view, first) {
+  const clean = stripPrefix(replyHtml);
+  const fields = replyFields(view);
+  if (!fields.ai_generated) return { reply_html: clean };
+  const out = Object.assign({ reply_html: clean }, fields);
+  if (first !== true) return out;
+  out.session_prefix = SESSION_PREFIX;
+  if (!FIXED_INTENTS.has(intent)) out.reply_html = prefixReply(clean, true);
+  return out;
 }
 
 module.exports = {
-  FLAG, NETWORK, NOTICE, MARK, MODEL_INTENT,
+  FLAG, NETWORK, NOTICE, BADGE, BADGE_TIP, SESSION_PREFIX, FIXED_INTENTS,
   flagOn, testnet, publicOn, viewFor, payload, replyFields,
+  stripPrefix, prefixReply, presentReply,
 };

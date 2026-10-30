@@ -2177,6 +2177,9 @@
     "lc.many": { en: "{t} closes in one day — each one carried its own risk decision." },
     "lc.clean": { en: "Every exit today was the planned one. One day proves nothing — but this is what discipline looks like on a record." },
     "lc.open": { en: "Open the lesson →" },
+    "lc.ai_notice": { en: "You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice." },
+    "lc.ai_badge": { en: "AI" },
+    "lc.ai_tip": { en: "AI-generated reply" },
     "ln.quiz_check": { en: "Check my answers" },
     "ln.quiz_score": { en: "{r}/{t} — graded by arithmetic, never by mercy." },
     "ln.tutor_h": { en: "Ask the tutor — answers come only from the lessons above." },
@@ -2606,7 +2609,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"70c86d6a","zh":"e9681215","pt":"763db7dd","fr":"73c03118","de":"a446ed84","nl":"e00a5326","ja":"7d72a4ed","ko":"63f795b5","ru":"c031b838","tr":"77a74085","it":"a992623e","hi":"b02638a5","ar":"ae4bc5ee"};
+  var CHUNKS = {"es":"8c2a67b6","zh":"93c0d2ae","pt":"b9e71032","fr":"55ca2c61","de":"4ffd4dab","nl":"aef0ed68","ja":"805023e1","ko":"9b28ec05","ru":"11e0863e","tr":"61f687b0","it":"18fd86e9","hi":"2581f011","ar":"f66592de"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

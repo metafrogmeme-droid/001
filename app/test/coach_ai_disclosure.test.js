@@ -109,37 +109,69 @@ test('the flag is off unless it is 1 or true and the network is testnet', () => 
   assert.equal(preview.publicOn('COACH_AI_DISCLOSURE_ENABLED', {}), false);
 });
 
-test('a thrown read is off, and a fixed answer is not marked generated', async () => {
+test('a thrown read is off, and every reply is marked when the disclosure is on', async () => {
   const boom = new Proxy({}, { get() { throw new Error('unread'); } });
   assert.deepStrictEqual(await disc.viewFor({ user: { user_id: 1 } }, boom), { show: false, preview: false });
   const on = { show: true, preview: false };
   assert.equal(disc.payload({ show: false, preview: false }), null);
-  assert.deepStrictEqual(disc.replyFields({ show: false }, 'pi_coach'), {});
-  const model = disc.replyFields(on, 'pi_coach');
+  assert.deepStrictEqual(disc.replyFields({ show: false }), {});
+  const model = disc.presentReply('A stop is planned.', 'pi_coach', on, true);
   assert.equal(model.ai_generated, true);
-  assert.equal(model.ai_mark, disc.MARK);
-  assert.equal(model.ai_disclosure.preview, false);
+  assert.equal(model.reply_html.startsWith(disc.SESSION_PREFIX), true);
   assert.equal(model.ai_disclosure.notice, disc.NOTICE);
+  assert.equal(model.ai_disclosure.badge, disc.BADGE);
+  assert.equal(model.ai_disclosure.badge_tip, disc.BADGE_TIP);
+  const again = disc.presentReply('Another.', 'pi_coach', on, false);
+  assert.equal(again.ai_generated, true);
+  assert.equal(again.reply_html.startsWith(disc.SESSION_PREFIX), false);
   for (const intent of page.FIXED_INTENTS) {
-    const fixed = disc.replyFields(on, intent);
-    assert.equal(Object.prototype.hasOwnProperty.call(fixed, 'ai_generated'), false, intent);
-    assert.equal(fixed.ai_disclosure.notice, disc.NOTICE);
+    const fixed = disc.presentReply('A fixed sentence.', intent, on, true);
+    assert.equal(fixed.ai_generated, true, intent);
+    assert.equal(fixed.reply_html, 'A fixed sentence.');
+    assert.equal(fixed.session_prefix, disc.SESSION_PREFIX);
   }
-  const previewOn = disc.payload({ show: true, preview: true });
-  assert.equal(previewOn.preview, true);
+  assert.equal(disc.payload({ show: true, preview: true }).preview, true);
 });
 
 test('the page draws the module sentences, and nothing else decides the mark', () => {
   assert.equal(page.NOTICE, disc.NOTICE);
-  assert.equal(page.MARK, disc.MARK);
+  assert.equal(page.BADGE, disc.BADGE);
+  assert.equal(page.BADGE_TIP, disc.BADGE_TIP);
+  assert.equal(page.PREFIX, disc.SESSION_PREFIX);
+  const py = fs.readFileSync(path.join(__dirname, '..', '..', 'bot', 'web', 'pi_coach.py'), 'utf8');
+  assert.ok(py.includes('SESSION_PREFIX = "' + disc.SESSION_PREFIX + '"'));
   assert.equal(page.PREVIEW, preview.BANNER);
-  assert.ok(CLIENT.includes("T('" + disc.NOTICE + "')"));
-  assert.ok(CLIENT.includes("T('" + disc.MARK + "')"));
-  assert.ok(CLIENT.includes("var NOTICE = '" + disc.NOTICE + "';"));
+  assert.ok(CLIENT.includes("T('You\\'re chatting with an AI coach, not a person. It can be wrong. It is not financial advice.')"));
+  assert.ok(CLIENT.includes("T('AI')"));
+  assert.ok(CLIENT.includes("T('" + disc.BADGE_TIP + "')"));
+  assert.ok(CLIENT.includes("T('" + disc.SESSION_PREFIX + "')"));
   assert.ok(CLIENT.includes('Education and practice, not advice. Your question and a summary'));
-  assert.doesNotMatch(LIB, /Art\.?\s*50|MiCA|MiFID|GDPR|EU AI Act/i);
   assert.doesNotMatch(LIB, /\b(tokens?|presales?|prices?|stakes?)\b|\$|rclaw|PRIVATE_KEY|mnemonic/i);
   assert.doesNotMatch(LIB, /signTransaction|broadcast|sendTransaction/);
+});
+
+test('coach copy does not use the banned phrases', () => {
+  const files = [
+    path.join(__dirname, '..', 'lib', 'coach_ai_disclosure.js'),
+    path.join(__dirname, '..', 'public', 'js', 'pi-coach.js'),
+    path.join(__dirname, '..', 'lib', 'learn_coach.js'),
+    path.join(__dirname, '..', 'public', 'learn.html'),
+    path.join(__dirname, '..', 'routes', 'pi_coach.js'),
+    path.join(__dirname, '..', '..', 'bot', 'web', 'pi_coach.py'),
+  ];
+  const phrases = ['human advisor', 'expert advice'];
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    for (const phrase of phrases) {
+      assert.equal(text.toLowerCase().includes(phrase), false, file + ' has ' + phrase);
+    }
+    const re = /financial advice/gi;
+    let m;
+    while ((m = re.exec(text))) {
+      const before = text.slice(Math.max(0, m.index - 8), m.index).toLowerCase();
+      assert.match(before, /not\s+$/, file + ' says financial advice without not');
+    }
+  }
 });
 
 test('the page shows the notice only when the server sent it, and marks only a generated reply', async () => {
@@ -150,27 +182,33 @@ test('the page shows the notice only when the server sent it, and marks only a g
   assert.equal(quietHtml.includes('data-ai-system'), false);
   assert.match(quietHtml, /Education and practice, not advice/);
 
+  const carried = {
+    notice: disc.NOTICE, badge: disc.BADGE, badge_tip: disc.BADGE_TIP,
+    session_prefix: disc.SESSION_PREFIX, preview: false,
+  };
   const shown = await screen({
-    get: { ...OPEN, ai_disclosure: { notice: disc.NOTICE, mark: disc.MARK, preview: false } },
+    get: { ...OPEN, ai_disclosure: carried },
     post: {
-      reply_html: 'A <b>stop</b> is a planned exit.', intent: 'pi_coach', ai_generated: true,
-      ai_mark: disc.MARK, ai_disclosure: { notice: disc.NOTICE, mark: disc.MARK, preview: false },
+      reply_html: disc.SESSION_PREFIX + '\nA <b>stop</b> is a planned exit.', intent: 'pi_coach',
+      ai_generated: true, ai_disclosure: carried, session_prefix: disc.SESSION_PREFIX,
       limit: 20, left: 19,
     },
   });
   const shownHtml = shown.view.html();
-  assert.ok(shownHtml.includes(disc.NOTICE));
+  const noticeAt = shownHtml.indexOf('chatting with an AI coach');
+  const inputAt = shownHtml.indexOf('p-coach-in');
+  assert.ok(noticeAt >= 0 && inputAt > noticeAt, 'the notice is before the input');
   assert.ok(shownHtml.includes('data-ai-system="coach"'));
   assert.equal(shownHtml.includes(preview.BANNER), false);
   assert.match(shownHtml, /Education and practice, not advice/);
 
   const admin = await screen({
-    get: { ...OPEN, ai_disclosure: { notice: disc.NOTICE, mark: disc.MARK, preview: true } },
+    get: { ...OPEN, ai_disclosure: { ...carried, preview: true } },
   });
   assert.ok(admin.view.html().includes(preview.BANNER));
 
   const wrong = await screen({
-    get: { ...OPEN, ai_disclosure: { notice: 'something else', mark: disc.MARK, preview: false } },
+    get: { ...OPEN, ai_disclosure: { notice: 'something else', badge: disc.BADGE, preview: false } },
   });
   assert.equal(wrong.view.html().includes('something else'), false);
   assert.equal(wrong.view.html().includes('data-ai-system'), false);
@@ -178,27 +216,37 @@ test('the page shows the notice only when the server sent it, and marks only a g
   await shown.view.ask('what is a stop?', null, shown.ctx);
   const marked = shown.view.html();
   assert.ok(marked.includes('data-ai-generated="true"'));
-  assert.ok(marked.includes(disc.MARK));
+  assert.ok(marked.includes('>' + disc.BADGE + '<'));
+  assert.ok(marked.includes('title="' + disc.BADGE_TIP + '"'));
+  assert.ok(marked.includes(disc.SESSION_PREFIX));
   assert.match(marked, /A <b>stop<\/b> is a planned exit/);
+  const bubbles = marked.split('p-coach-msg--claw').slice(1);
+  assert.equal(bubbles.length, 1);
+  assert.ok(bubbles[0].includes(disc.SESSION_PREFIX));
 
-  const carried = { notice: disc.NOTICE, mark: disc.MARK, preview: false };
   const fixed = await screen({
     get: { ...OPEN, ai_disclosure: carried },
-    post: { reply_html: 'This app is practice only.', intent: 'pi_coach_token', ai_disclosure: carried, limit: 20, left: 20 },
+    post: { reply_html: 'This app is practice only.', intent: 'pi_coach_token', ai_disclosure: carried, session_prefix: disc.SESSION_PREFIX, ai_generated: true, limit: 20, left: 20 },
   });
   await fixed.view.ask('what is the project?', null, fixed.ctx);
   const fixedHtml = fixed.view.html();
-  assert.equal(fixedHtml.includes('data-ai-generated'), false);
-  assert.ok(fixedHtml.includes(disc.NOTICE));
+  assert.ok(fixedHtml.includes('data-ai-generated="true"'));
+  assert.ok(fixedHtml.includes('>' + disc.BADGE + '<'));
+  assert.ok(fixedHtml.includes(disc.SESSION_PREFIX));
+  assert.ok(fixedHtml.includes('chatting with an AI coach'));
 
-  const unmarked = await screen({
+  const second = await screen({
     get: { ...OPEN, ai_disclosure: carried },
-    post: { reply_html: '<b>Hi</b>', intent: 'pi_coach', ai_disclosure: carried, limit: 20, left: 19 },
+    post: { reply_html: '<b>Hi</b>', intent: 'pi_coach', ai_generated: true, ai_disclosure: carried, limit: 20, left: 19 },
   });
-  await unmarked.view.ask('hello', null, unmarked.ctx);
-  const unmarkedHtml = unmarked.view.html();
-  assert.equal(unmarkedHtml.includes('data-ai-generated'), false);
-  assert.ok(unmarkedHtml.includes(disc.NOTICE));
+  await second.view.ask('hello', null, second.ctx);
+  await second.view.ask('and again', null, second.ctx);
+  const both = second.view.html().split('p-coach-msg--claw').slice(1);
+  assert.equal(both.length, 2);
+  assert.ok(both[0].includes('data-ai-generated="true"'));
+  assert.ok(both[1].includes('data-ai-generated="true"'));
+  assert.ok(both[0].includes(disc.SESSION_PREFIX));
+  assert.equal(both[1].includes(disc.SESSION_PREFIX), false);
 
   const dropped = await screen({
     get: { ...OPEN, ai_disclosure: carried },
@@ -206,6 +254,7 @@ test('the page shows the notice only when the server sent it, and marks only a g
   });
   await dropped.view.ask('hello', null, dropped.ctx);
   assert.equal(dropped.view.html().includes(disc.NOTICE), false);
+  assert.equal(dropped.view.html().includes('data-ai-generated'), false);
   delete global.window;
 });
 
@@ -251,19 +300,29 @@ test('flag off hides the disclosure; an operator previews it; testnet on is publ
     const pub = await hit(on.base, user.token, null, 'GET');
     assert.equal(pub.body.ai_disclosure.preview, false);
     assert.equal(pub.body.ai_disclosure.notice, disc.NOTICE);
-    const model = await hit(on.base, user.token, { text: 'what is a stop?' });
+    const model = await hit(on.base, user.token, { text: 'what is a stop?', session_first: true });
     assert.equal(model.body.ai_generated, true);
-    assert.equal(model.body.ai_mark, disc.MARK);
+    assert.equal(model.body.reply_html.startsWith(disc.SESSION_PREFIX), true);
+    assert.equal(model.body.ai_disclosure.notice, disc.NOTICE);
     assert.equal(model.body.ai_disclosure.preview, false);
-    on.gateway.postGateway = async () => ({
-      status: 200,
-      data: { reply_html: 'This app is practice only.', intent: 'pi_coach_token', answered: false },
-    });
-    const fixed = await hit(on.base, admin.token, { text: 'tell me about the project' });
+    assert.equal(on.gateway.calls.at(-1).body.session_first, true);
+    on.gateway.postGateway = async (p, body) => {
+      on.gateway.calls.push({ p, body });
+      return {
+        status: 200,
+        data: { reply_html: 'This app is practice only.', intent: 'pi_coach_token', answered: false },
+      };
+    };
+    const fixed = await hit(on.base, admin.token, { text: 'tell me about the project', session_first: true });
     assert.equal(fixed.status, 200);
-    assert.equal(Object.prototype.hasOwnProperty.call(fixed.body, 'ai_generated'), false);
+    assert.equal(fixed.body.ai_generated, true);
+    assert.equal(fixed.body.reply_html, 'This app is practice only.');
+    assert.equal(fixed.body.session_prefix, disc.SESSION_PREFIX);
     assert.equal(fixed.body.ai_disclosure.notice, disc.NOTICE);
     assert.equal(fixed.body.intent, 'pi_coach_token');
+    const later = await hit(on.base, user.token, { text: 'what is a stop?' });
+    assert.equal(later.body.ai_generated, true);
+    assert.equal(later.body.reply_html.startsWith(disc.SESSION_PREFIX), false);
   } finally {
     on.server.close();
     router._deps = undefined;

@@ -459,6 +459,8 @@
 ["How often your high-confidence calls were right","Seberapa sering prediksi berkeyakinan tinggi kamu benar"],
 ["High confidence","Keyakinan tinggi"],
 ["Choose low, medium or high. Your call was not recorded.","Pilih rendah, sedang, atau tinggi. Prediksi kamu tidak dicatat."],
-["You are talking to the Coach, an AI. It is not a person.","Kamu berbicara dengan Coach, sebuah AI. Ini bukan orang."],
-["AI-generated","Dihasilkan oleh AI"]
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Kamu mengobrol dengan pelatih AI, bukan seorang pribadi. Ia bisa keliru. Ini bukan nasihat keuangan."],
+["AI","AI"],
+["AI-generated reply","Balasan yang dihasilkan AI"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 Pelatih AI. Bukan seorang pribadi, bukan nasihat keuangan."]
 ]

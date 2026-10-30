@@ -376,6 +376,8 @@
 ["How often your high-confidence calls were right","Как часто ваши вызовы с высокой уверенностью были верны"],
 ["High confidence","Высокая уверенность"],
 ["Choose low, medium or high. Your call was not recorded.","Выберите низкую, среднюю или высокую. Ваш вызов не записан."],
-["You are talking to the Coach, an AI. It is not a person.","Вы говорите с тренером. Это ИИ, а не человек."],
-["AI-generated","Сгенерировано ИИ"]
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Вы общаетесь с ИИ-тренером, не с человеком. Он может ошибаться. Это не финансовая рекомендация."],
+["AI","ИИ"],
+["AI-generated reply","Ответ, сгенерированный ИИ"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 ИИ-тренер. Не человек, не финансовая рекомендация."]
 ]
