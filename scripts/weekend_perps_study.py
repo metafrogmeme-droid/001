@@ -172,18 +172,25 @@ def legs_cost(n_legs: int, per_side: float) -> float:
 
 
 def evaluate(series: dict[str, dict], universe_syms: list[str],
-             per_side: float = COST_PER_SIDE) -> dict:
+             per_side: float = COST_PER_SIDE, fridays: list[date] | None = None,
+             window_of=None) -> dict:
     """Per-weekend net P&L for H1/H2 (SPY-hedged, equal weight across symbols)
-    and H3 (SPY alone), with what was left out and why."""
+    and H3 (SPY alone), with what was left out and why.
+
+    ``fridays`` and ``window_of`` default to this study's weekends and its
+    discovery/holdout split; the forward test passes its own."""
+    if window_of is None:
+        def window_of(fri: date) -> str:
+            return "holdout" if fri >= HOLDOUT_FROM else "discovery"
     bars = {s: {int(r[0]): r for r in d["candles"]} for s, d in series.items()}
     fund = {s: d["funding"] for s, d in series.items()}
     rows: dict[str, list[dict]] = {"H1": [], "H2": [], "H3": [],
                                    "H1_unhedged": [], "H2_unhedged": []}
     left_out = {"missing_bar": 0, "flat_signal": 0}
     sy_pairs = []
-    for fri in weekends():
+    for fri in (weekends() if fridays is None else fridays):
         A, B, C = at_et(fri, 16), at_et(fri + timedelta(days=2), 20), at_et(fri + timedelta(days=3), 9)
-        win = "holdout" if fri >= HOLDOUT_FROM else "discovery"
+        win = window_of(fri)
         spy = [close_at(bars[HEDGE], t) for t in (A, B, C)]
         if None in spy:
             left_out["missing_bar"] += len(universe_syms)
