@@ -33,7 +33,7 @@ ENV = {"CLAW_GUARD_ENABLED": "1", HL_KEY_ENV: KEY}
 def _rules(**overrides):
     base = {
         "allowlist": ["BTC", "ETH"],
-        "max_leverage": 5,
+        "leverage_cap": 5,
         "size_confirm_frac": 0.25,
         "size_block_frac": 1.0,
         "builder_max_f": 0,

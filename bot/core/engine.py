@@ -9113,13 +9113,14 @@ class RuneClawEngine:
                 guard_admin = self._is_operator_user(user_id) is True
             except Exception:
                 guard_admin = False
-            return accept_intent(
+            result = accept_intent(
                 guard_intent,
                 getattr(idea, "guard_account", None),
                 user_id=str(user_id or ""),
                 caller_is_admin=guard_admin,
                 now=time.time(),
             )
+            return result
 
         # Per-user chosen strategy — a tighten-only veto on THIS user's
         # confirms ("your bot, your strategy"). Applies only to explicit

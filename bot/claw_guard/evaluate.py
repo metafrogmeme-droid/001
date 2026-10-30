@@ -806,7 +806,7 @@ def _underlying_notional(account: Mapping[str, Any], coin: str) -> float:
 def _effective_leverage(
     resolved: list[dict[str, Any]], account: Mapping[str, Any],
 ) -> list[dict[str, str]]:
-    cap = _num(_rules(account).get("max_leverage"))
+    cap = _num(_rules(account).get("leverage_cap"))
     if cap is None:
         cap = 5.0
     equity = _equity(account)
@@ -842,7 +842,7 @@ def _lev(value: float) -> str:
 
 
 def _leverage_rules(action: Mapping[str, Any], account: Mapping[str, Any]) -> list[dict[str, str]]:
-    cap = _num(_rules(account).get("max_leverage"))
+    cap = _num(_rules(account).get("leverage_cap"))
     if cap is None:
         cap = 5.0
     kind = str(action.get("type") or "")

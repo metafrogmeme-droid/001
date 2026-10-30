@@ -33,10 +33,9 @@ def check_body(body: object, *, now: float = 0.0) -> dict[str, Any]:
 
 def main() -> int:
     raw = sys.stdin.read()
-    try:
-        body = json.loads(raw) if raw.strip() else {}
-    except json.JSONDecodeError:
-        body = None
+    # A body that will not parse is a raise, not an empty map this process
+    # then answers. Empty input is no body.
+    body: object = {} if not raw.strip() else json.loads(raw)
     sys.stdout.write(json.dumps(check_body(body)))
     return 0
 
