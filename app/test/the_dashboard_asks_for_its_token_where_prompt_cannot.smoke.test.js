@@ -37,18 +37,26 @@ const SKIP = !pw ? 'playwright-core is not installed' : !CHROMIUM ? 'no Chromium
 
 const GOOD = 'the-right-token';
 
-/** A stand-in for the bot's aiohttp API. The page posts the token to /session
- *  once; the cookie, not a header, is what later /api calls carry. */
+/** A stand-in for the bot's aiohttp API. The page posts the token to
+ *  /api/session once; the cookie, not a header, is what later /api calls carry.
+ *  The chart library is the same prefix and only answers once that cookie exists. */
 async function serve() {
   const app = express();
   const seen = [];
   app.use(express.json());
-  app.post('/session', (req, res) => {
+  app.post('/api/session', (req, res) => {
     const token = String((req.body && req.body.token) || '');
-    seen.push({ path: '/session', token });
+    seen.push({ path: '/api/session', token });
     if (token !== GOOD) return res.status(401).json({ error: 'unauthorized' });
     res.setHeader('Set-Cookie', `dashboard_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`);
     return res.json({ ok: true });
+  });
+  app.get('/api/vendor/chart.umd.min.js', (req, res) => {
+    const cookie = req.get('cookie') || '';
+    if (!cookie.includes(`dashboard_auth=${encodeURIComponent(GOOD)}`)) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+    return res.sendFile(path.join(WEB, 'vendor', 'chart.umd.min.js'));
   });
   app.use('/api', (req, res) => {
     const cookie = req.get('cookie') || '';
@@ -77,7 +85,7 @@ async function open(browser, base, file, { dialog, init, stored } = {}) {
 
 const formShown = (page) => page.evaluate(() => !!document.getElementById('tokenForm'));
 const lastApi = (seen, api) => [...seen].reverse().find((s) => s.path === api.replace('/api', ''));
-const sessionPosts = (seen) => seen.filter((s) => s.path === '/session');
+const sessionPosts = (seen) => seen.filter((s) => s.path === '/api/session');
 
 test('the dashboard pages take their token where prompt() cannot', SKIP ? { skip: SKIP } : {}, async (t) => {
   const { server, seen, base } = await serve();

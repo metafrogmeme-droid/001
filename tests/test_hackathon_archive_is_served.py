@@ -2,8 +2,9 @@
 
 website/archive/hackathon/index.html is the frozen submission. A request for
 /archive/hackathon that falls through to the marketing app shell is painted
-as that app's 404, because the shell has no such route. The bridge names the
-file, and nginx does too.
+as that app's 404, because the shell has no such route. The bridge's
+StaticFiles mount (html=True) serves the directory index, and nginx names
+the file so the marketing host does not hand the path to the shell.
 """
 from __future__ import annotations
 

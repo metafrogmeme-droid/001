@@ -422,13 +422,14 @@ async def handle_equitycurve(request: web.Request) -> web.Response:
 async def handle_session(request: web.Request) -> web.Response:
     """Trade the operator's token for an HttpOnly cookie.
 
-    Not under `/api/`, so the page can call it before it has a session. The
-    token is the body, checked the same way the API checks a bearer. Every
-    later `/api/*` call is a GET, and SameSite=Lax already withholds the
-    cookie from a cross-site POST, so there is no second CSRF token: a
-    cross-site page cannot perform a state change here because this process
-    has no cookie-authenticated state change. The login POST itself is
-    useless without the secret in its body.
+    Registered at POST /api/session. auth_middleware lets that one POST
+    through, because the cookie this handler sets is what every later call
+    presents: the check below is the gate, the same compare_digest the
+    middleware uses for a bearer. Every later `/api/*` call is a GET, and
+    SameSite=Lax already withholds the cookie from a cross-site POST, so
+    there is no second CSRF token. This process has no cookie-authenticated
+    state change. The login POST itself is useless without the secret in
+    its body.
     """
     if not _DASHBOARD_TOKEN:
         return web.json_response(
@@ -456,9 +457,10 @@ async def handle_session(request: web.Request) -> web.Response:
     return resp
 
 
-async def handle_chart_js(request: web.Request) -> web.Response:
+async def handle_chart_js(request: web.Request) -> web.StreamResponse:
     """Chart.js 4.4.1, vendored. The page used to load it from jsDelivr with
-    no integrity attribute."""
+    no integrity attribute. Served under /api/ so auth_middleware gates it;
+    the chart page inserts the tag only after the session cookie exists."""
     path = pathlib.Path(__file__).parent / "vendor" / "chart.umd.min.js"
     if path.is_file():
         return web.FileResponse(path)
@@ -852,6 +854,13 @@ async def auth_middleware(request: web.Request, handler):
                 {"error": "DASHBOARD_TOKEN not configured. Set it in .env to enable the API."},
                 status=403,
             )
+        # POST /api/session is how the cookie comes to exist. The middleware's
+        # header-or-cookie read cannot see a secret that has not been stored,
+        # and the handler checks the body with the same compare_digest. The
+        # exception is this method and this path: a GET of it, and every other
+        # /api/ path including the vendored chart, stays on the check below.
+        if request.method == "POST" and request.path == "/api/session":
+            return await handler(request)
         token = _presented_token(request)
         if not token or not hmac.compare_digest(token, _DASHBOARD_TOKEN):
             return web.json_response({"error": "unauthorized"}, status=401)
@@ -914,8 +923,8 @@ def create_app(engine, tg_handler=None) -> web.Application:
     app["engine"] = engine
     app.router.add_get("/", handle_index)
     app.router.add_get("/chart", handle_performance_chart)
-    app.router.add_post("/session", handle_session)
-    app.router.add_get("/vendor/chart.umd.min.js", handle_chart_js)
+    app.router.add_post("/api/session", handle_session)
+    app.router.add_get("/api/vendor/chart.umd.min.js", handle_chart_js)
     app.router.add_get("/api/state", handle_state)
     app.router.add_get("/api/positions", handle_positions)
     app.router.add_get("/api/signals", handle_signals)

@@ -635,7 +635,7 @@ function _showTokenForm(note) {
     btn.disabled = true;
     // The token is posted once and comes back as an HttpOnly cookie. It is
     // not written to localStorage, where any script on the page could read it.
-    fetch('/session', {
+    fetch('/api/session', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -656,7 +656,7 @@ function _showTokenForm(note) {
 // Other fragment params are PRESERVED. Nothing here uses the hash for state
 // today, and a security fix that silently ate a future view-router's state
 // would be found the hard way.
-// The session is the HttpOnly cookie set by POST /session. A token still in
+// The session is the HttpOnly cookie set by POST /api/session. A token still in
 // localStorage from before that change is traded for the cookie once and
 // deleted; it is never sent as a header and never written back.
 
@@ -1023,7 +1023,7 @@ function startPolling() {
 // nothing else and the API has no session yet.
 async function _exchange(token) {
   try {
-    var r = await fetch('/session', {
+    var r = await fetch('/api/session', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: token }),

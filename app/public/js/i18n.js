@@ -3055,6 +3055,7 @@
       fetch('/api/auth/me', {
         credentials: 'same-origin',
         headers: legacy ? { Authorization: 'Bearer ' + legacy } : {},
+        signal: AbortSignal.timeout(8000),
       }).then(function (r) {
         if (!r.ok) return;
         try { localStorage.removeItem('token'); localStorage.removeItem('rc_session'); } catch (e) { /* private mode */ }

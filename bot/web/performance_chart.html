@@ -89,7 +89,6 @@ footer { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-
 
 <footer>RUNECLAW · operator analytics · auto-refresh 30s</footer>
 
-<script src="/vendor/chart.umd.min.js"></script>
 <script>
 // Auth token — read from URL hash or prompt (same pattern as the dashboard).
 // RC-2026-013. This is where the operator's token ENTERS the page: they paste
@@ -177,7 +176,7 @@ function _showTokenForm(note) {
     btn.disabled = true;
     // The token is posted once and comes back as an HttpOnly cookie. It is
     // not written to localStorage, where any script on the page could read it.
-    fetch('/session', {
+    fetch('/api/session', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -198,7 +197,7 @@ function _showTokenForm(note) {
 // Other fragment params are PRESERVED. Nothing here uses the hash for state
 // today, and a security fix that silently ate a future view-router's state
 // would be found the hard way.
-// The session is the HttpOnly cookie set by POST /session. A token still in
+// The session is the HttpOnly cookie set by POST /api/session. A token still in
 // localStorage from before that change is traded for the cookie once and
 // deleted; it is never sent as a header and never written back.
 const API = '';
@@ -341,13 +340,27 @@ async function load() {
 
 async function _exchange(token) {
   try {
-    var r = await fetch('/session', {
+    var r = await fetch('/api/session', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: token }),
     });
     return r.ok;
   } catch (e) { return false; }
+}
+// Chart.js is under /api/, so the tag is inserted only once the session
+// cookie exists. A tag in the document head would 401 on the first paint,
+// before this exchange, and the charts would stay blank after login.
+function whenChartReady(done) {
+  if (typeof Chart !== 'undefined') { done(); return; }
+  var s = document.createElement('script');
+  s.src = '/api/vendor/chart.umd.min.js';
+  s.onload = function () { done(); };
+  s.onerror = function () { done(); };
+  document.head.appendChild(s);
+}
+function startCharts() {
+  whenChartReady(function () { load(); setInterval(load, 30000); });
 }
 async function boot() {
   var legacy = null;
@@ -357,12 +370,12 @@ async function boot() {
   if (!incoming) {
     try {
       var probe = await fetch(API + '/api/performance', { credentials: 'same-origin' });
-      if (probe.ok) { load(); setInterval(load, 30000); return; }
+      if (probe.ok) { startCharts(); return; }
     } catch (e) { /* fall through to the prompt */ }
     incoming = _askForToken();
   }
   if (incoming) {
-    if (await _exchange(incoming)) { load(); setInterval(load, 30000); return; }
+    if (await _exchange(incoming)) { startCharts(); return; }
     _showTokenForm('The bot refused that token, or has no DASHBOARD_TOKEN set. Enter the token it was started with.');
   }
 }
