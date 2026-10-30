@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "timeframe": "1d",
+  "limit": 0,
+  "created_at": "2026-10-30T11:44:39.166559+00:00",
+  "dataset_hash": "cae4abda1c392fbafb2468e7591853f15443de58f11b25f3f1c2996e52e27da0",
+  "symbols": {
+    "ADA/USDT:USDT": {
+      "file": "ADA_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "701ed4bc0ec50d83e3e1d797c832426cfc5380ebf06099d353fdcad5aadb0c9a",
+      "missing": []
+    },
+    "AVAX/USDT:USDT": {
+      "file": "AVAX_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "c986464a2062c1abbb0e691b17f4eb496c35aa57a9e6b31d1a218b9f8c406f85",
+      "missing": []
+    },
+    "BNB/USDT:USDT": {
+      "file": "BNB_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "e328b0b2a3f2a22d7f9acfde8216ae9335b75b244edf893083925d51dfa4f98b",
+      "missing": []
+    },
+    "BTC/USDT:USDT": {
+      "file": "BTC_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "bd87012573f7c7c885afd81f956951d7956da2ad2eb47b65ab05cc8d29b8b45e",
+      "missing": []
+    },
+    "DOGE/USDT:USDT": {
+      "file": "DOGE_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "dceec08768550e621baac6173a6b71fcd50af6b649ba4f44c3bfefa5ee00cac9",
+      "missing": []
+    },
+    "ETH/USDT:USDT": {
+      "file": "ETH_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "2907f6b19260b2c3d9a07502146581a0b7ce4c790176034236c2c2499e9ea356",
+      "missing": []
+    },
+    "LINK/USDT:USDT": {
+      "file": "LINK_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "61fd83f1bdcb5b0c466de13751839b654204e62dd619330e9a59284b3781c38f",
+      "missing": []
+    },
+    "LTC/USDT:USDT": {
+      "file": "LTC_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "a3534c6862cc26d491c390dce757ed3e86a8af1a201773b6ab19508fa2eebfa6",
+      "missing": []
+    },
+    "SOL/USDT:USDT": {
+      "file": "SOL_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "ff1778264518cbfc994de172f9df5b416fd31137a496015dba2a211c4e412f6f",
+      "missing": []
+    },
+    "XRP/USDT:USDT": {
+      "file": "XRP_USDT_USDT.csv.gz",
+      "bars": 999,
+      "first": "2024-02-04T00:00:00+00:00",
+      "last": "2026-10-29T00:00:00+00:00",
+      "sha256": "6217f5e7ac3d6027e8cd23dbed8b7ee7504cd93ec60daf24f756c5992cb7976a",
+      "missing": []
+    }
+  },
+  "derived_from": {
+    "dataset": "benchmark/majors_4h",
+    "dataset_hash": "e7c18511ef1770359b7960c0c63793b3314189397233d619d3686dac8abf86cc",
+    "how": "bot.utils.candles.resample_ohlcv 4h->1d; only UTC days with all six 4h bars"
+  }
+}

@@ -105,10 +105,11 @@ def render_tier_card(reading: dict, ladder: dict) -> str:
                      "member can use every command above.")
     lines.append("Never tier-gated: /halt, your own positions and risk, why a "
                  "trade was refused, and live trading limits.")
-    route = "Tiers are granted by the operator"
+    route = ("Pro and Elite can be bought with Telegram Stars"
+             if ladder.get("stars") else "Tiers are granted by the operator")
     stake_min = ladder.get("stake_min")
     if ladder.get("stake") and stake_min:
         route += (f", or earned by a stake of {int(stake_min['pro']):,} $RCLAW "
                   f"(Pro) or {int(stake_min['elite']):,} (Elite)")
-    lines.append(route + ".")
+    lines.append(route + ". Send /upgrade.")
     return "\n".join(lines)

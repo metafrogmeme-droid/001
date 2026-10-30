@@ -37,11 +37,22 @@ class BitgetV3Client:
     """Signed HTTP transport for Bitget v3 REST endpoints."""
 
     def __init__(self, api_key: str, api_secret: str, passphrase: str,
-                 base_url: str = BITGET_BASE_URL) -> None:
+                 base_url: str = BITGET_BASE_URL, demo: Optional[bool] = None) -> None:
         self._api_key = api_key or ""
         self._api_secret = api_secret or ""
         self._passphrase = passphrase or ""
         self._base_url = base_url
+        # Demo trading is the same host with ``paptrading: 1`` on every request
+        # (Bitget UTA quick-start). This client used to send none, so under
+        # BITGET_SANDBOX the ccxt half of a trade went to Demo while this half
+        # (stops, position reads, flash close) went to the live account (audit
+        # M-07). The reading is the venue's own, the one the ccxt client and the
+        # key check use; with the header set, a live key is refused by Bitget
+        # rather than trading the real account.
+        if demo is None:
+            from bot.core.exchange_credentials import venue_sandbox
+            demo = venue_sandbox("bitget")
+        self._demo = bool(demo)
 
     @classmethod
     def from_config(cls) -> "BitgetV3Client":
@@ -85,6 +96,11 @@ class BitgetV3Client:
         return cls.from_config()
 
     @property
+    def demo(self) -> bool:
+        """Whether every request carries Bitget's demo-trading header."""
+        return self._demo
+
+    @property
     def has_credentials(self) -> bool:
         return bool(self._api_key and self._api_secret)
 
@@ -99,7 +115,7 @@ class BitgetV3Client:
         ).decode()
 
     def _headers(self, timestamp: str, signature: str) -> dict[str, str]:
-        return {
+        headers = {
             "ACCESS-KEY": self._api_key,
             "ACCESS-SIGN": signature,
             "ACCESS-TIMESTAMP": timestamp,
@@ -107,6 +123,9 @@ class BitgetV3Client:
             "Content-Type": "application/json",
             "locale": "en-US",
         }
+        if self._demo:
+            headers["paptrading"] = "1"
+        return headers
 
     def build_request(self, method: str, path: str,
                       body_dict: Optional[dict] = None) -> urllib.request.Request:

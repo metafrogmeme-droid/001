@@ -396,6 +396,9 @@ def test_the_raw_grant_is_read_only_where_the_grant_is_the_subject():
         ("bot/skills/user_middleware.py", "cmd_link"),
         # The operator's stance control: an operator check, not an entitlement.
         ("bot/utils/control_pull.py", "pull_and_apply_stance"),
+        # A Stars checkout: whether a paid period changes the stored grant,
+        # the same comparison `UserStore.grant_paid_tier` makes when it lands.
+        ("bot/skills/upgrade_commands.py", "_on_pre_checkout"),
     }
     seen = set()
     for path in sorted((ROOT / "bot").rglob("*.py")):

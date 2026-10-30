@@ -1729,8 +1729,10 @@ async def handle_contract_studio(request: web.Request) -> web.Response:
         return web.json_response({
             "reply_html": (
                 f"🚀 <b>You've used your {_lim} free contract drafts for today.</b>"
-                "<br><br>Upgrade for unlimited Contract Studio drafts on the "
-                "priority model, plus the security-flag pass and testnet deploy."
+                # The drafts share the chat cap, so the offer is the chat
+                # cap's own reading of which plans it exempts, nothing more.
+                f"<br><br>{chat_quota.reset_phrase(_q.get('reset_in_seconds'), 'en')}."
+                f"{chat_quota.uncapped_offer('en')}"
                 "<br><br><a href=\"/dashboard#account/aplan\">See plans →</a>"),
             "intent": "quota_exceeded", "quota": _q}, status=200)
 

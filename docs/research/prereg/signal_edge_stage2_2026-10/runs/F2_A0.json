@@ -1,0 +1,214 @@
+{
+  "mode": "portfolio_walk_forward",
+  "recorded_at": "2026-10-30T12:29:11+00:00",
+  "code_sha": "b7846da4b43697c1e712ab075a4c05af1ed7a850",
+  "dataset": "benchmark/kraken_ethsol_1h",
+  "honest": true,
+  "folds_requested": 6,
+  "folds_run": 6,
+  "profitable_folds": 0,
+  "mean_oos_return_pct": -6.1000000000000005,
+  "worst_oos_return_pct": -9.36,
+  "pooled_trades": 507,
+  "pooled": {
+    "trades": 507,
+    "fills": 580,
+    "wins": 249,
+    "losses": 258,
+    "flat": 0,
+    "net_usd": -3659.4,
+    "gross_win_usd": 6871.23,
+    "gross_loss_usd": 10530.63,
+    "win_rate": 0.4911242603550296,
+    "pf": 0.6524994231114378,
+    "mean_net_usd": -7.217751479289941
+  },
+  "data_source": "frozen_snapshot:0295a89a4009cdc0c9b5e776220f6182016d0cdecff5570b8a0af09068069af7",
+  "universe": {
+    "requested": [
+      "ETH/USDT",
+      "SOL/USDT"
+    ],
+    "measured": [
+      "ETH/USDT",
+      "SOL/USDT"
+    ],
+    "dropped": []
+  },
+  "commission_pct": 0.06,
+  "slippage_pct": 0.05,
+  "fill_mode": "next_open",
+  "leverage": 5,
+  "folds": [
+    {
+      "fold": 0,
+      "oos_start": "2022-12-05 17:00:00+00:00",
+      "oos_end": "2023-05-30 20:00:00+00:00",
+      "trades": 56,
+      "return_pct": -8.61,
+      "win_rate": 0.3571,
+      "max_dd_pct": 8.61,
+      "profit_factor": 0.37,
+      "sharpe": -4.4,
+      "per_symbol": {
+        "ETH/USDT": {
+          "trades": 56,
+          "net_pnl": -860.53,
+          "win_rate": 0.3571
+        }
+      },
+      "ideas": 312,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 1,
+      "oos_start": "2023-05-30 21:00:00+00:00",
+      "oos_end": "2023-11-22 18:00:00+00:00",
+      "trades": 32,
+      "return_pct": -5.49,
+      "win_rate": 0.2812,
+      "max_dd_pct": 6.17,
+      "profit_factor": 0.28,
+      "sharpe": -4.4,
+      "per_symbol": {
+        "ETH/USDT": {
+          "trades": 32,
+          "net_pnl": -549.36,
+          "win_rate": 0.2812
+        }
+      },
+      "ideas": 282,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 2,
+      "oos_start": "2023-11-22 19:00:00+00:00",
+      "oos_end": "2024-05-17 04:00:00+00:00",
+      "trades": 145,
+      "return_pct": -0.29,
+      "win_rate": 0.5931,
+      "max_dd_pct": 6.04,
+      "profit_factor": 0.99,
+      "sharpe": -0.52,
+      "per_symbol": {
+        "ETH/USDT": {
+          "trades": 89,
+          "net_pnl": -284.55,
+          "win_rate": 0.573
+        },
+        "SOL/USDT": {
+          "trades": 56,
+          "net_pnl": 256.06,
+          "win_rate": 0.625
+        }
+      },
+      "ideas": 571,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 3,
+      "oos_start": "2024-05-17 05:00:00+00:00",
+      "oos_end": "2024-11-09 01:00:00+00:00",
+      "trades": 67,
+      "return_pct": -8.06,
+      "win_rate": 0.3881,
+      "max_dd_pct": 10.27,
+      "profit_factor": 0.45,
+      "sharpe": -4.54,
+      "per_symbol": {
+        "ETH/USDT": {
+          "trades": 30,
+          "net_pnl": -329.44,
+          "win_rate": 0.4
+        },
+        "SOL/USDT": {
+          "trades": 37,
+          "net_pnl": -476.51,
+          "win_rate": 0.3784
+        }
+      },
+      "ideas": 601,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 4,
+      "oos_start": "2024-11-09 02:00:00+00:00",
+      "oos_end": "2025-05-04 01:00:00+00:00",
+      "trades": 62,
+      "return_pct": -9.36,
+      "win_rate": 0.4677,
+      "max_dd_pct": 10.0,
+      "profit_factor": 0.42,
+      "sharpe": -4.11,
+      "per_symbol": {
+        "ETH/USDT": {
+          "trades": 35,
+          "net_pnl": -756.72,
+          "win_rate": 0.4286
+        },
+        "SOL/USDT": {
+          "trades": 27,
+          "net_pnl": -179.0,
+          "win_rate": 0.5185
+        }
+      },
+      "ideas": 529,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 5,
+      "oos_start": "2025-05-04 02:00:00+00:00",
+      "oos_end": "2025-10-26 23:00:00+00:00",
+      "trades": 145,
+      "return_pct": -4.79,
+      "win_rate": 0.5448,
+      "max_dd_pct": 8.71,
+      "profit_factor": 0.83,
+      "sharpe": -1.49,
+      "per_symbol": {
+        "ETH/USDT": {
+          "trades": 67,
+          "net_pnl": -174.52,
+          "win_rate": 0.5522
+        },
+        "SOL/USDT": {
+          "trades": 78,
+          "net_pnl": -304.83,
+          "win_rate": 0.5385
+        }
+      },
+      "ideas": 622,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    }
+  ]
+}

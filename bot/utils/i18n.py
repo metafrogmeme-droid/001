@@ -405,13 +405,17 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "chat_quota_exhausted_web": {
         "en": ("🚀 <b>You've used your {limit} free questions for today.</b><br><br>"
-               "Upgrade to keep chatting with the agent — unlimited questions plus "
-               "priority models, live signals, and deeper research. {reset}.<br><br>"
-               "<a href=\"/dashboard#account\">See plans →</a>"),
+               "{reset}.{offer}<br><br>"
+               "<a href=\"/dashboard#account/aplan\">See plans →</a>"),
         "zh": ("🚀 <b>你今天的 {limit} 個免費提問已用完。</b><br><br>"
-               "升級即可繼續與代理對話 — 無限提問、優先模型、即時訊號與更深入的"
-               "研究。{reset}。<br><br>"
-               "<a href=\"/dashboard#account\">查看方案 →</a>"),
+               "{reset}。{offer}<br><br>"
+               "<a href=\"/dashboard#account/aplan\">查看方案 →</a>"),
+    },
+    # Built by chat_quota.exhausted_notice from the tiers the cap really
+    # exempts, so the prompt sells only what a plan grants.
+    "chat_quota_offer": {
+        "en": " {names}: no daily cap. Send /upgrade to @HTRUNECLAW_bot to get one.",
+        "zh": " {names}：沒有每日上限。向 @HTRUNECLAW_bot 傳送 /upgrade 即可取得。",
     },
     "chat_quota_reset_hours": {
         "en": "Your free questions reset in about {hours} hours",

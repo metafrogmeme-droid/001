@@ -190,8 +190,22 @@ def exhausted_notice(q: dict, lang: str = "en", surface: str = "telegram") -> st
     from bot.utils.i18n import t
     limit = q.get("limit") or free_daily_limit()
     reset = reset_phrase(q.get("reset_in_seconds"), lang)
-    key = "chat_quota_exhausted_web" if surface == "web" else "chat_quota_exhausted"
-    return t(key, lang, limit=limit, reset=reset)
+    if surface != "web":
+        return t("chat_quota_exhausted", lang, limit=limit, reset=reset)
+    return t("chat_quota_exhausted_web", lang, limit=limit, reset=reset,
+             offer=uncapped_offer(lang))
+
+
+def uncapped_offer(lang: str = "en") -> str:
+    """The upgrade line under a quota wall: the sold tiers this cap exempts,
+    read from ``is_quota_exempt``, or nothing when it exempts none of them.
+    It names no benefit the cap does not decide."""
+    from bot.utils.i18n import t
+    names = [n for tier, n in (("pro", "Pro"), ("elite", "Elite")) if is_quota_exempt(tier)]
+    if not names:
+        return ""
+    # A slash, not a word: the names are product names in every language.
+    return t("chat_quota_offer", lang, names=" / ".join(names))
 
 
 def unmetered() -> dict:
