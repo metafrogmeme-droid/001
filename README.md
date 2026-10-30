@@ -686,6 +686,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/montecarlo` | Monte Carlo risk simulation (operator book) |
 | `/calibration` | learning overlays and calibration — refit mutates them |
 | `/patterns` | the learning store's closes by regime, with win rates and intervals |
+| `/sleeve` | xsmom + BTC regime paper sleeve — regime, weights, index vs BTC in percent, drawdowns, skipped rebalances; places nothing |
 
 ### 🛡 Guardian (operator) — *operator only*
 

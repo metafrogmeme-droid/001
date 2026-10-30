@@ -1,0 +1,1425 @@
+{
+ "verdicts": {
+  "H1": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": -0.0072387027951965255,
+   "hold_mean": -0.007980694010683258,
+   "hold_lower": -0.010477141821327883,
+   "passed": false
+  },
+  "H2": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": -0.0007612972048034758,
+   "hold_mean": -1.9305989316741985e-05,
+   "hold_lower": -0.0022057544815925626,
+   "passed": false
+  },
+  "H3": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": -0.0018149380640625505,
+   "hold_mean": -0.001977035528894903,
+   "hold_lower": -0.003071500289940359,
+   "passed": false
+  }
+ },
+ "all_rules": {
+  "H1": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": -0.0072387027951965255,
+   "hold_mean": -0.007980694010683258,
+   "hold_lower": -0.010477141821327883,
+   "passed": false
+  },
+  "H2": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": -0.0007612972048034758,
+   "hold_mean": -1.9305989316741985e-05,
+   "hold_lower": -0.0022057544815925626,
+   "passed": false
+  },
+  "H3": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": -0.0018149380640625505,
+   "hold_mean": -0.001977035528894903,
+   "hold_lower": -0.003071500289940359,
+   "passed": false
+  },
+  "H1_unhedged": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": -0.005955984818462508,
+   "hold_mean": -0.006098767694732994,
+   "hold_lower": -0.008590624700357232,
+   "passed": false
+  },
+  "H2_unhedged": {
+   "n_disc": 18,
+   "n_hold": 17,
+   "disc_mean": 0.0019559848184625057,
+   "hold_mean": 0.0020987676947329913,
+   "hold_lower": -9.433442726358058e-05,
+   "passed": false
+  }
+ },
+ "sensitivity": {
+  "0.0005": {
+   "H1": {
+    "n_disc": 18,
+    "n_hold": 17,
+    "disc_mean": -0.005238702795196526,
+    "hold_mean": -0.00598069401068326,
+    "hold_lower": -0.008477141821327883,
+    "passed": false
+   },
+   "H2": {
+    "n_disc": 18,
+    "n_hold": 17,
+    "disc_mean": 0.001238702795196524,
+    "hold_mean": 0.0019806940106832575,
+    "hold_lower": -0.00020575448159256305,
+    "passed": false
+   },
+   "H3": {
+    "n_disc": 18,
+    "n_hold": 17,
+    "disc_mean": -0.0008149380640625508,
+    "hold_mean": -0.000977035528894903,
+    "hold_lower": -0.002071500289940359,
+    "passed": false
+   }
+  },
+  "0.002": {
+   "H1": {
+    "n_disc": 18,
+    "n_hold": 17,
+    "disc_mean": -0.011238702795196525,
+    "hold_mean": -0.01198069401068326,
+    "hold_lower": -0.014477141821327883,
+    "passed": false
+   },
+   "H2": {
+    "n_disc": 18,
+    "n_hold": 17,
+    "disc_mean": -0.004761297204803476,
+    "hold_mean": -0.004019305989316742,
+    "hold_lower": -0.0062057544815925635,
+    "passed": false
+   },
+   "H3": {
+    "n_disc": 18,
+    "n_hold": 17,
+    "disc_mean": -0.0038149380640625508,
+    "hold_mean": -0.003977035528894903,
+    "hold_lower": -0.005071500289940359,
+    "passed": false
+   }
+  }
+ },
+ "left_out": {
+  "missing_bar": 30,
+  "flat_signal": 0
+ },
+ "corr_signal_outcome": {
+  "discovery": -0.3126724492079757,
+  "holdout": -0.24820273498468343
+ },
+ "weekend_volume": {
+  "SPYUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "INTCUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "MSTRUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "GOOGLUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "MUUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "AMZNUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "CRCLUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 1
+  },
+  "QQQUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "NVDAUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "TSLAUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "MRVLUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 1
+  },
+  "MSFTUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "COINUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "AVGOUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 1
+  },
+  "AAPLUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "METAUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "ORCLUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "ARMUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "HOODUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "PLTRUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 0
+  },
+  "LLYUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 1
+  },
+  "RDDTUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 1
+  },
+  "BABAUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 1
+  },
+  "ASMLUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 3
+  },
+  "MCDUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 2
+  },
+  "UNHUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 5
+  },
+  "GEUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 17
+  },
+  "APPUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 2
+  },
+  "GMEUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 8
+  },
+  "JDUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 16
+  },
+  "FUTUUSDT": {
+   "weekend_bars": 1714,
+   "zero_volume": 12
+  }
+ },
+ "rows": {
+  "H1": [
+   {
+    "friday": "2026-02-20",
+    "window": "discovery",
+    "pnl": -0.002361038007972324,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-02-27",
+    "window": "discovery",
+    "pnl": -0.0018342867143978083,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-03-06",
+    "window": "discovery",
+    "pnl": -0.011282028162970607,
+    "n": 30,
+    "hits": 4
+   },
+   {
+    "friday": "2026-03-13",
+    "window": "discovery",
+    "pnl": -0.006320326684121521,
+    "n": 30,
+    "hits": 7
+   },
+   {
+    "friday": "2026-03-20",
+    "window": "discovery",
+    "pnl": -0.009175272280002726,
+    "n": 30,
+    "hits": 4
+   },
+   {
+    "friday": "2026-03-27",
+    "window": "discovery",
+    "pnl": -0.013078399904358414,
+    "n": 30,
+    "hits": 0
+   },
+   {
+    "friday": "2026-04-10",
+    "window": "discovery",
+    "pnl": -0.010400246040453974,
+    "n": 30,
+    "hits": 1
+   },
+   {
+    "friday": "2026-04-17",
+    "window": "discovery",
+    "pnl": -0.012239924064603168,
+    "n": 30,
+    "hits": 0
+   },
+   {
+    "friday": "2026-04-24",
+    "window": "discovery",
+    "pnl": -0.0062914142500227616,
+    "n": 30,
+    "hits": 7
+   },
+   {
+    "friday": "2026-05-01",
+    "window": "discovery",
+    "pnl": -0.005912130948208384,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-05-08",
+    "window": "discovery",
+    "pnl": -0.0015924026103100364,
+    "n": 30,
+    "hits": 13
+   },
+   {
+    "friday": "2026-05-15",
+    "window": "discovery",
+    "pnl": -0.012852393074757615,
+    "n": 30,
+    "hits": 3
+   },
+   {
+    "friday": "2026-05-22",
+    "window": "discovery",
+    "pnl": -0.00038928170785404654,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-05-29",
+    "window": "discovery",
+    "pnl": -0.011811106808338025,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-06-05",
+    "window": "discovery",
+    "pnl": -0.002917643635712983,
+    "n": 30,
+    "hits": 14
+   },
+   {
+    "friday": "2026-06-12",
+    "window": "discovery",
+    "pnl": -0.0062826074360708166,
+    "n": 30,
+    "hits": 9
+   },
+   {
+    "friday": "2026-06-19",
+    "window": "discovery",
+    "pnl": -0.004494455990030858,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-06-26",
+    "window": "discovery",
+    "pnl": -0.011061691993351393,
+    "n": 30,
+    "hits": 3
+   },
+   {
+    "friday": "2026-07-03",
+    "window": "holdout",
+    "pnl": -0.014210547280617292,
+    "n": 30,
+    "hits": 2
+   },
+   {
+    "friday": "2026-07-10",
+    "window": "holdout",
+    "pnl": -0.00898485412044379,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-07-17",
+    "window": "holdout",
+    "pnl": -0.006753159848980117,
+    "n": 30,
+    "hits": 7
+   },
+   {
+    "friday": "2026-07-24",
+    "window": "holdout",
+    "pnl": -0.008463415642378255,
+    "n": 30,
+    "hits": 3
+   },
+   {
+    "friday": "2026-07-31",
+    "window": "holdout",
+    "pnl": -0.018476956142693415,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-08-07",
+    "window": "holdout",
+    "pnl": -0.009893639298495809,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-08-14",
+    "window": "holdout",
+    "pnl": -0.006737239557834682,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-08-21",
+    "window": "holdout",
+    "pnl": -0.01167503470294078,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-08-28",
+    "window": "holdout",
+    "pnl": -0.005049035208433064,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-09-04",
+    "window": "holdout",
+    "pnl": -0.005686830175499706,
+    "n": 30,
+    "hits": 4
+   },
+   {
+    "friday": "2026-09-11",
+    "window": "holdout",
+    "pnl": -0.004167180206111571,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-09-18",
+    "window": "holdout",
+    "pnl": -0.0053304871624334765,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-09-25",
+    "window": "holdout",
+    "pnl": -0.009237335961075214,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-10-02",
+    "window": "holdout",
+    "pnl": -0.004517786235482018,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-10-09",
+    "window": "holdout",
+    "pnl": -0.011170701150387232,
+    "n": 30,
+    "hits": 4
+   },
+   {
+    "friday": "2026-10-16",
+    "window": "holdout",
+    "pnl": -0.0026971094725912474,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-10-23",
+    "window": "holdout",
+    "pnl": -0.0026204860152177476,
+    "n": 30,
+    "hits": 11
+   }
+  ],
+  "H2": [
+   {
+    "friday": "2026-02-20",
+    "window": "discovery",
+    "pnl": -0.005638961992027678,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-02-27",
+    "window": "discovery",
+    "pnl": -0.006165713285602193,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-03-06",
+    "window": "discovery",
+    "pnl": 0.003282028162970606,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-03-13",
+    "window": "discovery",
+    "pnl": -0.0016796733158784799,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-03-20",
+    "window": "discovery",
+    "pnl": 0.001175272280002725,
+    "n": 30,
+    "hits": 14
+   },
+   {
+    "friday": "2026-03-27",
+    "window": "discovery",
+    "pnl": 0.005078399904358414,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-04-10",
+    "window": "discovery",
+    "pnl": 0.002400246040453971,
+    "n": 30,
+    "hits": 16
+   },
+   {
+    "friday": "2026-04-17",
+    "window": "discovery",
+    "pnl": 0.004239924064603165,
+    "n": 30,
+    "hits": 14
+   },
+   {
+    "friday": "2026-04-24",
+    "window": "discovery",
+    "pnl": -0.00170858574997724,
+    "n": 30,
+    "hits": 13
+   },
+   {
+    "friday": "2026-05-01",
+    "window": "discovery",
+    "pnl": -0.002087869051791617,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-05-08",
+    "window": "discovery",
+    "pnl": -0.0064075973896899644,
+    "n": 30,
+    "hits": 10
+   },
+   {
+    "friday": "2026-05-15",
+    "window": "discovery",
+    "pnl": 0.004852393074757612,
+    "n": 30,
+    "hits": 14
+   },
+   {
+    "friday": "2026-05-22",
+    "window": "discovery",
+    "pnl": -0.007610718292145953,
+    "n": 30,
+    "hits": 2
+   },
+   {
+    "friday": "2026-05-29",
+    "window": "discovery",
+    "pnl": 0.003811106808338022,
+    "n": 30,
+    "hits": 16
+   },
+   {
+    "friday": "2026-06-05",
+    "window": "discovery",
+    "pnl": -0.005082356364287018,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-06-12",
+    "window": "discovery",
+    "pnl": -0.001717392563929185,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-06-19",
+    "window": "discovery",
+    "pnl": -0.0035055440099691425,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-06-26",
+    "window": "discovery",
+    "pnl": 0.003061691993351392,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-07-03",
+    "window": "holdout",
+    "pnl": 0.006210547280617287,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-07-10",
+    "window": "holdout",
+    "pnl": 0.0009848541204437891,
+    "n": 30,
+    "hits": 14
+   },
+   {
+    "friday": "2026-07-17",
+    "window": "holdout",
+    "pnl": -0.0012468401510198832,
+    "n": 30,
+    "hits": 13
+   },
+   {
+    "friday": "2026-07-24",
+    "window": "holdout",
+    "pnl": 0.00046341564237825444,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-07-31",
+    "window": "holdout",
+    "pnl": 0.010476956142693412,
+    "n": 30,
+    "hits": 20
+   },
+   {
+    "friday": "2026-08-07",
+    "window": "holdout",
+    "pnl": 0.0018936392984958065,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-08-14",
+    "window": "holdout",
+    "pnl": -0.0012627604421653195,
+    "n": 30,
+    "hits": 13
+   },
+   {
+    "friday": "2026-08-21",
+    "window": "holdout",
+    "pnl": 0.0036750347029407765,
+    "n": 30,
+    "hits": 18
+   },
+   {
+    "friday": "2026-08-28",
+    "window": "holdout",
+    "pnl": -0.0029509647915669374,
+    "n": 30,
+    "hits": 11
+   },
+   {
+    "friday": "2026-09-04",
+    "window": "holdout",
+    "pnl": -0.0023131698245002943,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-09-11",
+    "window": "holdout",
+    "pnl": -0.00383281979388843,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-09-18",
+    "window": "holdout",
+    "pnl": -0.0026695128375665263,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-09-25",
+    "window": "holdout",
+    "pnl": 0.0012373359610752131,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-10-02",
+    "window": "holdout",
+    "pnl": -0.0034822137645179837,
+    "n": 30,
+    "hits": 7
+   },
+   {
+    "friday": "2026-10-09",
+    "window": "holdout",
+    "pnl": 0.003170701150387231,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-10-16",
+    "window": "holdout",
+    "pnl": -0.005302890527408755,
+    "n": 30,
+    "hits": 9
+   },
+   {
+    "friday": "2026-10-23",
+    "window": "holdout",
+    "pnl": -0.005379513984782254,
+    "n": 30,
+    "hits": 6
+   }
+  ],
+  "H3": [
+   {
+    "friday": "2026-02-20",
+    "window": "discovery",
+    "pnl": -0.0008361096966610342
+   },
+   {
+    "friday": "2026-02-27",
+    "window": "discovery",
+    "pnl": 0.004604188021672286
+   },
+   {
+    "friday": "2026-03-06",
+    "window": "discovery",
+    "pnl": -0.0036564269365135776
+   },
+   {
+    "friday": "2026-03-13",
+    "window": "discovery",
+    "pnl": 0.0033514521075099796
+   },
+   {
+    "friday": "2026-03-20",
+    "window": "discovery",
+    "pnl": 0.017300733797866563
+   },
+   {
+    "friday": "2026-03-27",
+    "window": "discovery",
+    "pnl": -0.014662435302869701
+   },
+   {
+    "friday": "2026-04-10",
+    "window": "discovery",
+    "pnl": -0.003363730692834464
+   },
+   {
+    "friday": "2026-04-17",
+    "window": "discovery",
+    "pnl": -0.003955976358198885
+   },
+   {
+    "friday": "2026-04-24",
+    "window": "discovery",
+    "pnl": -0.0028843470570896184
+   },
+   {
+    "friday": "2026-05-01",
+    "window": "discovery",
+    "pnl": -0.0007651580320227041
+   },
+   {
+    "friday": "2026-05-08",
+    "window": "discovery",
+    "pnl": -0.002149326672458816
+   },
+   {
+    "friday": "2026-05-15",
+    "window": "discovery",
+    "pnl": -0.007496220500223803
+   },
+   {
+    "friday": "2026-05-22",
+    "window": "discovery",
+    "pnl": 0.0022074050328579915
+   },
+   {
+    "friday": "2026-05-29",
+    "window": "discovery",
+    "pnl": -0.0013795707157377973
+   },
+   {
+    "friday": "2026-06-05",
+    "window": "discovery",
+    "pnl": -0.01176066682052057
+   },
+   {
+    "friday": "2026-06-12",
+    "window": "discovery",
+    "pnl": 0.0017981624383134349
+   },
+   {
+    "friday": "2026-06-19",
+    "window": "discovery",
+    "pnl": -0.009095349651291105
+   },
+   {
+    "friday": "2026-06-26",
+    "window": "discovery",
+    "pnl": 7.449188507591305e-05
+   },
+   {
+    "friday": "2026-07-03",
+    "window": "holdout",
+    "pnl": -0.0029866666666666913
+   },
+   {
+    "friday": "2026-07-10",
+    "window": "holdout",
+    "pnl": -0.0021327457123134757
+   },
+   {
+    "friday": "2026-07-17",
+    "window": "holdout",
+    "pnl": 0.0012080536912750812
+   },
+   {
+    "friday": "2026-07-24",
+    "window": "holdout",
+    "pnl": -0.002
+   },
+   {
+    "friday": "2026-07-31",
+    "window": "holdout",
+    "pnl": 0.0005588399925366989
+   },
+   {
+    "friday": "2026-08-07",
+    "window": "holdout",
+    "pnl": -0.004514647171669937
+   },
+   {
+    "friday": "2026-08-14",
+    "window": "holdout",
+    "pnl": -0.0028614814910059554
+   },
+   {
+    "friday": "2026-08-21",
+    "window": "holdout",
+    "pnl": -0.005349188766534228
+   },
+   {
+    "friday": "2026-08-28",
+    "window": "holdout",
+    "pnl": -0.0019869635500860943
+   },
+   {
+    "friday": "2026-09-04",
+    "window": "holdout",
+    "pnl": -0.0012337463310735357
+   },
+   {
+    "friday": "2026-09-11",
+    "window": "holdout",
+    "pnl": -0.0003967409159603124
+   },
+   {
+    "friday": "2026-09-18",
+    "window": "holdout",
+    "pnl": 0.0006266269405677
+   },
+   {
+    "friday": "2026-09-25",
+    "window": "holdout",
+    "pnl": -0.0014677191114804682
+   },
+   {
+    "friday": "2026-10-02",
+    "window": "holdout",
+    "pnl": -0.004748321190593539
+   },
+   {
+    "friday": "2026-10-09",
+    "window": "holdout",
+    "pnl": -0.004098259979529171
+   },
+   {
+    "friday": "2026-10-16",
+    "window": "holdout",
+    "pnl": -0.002260257394563257
+   },
+   {
+    "friday": "2026-10-23",
+    "window": "holdout",
+    "pnl": 3.36136658838377e-05
+   }
+  ],
+  "H1_unhedged": [
+   {
+    "friday": "2026-02-20",
+    "window": "discovery",
+    "pnl": -0.0002834453210830595,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-02-27",
+    "window": "discovery",
+    "pnl": 0.00060599248704701,
+    "n": 30,
+    "hits": 18
+   },
+   {
+    "friday": "2026-03-06",
+    "window": "discovery",
+    "pnl": -0.009723742012707563,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-03-13",
+    "window": "discovery",
+    "pnl": -0.007531197948627511,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-03-20",
+    "window": "discovery",
+    "pnl": -0.01103541903957604,
+    "n": 30,
+    "hits": 11
+   },
+   {
+    "friday": "2026-03-27",
+    "window": "discovery",
+    "pnl": -0.01783169873255559,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-04-10",
+    "window": "discovery",
+    "pnl": -0.00885482293806546,
+    "n": 30,
+    "hits": 1
+   },
+   {
+    "friday": "2026-04-17",
+    "window": "discovery",
+    "pnl": -0.011152713031762648,
+    "n": 30,
+    "hits": 2
+   },
+   {
+    "friday": "2026-04-24",
+    "window": "discovery",
+    "pnl": -0.004055588368132196,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-05-01",
+    "window": "discovery",
+    "pnl": -0.0050646501183205265,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-05-08",
+    "window": "discovery",
+    "pnl": 0.0004275076126844712,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-05-15",
+    "window": "discovery",
+    "pnl": -0.013417295974862057,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-05-22",
+    "window": "discovery",
+    "pnl": 0.0035741739741463486,
+    "n": 30,
+    "hits": 19
+   },
+   {
+    "friday": "2026-05-29",
+    "window": "discovery",
+    "pnl": -0.009397487285496556,
+    "n": 30,
+    "hits": 10
+   },
+   {
+    "friday": "2026-06-05",
+    "window": "discovery",
+    "pnl": -0.00026693251434494554,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-06-12",
+    "window": "discovery",
+    "pnl": -0.002510131631524547,
+    "n": 30,
+    "hits": 14
+   },
+   {
+    "friday": "2026-06-19",
+    "window": "discovery",
+    "pnl": -0.0010753860597726385,
+    "n": 30,
+    "hits": 13
+   },
+   {
+    "friday": "2026-06-26",
+    "window": "discovery",
+    "pnl": -0.009614889829371639,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-07-03",
+    "window": "holdout",
+    "pnl": -0.012013213947283951,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-07-10",
+    "window": "holdout",
+    "pnl": -0.006976004406289559,
+    "n": 30,
+    "hits": 7
+   },
+   {
+    "friday": "2026-07-17",
+    "window": "holdout",
+    "pnl": -0.0038976788646400964,
+    "n": 30,
+    "hits": 10
+   },
+   {
+    "friday": "2026-07-24",
+    "window": "holdout",
+    "pnl": -0.006463415642378254,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-07-31",
+    "window": "holdout",
+    "pnl": -0.015624009478514516,
+    "n": 30,
+    "hits": 8
+   },
+   {
+    "friday": "2026-08-07",
+    "window": "holdout",
+    "pnl": -0.005714278416381863,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-08-14",
+    "window": "holdout",
+    "pnl": -0.005196696353037859,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-08-21",
+    "window": "holdout",
+    "pnl": -0.01235438571616816,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-08-28",
+    "window": "holdout",
+    "pnl": -0.0030499043050939904,
+    "n": 30,
+    "hits": 7
+   },
+   {
+    "friday": "2026-09-04",
+    "window": "holdout",
+    "pnl": -0.0042487495327124475,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-09-11",
+    "window": "holdout",
+    "pnl": -0.0015258765724956976,
+    "n": 30,
+    "hits": 16
+   },
+   {
+    "friday": "2026-09-18",
+    "window": "holdout",
+    "pnl": -0.003680704087842503,
+    "n": 30,
+    "hits": 10
+   },
+   {
+    "friday": "2026-09-25",
+    "window": "holdout",
+    "pnl": -0.00766316067189084,
+    "n": 30,
+    "hits": 7
+   },
+   {
+    "friday": "2026-10-02",
+    "window": "holdout",
+    "pnl": -0.00416677894983814,
+    "n": 30,
+    "hits": 6
+   },
+   {
+    "friday": "2026-10-09",
+    "window": "holdout",
+    "pnl": -0.009870121143563624,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-10-16",
+    "window": "holdout",
+    "pnl": -0.0007491609515038985,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-10-23",
+    "window": "holdout",
+    "pnl": -0.00048491177082549076,
+    "n": 30,
+    "hits": 16
+   }
+  ],
+  "H2_unhedged": [
+   {
+    "friday": "2026-02-20",
+    "window": "discovery",
+    "pnl": -0.0037165546789169417,
+    "n": 30,
+    "hits": 10
+   },
+   {
+    "friday": "2026-02-27",
+    "window": "discovery",
+    "pnl": -0.0046059924870470136,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-03-06",
+    "window": "discovery",
+    "pnl": 0.00572374201270756,
+    "n": 30,
+    "hits": 18
+   },
+   {
+    "friday": "2026-03-13",
+    "window": "discovery",
+    "pnl": 0.003531197948627508,
+    "n": 30,
+    "hits": 23
+   },
+   {
+    "friday": "2026-03-20",
+    "window": "discovery",
+    "pnl": 0.007035419039576037,
+    "n": 30,
+    "hits": 18
+   },
+   {
+    "friday": "2026-03-27",
+    "window": "discovery",
+    "pnl": 0.013831698732555586,
+    "n": 30,
+    "hits": 23
+   },
+   {
+    "friday": "2026-04-10",
+    "window": "discovery",
+    "pnl": 0.004854822938065459,
+    "n": 30,
+    "hits": 24
+   },
+   {
+    "friday": "2026-04-17",
+    "window": "discovery",
+    "pnl": 0.007152713031762644,
+    "n": 30,
+    "hits": 22
+   },
+   {
+    "friday": "2026-04-24",
+    "window": "discovery",
+    "pnl": 5.558836813219538e-05,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-05-01",
+    "window": "discovery",
+    "pnl": 0.001064650118320525,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-05-08",
+    "window": "discovery",
+    "pnl": -0.004427507612684474,
+    "n": 30,
+    "hits": 10
+   },
+   {
+    "friday": "2026-05-15",
+    "window": "discovery",
+    "pnl": 0.009417295974862053,
+    "n": 30,
+    "hits": 23
+   },
+   {
+    "friday": "2026-05-22",
+    "window": "discovery",
+    "pnl": -0.00757417397414635,
+    "n": 30,
+    "hits": 5
+   },
+   {
+    "friday": "2026-05-29",
+    "window": "discovery",
+    "pnl": 0.005397487285496553,
+    "n": 30,
+    "hits": 19
+   },
+   {
+    "friday": "2026-06-05",
+    "window": "discovery",
+    "pnl": -0.003733067485655058,
+    "n": 30,
+    "hits": 14
+   },
+   {
+    "friday": "2026-06-12",
+    "window": "discovery",
+    "pnl": -0.0014898683684754545,
+    "n": 30,
+    "hits": 13
+   },
+   {
+    "friday": "2026-06-19",
+    "window": "discovery",
+    "pnl": -0.002924613940227364,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-06-26",
+    "window": "discovery",
+    "pnl": 0.005614889829371635,
+    "n": 30,
+    "hits": 19
+   },
+   {
+    "friday": "2026-07-03",
+    "window": "holdout",
+    "pnl": 0.008013213947283947,
+    "n": 30,
+    "hits": 13
+   },
+   {
+    "friday": "2026-07-10",
+    "window": "holdout",
+    "pnl": 0.0029760044062895567,
+    "n": 30,
+    "hits": 16
+   },
+   {
+    "friday": "2026-07-17",
+    "window": "holdout",
+    "pnl": -0.00010232113535990576,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-07-24",
+    "window": "holdout",
+    "pnl": 0.002463415642378254,
+    "n": 30,
+    "hits": 17
+   },
+   {
+    "friday": "2026-07-31",
+    "window": "holdout",
+    "pnl": 0.011624009478514512,
+    "n": 30,
+    "hits": 19
+   },
+   {
+    "friday": "2026-08-07",
+    "window": "holdout",
+    "pnl": 0.0017142784163818605,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-08-14",
+    "window": "holdout",
+    "pnl": 0.0011966963530378573,
+    "n": 30,
+    "hits": 16
+   },
+   {
+    "friday": "2026-08-21",
+    "window": "holdout",
+    "pnl": 0.00835438571616816,
+    "n": 30,
+    "hits": 21
+   },
+   {
+    "friday": "2026-08-28",
+    "window": "holdout",
+    "pnl": -0.0009500956949060099,
+    "n": 30,
+    "hits": 15
+   },
+   {
+    "friday": "2026-09-04",
+    "window": "holdout",
+    "pnl": 0.0002487495327124464,
+    "n": 30,
+    "hits": 9
+   },
+   {
+    "friday": "2026-09-11",
+    "window": "holdout",
+    "pnl": -0.0024741234275043053,
+    "n": 30,
+    "hits": 12
+   },
+   {
+    "friday": "2026-09-18",
+    "window": "holdout",
+    "pnl": -0.00031929591215749904,
+    "n": 30,
+    "hits": 16
+   },
+   {
+    "friday": "2026-09-25",
+    "window": "holdout",
+    "pnl": 0.0036631606718908385,
+    "n": 30,
+    "hits": 18
+   },
+   {
+    "friday": "2026-10-02",
+    "window": "holdout",
+    "pnl": 0.00016677894983814032,
+    "n": 30,
+    "hits": 21
+   },
+   {
+    "friday": "2026-10-09",
+    "window": "holdout",
+    "pnl": 0.005870121143563621,
+    "n": 30,
+    "hits": 23
+   },
+   {
+    "friday": "2026-10-16",
+    "window": "holdout",
+    "pnl": -0.003250839048496103,
+    "n": 30,
+    "hits": 9
+   },
+   {
+    "friday": "2026-10-23",
+    "window": "holdout",
+    "pnl": -0.0035150882291745105,
+    "n": 30,
+    "hits": 8
+   }
+  ]
+ }
+}
