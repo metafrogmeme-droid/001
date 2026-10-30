@@ -314,13 +314,20 @@ def consider_session(events: object, baseline: object = None, env: Optional[dict
     return score_payload(body)
 
 
-def main() -> None:
-    raw = sys.stdin.read()
+def _stdin_payload(raw: str) -> object:
+    """One JSON object from stdin. A failed parse is a marked body, not ``{}``."""
+    if not raw.strip():
+        return {}
     try:
-        payload = json.loads(raw) if raw.strip() else {}
+        parsed = json.loads(raw)
     except json.JSONDecodeError:
-        payload = None
-    json.dump(score_payload(payload), sys.stdout)
+        return {"events": None, "error_class": "Payload"}
+    return parsed
+
+
+def main() -> None:
+    """stdin JSON to one JSON object. The route gates the flag before it spawns this."""
+    json.dump(score_payload(_stdin_payload(sys.stdin.read())), sys.stdout)
     sys.stdout.write("\n")
 
 

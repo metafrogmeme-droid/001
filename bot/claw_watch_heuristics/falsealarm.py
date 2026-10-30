@@ -20,11 +20,11 @@ from typing import Optional
 from bot.claw_watch_heuristics.flag import flag_on
 from bot.claw_watch_heuristics.hl_events import (
     baseline_from_events,
-    fetch,
     info,
+    read_account,
     to_events,
 )
-from bot.claw_watch_heuristics.session import analyze
+from bot.claw_watch_heuristics.session import analyze, consider_session
 
 DAY = 86400
 
@@ -132,7 +132,7 @@ def run(coins: list[str], days: int, max_users: int, out_path: Optional[str] = N
     }
     for account in users:
         try:
-            raw = fetch(account, start, clock, fetch_fn=call, env=env)
+            raw = read_account(account, start, clock, fetch_fn=call, env=env)
             if sleep_s:
                 time.sleep(sleep_s)
             if raw.get("status") != "read":
@@ -154,7 +154,14 @@ def run(coins: list[str], days: int, max_users: int, out_path: Optional[str] = N
             }
             base = baseline_from_events(to_events(hist, known_agents=known))
             events = to_events(last, known_agents=known)
-            alerts = analyze(events, base)
+            scored = consider_session(events, base, env)
+            alerts = scored.get("alerts")
+            if alerts is None:
+                result["accounts"].append({
+                    "user": account,
+                    "error": scored.get("error_class") or "unreadable",
+                })
+                continue
             hot = [alert["code"] for alert in alerts if alert["level"] in ("attention", "urgent")]
             result["codes"].update(hot)
             if hot:

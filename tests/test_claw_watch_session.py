@@ -307,13 +307,13 @@ def test_fetch_while_the_flag_is_off_does_not_call(monkeypatch):
         called["n"] += 1
         return []
 
-    out = H.fetch(U, 0, 1, fetch_fn=reader, env={})
+    out = H.read_account(U, 0, 1, fetch_fn=reader, env={})
     assert called["n"] == 0
     assert out["status"] == "off"
     assert out["agents"] is None
     assert out["fills"] is None
     assert out["ledger"] is None
-    bare = H.fetch(U, 0, 1, env={})
+    bare = H.read_account(U, 0, 1, env={})
     assert bare["status"] == "off"
 
 

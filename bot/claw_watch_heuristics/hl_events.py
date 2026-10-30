@@ -2,7 +2,7 @@
 
 The only host is the testnet info URL. A different host is refused
 before any socket opens. This module does not sign and does not read
-a key. ``fetch`` does nothing while ``CLAW_WATCH_HEURISTICS_ENABLED``
+a key. ``read_account`` does nothing while ``CLAW_WATCH_HEURISTICS_ENABLED``
 is off: the lists are None, not empty.
 """
 
@@ -29,9 +29,13 @@ Fetch = Callable[[dict], object]
 class RefusedHost(Exception):
     """The URL is not the testnet info host. Nothing was requested."""
 
+    pass
+
 
 class PayloadTooLarge(Exception):
     """The response was larger than the cap. The body is not kept."""
+
+    pass
 
 
 def info(payload: dict, url: str = TESTNET_INFO, timeout: float = 20.0) -> object:
@@ -91,8 +95,8 @@ def _ledger_amount(delta: dict) -> Optional[float]:
     return None
 
 
-def fetch(user: str, start_ms: int, end_ms: int, fetch_fn: Optional[Fetch] = None,
-          env: Optional[dict] = None) -> dict:
+def read_account(user: str, start_ms: int, end_ms: int, fetch_fn: Optional[Fetch] = None,
+                 env: Optional[dict] = None) -> dict:
     """Agents, fills, and ledger rows. While the flag is off, no call is made."""
     account = user.lower()
     if not flag_on(env):
