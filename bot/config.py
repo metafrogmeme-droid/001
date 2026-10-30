@@ -2850,8 +2850,9 @@ class AppConfig:
     # nothing is fetched or written. On, it reads public daily candles once a
     # UTC day and records a simulated book; it never places an order.
     sleeve_paper_enabled: bool = _env_bool("SLEEVE_PAPER_ENABLED", False)
-    # Post the sleeve's book-changing rebalances to the marketing groups as a
-    # paper call (bot/sleeve/paper.py::channel_call_text). Default OFF.
+    # Queue the sleeve's book-changing rebalances for an admin to approve
+    # before anything reaches a marketing group (/sleeve approve). Default
+    # OFF: nothing is queued and nothing is posted. Requires the paper switch.
     sleeve_channel_calls_enabled: bool = _env_bool("SLEEVE_CHANNEL_CALLS_ENABLED", False)
 
     # -- Scan settings --

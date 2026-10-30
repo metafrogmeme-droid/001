@@ -509,6 +509,20 @@ def _esc(text: Any) -> str:
     return html.escape(str(text), quote=False)
 
 
+def _said(text: Any) -> Optional[str]:
+    """Escaped words, or None when the field is missing.
+
+    A missing reason is not the word "None": ``str(None)`` is that word, and
+    the channel post used to print it as if it were the reason.
+    """
+    if not isinstance(text, str):
+        return None
+    stripped = text.strip()
+    if not stripped:
+        return None
+    return html.escape(stripped, quote=False)
+
+
 def card_text(record: StoreRead, *, flag_on: bool, today: Optional[date] = None) -> str:
     """The ``/sleeve`` card. Percent and ratios only; no amount of money."""
     head = ("\U0001f4d2 <b>Paper sleeve: xsmom + BTC regime gate</b>\n"
@@ -600,11 +614,11 @@ def card_text(record: StoreRead, *, flag_on: bool, today: Optional[date] = None)
 def channel_call_text(state: Mapping[str, Any]) -> Optional[str]:
     """The channel's post for a rebalance that changed the book, or None.
 
-    Asked once, right after a run recorded the newest closed day: it speaks
-    only for a rebalance made AT that close (``last_day``) that traded
-    something (turnover above zero), so a schedule day that kept the same book
-    posts nothing. Percent only, for a public room, and it says what it is: a
-    paper record that placed nothing.
+    The engine queues this text; it is not posted until an admin approves
+    that one item. It speaks only for a rebalance made AT the newest close
+    (``last_day``) that traded something (turnover above zero), so a schedule
+    day that kept the same book posts nothing. Percent only, for a public
+    room, and it says what it is: a paper record that placed nothing.
     """
     rebs = [r for r in state.get("rebalances") or [] if isinstance(r, dict)]
     if not rebs or rebs[-1].get("day") != state.get("last_day"):
@@ -622,9 +636,15 @@ def channel_call_text(state: Mapping[str, Any]) -> Optional[str]:
         book = ", ".join(parts) + (f", cash {_pct(cash, signed=False)}" if cash > 0.0005 else "")
     else:
         book = "all cash"
+    when = f"At the {_esc(lr.get('day'))} close"
+    why = _said(lr.get("why"))
+    if why:
+        when += f" ({why})"
     lines = ["\U0001f4d2 <b>RUNECLAW SLEEVE \u2014 paper call</b>",
-             f"At the {_esc(lr.get('day'))} close ({_esc(lr.get('why'))}): {book}.",
-             f"Why: {_esc(lr.get('reason'))}."]
+             f"{when}: {book}."]
+    reason = _said(lr.get("reason"))
+    if reason:
+        lines.append(f"Why: {reason}.")
     sleeve, btc = _num(state.get("sleeve_index")), _num(state.get("btc_index"))
     if sleeve is not None and btc is not None:
         lines.append(f"Paper record since {_esc(state.get('started'))}: sleeve "

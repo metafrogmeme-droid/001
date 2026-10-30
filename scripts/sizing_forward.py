@@ -6,7 +6,7 @@ Design and rule: docs/research/prereg/equal_sizing_forward_2026-10/PREREGISTRATI
     python3 scripts/sizing_forward.py status     # counts only, any time
     python3 scripts/sizing_forward.py evaluate   # once, after the window closes
 
-Reads the operator's live closes (``$RUNECLAW_STATE_DIR/closed_trades.json``,
+Reads the operator's live closes (``state_path("data/closed_trades.json")``,
 or ``--trades``). It changes nothing in the bot.
 """
 from __future__ import annotations

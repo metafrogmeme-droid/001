@@ -26,6 +26,11 @@ def _close(day: int, net: float, notional: float = 1000.0, **kw) -> dict:
     return row
 
 
+def test_the_docstring_names_the_path_the_loader_uses():
+    m = _m()
+    assert 'state_path("data/closed_trades.json")' in m.__doc__
+
+
 def test_the_window_is_twelve_weeks_after_the_seal():
     m = _m()
     assert (m.END - m.START).days == 84

@@ -1,13 +1,14 @@
-"""The paper sleeve's rebalance, posted to the marketing groups as a paper call.
+"""The paper sleeve's rebalance, queued for the owner, posted only on approval.
 
-Off unless SLEEVE_CHANNEL_CALLS_ENABLED. Driven through the real `advance`,
+Off unless both sleeve switches are on. Driven through the real `advance`,
 the real engine hook bound to a recorder, and the real `start_monitor`.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-from datetime import timedelta
+import logging
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock
 
@@ -15,6 +16,7 @@ import pytest
 
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine
+from bot.sleeve.channel_queue import approve_item, queue_file
 from bot.sleeve.paper import channel_call_text, state_file
 from tests.test_the_sleeve_paper_book_places_nothing import R, make_closes, run_days
 
@@ -29,12 +31,16 @@ def _book_at_first_rebalance():
 
 @pytest.fixture
 def calls_flag():
-    was = CONFIG.sleeve_channel_calls_enabled
+    """Both switches. A channel call is queued only when each is on."""
+    was_channel = CONFIG.sleeve_channel_calls_enabled
+    was_paper = CONFIG.sleeve_paper_enabled
 
     def _set(on: bool) -> None:
         object.__setattr__(CONFIG, "sleeve_channel_calls_enabled", on)
+        object.__setattr__(CONFIG, "sleeve_paper_enabled", on)
     yield _set
-    object.__setattr__(CONFIG, "sleeve_channel_calls_enabled", was)
+    object.__setattr__(CONFIG, "sleeve_channel_calls_enabled", was_channel)
+    object.__setattr__(CONFIG, "sleeve_paper_enabled", was_paper)
 
 
 # ── the text ──────────────────────────────────────────────────────────────
@@ -79,6 +85,26 @@ def test_an_unread_index_shows_no_figure():
     assert "the index does not read" in text and "sleeve +" not in text and "sleeve -" not in text
 
 
+def test_a_missing_why_or_reason_is_not_the_word_none():
+    _, state = _book_at_first_rebalance()
+    reb = state["rebalances"][-1]
+    reb["why"] = None
+    reb["reason"] = None
+    text = channel_call_text(state)
+    assert text is not None and "None" not in text and "Why:" not in text
+    assert f"At the {state['last_day']} close:" in text
+    assert "Paper only: no order was placed" in text and "Not investment advice." in text
+    reb["why"] = ""
+    reb["reason"] = "   "
+    text = channel_call_text(state)
+    assert "None" not in text and "Why:" not in text
+    reb["why"] = "regime flip"
+    reb["reason"] = "BTC is below its 150-day mean: cash"
+    text = channel_call_text(state)
+    assert "(regime flip)" in text
+    assert "Why: BTC is below its 150-day mean: cash." in text
+
+
 # ── the engine hook ───────────────────────────────────────────────────────
 
 def _engine_with(cb):
@@ -94,17 +120,36 @@ def _write(tmp_path, monkeypatch, state):
     path.write_text(json.dumps(state))
 
 
-def test_the_call_is_handed_on_only_while_the_switch_is_on(tmp_path, monkeypatch, calls_flag):
+def _as_newest_closed_day(state):
+    """The queue takes a call only while the record is the newest closed day."""
+    day = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
+    state["last_day"] = day
+    state["rebalances"][-1]["day"] = day
+    return state
+
+
+def test_the_call_is_queued_not_posted_and_only_while_both_switches_are_on(
+        tmp_path, monkeypatch, calls_flag):
     _, state = _book_at_first_rebalance()
+    _as_newest_closed_day(state)
     _write(tmp_path, monkeypatch, state)
     cb = AsyncMock()
     eng = _engine_with(cb)
     calls_flag(False)
     assert asyncio.run(eng._announce_sleeve_call()) is False
     cb.assert_not_awaited()
-    calls_flag(True)
+    assert not queue_file().exists()
+    object.__setattr__(CONFIG, "sleeve_channel_calls_enabled", True)
+    assert asyncio.run(eng._announce_sleeve_call()) is False
+    cb.assert_not_awaited()
+    assert not queue_file().exists(), "the channel switch alone does not queue"
+    object.__setattr__(CONFIG, "sleeve_paper_enabled", True)
     assert asyncio.run(eng._announce_sleeve_call()) is True
-    cb.assert_awaited_once_with(channel_call_text(state))
+    cb.assert_not_awaited()
+    item = json.loads(queue_file().read_text())["items"][0]
+    assert item["status"] == "pending"
+    assert item["text"] == channel_call_text(state)
+    assert item["sent"] == []
 
 
 def test_an_unreadable_record_posts_nothing(tmp_path, monkeypatch, calls_flag):
@@ -118,12 +163,28 @@ def test_an_unreadable_record_posts_nothing(tmp_path, monkeypatch, calls_flag):
     cb.assert_not_awaited()
 
 
-def test_a_failed_post_is_reported_not_raised(tmp_path, monkeypatch, calls_flag):
+def test_a_raising_poster_is_reported_not_raised(tmp_path, monkeypatch, calls_flag, caplog):
     _, state = _book_at_first_rebalance()
+    day = _as_newest_closed_day(state)["last_day"]
     _write(tmp_path, monkeypatch, state)
     calls_flag(True)
-    cb = AsyncMock(side_effect=RuntimeError("telegram down"))
-    assert asyncio.run(_engine_with(cb)._announce_sleeve_call()) is False
+    cb = AsyncMock(side_effect=RuntimeError("venue rejected MARKER-plain-detail"))
+    eng = _engine_with(cb)
+    assert asyncio.run(eng._announce_sleeve_call()) is True
+    cb.assert_not_awaited()
+    assert approve_item(f"sleeve:{day}") == "approved"
+    lg = logging.getLogger("runeclaw.system")
+    saved = lg.propagate
+    lg.propagate = True
+    try:
+        with caplog.at_level(logging.WARNING):
+            assert asyncio.run(eng._announce_sleeve_call()) is False
+    finally:
+        lg.propagate = saved
+    assert any(r.levelno >= logging.WARNING and "RuntimeError" in r.getMessage()
+               for r in caplog.records)
+    assert "MARKER-plain-detail" not in caplog.text
+    assert json.loads(queue_file().read_text())["items"][0]["sent"] == []
 
 
 def test_the_switch_ships_off():

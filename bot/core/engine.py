@@ -1418,7 +1418,6 @@ class RuneClawEngine:
             ALREADY,
             DISABLED,
             NOT_ASKED,
-            RECORDED,
             record_is_current,
             run_once,
             sleeve_paper_enabled,
@@ -1426,45 +1425,38 @@ class RuneClawEngine:
         if not sleeve_paper_enabled():
             return DISABLED
         if record_is_current():
+            # The day is already on disk. Queue a call that a timed-out pass
+            # never wrote, and retry an approved send that did not land.
+            await self._announce_sleeve_call()
             return ALREADY
         now = time.monotonic()
         if now < getattr(self, "_sleeve_paper_next_try", 0.0):
+            await self._announce_sleeve_call()
             return NOT_ASKED
         if getattr(getattr(self, "scanner", None), "_exchange", None) is None:
+            await self._announce_sleeve_call()
             return NOT_ASKED
         self._sleeve_paper_next_try = now + 1800.0
         exchange = await self.scanner._get_exchange()
         outcome = (await run_once(exchange)).outcome
-        if outcome == RECORDED:
-            await self._announce_sleeve_call()
+        await self._announce_sleeve_call()
         return outcome
 
     async def _announce_sleeve_call(self) -> bool:
-        """Post the sleeve's rebalance to the marketing groups, once, right
-        after the run that recorded it. True only when a call was handed on.
+        """Queue the sleeve's rebalance, and send calls an admin has approved.
 
-        Off unless ``SLEEVE_CHANNEL_CALLS_ENABLED``. The run records a day at
-        most once, so this is asked at most once per closed day; a failed
-        post is not retried, because a late call is a different claim.
+        True when the current call is in the queue and an approved send did
+        not fail for every group it tried. Off unless both sleeve switches
+        are on. Nothing is posted that an admin has not approved. A group
+        already sent is not sent again; a group whose send failed is tried
+        on a later call, including after the day was recorded.
         """
-        from bot.config import CONFIG
-        from bot.sleeve.paper import channel_call_text, load_record
-        from bot.utils.json_store import READ
-        cb = self._sleeve_call_callback
-        if cb is None or not getattr(CONFIG, "sleeve_channel_calls_enabled", False):
-            return False
-        record = load_record()
-        if record.state != READ:
-            return False
-        text = channel_call_text(record.data)
-        if text is None:
-            return False
+        from bot.sleeve.channel_queue import sync_sleeve_calls
         try:
-            await cb(text)
+            return await sync_sleeve_calls(getattr(self, "_sleeve_call_callback", None))
         except Exception as exc:  # noqa: BLE001
             system_log.warning("Sleeve call not posted (%s)", type(exc).__name__)
             return False
-        return True
 
     def live_balance_cached(self, max_age_s: float = 900.0) -> Optional[dict]:
         """The cached live balance ONLY when fresh enough to state as current.
@@ -4787,8 +4779,11 @@ class RuneClawEngine:
         self._close_notify_callback = cb
 
     def set_sleeve_call_callback(self, cb: Callable) -> None:
-        """Register the poster of the paper sleeve's channel call
-        (``SLEEVE_CHANNEL_CALLS_ENABLED``); handed the call's HTML."""
+        """Register the poster of an approved paper-sleeve channel call.
+
+        Called as ``cb(html, skip=, claim=, on_sent=, on_fail=)`` for each
+        approved item. ``skip`` is the groups that already have it.
+        """
         self._sleeve_call_callback = cb
 
     def set_fill_notify_callback(self, cb: Callable) -> None:

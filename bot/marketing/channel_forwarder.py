@@ -8,11 +8,12 @@ no sensitive data. Public-facing marketing content only.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import threading
 from datetime import datetime
-from typing import Optional
+from typing import Any, Callable, Iterable, Optional
 
 from bot.core.signal_confidence import displayed_confidence
 from bot.compat import UTC
@@ -423,12 +424,81 @@ class ChannelForwarder:
         except Exception as exc:
             system_log.debug("post_scan_result error: %s", exc)
 
-    async def post_sleeve_call(self, call_html: str) -> None:
-        """The paper sleeve's rebalance call, composed by
-        ``bot/sleeve/paper.py::channel_call_text`` (percent only)."""
-        if not self._enabled or not self._group_ids:
-            return
-        await self._post(call_html)
+    async def post_sleeve_call(
+        self,
+        call_html: str,
+        *,
+        skip: Optional[Iterable[int]] = None,
+        claim: Optional[Callable[[int], bool]] = None,
+        on_sent: Optional[Callable[[int], None]] = None,
+        on_fail: Optional[Callable[[int, str], None]] = None,
+    ) -> dict[str, Any]:
+        """The paper sleeve's rebalance call, one group at a time.
+
+        Returns ``{"sent", "failed", "held", "skipped_claimed"}``. ``failed``
+        maps a group to the exception class. A send that raises is not in
+        ``sent``. ``skip`` is the groups that already have this call. ``claim``
+        false means another pass owns that group: it is not posted.
+        ``on_sent`` runs after a send returns, before the next group, so a
+        pass that stops there has the success on disk. The warning names the
+        exception class, never the message.
+        """
+        sent: list[int] = []
+        failed: dict[int, str] = {}
+        base: dict[str, Any] = {"sent": sent, "failed": failed, "skipped_claimed": 0}
+        if not self._enabled:
+            return {**base, "held": "disabled"}
+        if not self._bot:
+            return {**base, "held": "no_bot"}
+        if not self._group_ids:
+            return {**base, "held": "no_groups"}
+        text, removed = scrub_money(call_html)
+        if removed:
+            system_log.critical(
+                "Marketing post carried %d dollar amount(s) to a PUBLIC group "
+                "and they were stripped before sending. The caller is composing "
+                "private text — fix it there.", removed)
+        skip_ids: set[int] = set()
+        for raw in skip or ():
+            gid = raw if isinstance(raw, int) and not isinstance(raw, bool) else None
+            if gid is not None:
+                skip_ids.add(gid)
+        targets: list[int] = []
+        seen: set[int] = set()
+        for raw in list(self._group_ids):
+            gid = raw if isinstance(raw, int) and not isinstance(raw, bool) else None
+            if gid is None or gid in skip_ids or gid in seen:
+                continue
+            seen.add(gid)
+            targets.append(gid)
+        if not targets:
+            return {**base, "held": "already_sent"}
+        skipped_claimed = 0
+        for gid in targets:
+            if claim is not None and claim(gid) is False:
+                skipped_claimed += 1
+                continue
+            try:
+                await self._bot.send_message(
+                    chat_id=gid, text=text, parse_mode="HTML",
+                    disable_web_page_preview=True)
+            except asyncio.CancelledError:
+                if on_fail is not None:
+                    on_fail(gid, "")
+                raise
+            except Exception as exc:
+                name = type(exc).__name__
+                system_log.warning(
+                    "Sleeve channel post to %s failed (%s)", gid, name)
+                failed[gid] = name
+                if on_fail is not None:
+                    on_fail(gid, name)
+            else:
+                sent.append(gid)
+                if on_sent is not None:
+                    on_sent(gid)
+        return {"sent": sent, "failed": failed, "held": "",
+                "skipped_claimed": skipped_claimed}
 
     async def post_custom(self, text: str) -> None:
         """Post custom content (admin command)."""
