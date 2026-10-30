@@ -946,21 +946,9 @@ RUNECLAW is designed with a **fail-closed** philosophy:
 
 RUNECLAW is **live trading on Bitget futures** with micro-size positions. All trades are executed via the Telegram bot interface with human confirmation, unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — the live flag off in the code and in the shipped `.env.example`, the threshold `0.85` in the code and `1.0` in the example.
 
-**Trading Period:** June 17-19, 2026  
-**Exchange:** Bitget USDT-M Futures  
-**Position Size:** $10-20 per trade (micro test mode)  
-**Leverage:** 5x  
-**Total Closed Trades:** 38  
-**Win Rate:** 55.3% (21W / 17L)  
-**Total Realized PnL:** +$46.30  
-
-### Files in `logs/`
-
-| File | Description |
-|------|-------------|
-| `live_trading_log.csv` | Complete trade log with timestamp, pair, side, entry/exit price, size, PnL |
-| `closed_trades.json` | Raw closed trade records from the bot's state file |
-| `audit_chain.jsonl` | Immutable audit chain -- every trade decision logged with context |
+The record of those trades is the one read at the top of this page ("The live record, read 17 October
+2026"): net negative to date. An earlier three-day snapshot that stood here (June 2026) was removed on
+30 October 2026: it contradicted that record and pointed at log files this repository does not track.
 
 ### Order Execution Features
 
@@ -978,7 +966,7 @@ RUNECLAW is **live trading on Bitget futures** with micro-size positions. All tr
 This is a **hackathon prototype** (maturity: early-stage). Known limitations:
 
 - **Solo developer project** -- limited peer review beyond automated audits
-- **Live trading active** -- RUNECLAW is live on Bitget futures with micro-size positions ($10-20 per trade, sized at 5x; the venue is set to 10x since 11 October 2026 and locks half the margin for the same notional). See `logs/` for full trading records.
+- **Live trading active** -- RUNECLAW is live on Bitget futures with micro-size positions (sized at 5x; the venue is set to 10x since 11 October 2026 and locks half the margin for the same notional). The record is the live-record paragraph near the top of this page.
 - **Backtest methodology caveat** -- the strategy cards are backtests on frozen Bitget history (`benchmark/`, hash-checked by `scripts/verify_evidence.py`), six-fold walk-forward, with the rule engine deciding and the LLM off; they measure no edge after costs (see *Verify it yourself*). Two older harnesses still use synthetic GBM+GARCH price data: they validate risk gate behavior and position sizing on random walks, but do **not** validate the alpha-generating modules (Smart Money, order flow, sentiment fusion, liquidation cascade) which require real market microstructure data. Backtest results should be interpreted as **engine sanity checks**, not evidence of profitability. Real-data, LLM-enabled, out-of-sample validation is needed to evaluate strategy performance.
 - **API latency and slippage** -- real exchange conditions differ from simulation
 - **Security audit conducted** -- AI-assisted deep audit (v3.0) with all 5 critical issues fixed, 29 security tests added. No independent third-party audit has been performed.
