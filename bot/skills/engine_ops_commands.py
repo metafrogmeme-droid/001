@@ -83,6 +83,7 @@ LADDER_POINTER = ("<i>/shadow ladder — what the quality ladder would have done
 
 if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
+    from bot.marketing.channel_forwarder import ChannelForwarder
 
 
 def venue_balance_line(acct: object, coin: str) -> str:
@@ -374,6 +375,7 @@ class EngineOpsCommands:
         # never bodies; tests/test_handler_mixins.py checks every name against
         # what the handler really defines.
         engine: RuneClawEngine
+        forwarder: ChannelForwarder
 
         async def _send(self, update: Update, text: str,
                         reply_markup=None, edit: bool = False) -> None: ...
@@ -1039,17 +1041,24 @@ class EngineOpsCommands:
 
     @guard("admin")
     async def _cmd_sleeve(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin only: /sleeve — the xsmom + BTC regime PAPER sleeve's record.
+        """Admin only: /sleeve — the paper sleeve's record, and its call queue.
 
-        Read-only: it reads the record `bot/sleeve/paper.py` writes and runs
-        nothing. Last and next rebalance, the regime, the weights, the sleeve
-        and BTC buy-and-hold as percent since the start, each one's max
-        drawdown and the skipped rebalances. A record that does not read is
-        said to, never shown as an empty book."""
+        With no arguments, the record card: it reads the record
+        `bot/sleeve/paper.py` writes and runs nothing. A record that does not
+        read is said to, never shown as an empty book. ``/sleeve calls`` lists
+        the channel-call queue, ``/sleeve approve ID`` posts that one call,
+        and ``/sleeve reject ID`` drops it. Nothing is posted that was not
+        approved.
+        """
         import asyncio as _aio
 
+        from bot.sleeve.channel_queue import handle_admin
         from bot.sleeve.paper import card_text, load_record, sleeve_paper_enabled
 
+        args = list(ctx.args or [])
+        if args:
+            await self._send(update, await handle_admin(self.forwarder, args))
+            return
         record = await _aio.to_thread(load_record)
         await self._send(update, card_text(record, flag_on=sleeve_paper_enabled()))
 

@@ -557,6 +557,19 @@ class AlertsMonitor:
                 pass
 
         self.engine.set_close_notify_callback(_on_trade_closed)
+        # Looked up when a call is made, so it posts through whichever
+        # forwarder the handler holds then.
+        async def _post_sleeve_call(call_html, skip=None, claim=None,
+                                    on_sent=None, on_fail=None):
+            # Looked up when a call is made, so it posts through whichever
+            # forwarder the handler holds then. One argument is the wiring
+            # probe; a delivery passes the groups already sent.
+            if skip is None and claim is None and on_sent is None and on_fail is None:
+                return await self.forwarder.post_sleeve_call(call_html)
+            return await self.forwarder.post_sleeve_call(
+                call_html, skip=skip, claim=claim, on_sent=on_sent, on_fail=on_fail)
+
+        self.engine.set_sleeve_call_callback(_post_sleeve_call)
 
         # Register limit-fill notification callback
         async def _on_limit_filled(msg: str) -> None:
