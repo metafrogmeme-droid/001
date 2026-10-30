@@ -184,6 +184,7 @@ twin is_admin
 ultra is_admin
 unlink none  # Self-scoped by construction: `get_user_by_chat_id(chat_id)` and an early return when this chat is not linked, so it can only ever unlink the caller's own link.
 unstake guard
+upgrade guard
 users is_admin
 vault is_admin
 venue is_admin
