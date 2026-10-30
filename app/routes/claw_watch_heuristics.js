@@ -1,10 +1,11 @@
 'use strict';
 /**
  * POST /api/claw-watch-heuristics/score
+ * POST /api/claw-watch-heuristics/session
  *
- * Scores a window the caller already fetched. This process does not open
- * a chain socket and does not sign. While the flag is off a non-operator
- * gets 404. An operator gets the preview banner.
+ * Scores a window, or a list of session events, the caller already has.
+ * This process does not open a chain socket and does not sign. While the
+ * flag is off a non-operator gets 404. An operator gets the preview banner.
  */
 
 const express = require('express');
@@ -15,6 +16,7 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 
 const router = express.Router();
 const DISCLAIMER = 'Public on-chain signal only. This is not a verdict.';
+const SESSION_DISCLAIMER = 'Public account signal only. This is not a verdict.';
 
 function authMiddleware(req, res, next) {
   let auth;
@@ -55,6 +57,57 @@ let runner = defaultRunner;
 
 function setRunnerForTests(fn) {
   runner = typeof fn === 'function' ? fn : defaultRunner;
+}
+
+function defaultSessionRunner(payload) {
+  const proc = spawnSync('python3', ['-m', 'bot.claw_watch_heuristics.session'], {
+    input: JSON.stringify(payload || {}),
+    encoding: 'utf8',
+    timeout: 15000,
+    cwd: path.join(__dirname, '..', '..'),
+  });
+  if (proc.error) {
+    const name = proc.error.name || 'Error';
+    return { alerts: null, scored: false, error_class: name, disclaimer: SESSION_DISCLAIMER };
+  }
+  if (proc.status !== 0 || !proc.stdout) {
+    return { alerts: null, scored: false, error_class: 'ScorerError', disclaimer: SESSION_DISCLAIMER };
+  }
+  try {
+    return JSON.parse(proc.stdout);
+  } catch (e) {
+    return { alerts: null, scored: false, error_class: 'SyntaxError', disclaimer: SESSION_DISCLAIMER };
+  }
+}
+
+let sessionRunner = defaultSessionRunner;
+
+function setSessionRunnerForTests(fn) {
+  sessionRunner = typeof fn === 'function' ? fn : defaultSessionRunner;
+}
+
+function presentSession(out, preview) {
+  const body = out && typeof out === 'object' ? out : {};
+  const alerts = body.alerts == null ? null : body.alerts;
+  const response = {
+    enabled: body.enabled !== false,
+    scored: body.scored === true,
+    alerts: Array.isArray(alerts) ? alerts.map(function (alert) {
+      if (!alert || typeof alert !== 'object') return alert;
+      return {
+        code: alert.code,
+        level: alert.level,
+        ts: alert.ts,
+        detail: alert.detail && typeof alert.detail === 'object' ? alert.detail : {},
+        text: typeof alert.text === 'string' ? alert.text : '',
+      };
+    }) : null,
+    disclaimer: typeof body.disclaimer === 'string' ? body.disclaimer : SESSION_DISCLAIMER,
+  };
+  if (typeof body.sentence === 'string') response.sentence = body.sentence;
+  if (body.error_class) response.error_class = String(body.error_class);
+  if (preview) response.banner = require('../lib/claw_watch_heuristics_flag').BANNER;
+  return response;
 }
 
 function stripFinding(finding) {
@@ -135,5 +188,32 @@ router.post('/score', authMiddleware, limit, function (req, res) {
   });
 });
 
+router.post('/session', authMiddleware, limit, function (req, res) {
+  const { flag_on_for } = require('../lib/admin_preview');
+  const flag = require('../lib/claw_watch_heuristics_flag');
+  flag_on_for(req, flag.FLAG).then(function (on) {
+    if (on !== true) return res.status(404).type('text/plain').send('Not found');
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ alerts: null, error_class: 'Payload', disclaimer: SESSION_DISCLAIMER });
+    }
+    let out;
+    try {
+      out = sessionRunner(body);
+    } catch (e) {
+      return res.status(500).json({
+        alerts: null,
+        error_class: e && e.name ? e.name : 'Error',
+        disclaimer: SESSION_DISCLAIMER,
+      });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(presentSession(out, flag.flagOn() !== true));
+  }).catch(function () {
+    if (!res.headersSent) res.status(404).type('text/plain').send('Not found');
+  });
+});
+
 module.exports = router;
 module.exports.setRunnerForTests = setRunnerForTests;
+module.exports.setSessionRunnerForTests = setSessionRunnerForTests;
