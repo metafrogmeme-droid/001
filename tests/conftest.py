@@ -1541,6 +1541,27 @@ def _contain_the_shared_balance_reads():
         vb._reset()
 
 
+@pytest.fixture(autouse=True)
+def _contain_the_shared_market_sweep():
+    """Hold no market sweep across tests.
+
+    `bot/core/scan_flight.py::FLIGHTS` serves a finished sweep for a while,
+    keyed by universe and ``id(engine)``. Tests build stand-in engines, and a
+    freed one's id is handed to the next test's, so that test was served the
+    previous test's signals: test_the_scanner_measures_the_ratio_the_presets_
+    gate_on.py read two unmeasured signals where its engine had one, depending
+    only on which file ran before it. Emptied before and after, not asserted.
+    """
+    import sys as _sys
+    sf = _sys.modules.get("bot.core.scan_flight")
+    if sf is not None:
+        sf.FLIGHTS._reset()
+    yield
+    sf = _sys.modules.get("bot.core.scan_flight")
+    if sf is not None:
+        sf.FLIGHTS._reset()
+
+
 @pytest.fixture
 def members_may_trade_live():
     """LIVE_ADMIN_ONLY off for one test: the per-user live policies decide.

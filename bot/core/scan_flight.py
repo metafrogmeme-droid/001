@@ -88,6 +88,14 @@ class ScanFlights:
             g = self._gates[loop_id] = asyncio.Semaphore(self._max_concurrent)
         return g
 
+    def _reset(self) -> None:
+        """Forget every finished read and every flight in progress. For the
+        test harness (tests/conftest.py), which runs many stand-in engines in
+        one process: the key carries ``id(engine)``, and a freed stand-in's id
+        is reused by the next test's."""
+        self._done.clear()
+        self._running.clear()
+
     def _remember(self, k: tuple, value: Any) -> None:
         self._done[k] = (self._clock(), value)
         while len(self._done) > self._max_entries:
