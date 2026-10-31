@@ -135,6 +135,85 @@ test('a refused chain is not rewritten into an empty clear', async () => {
   }
 });
 
+async function hitSession(server, { bearer, body } = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (bearer) headers.authorization = 'Bearer ' + bearer;
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/api/claw-watch-heuristics/session`, {
+    method: 'POST', headers, body: JSON.stringify(body === undefined ? {} : body),
+  });
+  const raw = await res.text();
+  let parsed = raw;
+  try { parsed = JSON.parse(raw); } catch (err) { parsed = raw; }
+  return { status: res.status, body: parsed };
+}
+
+test('session route is authed, admin-only while the flag is off, and keeps an unreadable score', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'claw_watch_heuristics.js'), 'utf8');
+  assert.match(src, /router\.post\('\/session', authMiddleware/);
+  assert.match(src, /bot\.claw_watch_heuristics\.session/);
+  assert.equal(src.includes('api.hyperliquid.xyz'), false);
+  delete process.env.CLAW_WATCH_HEURISTICS_ENABLED;
+  const calls = [];
+  route.setSessionRunnerForTests(function (body) {
+    calls.push(body);
+    if (body && body.unread) {
+      return { alerts: null, scored: false, disclaimer: 'Public account signal only. This is not a verdict.' };
+    }
+    return {
+      enabled: true,
+      scored: true,
+      alerts: [{ code: 'NEW_API_KEY', level: 'info', ts: 1, detail: { key_id: 'k9' }, text: 'A new API key was created on this account.' }],
+      disclaimer: 'Public account signal only. This is not a verdict.',
+    };
+  });
+  const server = await listen(app());
+  try {
+    const anon = await hitSession(server, { body: { events: [] } });
+    assert.equal(anon.status, 401);
+    const user = await hitSession(server, { bearer: userToken, body: { events: [] } });
+    assert.equal(user.status, 404);
+    assert.equal(calls.length, 0);
+    const preview = await hitSession(server, { bearer: adminToken, body: { events: [] } });
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.banner, 'Admin preview. Not public.');
+    assert.equal(preview.body.alerts[0].code, 'NEW_API_KEY');
+    const text = JSON.stringify(preview.body).toLowerCase();
+    assert.equal(text.includes('scam'), false);
+    assert.equal(text.includes('safe'), false);
+    const unread = await hitSession(server, { bearer: adminToken, body: { events: [], unread: true } });
+    assert.equal(unread.status, 200);
+    assert.equal(unread.body.alerts, null);
+    assert.equal(unread.body.scored, false);
+  } finally {
+    route.setSessionRunnerForTests(null);
+    delete process.env.CLAW_WATCH_HEURISTICS_ENABLED;
+    await close(server);
+  }
+});
+
+test('with the flag on a signed-in caller can score a session', async () => {
+  process.env.CLAW_WATCH_HEURISTICS_ENABLED = '1';
+  route.setSessionRunnerForTests(function () {
+    return {
+      enabled: true,
+      scored: true,
+      alerts: [],
+      disclaimer: 'Public account signal only. This is not a verdict.',
+    };
+  });
+  const server = await listen(app());
+  try {
+    const user = await hitSession(server, { bearer: userToken, body: { events: [] } });
+    assert.equal(user.status, 200);
+    assert.equal(user.body.banner, undefined);
+    assert.deepEqual(user.body.alerts, []);
+  } finally {
+    delete process.env.CLAW_WATCH_HEURISTICS_ENABLED;
+    route.setSessionRunnerForTests(null);
+    await close(server);
+  }
+});
+
 test('with the flag on a signed-in caller can score', async () => {
   process.env.CLAW_WATCH_HEURISTICS_ENABLED = '1';
   route.setRunnerForTests(function () {
