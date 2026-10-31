@@ -41,6 +41,9 @@ _FLAGS = _FLAGS | frozenset({"QUARANTINE_ENABLED"})
 # --- Incident pack begin ---
 _FLAGS = _FLAGS | frozenset({"INCIDENT_PACK_ENABLED"})
 # --- Incident pack end ---
+# --- Claw Guard orders begin ---
+_FLAGS = _FLAGS | frozenset({"CLAW_GUARD_ENABLED"})
+# --- Claw Guard orders end ---
 _CONFIDENCE_ON = frozenset({"1", "true", "yes", "on"})
 
 
@@ -72,6 +75,11 @@ def public_on(flag: str, env: Optional[Mapping[str, str]] = None) -> bool:
         from bot.incident_pack import flag_on
         return flag_on(env) is True
     # --- Incident pack end ---
+    # --- Claw Guard orders begin ---
+    if flag == "CLAW_GUARD_ENABLED":
+        from bot.claw_guard.flag import flag_on
+        return flag_on(env) is True
+    # --- Claw Guard orders end ---
     source = os.environ if env is None else env
     return str(source.get("DUEL_CONFIDENCE_ENABLED", "")).strip().lower() in _CONFIDENCE_ON
 

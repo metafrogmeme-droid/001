@@ -40,6 +40,11 @@ REFUSAL_WORDS: dict[str, str] = {
     "\u26d4": "the engine was not live, so nothing could be placed",
     "\u23f8 [PAPER]": "the practice book was cooling down",
     "\u26a0\ufe0f [PAPER] Simulated fill failed": "the practice fill failed",
+    # The order check's own sentences. None of them is a fill on the book
+    # this door announces.
+    "Blocked by your rule": "the order check refused it",
+    "Needs your OK": "the order check is waiting for an OK",
+    "Allowed: within your limits": "the order check allowed it and no book position was opened",
 }
 REFUSAL_PREFIXES = tuple(REFUSAL_WORDS)
 

@@ -13,7 +13,7 @@
     "method-assign": 1,
     "misc": 17,
     "name-defined": 2,
-    "no-any-return": 93,
+    "no-any-return": 92,
     "no-redef": 3,
     "operator": 40,
     "return-value": 7,

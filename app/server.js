@@ -626,6 +626,11 @@ app.use('/api/xnav', require('./routes/xnav'));
 // off. Read-only: nothing is signed.
 app.use('/api/quarantine', require('./routes/quarantine'));
 // --- QUARANTINE end ---
+// --- Claw Guard orders begin ---
+// Per-order check. Admin only while CLAW_GUARD_ENABLED is off.
+// The route evaluates. It does not sign.
+app.use('/api/claw-guard', require('./routes/claw_guard_orders'));
+// --- Claw Guard orders end ---
 // Limit Entry Scanner forward shadow. Admin only, flag on or off.
 // Basis points and counts. A missing summary is not a measured zero.
 app.use('/api/limit-scanner/shadow', require('./routes/limit_scanner_shadow'));
