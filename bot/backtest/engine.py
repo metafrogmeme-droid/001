@@ -223,6 +223,9 @@ class BacktestEngine:
         # ATR the preset exit multiples were applied with, keyed by idea id,
         # so the trail reads that ATR instead of backing it out of the stop.
         self._preset_atr_by_idea: dict[str, float] = {}
+        # Bars before a walk-forward fold's own, read as history only
+        # (``fold_history_bars``); empty unless the portfolio run hands some in.
+        self._context_raw: list = []
         # The Limit Entry Scanner's exit numbers, set by the portfolio run that
         # places its orders. A position it opened runs its own exits
         # (`limit_scanner.step_exit`), never the house ladder, trail or time stop.
@@ -422,17 +425,23 @@ class BacktestEngine:
             return
         self._volume_ratio_by_idea[idea.id] = float(raw)
 
+    def _history_upto(self, bar_index: int) -> list:
+        """Raw rows up to and including this bar: the fold's context
+        (``fold_history_bars``, never traded) followed by its own bars."""
+        own = (getattr(self, "_all_raw", None) or [])[:bar_index + 1]
+        context = getattr(self, "_context_raw", None) or []
+        return context + own if context else own
+
     def _closed_groups(self, bar_index: int, tf: str, groups: int) -> list:
         """The last ``groups`` CLOSED ``tf`` candles up to this bar, resampled
         from the run's own bars; [] when ``tf`` is not coarser than them."""
         from bot.utils.candles import resample_ohlcv, timeframe_to_ms
-        all_raw = getattr(self, "_all_raw", None) or []
         base_ms = timeframe_to_ms(self.config.timeframe)
         tf_ms = timeframe_to_ms(tf)
         if base_ms <= 0 or tf_ms <= base_ms or tf_ms % base_ms:
             return []
         span = (groups + 1) * (tf_ms // base_ms)
-        hist = all_raw[max(0, bar_index + 1 - span):bar_index + 1]
+        hist = self._history_upto(bar_index)[-span:]
         closed: list = resample_ohlcv(hist, self.config.timeframe, tf)
         return closed[-groups:]
 
@@ -946,7 +955,7 @@ class BacktestEngine:
             all_raw = getattr(self, "_all_raw", None)
             if all_raw:
                 from bot.utils.candles import resample_ohlcv
-                hist = all_raw[:bar_index + 1]
+                hist = self._history_upto(bar_index)
                 mtf_candles = {}
                 if getattr(self.config, "mtf_scaled_history", False):
                     mtf_candles = self._scaled_mtf_context(hist)

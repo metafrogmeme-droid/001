@@ -156,7 +156,8 @@ class PortfolioBacktester:
 
     # ── main loop ────────────────────────────────────────────────
 
-    async def run(self, data: dict[str, list]) -> BacktestResult:
+    async def run(self, data: dict[str, list],
+                  context: Optional[dict[str, list]] = None) -> BacktestResult:
         """Run the merged multi-symbol backtest.
 
         The learning-flag override is handed back here rather than waiting for
@@ -164,11 +165,12 @@ class PortfolioBacktester:
         calibration, setup-expectancy and external sentiment silently off.
         """
         try:
-            return await self._run(data)
+            return await self._run(data, context)
         finally:
             self._restore_learning_flags()
 
-    async def _run(self, data: dict[str, list]) -> BacktestResult:
+    async def _run(self, data: dict[str, list],
+                   context: Optional[dict[str, list]] = None) -> BacktestResult:
         """``data`` maps each configured symbol to its (ascending) BacktestBar
         list; symbols absent from the map are skipped with a log line."""
         start_time = time.time()
@@ -201,6 +203,11 @@ class PortfolioBacktester:
             self._engines[sym]._all_raw = [
                 [int(b.timestamp.timestamp() * 1000), b.open, b.high, b.low, b.close, b.volume]
                 for b in bars
+            ]
+            # Context only (``fold_history_bars``): read for history, never traded.
+            self._engines[sym]._context_raw = [
+                [int(b.timestamp.timestamp() * 1000), b.open, b.high, b.low, b.close, b.volume]
+                for b in (context or {}).get(sym, [])
             ]
 
         snap_counter = 0
@@ -465,9 +472,13 @@ async def portfolio_walk_forward(
         fold_data = {s: b for s, b in fold_data.items() if len(b) > config.lookback_size}
         if not fold_data:
             continue
+        context = None
+        if config.fold_history_bars > 0:
+            context = {s: [b for b in data[s] if b.timestamp < t0][-config.fold_history_bars:]
+                       for s in fold_data}
         pb = PortfolioBacktester(config, symbols=list(fold_data))
         try:
-            res = await pb.run(fold_data)
+            res = await pb.run(fold_data, context)
         finally:
             pb.cleanup()
         out.append({

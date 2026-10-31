@@ -145,3 +145,88 @@ def test_the_bar_loop_hands_the_analyzer_the_scaled_context_only_when_asked():
     on, off = _handed_context(True), _handed_context(False)
     assert "4h" in on and "1d" in on and "1h" in on
     assert "4h" not in off and "1d" not in off
+
+
+# ── fold history (Addendum 1) ──────────────────────────────────────────────
+
+def test_context_rows_come_before_the_folds_own_and_are_read_as_history():
+    rows = _rows(1300, drift=0.05)
+    eng = _engine(rows[-100:], daily_trend_days=50)
+    # Without context a 100-bar fold never forms a 50-day reading.
+    assert eng._apply_timeframe_variants(_idea(Direction.LONG), 99) is None
+    eng._context_raw = rows[:-100]
+    assert eng._history_upto(99) == rows
+    assert eng._apply_timeframe_variants(_idea(Direction.LONG), 99) is not None
+    assert eng._apply_timeframe_variants(_idea(Direction.SHORT), 99) is None
+
+
+def _fold_contexts(n_bars, **cfg_kw):
+    """Drive the real portfolio_walk_forward and record what each fold's
+    backtester was handed (the run itself is a recorder)."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from bot.backtest import portfolio_engine as pe
+    from bot.backtest.models import BacktestBar
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    bars = [BacktestBar(timestamp=t0 + timedelta(hours=i), open=1, high=1, low=1, close=1,
+                        volume=1, symbol="AAA/USDT:USDT") for i in range(n_bars)]
+    seen = []
+
+    async def _record(self, data, context=None):
+        seen.append((min(b.timestamp for b in data["AAA/USDT:USDT"]), context))
+        return SimpleNamespace(total_trades=0, total_return_pct=0.0, win_rate=0.0,
+                               max_drawdown_pct=0.0, profit_factor=0.0, sharpe_ratio=0.0,
+                               total_ideas_generated=0, total_limits_filled=0,
+                               total_limits_expired=0, total_limits_cancelled_drift=0,
+                               total_entries_skipped_random=0, trades=[])
+    orig = pe.PortfolioBacktester.run
+    pe.PortfolioBacktester.run = _record
+    try:
+        cfg = BacktestConfig(symbol="AAA/USDT:USDT", **cfg_kw)
+        asyncio.run(pe.portfolio_walk_forward({"AAA/USDT:USDT": bars}, cfg, n_folds=3))
+    finally:
+        pe.PortfolioBacktester.run = orig
+    return seen
+
+
+def test_the_walk_forward_hands_each_fold_only_earlier_bars_and_no_more_than_asked():
+    seen = _fold_contexts(1000, fold_history_bars=150)
+    assert seen and all(ctx is not None for _, ctx in seen)
+    for start, ctx in seen:
+        bars = ctx["AAA/USDT:USDT"]
+        assert len(bars) <= 150 and all(b.timestamp < start for b in bars)
+    assert len(seen[-1][1]["AAA/USDT:USDT"]) == 150
+
+
+def test_no_fold_history_is_the_old_hand_off():
+    assert all(ctx is None for _, ctx in _fold_contexts(1000))
+
+
+def test_the_analyzer_gets_daily_context_from_fold_history():
+    """Through the real `_process_bar` on a 1h fold of 100 bars: the 1d
+    context exists only when the fold's earlier bars are handed in."""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from bot.backtest.models import BacktestBar
+    rows = _rows(1400)
+
+    def handed(with_context: bool):
+        eng = _engine(rows[-100:])
+        if with_context:
+            eng._context_raw = rows[:-100]
+        seen = {}
+
+        async def _record(signal, candles, **kw):
+            seen["mtf"] = kw.get("mtf_candles") or {}
+            return None
+        eng.analyzer.analyze = _record
+        window = [BacktestBar(timestamp=datetime.fromtimestamp(r[0] / 1000, timezone.utc),
+                              open=r[1], high=r[2], low=r[3], close=r[4], volume=r[5],
+                              symbol="BTC/USDT") for r in rows[-100:]]
+        asyncio.run(eng._process_bar(window[-1], window, 99))
+        return seen["mtf"]
+
+    assert "1d" in handed(True) and "1d" not in handed(False)

@@ -95,6 +95,10 @@ class BacktestConfig(BaseModel):
     swing_stop_tf: str = ""
     daily_trend_days: int = 0
     mtf_scaled_history: bool = False
+    #   fold_history_bars — N > 0: each walk-forward fold's engines also read
+    #     up to N bars that precede the fold's slice, as context only (the
+    #     history live has); they are never traded. 0 is unchanged.
+    fold_history_bars: int = 0
     # Closed-bar moving-average trend. All default OFF. When fast and slow are
     # set, that preset's book is the relationship itself: long when the fast
     # average is above the slow average, short when it is below, flat when

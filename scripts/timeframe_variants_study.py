@@ -31,6 +31,12 @@ ARMS = {
     "H2b": ("fresh10_5m", "5m", 288, ["--setup-only", "scalp", "--mtf-scaled-history"], True, "RS"),
 }
 TESTED = [a for a, v in ARMS.items() if v[4]]
+#: ADDENDUM_1.md: H3 with live's history. H3h shares the family's bound.
+ADDENDUM_ARMS = {
+    "R1h": ("fresh10_1h", "1h", 24, ["--fold-history-bars", "4824"], False, None),
+    "H3h": ("fresh10_1h", "1h", 24, ["--fold-history-bars", "4824", "--daily-trend-days", "50"],
+            True, "R1h"),
+}
 MIN_POSITIONS = 40
 BOOT, SEED = 10_000, 7
 #: one-sided 2.5% shared by the four tested arms (Bonferroni)
@@ -38,7 +44,7 @@ LOWER_PCT = 2.5 / 4
 
 
 def run_one(out: Path, arm: str) -> int:
-    ds, tf, reset, extra, _, _ = ARMS[arm]
+    ds, tf, reset, extra, _, _ = {**ARMS, **ADDENDUM_ARMS}[arm]
     if (out / f"{arm}.trades.json").exists():
         return 0
     cmd = [sys.executable, "-m", "bot.backtest.runner", "--dataset", f"benchmark/{ds}",
@@ -87,9 +93,9 @@ def describe(rows: list[dict]) -> dict:
             "exits": dict(sorted(exits.items(), key=lambda kv: -kv[1]))}
 
 
-def report(out: Path) -> dict:
+def report(out: Path, arms: dict = ARMS) -> dict:
     res: dict = {}
-    for arm in ARMS:
+    for arm in arms:
         r = json.loads((out / f"{arm}.json").read_text())
         rows = json.loads((out / f"{arm}.trades.json").read_text())["trades"]
         folds = [float(f["return_pct"]) for f in sorted(r["folds"], key=lambda f: str(f["oos_start"]))]
@@ -97,12 +103,12 @@ def report(out: Path) -> dict:
         j.update(describe(rows), folds=folds, pf=r.get("pooled", {}).get("pf"),
                  code_sha=r.get("code_sha"), data_source=r.get("data_source"))
         res[arm] = j
-    for arm in TESTED:
-        ref = res[ARMS[arm][5]]
+    for arm in [a for a, v in arms.items() if v[4]]:
+        ref = res[arms[arm][5]]
         if res[arm]["mean"] is not None and ref["mean"] is not None:
             res[arm]["vs_reference"] = res[arm]["mean"] - ref["mean"]
     for arm, j in res.items():
-        tag = j.get("verdict") if arm in TESTED else "reference"
+        tag = j.get("verdict") if arms[arm][4] else "reference"
         print(f"{arm:4} n={j['n']:4d} mean={j['mean']} lower={j['lower']} "
               f"fold_mean={j['fold_mean']} pf={j['pf']} | {tag}")
     return res
@@ -110,7 +116,7 @@ def report(out: Path) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", choices=["run", "report"])
+    ap.add_argument("cmd", choices=["run", "report", "run-addendum", "report-addendum"])
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--jobs", type=int, default=6)
     a = ap.parse_args()
@@ -119,6 +125,15 @@ def main() -> int:
         with ThreadPoolExecutor(max_workers=a.jobs) as pool:
             for arm, rc in zip(ARMS, pool.map(lambda x: run_one(a.out, x), ARMS)):
                 print(arm, "rc", rc, flush=True)
+        return 0
+    if a.cmd == "run-addendum":
+        with ThreadPoolExecutor(max_workers=a.jobs) as pool:
+            for arm, rc in zip(ADDENDUM_ARMS, pool.map(lambda x: run_one(a.out, x), ADDENDUM_ARMS)):
+                print(arm, "rc", rc, flush=True)
+        return 0
+    if a.cmd == "report-addendum":
+        (a.out / "report_addendum_1.json").write_text(
+            json.dumps(report(a.out, ADDENDUM_ARMS), indent=1, default=str))
         return 0
     (a.out / "report.json").write_text(json.dumps(report(a.out), indent=1, default=str))
     return 0

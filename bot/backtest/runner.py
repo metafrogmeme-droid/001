@@ -380,6 +380,7 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "swing_stop_tf": getattr(args, "swing_stop_tf", "") or "",
         "daily_trend_days": int(getattr(args, "daily_trend_days", 0)),
         "mtf_scaled_history": bool(getattr(args, "mtf_scaled_history", False)),
+        "fold_history_bars": int(getattr(args, "fold_history_bars", 0)),
         "ma_fast": getattr(args, "ma_fast", None),
         "ma_slow": getattr(args, "ma_slow", None),
         "ma_timeframe": getattr(args, "ma_timeframe", "") or "",
@@ -811,6 +812,9 @@ Examples:
     trade_group.add_argument("--daily-trend-days", type=int, default=0,
                              help="Measurement control: LONG only above the symbol's N-day daily "
                                   "close mean, SHORT only below it. 0 is off.")
+    trade_group.add_argument("--fold-history-bars", type=int, default=0,
+                             help="Measurement control: give each walk-forward fold up to this many "
+                                  "earlier bars as context (never traded). 0 is off.")
     trade_group.add_argument("--mtf-scaled-history", action="store_true",
                              help="Measurement control: build the 15m/1h/4h/1d context from as "
                                   "many base bars as 200 groups need (sub-hour runs).")
