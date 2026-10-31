@@ -95,6 +95,11 @@ class BacktestConfig(BaseModel):
     swing_stop_tf: str = ""
     daily_trend_days: int = 0
     mtf_scaled_history: bool = False
+    #   target_r_after_gate — K > 0: AFTER the risk gate approves an idea on
+    #     its own levels, its target becomes K times its stop distance from
+    #     entry; the stop is unchanged. The same entries with a different exit
+    #     (docs/research/prereg/closer_target_2026-10). None is unchanged.
+    target_r_after_gate: Optional[float] = None
     #   fold_history_bars — N > 0: each walk-forward fold's engines also read
     #     up to N bars that precede the fold's slice, as context only (the
     #     history live has); they are never traded. 0 is unchanged.
