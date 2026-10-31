@@ -816,7 +816,10 @@ Examples:
     trade_group.add_argument("--target-r-after-gate", type=float, default=None,
                              help="Measurement control: after the risk gate approves an idea, set "
                                   "its target to this many stop distances from entry (stop "
-                                  "unchanged). Unset leaves the analyzer's target.")
+                                  "unchanged). Under --honest the partial-TP ladder runs the "
+                                  "exits and never reads the target, so this moves no exit; "
+                                  "a fill that opens past the new target is rejected instead. "
+                                  "Unset leaves the analyzer's target.")
     trade_group.add_argument("--fold-history-bars", type=int, default=0,
                              help="Measurement control: give each walk-forward fold up to this many "
                                   "earlier bars as context (never traded). 0 is off.")

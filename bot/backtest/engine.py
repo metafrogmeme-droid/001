@@ -544,8 +544,11 @@ class BacktestEngine:
         """`target_r_after_gate`: the approved idea's target at K stop distances.
 
         Applied after the risk gate, so the gate judges and sizes the idea on
-        the analyzer's own levels and the arms take the same entries. The stop
-        is unchanged. An idea whose stop distance cannot be read keeps its own
+        the analyzer's own levels. The stop is unchanged. Only the single-exit
+        model reads the target: under the partial-TP ladder (`--honest`) the
+        ladder's own multiples run the exits, and a next-open fill already past
+        the new target fails the position record and is not opened. That is an
+        entry filter, not a closer exit (closer_target_2026-10/REPORT.md). An idea whose stop distance cannot be read keeps its own
         target and is counted (`_target_r_unread`), never given a guessed one.
         """
         k = getattr(self.config, "target_r_after_gate", None)
