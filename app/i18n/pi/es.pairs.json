@@ -375,5 +375,9 @@
 ["of {n} high-confidence calls","de {n} llamadas de alta confianza"],
 ["How often your high-confidence calls were right","Con qué frecuencia acertaron tus llamadas de alta confianza"],
 ["High confidence","Alta confianza"],
-["Choose low, medium or high. Your call was not recorded.","Elige baja, media o alta. Tu llamada no se registró."]
+["Choose low, medium or high. Your call was not recorded.","Elige baja, media o alta. Tu llamada no se registró."],
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Estás hablando con un coach de IA, no con una persona. Puede equivocarse. No es asesoramiento financiero."],
+["AI","IA"],
+["AI-generated reply","Respuesta generada por IA"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 Coach de IA. No es una persona, no es asesoramiento financiero."]
 ]

@@ -375,5 +375,9 @@
 ["of {n} high-confidence calls","من {n} نداءات بثقة عالية"],
 ["How often your high-confidence calls were right","كم مرة كانت نداءاتك عالية الثقة صحيحة"],
 ["High confidence","ثقة عالية"],
-["Choose low, medium or high. Your call was not recorded.","اختر منخفضًا أو متوسطًا أو مرتفعًا. لم يُسجَّل نداؤك."]
+["Choose low, medium or high. Your call was not recorded.","اختر منخفضًا أو متوسطًا أو مرتفعًا. لم يُسجَّل نداؤك."],
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","أنت تتحدث مع مدرب ذكاء اصطناعي، وليس شخصًا. قد يخطئ. هذه ليست نصيحة مالية."],
+["AI","AI"],
+["AI-generated reply","رد مولَّد بالذكاء الاصطناعي"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 مدرب ذكاء اصطناعي. ليس شخصًا، وليست نصيحة مالية."]
 ]

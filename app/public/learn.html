@@ -125,7 +125,7 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=212"></script>
+<script src="/js/i18n-core.js?v=213"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script>
 (function () {
@@ -143,6 +143,7 @@
   var signedIn = /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
   var today = new Date().toISOString().slice(0, 10);
   var hadEntry = false;
+  var coachDisclosure = null;
 
   function note(txt, mood) {
     var el = $('saveNote');
@@ -182,12 +183,23 @@
   // pointers. Deterministic (lib/learn_coach); the tutor is for questions.
   function renderCoach(nudges) {
     if (!nudges || !nudges.length) return '';
-    return nudges.map(function (n) {
+    var on = coachDisclosure && typeof coachDisclosure.notice === 'string';
+    var notice = on
+      ? '<p class="p-coach-ai" role="note">' + esc(T('lc.ai_notice', coachDisclosure.notice)) + '</p>'
+      : '';
+    var badge = '';
+    if (on) {
+      var tip = T('lc.ai_tip', coachDisclosure.badge_tip || 'AI-generated reply');
+      badge = '<span class="p-coach-ai-badge" title="' + esc(tip) + '" aria-label="' + esc(tip) + '">'
+        + esc(T('lc.ai_badge', coachDisclosure.badge || 'AI')) + '</span> ';
+    }
+    return notice + nudges.map(function (n) {
       var line = fill(T('lc.' + n.id, n.en), n.params || {});
       var link = n.lesson
         ? ' <a href="#" data-lesson="' + esc(n.lesson) + '">' + esc(T('lc.open', 'Open the lesson \u2192')) + '</a>'
         : '';
-      return '<p class="note" style="margin-top:6px">\ud83e\udded ' + esc(line) + link + '</p>';
+      return '<p class="note"' + (on ? ' data-ai-generated="true"' : '') + ' style="margin-top:6px">'
+        + badge + '\ud83e\udded ' + esc(line) + link + '</p>';
     }).join('');
   }
 
@@ -232,6 +244,7 @@
           $('body').value = d.data.entry.body;
           if (d.data.entry.edited) note('✎ ' + T('ln.edited', 'edited'));
         }
+        coachDisclosure = d.data.ai_disclosure || null;
         renderTrades(d.data.trades || [], d.data.nudges || []);
       } else {
         note(T('ln.load_fail', 'Could not load the diary just now — your entries are unchanged.'), 'bad');

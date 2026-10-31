@@ -375,5 +375,9 @@
 ["of {n} high-confidence calls","確信度「高」のコール {n} 件中"],
 ["How often your high-confidence calls were right","確信度「高」のコールがどれくらい当たったか"],
 ["High confidence","高い確信"],
-["Choose low, medium or high. Your call was not recorded.","低・中・高のいずれかを選んでください。コールは記録されませんでした。"]
+["Choose low, medium or high. Your call was not recorded.","低・中・高のいずれかを選んでください。コールは記録されませんでした。"],
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","AIコーチと話しています。人ではありません。間違うことがあります。金融の助言ではありません。"],
+["AI","AI"],
+["AI-generated reply","AIが生成した返信"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 AIコーチ。人ではなく、金融の助言でもありません。"]
 ]

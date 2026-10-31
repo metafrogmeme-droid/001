@@ -14,6 +14,8 @@
     ["A review of your settlement","आपके निपटान की समीक्षा"],
     ["A season leaderboard, ranked on percent return.","सीज़न लीडरबोर्ड, प्रतिशत रिटर्न पर रैंक किया गया।"],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","दूसरे भाव स्रोत का निपटान भाव से मेल नहीं हुआ। एक्सचेंज की क्लोज़ ही मान्य है; रसीद दोनों दिखाती है।"],
+    ["AI","एआई"],
+    ["AI-generated reply","एआई द्वारा बनाया गया जवाब"],
     ["About","परिचय"],
     ["About RUNECLAW Arena","RUNECLAW Arena के बारे में"],
     ["Accuracy","सटीकता"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","आप उस निपटान को पहले ही फ़्लैग कर चुके हैं।"],
     ["You have used today’s questions.","आपने आज के सवाल इस्तेमाल कर लिए हैं।"],
     ["You have used today’s questions. More at {time}.","आपने आज के सवाल इस्तेमाल कर लिए हैं। और सवाल {time} पर।"],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","आप एक एआई कोच से बात कर रहे हैं, किसी व्यक्ति से नहीं। यह गलत हो सकता है। यह वित्तीय सलाह नहीं है।"],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","आपका Telegram खाता आपको साइन इन करता है: कोई वॉलेट नहीं, कोई असली पैसा नहीं, कुछ ख़रीदना नहीं।"],
     ["Your account could not be loaded.","आपका अकाउंट लोड नहीं हो सका।"],
     ["Your call could not be recorded.","आपकी कॉल दर्ज नहीं हो सकी।"],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} ज़्यादा चलता है"],
     ["✓ TARGET","✓ टारगेट"],
     ["✗ STOP","✗ स्टॉप"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 एआई कोच। कोई व्यक्ति नहीं, वित्तीय सलाह नहीं।"],
   ]);
 }());

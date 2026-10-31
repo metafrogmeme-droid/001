@@ -98,8 +98,10 @@ class _Model:
         return (self.reply, meta) if kw.get("return_meta") else self.reply
 
 
-def _turn(model, text="what is a stop-loss?", context="Open: none."):
+def _turn(model, text="what is a stop-loss?", context="Open: none.", extra=None):
     body = {"text": text, "context": context, "lang": "en"}
+    if extra:
+        body.update(extra)
 
     async def _json():
         return body
@@ -120,6 +122,32 @@ def test_a_coaching_question_runs_the_account_free_turn_with_the_facts():
     assert kw["user_id"] == "" and kw["is_admin"] is False
     assert kw["surface"] == "pi_coach"
     assert kw["coach_context"] == "Open: BTCUSDT LONG at 65000", "the facts were not cleaned"
+
+
+def test_the_first_reply_of_a_session_starts_with_the_coach_notice(monkeypatch):
+    monkeypatch.setenv("COACH_AI_DISCLOSURE_ENABLED", "1")
+    monkeypatch.setenv("COACH_AI_DISCLOSURE_NETWORK", "testnet")
+    assert pi_coach.disclosure_on() is True
+    model = _Model(reply="A stop is a planned exit.")
+    status, out = _turn(model, extra={"session_first": True})
+    assert status == 200
+    assert out["reply_html"].startswith(pi_coach.SESSION_PREFIX + "\n")
+    assert out["reply_html"].endswith("A stop is a planned exit.")
+    _, later = _turn(model)
+    assert later["reply_html"] == "A stop is a planned exit."
+    _, fixed = _turn(model, text="when is the RCLAW presale?", extra={"session_first": True})
+    assert fixed["reply_html"].startswith(pi_coach.SESSION_PREFIX + "\n")
+    assert pi_coach.TOKEN_ANSWER in fixed["reply_html"]
+    assert len(model.calls) == 2
+
+
+def test_the_prefix_stays_off_when_the_flag_is_off(monkeypatch):
+    monkeypatch.delenv("COACH_AI_DISCLOSURE_ENABLED", raising=False)
+    monkeypatch.delenv("COACH_AI_DISCLOSURE_NETWORK", raising=False)
+    assert pi_coach.disclosure_on() is False
+    model = _Model()
+    _, out = _turn(model, extra={"session_first": True})
+    assert out == {"reply_html": model.reply, "intent": "pi_coach", "answered": True}
 
 
 def test_a_token_question_is_answered_without_a_model_and_spends_nothing():

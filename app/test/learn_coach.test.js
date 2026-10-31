@@ -69,9 +69,24 @@ test('the route serves nudges and the page renders them with lesson links', () =
   assert.match(page, /prefers-reduced-motion: reduce\) \{ \.ember\.hot \{ animation: none; \} \}/);
 });
 
-test('all five lc keys ship all 14 locales', () => {
+test('a disclosure that is on marks the nudges, and one that is off does not', () => {
+  const { withDisclosure } = require('../lib/learn_coach');
+  const rows = [{ id: 'clean' }];
+  assert.deepEqual(withDisclosure(rows, false), { nudges: rows });
+  assert.deepEqual(withDisclosure([], true), { nudges: [] });
+  assert.equal(withDisclosure(rows, true).ai_generated, true);
+  const page = fs.readFileSync(path.join(__dirname, '..', 'public', 'learn.html'), 'utf8');
+  const fn = page.slice(page.indexOf('function renderCoach'), page.indexOf('function renderHist'));
+  assert.match(fn, /data-ai-generated="true"/);
+  assert.match(fn, /lc\.ai_notice/);
+  assert.match(fn, /lc\.ai_badge/);
+  assert.match(fn, /p-coach-ai-badge/);
+});
+
+test('the diary coach lines, including the disclosure, ship all 14 locales', () => {
   const i18n = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'i18n.js'), 'utf8');
-  for (const key of ['lc.liq', 'lc.improv', 'lc.many', 'lc.clean', 'lc.open']) {
+  for (const key of ['lc.liq', 'lc.improv', 'lc.many', 'lc.clean', 'lc.open',
+    'lc.ai_notice', 'lc.ai_badge', 'lc.ai_tip']) {
     const line = i18n.split('\n').find((l) => l.includes(`'${key}':`));
     assert.ok(line, `i18n has ${key}`);
     for (const loc of ['en:', 'hi:', 'it:', 'es:', 'zh:', 'pt:', 'fr:', 'de:',

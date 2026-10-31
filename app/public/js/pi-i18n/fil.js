@@ -14,6 +14,8 @@
     ["A review of your settlement","Isang review ng settlement mo"],
     ["A season leaderboard, ranked on percent return.","Isang season leaderboard, niraranggo batay sa percent return."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","Hindi tugma ang pangalawang source ng presyo sa presyo ng settlement. Ang close ng exchange ang masusunod; makikita sa resibo ang dalawa."],
+    ["AI","AI"],
+    ["AI-generated reply","Sagot na gawa ng AI"],
     ["About","Tungkol"],
     ["About RUNECLAW Arena","Tungkol sa RUNECLAW Arena"],
     ["Accuracy","Katumpakan"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","Na-flag mo na ang settlement na iyan."],
     ["You have used today’s questions.","Nagamit mo na ang mga tanong ngayong araw."],
     ["You have used today’s questions. More at {time}.","Nagamit mo na ang mga tanong ngayong araw. Magkakaroon ulit sa {time}."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Nakikipag-chat ka sa isang AI coach, hindi sa isang tao. Maaari itong magkamali. Hindi ito payo sa pananalapi."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","Ang Telegram account mo ang magsa-sign in sa iyo: walang wallet, walang totoong pera, walang bibilhin."],
     ["Your account could not be loaded.","Hindi ma-load ang account mo."],
     ["Your call could not be recorded.","Hindi maitala ang hula mo."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","MAS GAGALAW ANG {sym}"],
     ["✓ TARGET","✓ TARGET"],
     ["✗ STOP","✗ STOP"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 AI coach. Hindi tao, hindi payo sa pananalapi."],
   ]);
 }());

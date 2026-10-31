@@ -216,8 +216,8 @@
     "sha": "173436196745d52c"
   },
   "js/i18n-core.js": {
-    "v": 212,
-    "sha": "c88c3b2f9ec6b27f"
+    "v": 213,
+    "sha": "386e482b732a1d3e"
   },
   "js/icons.js": {
     "v": 6,
@@ -280,8 +280,8 @@
     "sha": "a1e3cdeff1825d41"
   },
   "js/pi-coach.js": {
-    "v": 3,
-    "sha": "29642de6fb53d60c"
+    "v": 5,
+    "sha": "58fd9df948f2e88c"
   },
   "js/pi-duel.js": {
     "v": 13,

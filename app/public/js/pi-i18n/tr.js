@@ -14,6 +14,8 @@
     ["A review of your settlement","Sonuçlanmanın incelemesi"],
     ["A season leaderboard, ranked on percent return.","Yüzde getiriye göre bir sezon liderlik tablosu."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","İkinci bir fiyat kaynağı kapanış fiyatıyla uyuşmadı. Borsanın kapanışı geçerlidir; makbuz ikisini de gösterir."],
+    ["AI","YZ"],
+    ["AI-generated reply","Yapay zekânın ürettiği yanıt"],
     ["About","Hakkında"],
     ["About RUNECLAW Arena","RUNECLAW Arena hakkında"],
     ["Accuracy","İsabet"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","Bu sonuçlandırmayı zaten bildirdin."],
     ["You have used today’s questions.","Bugünün sorularını kullandın."],
     ["You have used today’s questions. More at {time}.","Bugünün sorularını kullandın. Yenileri {time} saatinde."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Bir yapay zekâ koçuyla yazışıyorsun, bir kişiyle değil. Yanılabilir. Bu finansal tavsiye değildir."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","Telegram hesabınla giriş yaparsın: cüzdan yok, gerçek para yok, satın alınacak bir şey yok."],
     ["Your account could not be loaded.","Hesabın yüklenemedi."],
     ["Your call could not be recorded.","Çağrın kaydedilemedi."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} DAHA ÇOK"],
     ["✓ TARGET","✓ HEDEF"],
     ["✗ STOP","✗ STOP"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 Yapay zekâ koçu. Bir kişi değil, finansal tavsiye değil."],
   ]);
 }());

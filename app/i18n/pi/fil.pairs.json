@@ -458,5 +458,9 @@
 ["of {n} high-confidence calls","sa {n} hulang mataas ang kumpiyansa"],
 ["How often your high-confidence calls were right","Gaano kadalas tama ang mga hula mong mataas ang kumpiyansa"],
 ["High confidence","Mataas na kumpiyansa"],
-["Choose low, medium or high. Your call was not recorded.","Pumili ng mababa, katamtaman, o mataas. Hindi naitala ang hula mo."]
+["Choose low, medium or high. Your call was not recorded.","Pumili ng mababa, katamtaman, o mataas. Hindi naitala ang hula mo."],
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Nakikipag-chat ka sa isang AI coach, hindi sa isang tao. Maaari itong magkamali. Hindi ito payo sa pananalapi."],
+["AI","AI"],
+["AI-generated reply","Sagot na gawa ng AI"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 AI coach. Hindi tao, hindi payo sa pananalapi."]
 ]

@@ -14,6 +14,8 @@
     ["A review of your settlement","당신의 정산에 대한 검토"],
     ["A season leaderboard, ranked on percent return.","퍼센트 수익률로 순위를 매기는 시즌 순위표."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","두 번째 가격 소스가 정산 가격과 일치하지 않았습니다. 거래소 종가로 정산되며 영수증에 둘 다 표시됩니다."],
+    ["AI","AI"],
+    ["AI-generated reply","AI가 생성한 답변"],
     ["About","소개"],
     ["About RUNECLAW Arena","RUNECLAW 아레나 소개"],
     ["Accuracy","정확도"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","그 정산은 이미 신고했습니다."],
     ["You have used today’s questions.","오늘의 질문을 모두 사용했습니다."],
     ["You have used today’s questions. More at {time}.","오늘의 질문을 모두 사용했습니다. {time}에 더 받을 수 있습니다."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","AI 코치와 대화하고 있습니다. 사람이 아닙니다. 틀릴 수 있습니다. 금융 조언이 아닙니다."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","Telegram 계정으로 로그인합니다: 지갑 없음, 실제 자금 없음, 구매할 것 없음."],
     ["Your account could not be loaded.","계정을 불러오지 못했습니다."],
     ["Your call could not be recorded.","콜을 기록하지 못했습니다."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} 더 움직임"],
     ["✓ TARGET","✓ 목표 도달"],
     ["✗ STOP","✗ 손절"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 AI 코치. 사람이 아니며, 금융 조언이 아닙니다."],
   ]);
 }());

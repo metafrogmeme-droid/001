@@ -458,5 +458,9 @@
 ["of {n} high-confidence calls","trong {n} dự đoán tự tin cao"],
 ["How often your high-confidence calls were right","Dự đoán tự tin cao của bạn đúng bao lâu một lần"],
 ["High confidence","Tự tin cao"],
-["Choose low, medium or high. Your call was not recorded.","Chọn thấp, trung bình hoặc cao. Dự đoán của bạn chưa được ghi nhận."]
+["Choose low, medium or high. Your call was not recorded.","Chọn thấp, trung bình hoặc cao. Dự đoán của bạn chưa được ghi nhận."],
+["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Bạn đang trò chuyện với một huấn luyện viên AI, không phải một người. Nó có thể sai. Đây không phải là lời khuyên tài chính."],
+["AI","AI"],
+["AI-generated reply","Câu trả lời do AI tạo"],
+["🤖 AI coach. Not a person, not financial advice.","🤖 Huấn luyện viên AI. Không phải một người, không phải lời khuyên tài chính."]
 ]

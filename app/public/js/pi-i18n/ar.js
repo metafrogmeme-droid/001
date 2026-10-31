@@ -14,6 +14,8 @@
     ["A review of your settlement","مراجعة لتسويتك"],
     ["A season leaderboard, ranked on percent return.","لوحة صدارة للموسم، مرتّبة حسب نسبة العائد."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","اختلف مصدر سعر ثانٍ مع سعر التسوية. إغلاق المنصة هو المعتمد؛ ويعرض الإيصال كليهما."],
+    ["AI","AI"],
+    ["AI-generated reply","رد مولَّد بالذكاء الاصطناعي"],
     ["About","حول"],
     ["About RUNECLAW Arena","حول ساحة RUNECLAW"],
     ["Accuracy","الدقة"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","لقد أبلغت عن هذه التسوية بالفعل."],
     ["You have used today’s questions.","استخدمت أسئلة اليوم."],
     ["You have used today’s questions. More at {time}.","استخدمت أسئلة اليوم. المزيد عند {time}."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","أنت تتحدث مع مدرب ذكاء اصطناعي، وليس شخصًا. قد يخطئ. هذه ليست نصيحة مالية."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","يسجّل حساب Telegram دخولك: لا محفظة، ولا أموال حقيقية، ولا شيء للشراء."],
     ["Your account could not be loaded.","تعذّر تحميل حسابك."],
     ["Your call could not be recorded.","تعذّر تسجيل ندائك."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} يتحرك أكثر"],
     ["✓ TARGET","✓ الهدف"],
     ["✗ STOP","✗ الوقف"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 مدرب ذكاء اصطناعي. ليس شخصًا، وليست نصيحة مالية."],
   ]);
 }());

@@ -24,6 +24,7 @@ construction, and the coach's facts arrive from the website as text.
 """
 from __future__ import annotations
 
+import os
 import re
 
 #: The longest question the coach takes (the website's own cap is the same).
@@ -162,3 +163,29 @@ def withheld_reason(reply: str) -> str | None:
         if rx.search(reply or ""):
             return name
     return None
+
+
+#: The first reply of a coach session. The website draws the same words.
+SESSION_PREFIX = "🤖 AI coach. Not a person, not financial advice."
+
+
+def disclosure_on(env: dict | None = None) -> bool:
+    """The same public reader as app/lib/coach_ai_disclosure.js.
+
+    Off unless COACH_AI_DISCLOSURE_ENABLED is 1 or true and
+    COACH_AI_DISCLOSURE_NETWORK is testnet. Unset is not a network.
+    """
+    src = os.environ if env is None else env
+    flag = str(src.get("COACH_AI_DISCLOSURE_ENABLED") or "").strip().lower()
+    network = str(src.get("COACH_AI_DISCLOSURE_NETWORK") or "").strip().lower()
+    return flag in {"1", "true"} and network == "testnet"
+
+
+def prefix_first_reply(reply: str, first: bool) -> str:
+    """The session's first reply starts with SESSION_PREFIX. A later one does not."""
+    text = reply or ""
+    if text.startswith(SESSION_PREFIX):
+        text = text[len(SESSION_PREFIX):].lstrip("\n")
+    if not first:
+        return text
+    return SESSION_PREFIX + "\n" + text

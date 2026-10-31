@@ -14,6 +14,8 @@
     ["A review of your settlement","Een herziening van je afrekening"],
     ["A season leaderboard, ranked on percent return.","Een seizoensklassement, gerangschikt op procentueel rendement."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","Een tweede prijsbron was het oneens met de afrekenprijs. De slotkoers van de beurs telt; het bewijs toont beide."],
+    ["AI","AI"],
+    ["AI-generated reply","Door AI gemaakt antwoord"],
     ["About","Over"],
     ["About RUNECLAW Arena","Over RUNECLAW Arena"],
     ["Accuracy","Nauwkeurigheid"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","Je hebt die afrekening al gemeld."],
     ["You have used today’s questions.","Je hebt de vragen van vandaag gebruikt."],
     ["You have used today’s questions. More at {time}.","Je hebt de vragen van vandaag gebruikt. Nieuwe om {time}."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Je chat met een AI-coach, geen persoon. Het kan fout zijn. Het is geen financieel advies."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","Je Telegram-account meldt je aan: geen wallet, geen echt geld, niets te kopen."],
     ["Your account could not be loaded.","Je account kon niet worden geladen."],
     ["Your call could not be recorded.","Je call kon niet worden vastgelegd."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} BEWEEGT MEER"],
     ["✓ TARGET","✓ DOEL"],
     ["✗ STOP","✗ STOP"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 AI-coach. Geen persoon, geen financieel advies."],
   ]);
 }());

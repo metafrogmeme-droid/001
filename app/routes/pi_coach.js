@@ -16,6 +16,11 @@
  * not be asked, which spends nothing. A question no model answered (a fixed
  * answer, an outage, a budget refusal) is given back; a reply the coach's
  * output check withheld is not, because a model ran.
+ *
+ * When the Coach AI disclosure is on for this caller, the JSON carries
+ * `ai_disclosure` (the notice, the mark, and whether this is an admin
+ * preview). A model's answer also carries `ai_generated` and `ai_mark`.
+ * A caller the disclosure is off for gets neither field.
  */
 
 const express = require('express');
@@ -24,6 +29,7 @@ const { authMiddleware } = require('../auth');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const gateway = require('../lib/gateway');
 const coach = require('../lib/pi_coach');
+const disclosure = require('../lib/coach_ai_disclosure');
 
 const router = express.Router();
 
@@ -79,9 +85,13 @@ function readAbout(raw) {
 
 router.get('/', authMiddleware, limit, async (req, res) => {
   try {
-    if (!(await isPiAccount(req.user.user_id))) return res.json({ enabled: false, reason: 'pi_account_required' });
-    if (!gw().isConfigured()) return res.json({ enabled: false, reason: 'coach_not_configured' });
-    return res.json({ enabled: true, ...(await allowance(req.user.user_id, now())) });
+    if (!(await isPiAccount(req.user.user_id))) {
+      return res.json(await withDisclosure({ enabled: false, reason: 'pi_account_required' }, req));
+    }
+    if (!gw().isConfigured()) {
+      return res.json(await withDisclosure({ enabled: false, reason: 'coach_not_configured' }, req));
+    }
+    return res.json(await withDisclosure({ enabled: true, ...(await allowance(req.user.user_id, now())) }, req));
   } catch (err) {
     console.error('Pi coach read error:', err.constructor.name);
     return res.status(503).json({ error: 'coach_unavailable' });
@@ -111,7 +121,11 @@ router.post('/', authMiddleware, limit, async (req, res) => {
     }
     const context = await coach.facts(userId, ab.about, { arena: deps().arena, duel: deps().duel, tickers: deps().tickers }, text);
     const lang = typeof body.lang === 'string' && /^[a-zA-Z-]{2,12}$/.test(body.lang) ? body.lang : '';
-    const r = await gw().postGateway('/chat/pi-coach', { text, context, ...(lang ? { lang } : {}) }, TIMEOUT_MS);
+    const view = await disclosure.viewFor(req, env());
+    const first = body.session_first === true && view.show === true;
+    const r = await gw().postGateway('/chat/pi-coach', {
+      text, context, ...(lang ? { lang } : {}), ...(first ? { session_first: true } : {}),
+    }, TIMEOUT_MS);
     const data = r && r.data;
     if (!r || r.status !== 200 || !data || typeof data.reply_html !== 'string') {
       await coach.giveBack(userId, day);
@@ -124,14 +138,25 @@ router.post('/', authMiddleware, limit, async (req, res) => {
       taken = false;
     }
     const after = await allowance(userId, t);
-    return res.json({ reply_html: data.reply_html, intent: data.intent || 'pi_coach',
-      limit: after.limit, left: after.left, resets_at: after.resets_at, plus: after.plus });
+    const intent = data.intent || 'pi_coach';
+    return res.json({
+      ...disclosure.presentReply(data.reply_html, intent, view, first),
+      intent,
+      limit: after.limit, left: after.left, resets_at: after.resets_at, plus: after.plus,
+    });
   } catch (err) {
     console.error('Pi coach error:', err.constructor.name);
     if (taken) { try { await coach.giveBack(userId, day); } catch (e) { /* the count stays, which is the safe side */ } }
     return res.status(503).json({ error: 'coach_unavailable' });
   }
 });
+
+/** Attach the disclosure when this caller may see it. Omit the key otherwise. */
+async function withDisclosure(body, req) {
+  const extra = disclosure.payload(await disclosure.viewFor(req, env()));
+  if (!extra) return body;
+  return { ...body, ai_disclosure: extra };
+}
 
 module.exports = router;
 module.exports.readAbout = readAbout;

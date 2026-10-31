@@ -14,6 +14,8 @@
     ["A review of your settlement","Uma revisão da sua liquidação"],
     ["A season leaderboard, ranked on percent return.","Uma classificação por temporada, ordenada por retorno percentual."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","Uma segunda fonte de preços discordou do preço de fecho. Fecha o preço da bolsa; o recibo mostra ambos."],
+    ["AI","IA"],
+    ["AI-generated reply","Resposta gerada por IA"],
     ["About","Sobre"],
     ["About RUNECLAW Arena","Sobre a RUNECLAW Arena"],
     ["Accuracy","Acerto"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","Já assinalou essa liquidação."],
     ["You have used today’s questions.","Já usou as perguntas de hoje."],
     ["You have used today’s questions. More at {time}.","Já usou as perguntas de hoje. Mais às {time}."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Está a conversar com um coach de IA, não com uma pessoa. Pode errar. Não é aconselhamento financeiro."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","A sua conta do Telegram inicia a sessão: sem carteira, sem dinheiro real, nada para comprar."],
     ["Your account could not be loaded.","Não foi possível carregar a sua conta."],
     ["Your call could not be recorded.","Não foi possível registar a sua chamada."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} MEXE MAIS"],
     ["✓ TARGET","✓ ALVO"],
     ["✗ STOP","✗ STOP"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 Coach de IA. Não é uma pessoa, não é aconselhamento financeiro."],
   ]);
 }());

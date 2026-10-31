@@ -164,6 +164,26 @@ router.get('/letter', async (req, res) => {
 });
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Nudges, plus the disclosure mark when this caller may see the coach sentences. */
+async function coachBody(req, trades) {
+  const learnCoach = require('../lib/learn_coach');
+  const disclosure = require('../lib/coach_ai_disclosure');
+  const nudges = learnCoach.coachNudges(trades);
+  let extra = null;
+  try {
+    extra = disclosure.payload(await disclosure.viewFor(req));
+  } catch (err) {
+    extra = null;
+  }
+  const marked = learnCoach.withDisclosure(nudges, extra != null);
+  const body = { nudges: marked.nudges };
+  if (marked.ai_generated === true && extra) {
+    body.ai_generated = true;
+    body.ai_disclosure = extra;
+  }
+  return body;
+}
 const MAX_BODY = 4000;
 
 function todayUtc() { return new Date().toISOString().slice(0, 10); }
@@ -226,7 +246,8 @@ router.get('/diary/:day', async (req, res) => {
       trades,
       // The coach: deterministic nudges from the day's own record — facts
       // with lesson pointers, never model output (lib/learn_coach).
-      nudges: require('../lib/learn_coach').coachNudges(trades),
+      // The disclosure mark is added only when this caller may see it.
+      ...(await coachBody(req, trades)),
       private: true,
     });
   } catch (err) {

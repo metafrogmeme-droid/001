@@ -14,6 +14,8 @@
     ["A review of your settlement","Xem xét lại kết quả chốt của bạn"],
     ["A season leaderboard, ranked on percent return.","Bảng xếp hạng theo mùa giải, xếp theo lợi nhuận phần trăm."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","Một nguồn giá thứ hai không khớp với giá chốt. Giá đóng cửa của sàn được dùng để chốt; biên nhận hiển thị cả hai."],
+    ["AI","AI"],
+    ["AI-generated reply","Câu trả lời do AI tạo"],
     ["About","Giới thiệu"],
     ["About RUNECLAW Arena","Giới thiệu RUNECLAW Arena"],
     ["Accuracy","Độ chính xác"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","Bạn đã báo cáo kết quả chốt đó rồi."],
     ["You have used today’s questions.","Bạn đã dùng hết câu hỏi hôm nay."],
     ["You have used today’s questions. More at {time}.","Bạn đã dùng hết câu hỏi hôm nay. Có thêm lúc {time}."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Bạn đang trò chuyện với một huấn luyện viên AI, không phải một người. Nó có thể sai. Đây không phải là lời khuyên tài chính."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","Tài khoản Telegram của bạn sẽ đăng nhập cho bạn: không ví, không tiền thật, không có gì phải mua."],
     ["Your account could not be loaded.","Không thể tải tài khoản của bạn."],
     ["Your call could not be recorded.","Không thể ghi nhận dự đoán của bạn."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} BIẾN ĐỘNG HƠN"],
     ["✓ TARGET","✓ MỤC TIÊU"],
     ["✗ STOP","✗ CẮT LỖ"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 Huấn luyện viên AI. Không phải một người, không phải lời khuyên tài chính."],
   ]);
 }());

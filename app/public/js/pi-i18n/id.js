@@ -14,6 +14,8 @@
     ["A review of your settlement","Tinjauan atas penyelesaian kamu"],
     ["A season leaderboard, ranked on percent return.","Papan peringkat musiman, diurutkan berdasarkan persentase return."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","Sumber harga kedua tidak sesuai dengan harga penyelesaian. Harga penutupan di bursa yang menentukan; bukti menampilkan keduanya."],
+    ["AI","AI"],
+    ["AI-generated reply","Balasan yang dihasilkan AI"],
     ["About","Tentang"],
     ["About RUNECLAW Arena","Tentang RUNECLAW Arena"],
     ["Accuracy","Akurasi"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","Kamu sudah menandai penyelesaian itu."],
     ["You have used today’s questions.","Kamu sudah memakai semua pertanyaan hari ini."],
     ["You have used today’s questions. More at {time}.","Kamu sudah memakai semua pertanyaan hari ini. Tersedia lagi pada {time}."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Kamu mengobrol dengan pelatih AI, bukan seorang pribadi. Ia bisa keliru. Ini bukan nasihat keuangan."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","Akun Telegram-mu yang membuatmu masuk: tanpa dompet, tanpa uang sungguhan, tidak ada yang perlu dibeli."],
     ["Your account could not be loaded.","Akun kamu tidak dapat dimuat."],
     ["Your call could not be recorded.","Prediksi kamu tidak dapat dicatat."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} BERGERAK LEBIH JAUH"],
     ["✓ TARGET","✓ TARGET"],
     ["✗ STOP","✗ STOP"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 Pelatih AI. Bukan seorang pribadi, bukan nasihat keuangan."],
   ]);
 }());

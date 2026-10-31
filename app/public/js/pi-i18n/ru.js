@@ -14,6 +14,8 @@
     ["A review of your settlement","Пересмотр вашего расчёта"],
     ["A season leaderboard, ranked on percent return.","Сезонная таблица лидеров с рейтингом по доходности в процентах."],
     ["A second price source disagreed with the settling price. The venue’s close settles; the receipt shows both.","Второй источник цены не согласился с ценой расчёта. Расчёт идёт по закрытию биржи; в квитанции показаны обе."],
+    ["AI","ИИ"],
+    ["AI-generated reply","Ответ, сгенерированный ИИ"],
     ["About","О приложении"],
     ["About RUNECLAW Arena","Об Арене RUNECLAW"],
     ["Accuracy","Точность"],
@@ -379,6 +381,7 @@
     ["You have flagged that settlement already.","Вы уже отметили этот расчёт."],
     ["You have used today’s questions.","Вы использовали сегодняшние вопросы."],
     ["You have used today’s questions. More at {time}.","Вы использовали сегодняшние вопросы. Новые — в {time}."],
+    ["You're chatting with an AI coach, not a person. It can be wrong. It is not financial advice.","Вы общаетесь с ИИ-тренером, не с человеком. Он может ошибаться. Это не финансовая рекомендация."],
     ["Your Telegram account signs you in: no wallet, no real funds, nothing to buy.","Вход выполняется через ваш аккаунт Telegram: без кошелька, без реальных денег, ничего покупать не нужно."],
     ["Your account could not be loaded.","Не удалось загрузить ваш счёт."],
     ["Your call could not be recorded.","Не удалось записать ваш вызов."],
@@ -463,5 +466,6 @@
     ["{sym} MOVES MORE","{sym} СДВИНЕТСЯ БОЛЬШЕ"],
     ["✓ TARGET","✓ ЦЕЛЬ"],
     ["✗ STOP","✗ СТОП"],
+    ["🤖 AI coach. Not a person, not financial advice.","🤖 ИИ-тренер. Не человек, не финансовая рекомендация."],
   ]);
 }());
