@@ -11582,16 +11582,17 @@ class RuneClawEngine:
         if not _winding:
             self._wind_down_noted = None
         if _live or _winding:
-            _executors = self._all_live_executors() if _live else _winding
             if not _live:
                 self._note_wind_down(_winding)
             # Before anything below can open a row (`_agent_open_ids`).
             if _live and getattr(self, "live_executor", None) is not None:
                 self._agent_open_ids(self.live_executor)
             # An executor dropped by a /connect, a /disconnect or a website
-            # control change is rebuilt before the loops below walk them.
+            # control change is rebuilt before the loops below walk them, so
+            # the list they walk is read after it.
             if _live:
                 self._rebind_invalidated_executors()
+            _executors = self._all_live_executors() if _live else _winding
             # SL/TP self-heal: re-place any stop that went missing DURING
             # operation (adopted-unprotected, cancelled SL, deferred-then-filled).
             # verify_and_fix_sltp is idempotent; throttled so it isn't run every
