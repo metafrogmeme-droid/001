@@ -447,13 +447,19 @@ def test_the_engine_hook_is_off_with_the_flag_and_runs_once_a_day_with_it(
 
     async def _get_exchange():
         return venue
-    eng = NS(scanner=NS(_exchange=venue, _get_exchange=_get_exchange))
+    eng = NS(scanner=NS(_exchange=venue, _get_exchange=_get_exchange),
+             _sleeve_call_callback=None)
+    # The real announce step, bound: a RECORDED run asks it, and with no
+    # poster registered it hands nothing on.
+    eng._announce_sleeve_call = RuneClawEngine._announce_sleeve_call.__get__(eng)
     hook = RuneClawEngine._record_sleeve_paper_day
 
     flag(False)
     assert _run(hook(eng)) == DISABLED and venue.calls == []
     flag(True)
-    assert _run(hook(NS(scanner=NS(_exchange=None)))) == NOT_ASKED
+    bare = NS(scanner=NS(_exchange=None))
+    bare._announce_sleeve_call = RuneClawEngine._announce_sleeve_call.__get__(bare)
+    assert _run(hook(bare)) == NOT_ASKED
     assert _run(hook(eng)) == RECORDED and len(venue.calls) == len(UNIVERSE)
     assert _run(hook(eng)) == ALREADY and len(venue.calls) == len(UNIVERSE)
     assert paper.state_file() == tmp_path / "sleeve" / "xsmom_regime_paper.json"
@@ -469,6 +475,7 @@ def test_a_failed_engine_run_is_not_retried_every_tick(tmp_path, monkeypatch, fl
     async def _get_exchange():
         return venue
     eng = NS(scanner=NS(_exchange=venue, _get_exchange=_get_exchange))
+    eng._announce_sleeve_call = RuneClawEngine._announce_sleeve_call.__get__(eng)
     assert _run(RuneClawEngine._record_sleeve_paper_day(eng)) == UNREADABLE
     asked = len(venue.calls)
     assert _run(RuneClawEngine._record_sleeve_paper_day(eng)) == NOT_ASKED

@@ -2,12 +2,22 @@
 /**
  * Content-Security-Policy script hashes for the static pages.
  *
- * THE FINDING (M14). `script-src` was `'self' 'unsafe-inline' https://telegram.org`
- * while the session bearer token lived in localStorage, so CSP offered no
- * backstop at all against injected inline script: any one innerHTML sink
- * reached with unescaped attacker data executes, reads the token, and
- * exfiltrates it by navigating away. `'unsafe-inline'` is what makes that
- * chain a single bug rather than two.
+ * THE FINDING (M14), WHICH IS CLOSED. `script-src` was
+ * `'self' 'unsafe-inline' https://telegram.org` while the session bearer
+ * token lived in localStorage, so CSP offered no backstop against injected
+ * inline script: any one innerHTML sink reached with unescaped attacker data
+ * would execute, read the token, and exfiltrate it by navigating away.
+ * `'unsafe-inline'` is what made that chain a single bug rather than two.
+ *
+ * THE TOKEN IS NOT IN localStorage. The live session is the `rc_jwt` cookie
+ * set by `setSession` in lib/session_cookie.js: HttpOnly, SameSite=Lax, and
+ * Secure on HTTPS. The page can read only `rc_auth=1`, a flag with no secret.
+ * `showAccount` in public/index.html writes `{user_id}` and not the token.
+ * public/js/app.js `resolveToken` (the `localStorage.getItem('token')` read)
+ * exists for one purpose: a browser that still has a pre-cookie token trades
+ * it for the cookie via GET /api/auth/me and then deletes it. A sentence that
+ * says the session token is stored in localStorage is describing that old
+ * finding, not the code.
  *
  * WHY HASHES AND NOT NONCES. A nonce has to be minted per response and written
  * into the HTML, which requires rendering it. These pages are STATIC — served
@@ -109,4 +119,41 @@ function scriptSrc() {
   return ["'self'", ...(_cached), 'https://telegram.org'].join(' ');
 }
 
-module.exports = { scriptSrc, scriptHashes, hashesForHtml, hashOf, PUBLIC_DIR };
+/**
+ * Site-wide `connect-src`, explicit and limited to what the pages actually open.
+ *
+ * Measured 2026-10-30 from the pages, the route templates, and the scripts
+ * they load:
+ *
+ *   'self'  Every browser call is same-origin: `/api/…`, `EventSource('/api/stream')`.
+ *           The bot gateway is not one of them. Express calls `BOT_GATEWAY_URL`
+ *           on the server, and nginx.conf's `/gateway/` block says the same:
+ *           browsers never request that origin. A same-host `/gateway/` path
+ *           would still be `'self'`, and the pages do not call it.
+ *   blob:   The owl viewer. three.js GLTFLoader `loadImageSource` turns an
+ *           embedded image into a blob URL and ImageBitmapLoader fetches it.
+ *           That fetch is connect-src, not img-src. The blob is same-origin
+ *           and ephemeral. There is no tighter source than the `blob:` scheme.
+ *
+ * Left out on purpose, because the pages do not connect there:
+ *
+ *   https://telegram.org and https://oauth.telegram.org
+ *     The login widget is a script (script-src) that opens an iframe
+ *     (frame-src `https://oauth.telegram.org`) and talks to it with
+ *     postMessage. `Telegram.Login.getAuthData` would POST to
+ *     oauth.telegram.org, and no page calls it.
+ *   Pi (https://socialchain.app, api.minepi.com, sdk.minepi.com)
+ *     Only `/pi` loads the SDK, and that response replaces this header with
+ *     its own `connect-src 'self' https://socialchain.app`. The Platform
+ *     check is server-side, so api.minepi.com stays off that page too.
+ *     The validation-key routes are plain GETs of a text file, not connections
+ *     the page opens.
+ *
+ * No wildcard. A host that is not in this list is not a place a script on
+ * the site can send the session.
+ */
+function connectSrc() {
+  return "'self' blob:";
+}
+
+module.exports = { scriptSrc, scriptHashes, hashesForHtml, hashOf, connectSrc, PUBLIC_DIR };

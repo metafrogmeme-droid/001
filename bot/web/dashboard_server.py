@@ -11,11 +11,14 @@ F-03 FIX: CORS restricted to configured origin (not wildcard).
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import hmac
 import logging
 import math
 import os
 import pathlib
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -33,6 +36,86 @@ _DASHBOARD_TOKEN: str = os.environ.get("DASHBOARD_TOKEN", "")
 
 # F-03 FIX: Allowed CORS origin. Default to same-origin (empty = no CORS headers).
 _CORS_ORIGIN: str = os.environ.get("DASHBOARD_CORS_ORIGIN", "")
+
+# The operator secret, as an HttpOnly cookie. The pages used to keep it in
+# localStorage under this same idea; the cookie name is different so a script
+# cannot confuse the two, and the old key is deleted on load.
+_DASHBOARD_COOKIE = "dashboard_auth"
+_NOT_A_CREDENTIAL = frozenset({"null", "undefined", "false"})
+_INLINE_SCRIPT = re.compile(
+    r"<script(?![^>]*\ssrc\s*=)[^>]*>([\s\S]*?)</script>", re.IGNORECASE)
+
+
+def _request_is_secure(request: web.Request) -> bool:
+    """Secure only on HTTPS. A Secure cookie over plain HTTP is dropped, and
+    this dashboard is bound to localhost in development."""
+    scheme = getattr(request, "scheme", "") or ""
+    if scheme == "https":
+        return True
+    headers = getattr(request, "headers", None)
+    if headers is None or not hasattr(headers, "get"):
+        return False
+    proto = headers.get("X-Forwarded-Proto", "")
+    return str(proto).split(",")[0].strip() == "https"
+
+
+def _presented_token(request: web.Request) -> str:
+    """Bearer header first, then the HttpOnly cookie. Header-first keeps every
+    existing API client (curl, the bridge) on the path it already uses."""
+    headers = getattr(request, "headers", None)
+    auth = ""
+    if headers is not None and hasattr(headers, "get"):
+        auth = headers.get("Authorization", "") or ""
+    if isinstance(auth, str) and auth.startswith("Bearer "):
+        raw = auth[7:].strip()
+        if raw and raw not in _NOT_A_CREDENTIAL:
+            return raw
+    cookies = getattr(request, "cookies", None)
+    if cookies is not None and hasattr(cookies, "get"):
+        return str(cookies.get(_DASHBOARD_COOKIE) or "")
+    return ""
+
+
+def _script_hashes() -> list[str]:
+    """SHA-256 of each inline script the two dashboard pages ship. Computed
+    from the files FileResponse serves, so the policy cannot drift from them."""
+    out: list[str] = []
+    root = pathlib.Path(__file__).parent
+    for name in ("dashboard.html", "performance_chart.html"):
+        try:
+            html = (root / name).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for body in _INLINE_SCRIPT.findall(html):
+            digest = base64.b64encode(
+                hashlib.sha256(body.encode("utf-8")).digest()).decode("ascii")
+            token = f"'sha256-{digest}'"
+            if token not in out:
+                out.append(token)
+    return out
+
+
+def _content_security_policy() -> str:
+    # connect-src is this origin only. The pages fetch /api/* here. Chart.js is
+    # vendored, so script-src does not name a CDN. The two stylesheets @import
+    # Google's font CSS, which then loads the font files from gstatic: those
+    # two hosts, and no wildcard.
+    scripts = " ".join(["'self'", *_script_hashes()])
+    return "; ".join([
+        "default-src 'self'",
+        f"script-src {scripts}",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "img-src 'self' data:",
+        "font-src 'self' https://fonts.gstatic.com",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ])
+
+
+_CSP = _content_security_policy()
 
 
 def _ts() -> str:
@@ -336,6 +419,54 @@ async def handle_equitycurve(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)[:200]}, status=500)
 
 
+async def handle_session(request: web.Request) -> web.Response:
+    """Trade the operator's token for an HttpOnly cookie.
+
+    Registered at POST /api/session. auth_middleware lets that one POST
+    through, because the cookie this handler sets is what every later call
+    presents: the check below is the gate, the same compare_digest the
+    middleware uses for a bearer. Every later `/api/*` call is a GET, and
+    SameSite=Lax already withholds the cookie from a cross-site POST, so
+    there is no second CSRF token. This process has no cookie-authenticated
+    state change. The login POST itself is useless without the secret in
+    its body.
+    """
+    if not _DASHBOARD_TOKEN:
+        return web.json_response(
+            {"error": "DASHBOARD_TOKEN not configured. Set it in .env to enable the API."},
+            status=403,
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    token = ""
+    if isinstance(body, dict):
+        token = str(body.get("token") or "").strip()
+    if not token or token in _NOT_A_CREDENTIAL or not hmac.compare_digest(token, _DASHBOARD_TOKEN):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    resp = web.json_response({"ok": True})
+    resp.set_cookie(
+        _DASHBOARD_COOKIE, token,
+        max_age=30 * 24 * 60 * 60,
+        httponly=True,
+        samesite="Lax",
+        secure=_request_is_secure(request),
+        path="/",
+    )
+    return resp
+
+
+async def handle_chart_js(request: web.Request) -> web.StreamResponse:
+    """Chart.js 4.4.1, vendored. The page used to load it from jsDelivr with
+    no integrity attribute. Served under /api/ so auth_middleware gates it;
+    the chart page inserts the tag only after the session cookie exists."""
+    path = pathlib.Path(__file__).parent / "vendor" / "chart.umd.min.js"
+    if path.is_file():
+        return web.FileResponse(path)
+    return web.Response(text="Chart library not found", status=404)
+
+
 async def handle_index(request: web.Request) -> web.Response:
     """Serve the dashboard HTML."""
     html_path = pathlib.Path(__file__).parent / "dashboard.html"
@@ -352,8 +483,9 @@ async def handle_performance_chart(request: web.Request) -> web.Response:
     """Serve the performance charting page.
 
     Like the dashboard index, the PAGE itself is unauthenticated (it carries no
-    data) — it fetches /api/performance and /api/equitycurve client-side with the
-    operator's Bearer token, and those endpoints stay gated by auth_middleware.
+    data) — it fetches /api/performance and /api/equitycurve client-side with
+    the HttpOnly session cookie, and those endpoints stay gated by
+    auth_middleware. A Bearer header still works for a non-browser client.
     """
     html_path = pathlib.Path(__file__).parent / "performance_chart.html"
     if html_path.exists():
@@ -722,14 +854,36 @@ async def auth_middleware(request: web.Request, handler):
                 {"error": "DASHBOARD_TOKEN not configured. Set it in .env to enable the API."},
                 status=403,
             )
-        auth_header = request.headers.get("Authorization", "")
-        token = auth_header.removeprefix("Bearer ").strip()
+        # POST /api/session is how the cookie comes to exist. The middleware's
+        # header-or-cookie read cannot see a secret that has not been stored,
+        # and the handler checks the body with the same compare_digest. The
+        # exception is this method and this path: a GET of it, and every other
+        # /api/ path including the vendored chart, stays on the check below.
+        if request.method == "POST" and request.path == "/api/session":
+            return await handler(request)
+        token = _presented_token(request)
         if not token or not hmac.compare_digest(token, _DASHBOARD_TOKEN):
             return web.json_response({"error": "unauthorized"}, status=401)
     return await handler(request)
 
 
 # ── CORS Middleware (F-03 FIX) ────────────────────────────────
+
+@web.middleware
+async def security_middleware(request: web.Request, handler):
+    """CSP and the companion headers, on every response including a 401.
+
+    script-src is `'self'` plus the hash of each inline block the HTML files
+    actually contain. connect-src is `'self'`: the browser talks to this
+    process, not to a CDN and not to the bot gateway as its own origin.
+    """
+    resp = await handler(request)
+    resp.headers["Content-Security-Policy"] = _CSP
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return resp
+
 
 @web.middleware
 async def cors_middleware(request: web.Request, handler):
@@ -765,10 +919,12 @@ def create_app(engine, tg_handler=None) -> web.Application:
                 only guards /api/*, so the sub-app's own middleware is the
                 sole gate on /gateway/*).
     """
-    app = web.Application(middlewares=[cors_middleware, auth_middleware])
+    app = web.Application(middlewares=[security_middleware, cors_middleware, auth_middleware])
     app["engine"] = engine
     app.router.add_get("/", handle_index)
     app.router.add_get("/chart", handle_performance_chart)
+    app.router.add_post("/api/session", handle_session)
+    app.router.add_get("/api/vendor/chart.umd.min.js", handle_chart_js)
     app.router.add_get("/api/state", handle_state)
     app.router.add_get("/api/positions", handle_positions)
     app.router.add_get("/api/signals", handle_signals)

@@ -1011,6 +1011,7 @@ class RuneClawEngine:
         self._running = False
         self._confirm_callback: Optional[Callable] = None
         self._close_notify_callback: Optional[Callable] = None
+        self._sleeve_call_callback: Optional[Callable] = None
         self._fill_notify_callback: Optional[Callable] = None
         self._sync_notify_callback: Optional[Callable] = None
         self._adopt_notify_callback: Optional[Callable] = None
@@ -1413,19 +1414,49 @@ class RuneClawEngine:
         own, and a failed run is tried again no sooner than half an hour on.
         Returns the runner's word.
         """
-        from bot.sleeve.paper import ALREADY, DISABLED, NOT_ASKED, record_is_current, run_once, sleeve_paper_enabled
+        from bot.sleeve.paper import (
+            ALREADY,
+            DISABLED,
+            NOT_ASKED,
+            record_is_current,
+            run_once,
+            sleeve_paper_enabled,
+        )
         if not sleeve_paper_enabled():
             return DISABLED
         if record_is_current():
+            # The day is already on disk. Queue a call that a timed-out pass
+            # never wrote, and retry an approved send that did not land.
+            await self._announce_sleeve_call()
             return ALREADY
         now = time.monotonic()
         if now < getattr(self, "_sleeve_paper_next_try", 0.0):
+            await self._announce_sleeve_call()
             return NOT_ASKED
         if getattr(getattr(self, "scanner", None), "_exchange", None) is None:
+            await self._announce_sleeve_call()
             return NOT_ASKED
         self._sleeve_paper_next_try = now + 1800.0
         exchange = await self.scanner._get_exchange()
-        return (await run_once(exchange)).outcome
+        outcome = (await run_once(exchange)).outcome
+        await self._announce_sleeve_call()
+        return outcome
+
+    async def _announce_sleeve_call(self) -> bool:
+        """Queue the sleeve's rebalance, and send calls an admin has approved.
+
+        True when the current call is in the queue and an approved send did
+        not fail for every group it tried. Off unless both sleeve switches
+        are on. Nothing is posted that an admin has not approved. A group
+        already sent is not sent again; a group whose send failed is tried
+        on a later call, including after the day was recorded.
+        """
+        from bot.sleeve.channel_queue import sync_sleeve_calls
+        try:
+            return await sync_sleeve_calls(getattr(self, "_sleeve_call_callback", None))
+        except Exception as exc:  # noqa: BLE001
+            system_log.warning("Sleeve call not posted (%s)", type(exc).__name__)
+            return False
 
     def live_balance_cached(self, max_age_s: float = 900.0) -> Optional[dict]:
         """The cached live balance ONLY when fresh enough to state as current.
@@ -4746,6 +4777,14 @@ class RuneClawEngine:
     def set_close_notify_callback(self, cb: Callable) -> None:
         """Register a callback to notify users when a trade is closed."""
         self._close_notify_callback = cb
+
+    def set_sleeve_call_callback(self, cb: Callable) -> None:
+        """Register the poster of an approved paper-sleeve channel call.
+
+        Called as ``cb(html, skip=, claim=, on_sent=, on_fail=)`` for each
+        approved item. ``skip`` is the groups that already have it.
+        """
+        self._sleeve_call_callback = cb
 
     def set_fill_notify_callback(self, cb: Callable) -> None:
         """Register a callback to notify users when a limit order is filled (opened)."""
@@ -9104,6 +9143,23 @@ class RuneClawEngine:
         idea = self._pending_ideas.get(trade_id, None)
         if idea is None:
             return "Trade not found or expired."
+        # An intent is checked and signed by the Guard. The order path below
+        # does not run, and it never receives the trade-only key.
+        guard_intent = getattr(idea, "guard_intent", None)
+        if guard_intent is not None:
+            from bot.claw_guard.door import accept_intent
+            try:
+                guard_admin = self._is_operator_user(user_id) is True
+            except Exception:
+                guard_admin = False
+            result = accept_intent(
+                guard_intent,
+                getattr(idea, "guard_account", None),
+                user_id=str(user_id or ""),
+                caller_is_admin=guard_admin,
+                now=time.time(),
+            )
+            return result
 
         # Per-user chosen strategy — a tighten-only veto on THIS user's
         # confirms ("your bot, your strategy"). Applies only to explicit

@@ -951,7 +951,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=211"></script>
+<script src="/js/i18n-core.js?v=213"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=18"></script>
@@ -1804,7 +1804,7 @@ function renderFooterSocials(links){
   let cfg={};
   try{cfg=await fetch(API+'/auth/config').then(r=>r.json());}catch{return;}
   const hasOauth=(cfg.oauth_providers||[]).length>0;
-  if(!cfg.google_client_id&&!cfg.telegram_bot&&!hasOauth&&!cfg.wallet_login)return; // nothing configured
+  if(!cfg.telegram_bot&&!hasOauth&&!cfg.wallet_login)return; // nothing configured
   document.getElementById('social-auth').classList.remove('hidden');
   renderOauthButtons(cfg.oauth_providers);
   if(cfg.wallet_login)renderWalletButton();
@@ -1814,18 +1814,10 @@ function renderFooterSocials(links){
   renderFooterSocials(cfg.social_links);
   // If the account panel is already open (returning session), fill Link buttons.
   if(SESSION)renderLinkSocial();
-  if(cfg.google_client_id){
-    const s=document.createElement('script');
-    s.src='https://accounts.google.com/gsi/client';s.async=true;
-    s.onload=()=>{
-      try{
-        google.accounts.id.initialize({client_id:cfg.google_client_id,callback:handleGoogleCredential});
-        google.accounts.id.renderButton(document.getElementById('google-btn'),
-          {theme:'filled_black',size:'large',shape:'pill',text:'continue_with',width:320});
-      }catch(e){/* GIS blocked/offline: leave email login working */}
-    };
-    document.head.appendChild(s);
-  }
+  // Google Identity Services is not loaded. script-src does not allow
+  // accounts.google.com, and the client (gsi/client) is rewritten in place
+  // with no published digest and no CORS header a hash can be checked
+  // against. The credential endpoint stays; the button cannot appear.
   if(cfg.telegram_bot){
     const s=document.createElement('script');
     s.src='https://telegram.org/js/telegram-widget.js?22';s.async=true;

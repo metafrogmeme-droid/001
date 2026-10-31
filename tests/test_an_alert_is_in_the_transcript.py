@@ -632,6 +632,9 @@ class _HookEngine:
     def set_public_open_callback(self, fn):
         self.cbs["open"] = fn
 
+    def set_sleeve_call_callback(self, fn):
+        self.cbs["sleeve"] = fn
+
 
 def _started(store, users, chat_id, *, failing=False, forwarder=None):
     """Run the real `start_monitor` and hand back what it installed.

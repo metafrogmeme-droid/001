@@ -114,7 +114,7 @@
      parse time, so an i18n.js loaded below would arrive after every T() call
      had already fallen back to English on a page nobody re-renders. -->
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=211"></script>
+<script src="/js/i18n-core.js?v=213"></script>
 <script src="/js/reveal.js?v=1" defer></script>
 <script src="/js/escape-model.js?v=2"></script>
 <script>
@@ -327,16 +327,11 @@
     btn.disabled = true;
     walletNote(T('sx.w_loading', 'Reading your linked wallet…'));
     try {
-      var tok = null;
-      try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
-      // M14: the session is an HttpOnly cookie this page cannot read. `rc_auth` is
-      // the readable flag saying one exists, and requests authenticate by cookie —
-      // `tok` survives only as a fallback for a session predating the migration.
-      // Gating on the TOKEN here showed 'signed out' to every cookie session.
-      var signedIn = !!tok || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+      // The session is the HttpOnly cookie. `rc_auth` is the readable flag.
+      var signedIn = /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
       if (!signedIn) { walletNote(T('sx.w_signed_out', 'Sign in and link a wallet to load your real book. The sample below still works.'), 'bad'); return; }
       var r = await fetch('/api/wallet/portfolio', { credentials: 'same-origin',
-        headers: tok ? { Authorization: 'Bearer ' + tok } : {} });
+        headers: {} });
       var d = await r.json().catch(function () { return null; });
       // A 502 is not an absent wallet. `!r.ok` and unparseable JSON are FAILED
       // READS; only `!d.linked` is "you have no wallet". They were one branch,

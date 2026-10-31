@@ -161,7 +161,7 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=211"></script>
+<script src="/js/i18n-core.js?v=213"></script>
 <script src="/js/duel.js?v=11"></script>
 <script>
 (function () {
@@ -172,20 +172,17 @@
     try { return (window.RCI18N && RCI18N.translate(k, RCI18N.getLang())) || en; }
     catch (e) { return en; }
   };
-  var tok = null;
-  try { tok = localStorage.getItem('token'); } catch (e) { tok = null; }
-  // M14: the session is an HttpOnly cookie this page cannot read. `rc_auth` is
-  // the readable flag saying one exists, and requests authenticate by cookie —
-  // `tok` survives only as a fallback for a session predating the migration.
-  // Gating on the TOKEN here showed 'signed out' to every cookie session.
-  var signedIn = !!tok || /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
+  // The session is the HttpOnly cookie. `rc_auth` is the readable flag.
+  // A pre-cookie localStorage token is traded for that cookie by i18n, not
+  // read here and not sent as a bearer.
+  var signedIn = /(^|;\s*)rc_auth=1(\s*;|\s*$)/.test(document.cookie || '');
 
   function notice(msg) { $('notice').hidden = false; $('notice').textContent = msg; }
 
   function get(url, authed) {
     var opts = authed
       ? { credentials: 'same-origin',
-          headers: tok ? { Authorization: 'Bearer ' + tok } : {} }
+          headers: {} }
       : {};
     return fetch(url, opts).then(function (r) {
       // Guard, not shrug: a failed read must reach the caller as a failure so
@@ -245,7 +242,7 @@
     if (!MY_HANDLE) return;
     var url = location.origin + '/duel';
     fetch('/api/auth/referrals', { credentials: 'same-origin',
-      headers: tok ? { Authorization: 'Bearer ' + tok } : {} })
+      headers: {} })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
       .then(function (ref) {
@@ -350,7 +347,7 @@
     return fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: Object.assign({ 'Content-Type': 'application/json' }, tok ? { Authorization: 'Bearer ' + tok } : {}),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j }; }); });
   }
@@ -400,7 +397,7 @@
     $('reviewPanel').hidden = false;
   }
   function loadQueue() {
-    return fetch('/api/duel/review', { credentials: 'same-origin', headers: tok ? { Authorization: 'Bearer ' + tok } : {} })
+    return fetch('/api/duel/review', { credentials: 'same-origin', headers: {} })
       .then(function (r) {
         if (r.status === 401 || r.status === 403) return null;
         return r.ok ? r.json().then(drawQueue) : queueUnread();
@@ -455,8 +452,7 @@
     fetch('/api/duel/pick', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: Object.assign({ 'Content-Type': 'application/json' },
-        tok ? { Authorization: 'Bearer ' + tok } : {}),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, d: j }; }); })
       .then(function (r) {

@@ -1251,6 +1251,12 @@ async def redteam(_token: str = Depends(require_dashboard_token), _rl: None = De
 
 
 if os.path.isdir(_WEBSITE_DIR):
+    # website/archive/hackathon/index.html is the frozen submission. The
+    # StaticFiles mount below (html=True) redirects /archive/hackathon to
+    # the slash path and serves that directory's index. nginx.conf names
+    # the same file so the marketing host does not fall through to the
+    # app shell, which has no such route and paints its own 404.
+
     @app.get("/warroom")
     @app.get("/warroom.html")
     @app.get("/live-signals")

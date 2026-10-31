@@ -37,13 +37,32 @@ const SKIP = !pw ? 'playwright-core is not installed' : !CHROMIUM ? 'no Chromium
 
 const GOOD = 'the-right-token';
 
-/** A stand-in for the bot's aiohttp API: 401 unless the Bearer token is GOOD. */
+/** A stand-in for the bot's aiohttp API. The page posts the token to
+ *  /api/session once; the cookie, not a header, is what later /api calls carry.
+ *  The chart library is the same prefix and only answers once that cookie exists. */
 async function serve() {
   const app = express();
   const seen = [];
+  app.use(express.json());
+  app.post('/api/session', (req, res) => {
+    const token = String((req.body && req.body.token) || '');
+    seen.push({ path: '/api/session', token });
+    if (token !== GOOD) return res.status(401).json({ error: 'unauthorized' });
+    res.setHeader('Set-Cookie', `dashboard_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`);
+    return res.json({ ok: true });
+  });
+  app.get('/api/vendor/chart.umd.min.js', (req, res) => {
+    const cookie = req.get('cookie') || '';
+    if (!cookie.includes(`dashboard_auth=${encodeURIComponent(GOOD)}`)) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+    return res.sendFile(path.join(WEB, 'vendor', 'chart.umd.min.js'));
+  });
   app.use('/api', (req, res) => {
-    seen.push({ path: req.path, auth: req.get('authorization') || '' });
-    if (req.get('authorization') !== `Bearer ${GOOD}`) return res.status(401).json({ error: 'unauthorized' });
+    const cookie = req.get('cookie') || '';
+    seen.push({ path: req.path, cookie, auth: req.get('authorization') || '' });
+    const ok = cookie.includes(`dashboard_auth=${encodeURIComponent(GOOD)}`);
+    if (!ok) return res.status(401).json({ error: 'unauthorized' });
     return res.json({ portfolio: {}, risk: {}, engine: {}, positions: [], trades: [], symbols: [], points: [] });
   });
   app.use(express.static(WEB));
@@ -65,7 +84,8 @@ async function open(browser, base, file, { dialog, init, stored } = {}) {
 }
 
 const formShown = (page) => page.evaluate(() => !!document.getElementById('tokenForm'));
-const lastAuth = (seen, api) => [...seen].reverse().find((s) => s.path === api.replace('/api', ''))?.auth;
+const lastApi = (seen, api) => [...seen].reverse().find((s) => s.path === api.replace('/api', ''));
+const sessionPosts = (seen) => seen.filter((s) => s.path === '/api/session');
 
 test('the dashboard pages take their token where prompt() cannot', SKIP ? { skip: SKIP } : {}, async (t) => {
   const { server, seen, base } = await serve();
@@ -75,7 +95,11 @@ test('the dashboard pages take their token where prompt() cannot', SKIP ? { skip
       await t.test(`${file}: a token typed at the prompt is sent, and no form appears`, async () => {
         const { ctx, page } = await open(browser, base, file, { dialog: GOOD });
         assert.strictEqual(await formShown(page), false);
-        assert.strictEqual(lastAuth(seen, api), `Bearer ${GOOD}`);
+        assert.ok((lastApi(seen, api) || {}).cookie.includes(`dashboard_auth=${GOOD}`),
+          'the API call did not carry the session cookie');
+        assert.strictEqual((lastApi(seen, api) || {}).auth, '',
+          'the token must not travel in a header a script assembled');
+        assert.strictEqual(await page.evaluate(() => localStorage.getItem('dashboard_token')), null);
         await ctx.close();
       });
 
@@ -89,16 +113,20 @@ test('the dashboard pages take their token where prompt() cannot', SKIP ? { skip
           await page.fill('#tokenInput', GOOD);
           await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.click('#tokenForm button[type=submit]')]);
           await page.waitForTimeout(400);
-          assert.strictEqual(await page.evaluate(() => localStorage.getItem('dashboard_token')), GOOD);
+          assert.strictEqual(await page.evaluate(() => localStorage.getItem('dashboard_token')), null,
+            'the token was written where a script can read it');
           assert.strictEqual(await formShown(page), false);
-          assert.strictEqual(lastAuth(seen, api), `Bearer ${GOOD}`);
+          assert.ok((lastApi(seen, api) || {}).cookie.includes(`dashboard_auth=${GOOD}`));
           await ctx.close();
         });
       }
 
       await t.test(`${file}: a refused token is dropped and the form says so`, async () => {
         const { ctx, page } = await open(browser, base, file, { stored: 'a-stale-token' });
-        assert.strictEqual(lastAuth(seen, api), 'Bearer a-stale-token');
+        assert.ok(sessionPosts(seen).some((s) => s.token === 'a-stale-token'),
+          'the stale token was not offered to /session');
+        assert.ok(!(lastApi(seen, api) || {}).cookie || !(lastApi(seen, api).cookie.includes(`dashboard_auth=${GOOD}`)),
+          'a refused token became a session');
         assert.strictEqual(await formShown(page), true, 'a refused token left no way back in');
         assert.match(await page.textContent('#tokenNote'), /refused/);
         assert.strictEqual(await page.evaluate(() => localStorage.getItem('dashboard_token')), null);

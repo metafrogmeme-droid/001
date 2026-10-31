@@ -319,7 +319,7 @@ test('the flag is off unless it is set, and the v0 page file does not load the w
   assert.strictEqual(v01.enabled({ CLAW_GUARD_V01: 'true' }), true);
   const file = v01.readGuardPage();
   assert.ok(!file.includes('guard-v01'));
-  assert.match(file, /guard-page\.js\?v=2/);
+  assert.match(file, /guard-page\.js\?v=3/);
   const on = v01.guardPageHtml(file);
   assert.ok(on.includes('/js/guard-v01.js?v=1'));
   assert.ok(on.includes('/js/address-poison.js?v=1'));
