@@ -79,6 +79,26 @@ class BacktestConfig(BaseModel):
     # number includes the multiple. An unreadable ATR does not invent one.
     sl_atr_mult: Optional[float] = None
     tp_atr_mult: Optional[float] = None
+    # Timeframe-variant measurement controls
+    # (docs/research/prereg/timeframe_variants_2026-10). All OFF by default, so
+    # a run without them is unchanged; none of them reaches the live bot.
+    #   setup_only — keep only ideas whose strategy_type equals this ("scalp").
+    #   swing_stop_tf — "4h": a swing idea's stop and target are the swing ATR
+    #     multiples of that timeframe's ATR(14) over closed groups. The risk
+    #     gate sizes from the stop, so a wider stop is a smaller position.
+    #   daily_trend_days — N > 0: a LONG only while the symbol's last closed
+    #     daily close is above its N-day close mean, a SHORT only below it;
+    #     fewer than N closed days is no reading and no entry.
+    #   mtf_scaled_history — resample the 15m/1h/4h/1d context from as many
+    #     base bars as 200 groups need, so a 5m run sees the context live has.
+    setup_only: str = ""
+    swing_stop_tf: str = ""
+    daily_trend_days: int = 0
+    mtf_scaled_history: bool = False
+    #   fold_history_bars — N > 0: each walk-forward fold's engines also read
+    #     up to N bars that precede the fold's slice, as context only (the
+    #     history live has); they are never traded. 0 is unchanged.
+    fold_history_bars: int = 0
     # Closed-bar moving-average trend. All default OFF. When fast and slow are
     # set, that preset's book is the relationship itself: long when the fast
     # average is above the slow average, short when it is below, flat when

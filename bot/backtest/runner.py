@@ -376,6 +376,11 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "direction": getattr(args, "direction", "") or "",
         "sl_atr_mult": getattr(args, "sl_atr_mult", None),
         "tp_atr_mult": getattr(args, "tp_atr_mult", None),
+        "setup_only": getattr(args, "setup_only", "") or "",
+        "swing_stop_tf": getattr(args, "swing_stop_tf", "") or "",
+        "daily_trend_days": int(getattr(args, "daily_trend_days", 0)),
+        "mtf_scaled_history": bool(getattr(args, "mtf_scaled_history", False)),
+        "fold_history_bars": int(getattr(args, "fold_history_bars", 0)),
         "ma_fast": getattr(args, "ma_fast", None),
         "ma_slow": getattr(args, "ma_slow", None),
         "ma_timeframe": getattr(args, "ma_timeframe", "") or "",
@@ -798,6 +803,21 @@ Examples:
     trade_group.add_argument("--tp-atr-mult", type=float, default=None,
                              help="Replace the idea's target with this many ATRs from entry. "
                                   "Unset leaves the analyzer's target.")
+    trade_group.add_argument("--setup-only", type=str, default="",
+                             help="Measurement control: keep only ideas of this strategy_type "
+                                  "(scalp, intraday, swing, position).")
+    trade_group.add_argument("--swing-stop-tf", type=str, default="",
+                             help="Measurement control: a swing idea's stop and target from this "
+                                  "timeframe's ATR(14) (e.g. 4h), at the swing ATR multiples.")
+    trade_group.add_argument("--daily-trend-days", type=int, default=0,
+                             help="Measurement control: LONG only above the symbol's N-day daily "
+                                  "close mean, SHORT only below it. 0 is off.")
+    trade_group.add_argument("--fold-history-bars", type=int, default=0,
+                             help="Measurement control: give each walk-forward fold up to this many "
+                                  "earlier bars as context (never traded). 0 is off.")
+    trade_group.add_argument("--mtf-scaled-history", action="store_true",
+                             help="Measurement control: build the 15m/1h/4h/1d context from as "
+                                  "many base bars as 200 groups need (sub-hour runs).")
     trade_group.add_argument("--ma-fast", type=int, default=None,
                              help="Closed-bar fast simple-moving-average period. "
                                   "With --ma-slow, direction is that relationship.")

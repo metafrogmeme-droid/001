@@ -223,6 +223,9 @@ class BacktestEngine:
         # ATR the preset exit multiples were applied with, keyed by idea id,
         # so the trail reads that ATR instead of backing it out of the stop.
         self._preset_atr_by_idea: dict[str, float] = {}
+        # Bars before a walk-forward fold's own, read as history only
+        # (``fold_history_bars``); empty unless the portfolio run hands some in.
+        self._context_raw: list = []
         # The Limit Entry Scanner's exit numbers, set by the portfolio run that
         # places its orders. A position it opened runs its own exits
         # (`limit_scanner.step_exit`), never the house ladder, trail or time stop.
@@ -421,6 +424,85 @@ class BacktestEngine:
             self._volume_ratio_by_idea[getattr(idea, "id", "")] = None
             return
         self._volume_ratio_by_idea[idea.id] = float(raw)
+
+    def _history_upto(self, bar_index: int) -> list:
+        """Raw rows up to and including this bar: the fold's context
+        (``fold_history_bars``, never traded) followed by its own bars."""
+        own = (getattr(self, "_all_raw", None) or [])[:bar_index + 1]
+        context = getattr(self, "_context_raw", None) or []
+        return context + own if context else own
+
+    def _closed_groups(self, bar_index: int, tf: str, groups: int) -> list:
+        """The last ``groups`` CLOSED ``tf`` candles up to this bar, resampled
+        from the run's own bars; [] when ``tf`` is not coarser than them."""
+        from bot.utils.candles import resample_ohlcv, timeframe_to_ms
+        base_ms = timeframe_to_ms(self.config.timeframe)
+        tf_ms = timeframe_to_ms(tf)
+        if base_ms <= 0 or tf_ms <= base_ms or tf_ms % base_ms:
+            return []
+        span = (groups + 1) * (tf_ms // base_ms)
+        hist = self._history_upto(bar_index)[-span:]
+        closed: list = resample_ohlcv(hist, self.config.timeframe, tf)
+        return closed[-groups:]
+
+    def _scaled_mtf_context(self, hist: list) -> dict:
+        """15m/1h/4h/1d context from as many base bars as 200 groups need, for
+        a run finer than an hour (``mtf_scaled_history``). The run's own
+        timeframe is passed as itself; a context with fewer than 30 closed
+        groups is left out, as the default path leaves it out."""
+        from bot.utils.candles import resample_ohlcv, timeframe_to_ms
+        base_ms = timeframe_to_ms(self.config.timeframe)
+        out: dict = {}
+        for tf in ("15m", "1h", "4h", "1d"):
+            tf_ms = timeframe_to_ms(tf)
+            if tf_ms == base_ms:
+                out[tf] = hist[-200:]
+                continue
+            if base_ms <= 0 or tf_ms < base_ms or tf_ms % base_ms:
+                continue
+            groups = resample_ohlcv(hist[-(201 * (tf_ms // base_ms)):], self.config.timeframe, tf)
+            if len(groups) >= 30:
+                out[tf] = groups[-200:]
+        return out
+
+    def _apply_timeframe_variants(self, idea, bar_index: int):
+        """``setup_only``, ``daily_trend_days`` and ``swing_stop_tf``. None is a
+        rejection. An unreadable reading never admits a trade: no daily trend
+        is no entry, and no 4h ATR is no swing fill at the old stop."""
+        cfg = self.config
+        stype = (getattr(idea, "strategy_type", "") or "").strip()
+        only = (getattr(cfg, "setup_only", "") or "").strip()
+        if only and stype != only:
+            return None
+        n = int(cfg.daily_trend_days)
+        if n > 0:
+            days = self._closed_groups(bar_index, "1d", n)
+            if len(days) < n:
+                return None
+            last, mean = float(days[-1][4]), sum(float(d[4]) for d in days) / n
+            long = idea.direction == Direction.LONG
+            if (long and not last > mean) or (not long and not last < mean):
+                return None
+        tf = (getattr(cfg, "swing_stop_tf", "") or "").strip()
+        if tf and stype == "swing":
+            groups = self._closed_groups(bar_index, tf, 15)
+            if len(groups) < 15:
+                return None
+            trs = [max(g[2] - g[3], abs(g[2] - p[4]), abs(g[3] - p[4]))
+                   for p, g in zip(groups[:-1], groups[1:])]
+            atr = sum(trs) / len(trs)
+            if not atr > 0:
+                return None
+            st = CONFIG.strategy_types
+            entry = float(idea.entry_price)
+            sign = 1.0 if idea.direction == Direction.LONG else -1.0
+            try:
+                idea = idea.model_copy(update={
+                    "stop_loss": entry - sign * st.swing_sl_atr_mult * atr,
+                    "take_profit": entry + sign * st.swing_tp_atr_mult * atr})
+            except Exception:
+                return None
+        return idea
 
     def _apply_preset_exits(self, idea, atr_value):
         """Replace stop and target with the preset's ATR multiples.
@@ -873,16 +955,19 @@ class BacktestEngine:
             all_raw = getattr(self, "_all_raw", None)
             if all_raw:
                 from bot.utils.candles import resample_ohlcv
-                hist = all_raw[:bar_index + 1]
+                hist = self._history_upto(bar_index)
                 mtf_candles = {}
-                if self.config.timeframe == "1h":
-                    mtf_candles["1h"] = hist[-200:]
-                c4 = resample_ohlcv(hist[-824:], self.config.timeframe, "4h")
-                if len(c4) >= 30:
-                    mtf_candles["4h"] = c4[-200:]
-                c1d = resample_ohlcv(hist[-4824:], self.config.timeframe, "1d")
-                if len(c1d) >= 30:
-                    mtf_candles["1d"] = c1d[-200:]
+                if getattr(self.config, "mtf_scaled_history", False):
+                    mtf_candles = self._scaled_mtf_context(hist)
+                else:
+                    if self.config.timeframe == "1h":
+                        mtf_candles["1h"] = hist[-200:]
+                    c4 = resample_ohlcv(hist[-824:], self.config.timeframe, "4h")
+                    if len(c4) >= 30:
+                        mtf_candles["4h"] = c4[-200:]
+                    c1d = resample_ohlcv(hist[-4824:], self.config.timeframe, "1d")
+                    if len(c1d) >= 30:
+                        mtf_candles["1d"] = c1d[-200:]
                 if not mtf_candles:
                     mtf_candles = None
 
@@ -933,6 +1018,11 @@ class BacktestEngine:
         # configured is the idea unchanged. An unreadable ATR is a rejection,
         # not a fill at the analyzer's stop while the card claims the multiple.
         idea = self._apply_preset_exits(idea, atr_value)
+        if idea is None:
+            self._ideas_rejected_preset += 1
+            return
+        # Timeframe-variant controls (BacktestConfig fields a run names; unset, a no-op).
+        idea = self._apply_timeframe_variants(idea, bar_index)
         if idea is None:
             self._ideas_rejected_preset += 1
             return

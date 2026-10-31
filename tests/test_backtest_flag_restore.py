@@ -155,7 +155,7 @@ class TestPortfolioEngine:
         pb = PortfolioBacktester(
             BacktestConfig(symbol="BTC/USDT", timeframe="1h"), symbols=["BTC/USDT"])
 
-        async def _explode(_data):
+        async def _explode(_data, _context=None):
             raise RuntimeError("fold blew up")
 
         pb._run = _explode  # type: ignore[method-assign]

@@ -1,0 +1,60 @@
+{
+ "R1h": {
+  "n": 460,
+  "unreadable": 0,
+  "mean": 0.195061334698167,
+  "lower": -0.33634736788108116,
+  "fold_mean": -4.101666666666667,
+  "makes_money": false,
+  "verdict": "does not make money",
+  "size_weighted_mean": -0.2419374053952124,
+  "exits": {
+   "SL": 343,
+   "TP1": 40,
+   "TRAILING_SL": 40,
+   "TIME_STOP": 32,
+   "TP2": 4,
+   "END_OF_DATA": 1
+  },
+  "folds": [
+   -2.78,
+   -9.63,
+   -5.18,
+   -2.61,
+   -1.87,
+   -2.54
+  ],
+  "pf": 0.7238102718897629,
+  "code_sha": "d452dfa09349972851c048361722ae0a654e8ce2",
+  "data_source": "frozen_snapshot:449f02e383ec48d2c12fdef76766d71d10e7dd3a52a418797f08f70ec4233ee8"
+ },
+ "H3h": {
+  "n": 453,
+  "unreadable": 0,
+  "mean": 0.20907376448050152,
+  "lower": -0.27395266476811214,
+  "fold_mean": -4.41,
+  "makes_money": false,
+  "verdict": "does not make money",
+  "size_weighted_mean": -0.2617818866243113,
+  "exits": {
+   "SL": 342,
+   "TP1": 36,
+   "TRAILING_SL": 36,
+   "TIME_STOP": 35,
+   "TP2": 4
+  },
+  "folds": [
+   -6.51,
+   -9.2,
+   0.45,
+   -4.59,
+   -6.04,
+   -0.57
+  ],
+  "pf": 0.7127080641483622,
+  "code_sha": "d452dfa09349972851c048361722ae0a654e8ce2",
+  "data_source": "frozen_snapshot:449f02e383ec48d2c12fdef76766d71d10e7dd3a52a418797f08f70ec4233ee8",
+  "vs_reference": 0.014012429782334523
+ }
+}

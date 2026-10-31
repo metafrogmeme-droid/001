@@ -1,0 +1,302 @@
+[
+ {
+  "symbol": "IDOL/USDT:USDT",
+  "base": "IDOL",
+  "turnover24h": 46042642.998429
+ },
+ {
+  "symbol": "BEAM/USDT:USDT",
+  "base": "BEAM",
+  "turnover24h": 33054149.11403
+ },
+ {
+  "symbol": "Q/USDT:USDT",
+  "base": "Q",
+  "turnover24h": 22146922.876893
+ },
+ {
+  "symbol": "SOPH/USDT:USDT",
+  "base": "SOPH",
+  "turnover24h": 20511743.997996
+ },
+ {
+  "symbol": "LSK/USDT:USDT",
+  "base": "LSK",
+  "turnover24h": 17620586.6964
+ },
+ {
+  "symbol": "EVAA/USDT:USDT",
+  "base": "EVAA",
+  "turnover24h": 16768331.8678
+ },
+ {
+  "symbol": "PUMP/USDT:USDT",
+  "base": "PUMP",
+  "turnover24h": 14271454.059782
+ },
+ {
+  "symbol": "BIRB/USDT:USDT",
+  "base": "BIRB",
+  "turnover24h": 13979146.15665
+ },
+ {
+  "symbol": "PARTI/USDT:USDT",
+  "base": "PARTI",
+  "turnover24h": 13114921.625309
+ },
+ {
+  "symbol": "AKE/USDT:USDT",
+  "base": "AKE",
+  "turnover24h": 10676594.1445526
+ },
+ {
+  "symbol": "BTW/USDT:USDT",
+  "base": "BTW",
+  "turnover24h": 10414611.45799
+ },
+ {
+  "symbol": "OP/USDT:USDT",
+  "base": "OP",
+  "turnover24h": 8819655.14538
+ },
+ {
+  "symbol": "MAGMA/USDT:USDT",
+  "base": "MAGMA",
+  "turnover24h": 7194528.95903
+ },
+ {
+  "symbol": "NIL/USDT:USDT",
+  "base": "NIL",
+  "turnover24h": 6868659.95663
+ },
+ {
+  "symbol": "BGB/USDT:USDT",
+  "base": "BGB",
+  "turnover24h": 6414635.8619
+ },
+ {
+  "symbol": "ZRO/USDT:USDT",
+  "base": "ZRO",
+  "turnover24h": 5822126.9589
+ },
+ {
+  "symbol": "FIL/USDT:USDT",
+  "base": "FIL",
+  "turnover24h": 5565486.44384
+ },
+ {
+  "symbol": "QNT/USDT:USDT",
+  "base": "QNT",
+  "turnover24h": 5544901.1868
+ },
+ {
+  "symbol": "APR/USDT:USDT",
+  "base": "APR",
+  "turnover24h": 5390285.45418
+ },
+ {
+  "symbol": "XMR/USDT:USDT",
+  "base": "XMR",
+  "turnover24h": 5016597.4706
+ },
+ {
+  "symbol": "IRYS/USDT:USDT",
+  "base": "IRYS",
+  "turnover24h": 4756947.96127
+ },
+ {
+  "symbol": "TIA/USDT:USDT",
+  "base": "TIA",
+  "turnover24h": 4560434.32059
+ },
+ {
+  "symbol": "DOOD/USDT:USDT",
+  "base": "DOOD",
+  "turnover24h": 4518129.503393
+ },
+ {
+  "symbol": "JCT/USDT:USDT",
+  "base": "JCT",
+  "turnover24h": 3958083.12648
+ },
+ {
+  "symbol": "PONS/USDT:USDT",
+  "base": "PONS",
+  "turnover24h": 3474774.28602
+ },
+ {
+  "symbol": "HBAR/USDT:USDT",
+  "base": "HBAR",
+  "turnover24h": 3471238.05467
+ },
+ {
+  "symbol": "FARTCOIN/USDT:USDT",
+  "base": "FARTCOIN",
+  "turnover24h": 3416760.456231
+ },
+ {
+  "symbol": "FET/USDT:USDT",
+  "base": "FET",
+  "turnover24h": 3064719.4753
+ },
+ {
+  "symbol": "WET/USDT:USDT",
+  "base": "WET",
+  "turnover24h": 2933371.99521
+ },
+ {
+  "symbol": "STRK/USDT:USDT",
+  "base": "STRK",
+  "turnover24h": 2712631.1541722
+ },
+ {
+  "symbol": "SPK/USDT:USDT",
+  "base": "SPK",
+  "turnover24h": 2670233.54151
+ },
+ {
+  "symbol": "PYTH/USDT:USDT",
+  "base": "PYTH",
+  "turnover24h": 2546445.91967
+ },
+ {
+  "symbol": "HPQ/USDT:USDT",
+  "base": "HPQ",
+  "turnover24h": 2525376.86029
+ },
+ {
+  "symbol": "BEAT/USDT:USDT",
+  "base": "BEAT",
+  "turnover24h": 2383964.03433
+ },
+ {
+  "symbol": "RSR/USDT:USDT",
+  "base": "RSR",
+  "turnover24h": 2381315.664557
+ },
+ {
+  "symbol": "INIT/USDT:USDT",
+  "base": "INIT",
+  "turnover24h": 2376710.88192
+ },
+ {
+  "symbol": "GWEI/USDT:USDT",
+  "base": "GWEI",
+  "turnover24h": 2160596.87036
+ },
+ {
+  "symbol": "RE/USDT:USDT",
+  "base": "RE",
+  "turnover24h": 2147391.21929
+ },
+ {
+  "symbol": "ZAMA/USDT:USDT",
+  "base": "ZAMA",
+  "turnover24h": 2126850.29807
+ },
+ {
+  "symbol": "RENDER/USDT:USDT",
+  "base": "RENDER",
+  "turnover24h": 2115175.50021
+ },
+ {
+  "symbol": "MARSCOIN/USDT:USDT",
+  "base": "MARSCOIN",
+  "turnover24h": 2101926.49358
+ },
+ {
+  "symbol": "BR/USDT:USDT",
+  "base": "BR",
+  "turnover24h": 2049981.85234
+ },
+ {
+  "symbol": "CAP/USDT:USDT",
+  "base": "CAP",
+  "turnover24h": 1988961.63666
+ },
+ {
+  "symbol": "BLUR/USDT:USDT",
+  "base": "BLUR",
+  "turnover24h": 1831573.035584
+ },
+ {
+  "symbol": "VIRTUAL/USDT:USDT",
+  "base": "VIRTUAL",
+  "turnover24h": 1819547.5329
+ },
+ {
+  "symbol": "PROM/USDT:USDT",
+  "base": "PROM",
+  "turnover24h": 1798271.4643
+ },
+ {
+  "symbol": "KAS/USDT:USDT",
+  "base": "KAS",
+  "turnover24h": 1758516.44243
+ },
+ {
+  "symbol": "GRAM/USDT:USDT",
+  "base": "GRAM",
+  "turnover24h": 1756893.82759
+ },
+ {
+  "symbol": "POL/USDT:USDT",
+  "base": "POL",
+  "turnover24h": 1634729.08201
+ },
+ {
+  "symbol": "LIT/USDT:USDT",
+  "base": "LIT",
+  "turnover24h": 1588435.925
+ },
+ {
+  "symbol": "SLP/USDT:USDT",
+  "base": "SLP",
+  "turnover24h": 1570950.8658912
+ },
+ {
+  "symbol": "ASTER/USDT:USDT",
+  "base": "ASTER",
+  "turnover24h": 1540051.4537
+ },
+ {
+  "symbol": "JIO/USDT:USDT",
+  "base": "JIO",
+  "turnover24h": 1539916.5242
+ },
+ {
+  "symbol": "XPIN/USDT:USDT",
+  "base": "XPIN",
+  "turnover24h": 1532246.6686272
+ },
+ {
+  "symbol": "AXIS/USDT:USDT",
+  "base": "AXIS",
+  "turnover24h": 1515061.19424
+ },
+ {
+  "symbol": "PHA/USDT:USDT",
+  "base": "PHA",
+  "turnover24h": 1495764.97346
+ },
+ {
+  "symbol": "USELESS/USDT:USDT",
+  "base": "USELESS",
+  "turnover24h": 1418338.56126
+ },
+ {
+  "symbol": "GRASS/USDT:USDT",
+  "base": "GRASS",
+  "turnover24h": 1409177.08022
+ },
+ {
+  "symbol": "ICNT/USDT:USDT",
+  "base": "ICNT",
+  "turnover24h": 1393606.5655
+ },
+ {
+  "symbol": "CT/USDT:USDT",
+  "base": "CT",
+  "turnover24h": 1342414.1404
+ }
+]
