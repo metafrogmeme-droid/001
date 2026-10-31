@@ -14,9 +14,9 @@ The chain parameters below are the ones on HashKey's network page. The chain ids
 | | chain id | RPC | explorer |
 |---|---|---|---|
 | testnet | 133 | `https://testnet.hsk.xyz` | `https://testnet-explorer.hsk.xyz` |
-| mainnet | 177 | `https://mainnet.hsk.xyz` | `https://hashkey.blockscout.com` |
+| mainnet | 177 | `https://mainnet.hsk.xyz` | `https://hsk.blockscout.com` |
 
-`contracts/hashkey/networks.json` is the reading the deploy script and the publisher share. The deploy script's chain ids are checked against that file, and the guard in `bot/web/mainnet_guard.py` reads the mainnet id from it too. The explorer hosts are the ones the network page prints; no check in this repository has reached them, and the `ethereum-lists/chains` registry prints `hsk.blockscout.com` and `testnet-explorer.hskchain.net` instead. The file says so (`explorer_checked` is null), and a verify run that succeeds is what records it.
+`contracts/hashkey/networks.json` is the reading the deploy script and the publisher share. The deploy script's chain ids are checked against that file, and the guard in `bot/web/mainnet_guard.py` reads the mainnet id from it too. The mainnet explorer is `hsk.blockscout.com`: the host the network page printed, `hashkey.blockscout.com`, now answers a redirect to it, and the live contract was verified there as an exact match on 31 October 2026 (`explorer_checked.mainnet` in the file). The testnet explorer host is the one the network page prints; no verify run in this repository has reached it (the `ethereum-lists/chains` registry prints `testnet-explorer.hskchain.net`), `explorer_checked.testnet` is null, and a testnet verify that succeeds is what records it. Before any verify the deploy script asks the explorer API for its stats and stops on a redirect, so a moved host is reported rather than posted to.
 
 ## What the contract does
 
@@ -38,13 +38,13 @@ forge test
 forge snapshot --no-match-test 'testFuzz_' --check
 ```
 
-The unit suite covers construction events, a duplicate hash from the same and from a second publisher (and that revoking the second does not free the hash), zero hash and zero kind, the batch, publisher authorization and re-adding, the two-step transfer, renounce (including that nobody and not the zero address can change the allowlist after it), every selector refusing value with the same calldata landing without it, and a walk over the runtime bytecode that finds no CALL, DELEGATECALL, CREATE, SELFDESTRUCT or transient-storage opcode. Fuzz runs cover a publisher anchoring once, strangers, non-owners before and after renounce, and the pending owner. An invariant suite drives the contract through a handler that impersonates the deployer, the publisher, a second publisher and a stranger, and holds that no call lands value, the owner is an actor or zero and zero only after a renounce, ownership changes only by accept, no non-publisher ever anchors, no non-owner ever changes the allowlist, and every recorded anchor keeps its first writer and kind. A separate suite drives the deploy script contract's guards without a network.
+The unit suite covers construction events, a duplicate hash from the same and from a second publisher (and that revoking the second does not free the hash), zero hash and zero kind, the batch, publisher authorization and re-adding, the two-step transfer, renounce (including that nobody and not the zero address can change the allowlist after it), every selector refusing value with the same calldata landing without it, and a walk over the runtime bytecode that finds no CALL, DELEGATECALL, CREATE, SELFDESTRUCT, transient-storage or MCOPY opcode. Fuzz runs cover a publisher anchoring once, strangers, non-owners before and after renounce, and the pending owner. An invariant suite drives the contract through a handler that impersonates the deployer, the publisher, a second publisher and a stranger, and holds that no call lands value, the owner is an actor or zero and zero only after a renounce, ownership changes only by accept, no non-publisher ever anchors, no non-owner ever changes the allowlist, and every recorded anchor keeps its first writer and kind. A separate suite drives the deploy script contract's guards without a network.
 
 The gas snapshot is a ratchet: `forge snapshot --no-match-test 'testFuzz_' --check` runs in CI, and an intended gas change is re-recorded with `forge snapshot --no-match-test 'testFuzz_'` in the same commit.
 
 ## Deploy to testnet
 
-The server does not deploy. Run this on the owner's machine. The script refuses `RUNECLAW_SERVER=1`, refuses to run while a server signing key is set (`WEB3_SIGNER_PRIVATE_KEY`, `HYPERLIQUID_PRIVATE_KEY`, `SAR_ORACLE_SIGNING_KEY`, `HRC_FEED_SIGNER_KEY`, `HASHKEY_SEAL_SIGNER_KEY`), and refuses to run while `contracts/hashkey/.env` exists, because forge would load that file on its own. The shell sources nothing. The key is not written into the repo and is not placed on the command line.
+The server does not deploy. Run this on the owner's machine. The script refuses `RUNECLAW_SERVER=1`, refuses to run while a server signing key is set (`WEB3_SIGNER_PRIVATE_KEY`, `HYPERLIQUID_PRIVATE_KEY`, `SAR_ORACLE_SIGNING_KEY`, `HRC_FEED_SIGNER_KEY`, `HASHKEY_SEAL_SIGNER_KEY`), and refuses to run while `contracts/hashkey/.env` exists, because forge would load that file on its own. It also refuses while a `FOUNDRY_*` variable that overrides `foundry.toml` is set (`FOUNDRY_PROFILE`, `FOUNDRY_SOLC`, `FOUNDRY_SOLC_VERSION`, `FOUNDRY_EVM_VERSION`, `FOUNDRY_OPTIMIZER`, `FOUNDRY_OPTIMIZER_RUNS`, `FOUNDRY_VIA_IR`, `FOUNDRY_BYTECODE_HASH`, `FOUNDRY_CBOR_METADATA`), because each changes the bytecode from the one CI tested. The shell sources nothing. The key is not written into the repo and is not placed on the command line.
 
 `HASHKEY_SEAL_PUBLISHER` is the first allowlisted publisher; a mixed-case value must carry a correct EIP-55 checksum. Foundry (`forge` and `cast`) has to be on `PATH`.
 
@@ -74,7 +74,7 @@ contracts/hashkey/script/deploy.sh --network testnet --broadcast
 
 If `HASHKEY_WALLET` and `ETH_PRIVATE_KEY` are both set, the script stops and asks you to unset one.
 
-The script asks the endpoint for `eth_chainId` and stops unless the answer is 133. The expected chain id then travels into the script contract as an argument and is compared with `block.chainid` there, so the chain forge connected to is the chain you named. It is never passed as `--chain`: in forge that flag overrides `block.chainid` in the simulation while the broadcast still signs for the endpoint's real chain, which would make the comparison true by construction.
+The script asks the endpoint for `eth_chainId` with `cast chain-id`, the HTTP client forge itself uses, and stops unless the answer is 133. The expected chain id then travels into the script contract as an argument and is compared with `block.chainid` there, so the chain forge connected to is the chain you named. It is never passed as `--chain`: in forge that flag overrides `block.chainid` in the simulation while the broadcast still signs for the endpoint's real chain, which would make the comparison true by construction.
 
 A simulation always runs first and prints the owner-to-be under `== Logs ==`. The deploying wallet is the owner for the life of the contract. With `--broadcast` the script then deploys with that address as the expected owner, and the script contract refuses to deploy for anyone else.
 
@@ -89,7 +89,9 @@ HASHKEY_WALLET=ledger HASHKEY_SEAL_PUBLISHER=<publisher-address> \
   contracts/hashkey/script/deploy.sh --network mainnet --broadcast
 ```
 
-The script stops unless `eth_chainId` is 177, runs the simulation, prints the owner-to-be, and asks you to type that address back before it broadcasts. Without a terminal, `HASHKEY_SEAL_CONFIRM_OWNER=<that address>` stands in for the typed answer. Record the contract address yourself. The server will not publish to it. Confirm that the first publisher anchors once; renounce only after the publisher set is final and no hot key is on it.
+The script stops unless `eth_chainId` is 177, runs the simulation, prints the owner-to-be, and asks you to type that address back before it broadcasts. Without a terminal, `HASHKEY_SEAL_CONFIRM_OWNER=<that address>` stands in for the typed answer; pass it as a one-command prefix rather than exporting it, so the next run asks again.
+
+Two more refusals apply on mainnet only. A raw `ETH_PRIVATE_KEY` is refused unless `HASHKEY_ALLOW_ENV_KEY=1` is set beside it: an exported key sits in the shell's history and in every child process, and on mainnet it is the owner key for the life of the contract, so the hardware or keystore path is the default. And the script reads `testnet.publisher` from `contracts/hashkey/networks.json`, the address of the server's `HASHKEY_SEAL_SIGNER_KEY`, and refuses it both as `HASHKEY_SEAL_PUBLISHER` and as the owner-to-be the simulation shows, so no key the server has held gains mainnet power. While that field is null the mainnet path stops before any deploy and says so; record the address (it is public: the first `PublisherSet` log of the testnet deployment) to lift the stop. The mainnet owner and publisher must be keys that have never been in any server environment. Record the contract address yourself. The server will not publish to it. Confirm that the first publisher anchors once; renounce only after the publisher set is final and no hot key is on it.
 
 ## Verification on the explorer
 
@@ -101,7 +103,7 @@ contracts/hashkey/script/deploy.sh --network testnet --verify 0xDeployedAddress
 contracts/hashkey/script/deploy.sh --network mainnet --verify 0xDeployedAddress
 ```
 
-`--verify` does not sign and does not broadcast. The constructor argument is `HASHKEY_SEAL_PUBLISHER`.
+`--verify` does not sign and does not broadcast. The constructor argument is `HASHKEY_SEAL_PUBLISHER`. Before submitting, the script asks `<explorer_api>/v2/stats` and stops on a redirect (a moved host; fix `networks.json`), then compares the code at the address (`cast code`) with this tree's build (`forge inspect … deployedBytecode`), metadata tail excluded, and stops when they differ: a `FOUNDRY_*` override, another tree or a wrong address is reported before the explorer is asked.
 
 If the explorer API refuses the submission, open the contract on the explorer and use its verify page. The compiler input is:
 

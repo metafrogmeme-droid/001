@@ -138,3 +138,9 @@ test-ledger/
 /data
 /logs
 .preflight_result.txt
+
+# forge output. deploy.sh works inside contracts/hashkey, whose own
+# .gitignore covers these; a forge run from the repository root writes here,
+# and cache/ can hold the RPC URL.
+/broadcast/
+/cache/

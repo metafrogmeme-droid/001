@@ -75,6 +75,11 @@ KEY_BODY = "ab" * 32
 RAW = "0x" + "ee" * 8
 TX_HASH = tx_hash_of(RAW)
 ZERO_ADDRESS = "0x" + "00" * 20
+# What the deploy-script fixture records as networks.json testnet.publisher.
+TESTNET_PUBLISHER = "0x" + "cc" * 20
+# Runtime bytecode as the shims report it: executable 0x6001, one metadata
+# byte, then the two-byte metadata length the comparison strips.
+CODE_BUILT = "0x6001aa0001"
 
 _BANNED = re.compile(
     r"\b(" + "to" + "ken|" + "sa" + "le|" + "pri" + "ce" + r")\b",
@@ -1163,6 +1168,7 @@ def test_deploy_script_does_not_source_env_or_put_the_key_on_argv():
 _FORGE_SHIM = """#!/usr/bin/env bash
 printf '%s\\n' "$@" >> "$SHIM_LOG"
 if [ "$1" = "verify-contract" ]; then exit 0; fi
+if [ "$1" = "inspect" ]; then echo "$CODE_SHOWN"; exit 0; fi
 echo "== Logs =="
 SEAL_SHOWN=0x5fbdb2315678afecb367f032d93f642f64180aa3
 if [ -n "$OWNER_SHOWN" ]; then
@@ -1175,6 +1181,23 @@ printf 'cast %s\\n' "$*" >> "$SHIM_LOG"
 case "$1" in
   to-check-sum-address) echo "$CHECKSUM_SHOWN" ;;
   abi-encode) echo "0xencoded" ;;
+  code) echo "${CODE_ONCHAIN:-$CODE_SHOWN}" ;;
+  chain-id)
+    # The real cast asks the endpoint for eth_chainId; so does the shim, so
+    # the mock node, not the shim, decides the answer.
+    shift
+    url=""
+    while [ $# -gt 0 ]; do
+      case "$1" in --rpc-url) url="$2"; shift 2 ;; *) shift ;; esac
+    done
+    python3 - "$url" <<'CHAIN'
+import json, sys, urllib.request
+body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": []}).encode()
+req = urllib.request.Request(sys.argv[1], data=body, headers={"content-type": "application/json"})
+with urllib.request.urlopen(req, timeout=10) as resp:
+    print(int(json.load(resp)["result"], 16))
+CHAIN
+    ;;
   *) exit 1 ;;
 esac
 """
@@ -1182,6 +1205,27 @@ esac
 
 class _ChainNode(http.server.BaseHTTPRequestHandler):
     chain = "0x85"
+    #: When True the explorer API path answers a 301, as a moved host does.
+    redirect = False
+
+    def do_GET(self):  # noqa: N802
+        if not self.path.endswith("/v2/stats"):
+            self.send_response(404)
+            self.send_header("content-length", "0")
+            self.end_headers()
+            return
+        if type(self).redirect:
+            self.send_response(301)
+            self.send_header("location", "http://moved.invalid" + self.path)
+            self.send_header("content-length", "0")
+            self.end_headers()
+            return
+        out = b'{"total_blocks":"1"}'
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
 
     def do_POST(self):  # noqa: N802
         body = self.rfile.read(int(self.headers["content-length"]))
@@ -1208,11 +1252,15 @@ def deploy_tree(tmp_path, monkeypatch):
     shutil.copy(SCRIPT, tree / "script" / "deploy.sh")
     (tree / "script" / "deploy.sh").chmod(0o755)
     _ChainNode.chain = "0x85"
+    _ChainNode.redirect = False
     server = http.server.HTTPServer(("127.0.0.1", 0), _ChainNode)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     table = json.loads(NETWORKS.read_text(encoding="utf-8"))
-    table["testnet"]["rpc"] = f"http://127.0.0.1:{server.server_address[1]}"
-    table["mainnet"]["rpc"] = f"http://127.0.0.1:{server.server_address[1]}"
+    mock = f"http://127.0.0.1:{server.server_address[1]}"
+    for name in ("testnet", "mainnet"):
+        table[name]["rpc"] = mock
+        table[name]["explorer_api"] = mock + "/api"
+    table["testnet"]["publisher"] = TESTNET_PUBLISHER
     (tree / "networks.json").write_text(json.dumps(table), encoding="utf-8")
     shim = tmp_path / "bin"
     shim.mkdir()
@@ -1232,6 +1280,7 @@ def deploy_tree(tmp_path, monkeypatch):
             CHAIN_SHOWN="133",
             OWNER_SHOWN=owner,
             CHECKSUM_SHOWN="0x5FbDB2315678afecb367f032d93F642f64180aa3",
+            CODE_SHOWN=CODE_BUILT,
             NO_PROXY="127.0.0.1,localhost",
             no_proxy="127.0.0.1,localhost",
         )
@@ -1248,7 +1297,7 @@ def deploy_tree(tmp_path, monkeypatch):
         for line in log.read_text(encoding="utf-8").splitlines():
             if line.startswith("cast "):
                 continue
-            if line == "script" or line == "verify-contract":
+            if line in ("script", "verify-contract", "inspect"):
                 if current:
                     calls.append(current)
                 current = [line]
@@ -1274,6 +1323,10 @@ def test_deploy_script_stops_on_a_mismatched_chain_before_forge(deploy_tree):
     assert "stopped before any deploy" in done.stderr
     assert forge_calls() == []
     assert KEY_BODY not in done.stderr
+    rpc = json.loads((_tree / "networks.json").read_text())["testnet"]["rpc"]
+    assert f"cast chain-id --rpc-url {rpc}" in _log.read_text(encoding="utf-8"), \
+        "cast, not a second HTTP client, asks the chain"
+    assert "urllib" not in SCRIPT.read_text(encoding="utf-8")
 
 
 def test_deploy_script_simulates_with_the_expected_chain_and_shows_the_owner(deploy_tree):
@@ -1374,16 +1427,17 @@ def test_deploy_script_asks_for_the_owner_on_mainnet(deploy_tree):
     run, forge_calls, _log, _tree, owner = deploy_tree
     _ChainNode.chain = "0xb1"
     no_tty = run("--network", "mainnet", "--broadcast", HASHKEY_SEAL_PUBLISHER=ADDRESS,
-                 ETH_PRIVATE_KEY="0x" + KEY_BODY, CHAIN_SHOWN="177")
+                 ETH_PRIVATE_KEY="0x" + KEY_BODY, CHAIN_SHOWN="177", HASHKEY_ALLOW_ENV_KEY="1")
     assert no_tty.returncode != 0
     assert "HASHKEY_SEAL_CONFIRM_OWNER" in no_tty.stderr
     assert len(forge_calls()) == 1, "the simulation ran, the broadcast did not"
     wrong = run("--network", "mainnet", "--broadcast", HASHKEY_SEAL_PUBLISHER=ADDRESS, ETH_PRIVATE_KEY="0x" + KEY_BODY,
-                CHAIN_SHOWN="177", HASHKEY_SEAL_CONFIRM_OWNER="0x" + "bb" * 20)
+                CHAIN_SHOWN="177", HASHKEY_SEAL_CONFIRM_OWNER="0x" + "bb" * 20, HASHKEY_ALLOW_ENV_KEY="1")
     assert wrong.returncode != 0 and "owner not confirmed" in wrong.stderr
     assert len(forge_calls()) == 2
     right = run("--network", "mainnet", "--broadcast", HASHKEY_SEAL_PUBLISHER=ADDRESS, ETH_PRIVATE_KEY="0x" + KEY_BODY,
-                CHAIN_SHOWN="177", HASHKEY_SEAL_CONFIRM_OWNER=owner.upper().replace("0X", "0x"))
+                CHAIN_SHOWN="177", HASHKEY_SEAL_CONFIRM_OWNER=owner.upper().replace("0X", "0x"),
+                HASHKEY_ALLOW_ENV_KEY="1")
     assert right.returncode == 0, right.stderr
     calls = forge_calls()
     assert len(calls) == 4 and calls[-1][-1] == "--broadcast" and calls[-1][4:7] == ["177", ADDRESS, owner]
@@ -1432,13 +1486,135 @@ def test_deploy_script_verify_names_the_evm_version_and_signs_nothing(deploy_tre
     done = run("--network", "testnet", "--verify", "0x5fbdb2315678afecb367f032d93f642f64180aa3",
                HASHKEY_SEAL_PUBLISHER=ADDRESS)
     assert done.returncode == 0, done.stderr
+    assert "matches this build" in done.stderr
     calls = forge_calls()
-    assert len(calls) == 1 and calls[0][0] == "verify-contract"
-    argv = calls[0]
+    assert [c[0] for c in calls] == ["inspect", "verify-contract"]
+    assert calls[0] == ["inspect", "src/HashKeySeal.sol:HashKeySeal", "deployedBytecode"]
+    argv = calls[1]
     assert argv[argv.index("--evm-version") + 1] == "cancun"
     assert argv[argv.index("--chain") + 1] == "133"
     assert argv[argv.index("--constructor-args") + 1] == "0xencoded"
     assert "--broadcast" not in argv and "run(" not in " ".join(argv)
+
+
+def test_deploy_script_refuses_a_raw_key_on_mainnet_unless_allowed(deploy_tree):
+    run, forge_calls, _log, _tree, owner = deploy_tree
+    _ChainNode.chain = "0xb1"
+    refused = run("--network", "mainnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, ETH_PRIVATE_KEY="0x" + KEY_BODY,
+                  CHAIN_SHOWN="177")
+    assert refused.returncode != 0
+    assert "HASHKEY_ALLOW_ENV_KEY" in refused.stderr and "raw ETH_PRIVATE_KEY on mainnet" in refused.stderr
+    assert KEY_BODY not in refused.stderr
+    assert forge_calls() == []
+    _no_chain_probe(refused)
+    allowed = run("--network", "mainnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, ETH_PRIVATE_KEY="0x" + KEY_BODY,
+                  CHAIN_SHOWN="177", HASHKEY_ALLOW_ENV_KEY="1")
+    assert allowed.returncode == 0, allowed.stderr
+    assert f"owner-to-be {owner}" in allowed.stderr and len(forge_calls()) == 1
+    hardware = run("--network", "mainnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger", CHAIN_SHOWN="177")
+    assert hardware.returncode == 0, hardware.stderr
+    assert len(forge_calls()) == 2
+    _ChainNode.chain = "0x85"
+    testnet = run("--network", "testnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, ETH_PRIVATE_KEY="0x" + KEY_BODY)
+    assert testnet.returncode == 0, testnet.stderr
+
+
+def test_deploy_script_refuses_the_testnet_publisher_as_mainnet_publisher_or_owner(deploy_tree):
+    run, forge_calls, _log, tree, _owner = deploy_tree
+    _ChainNode.chain = "0xb1"
+    as_publisher = run("--network", "mainnet", HASHKEY_SEAL_PUBLISHER=TESTNET_PUBLISHER, HASHKEY_WALLET="ledger",
+                       CHAIN_SHOWN="177")
+    assert as_publisher.returncode != 0
+    assert "HASHKEY_SEAL_PUBLISHER is the testnet publisher" in as_publisher.stderr
+    assert forge_calls() == []
+    as_owner = run("--network", "mainnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger",
+                   CHAIN_SHOWN="177", OWNER_SHOWN=TESTNET_PUBLISHER.upper().replace("0X", "0x"))
+    assert as_owner.returncode != 0
+    assert "owner-to-be is the testnet publisher" in as_owner.stderr
+    assert "simulation only" not in as_owner.stderr
+    assert len(forge_calls()) == 1, "the simulation ran and showed the owner; nothing more"
+    other = run("--network", "mainnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger", CHAIN_SHOWN="177")
+    assert other.returncode == 0, other.stderr
+    _ChainNode.chain = "0x85"
+    on_testnet = run("--network", "testnet", HASHKEY_SEAL_PUBLISHER=TESTNET_PUBLISHER, HASHKEY_WALLET="ledger")
+    assert on_testnet.returncode == 0, "the testnet publisher is the testnet publisher"
+    # Unrecorded is not "nobody": a mainnet run stops; a testnet run does not need it.
+    table = json.loads((tree / "networks.json").read_text(encoding="utf-8"))
+    table["testnet"]["publisher"] = None
+    (tree / "networks.json").write_text(json.dumps(table), encoding="utf-8")
+    _ChainNode.chain = "0xb1"
+    unrecorded = run("--network", "mainnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger", CHAIN_SHOWN="177")
+    assert unrecorded.returncode != 0
+    assert "does not record testnet.publisher" in unrecorded.stderr
+    assert "stopped before any deploy" in unrecorded.stderr
+    _ChainNode.chain = "0x85"
+    still_testnet = run("--network", "testnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger")
+    assert still_testnet.returncode == 0, still_testnet.stderr
+    table["testnet"]["publisher"] = "0x12"
+    (tree / "networks.json").write_text(json.dumps(table), encoding="utf-8")
+    malformed = run("--network", "testnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger")
+    assert malformed.returncode != 0 and "testnet.publisher is not a 20-byte hex address" in malformed.stderr
+
+
+def test_deploy_script_refuses_foundry_overrides_that_change_the_bytecode(deploy_tree):
+    run, forge_calls, _log, _tree, _owner = deploy_tree
+    for name, value in (("FOUNDRY_EVM_VERSION", "paris"), ("FOUNDRY_OPTIMIZER", "false"), ("FOUNDRY_PROFILE", "ci")):
+        done = run("--network", "testnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger", **{name: value})
+        assert done.returncode != 0, name
+        assert name in done.stderr and "overrides foundry.toml" in done.stderr
+        assert forge_calls() == []
+        _no_chain_probe(done)
+    clean = run("--network", "testnet", HASHKEY_SEAL_PUBLISHER=ADDRESS, HASHKEY_WALLET="ledger")
+    assert clean.returncode == 0, clean.stderr
+
+
+def test_deploy_script_verify_stops_on_a_moved_explorer_or_foreign_code(deploy_tree):
+    run, forge_calls, _log, _tree, _owner = deploy_tree
+    address = "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+    _ChainNode.redirect = True
+    moved = run("--network", "testnet", "--verify", address, HASHKEY_SEAL_PUBLISHER=ADDRESS)
+    assert moved.returncode != 0
+    assert "a redirect" in moved.stderr and "networks.json" in moved.stderr and "nothing was submitted" in moved.stderr
+    assert forge_calls() == []
+    _ChainNode.redirect = False
+    foreign = run("--network", "testnet", "--verify", address, HASHKEY_SEAL_PUBLISHER=ADDRESS,
+                  CODE_ONCHAIN="0x6002aa0001")
+    assert foreign.returncode != 0
+    assert "not this tree's build" in foreign.stderr
+    assert [c[0] for c in forge_calls()] == ["inspect"], "the build was read; nothing was submitted"
+    empty = run("--network", "testnet", "--verify", address, HASHKEY_SEAL_PUBLISHER=ADDRESS, CODE_ONCHAIN="0x")
+    assert empty.returncode != 0 and "no code at the address" in empty.stderr
+    assert [c[0] for c in forge_calls()] == ["inspect", "inspect"]
+    # A different metadata tail is the same executable code.
+    same = run("--network", "testnet", "--verify", address, HASHKEY_SEAL_PUBLISHER=ADDRESS, CODE_ONCHAIN="0x6001bb0001")
+    assert same.returncode == 0, same.stderr
+    assert "matches this build" in same.stderr
+    assert [c[0] for c in forge_calls()][-1] == "verify-contract"
+
+
+def test_deploy_script_does_not_echo_an_unknown_argument():
+    pasted = "0x" + KEY_BODY
+    done = _run_script("--network", "testnet", pasted, HASHKEY_SEAL_PUBLISHER=ADDRESS)
+    assert done.returncode != 0
+    assert "unknown argument" in done.stderr
+    assert pasted not in done.stderr and KEY_BODY not in done.stderr and KEY_BODY not in done.stdout
+
+
+def test_the_server_key_lists_agree_across_the_guard_and_both_operator_scripts():
+    """mainnet_guard's tuple is the reading; the two shell loops are copies
+    of it. A key added to one and not the others is a key one of them does
+    not refuse."""
+    from bot.web.mainnet_guard import _TESTNET_CAPABLE_KEYS
+
+    deploy = SCRIPT.read_text(encoding="utf-8")
+    loop = deploy.split("for leaked in", 1)[1].split("\ndo\n", 1)[0]
+    deploy_keys = set(re.findall(r"[A-Z0-9_]+_KEY\b", loop))
+    roots = (ROOT / "scripts" / "anchor_roots.sh").read_text(encoding="utf-8")
+    roots_loop = roots.split("for leaked in ", 1)[1].split(";", 1)[0]
+    roots_keys = set(roots_loop.split())
+    assert deploy_keys == set(_TESTNET_CAPABLE_KEYS), (deploy_keys, _TESTNET_CAPABLE_KEYS)
+    assert roots_keys == set(_TESTNET_CAPABLE_KEYS), (roots_keys, _TESTNET_CAPABLE_KEYS)
+    assert len(deploy_keys) >= 5
 
 
 # ---------------------------------------------------------------------------

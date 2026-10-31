@@ -7,18 +7,29 @@
     "testnet_answered": "0x85",
     "mainnet_answered": "0xb1"
   },
-  "explorer_checked": null,
-  "explorer_note": "Hosts as printed on the network page. No check in this repository has reached them. The ethereum-lists registry prints hsk.blockscout.com for 177 and testnet-explorer.hskchain.net for 133. A verify run that succeeds is what records explorer_checked.",
+  "explorer_checked": {
+    "date": "2026-10-31",
+    "method": "forge verify-contract, Blockscout exact match",
+    "mainnet": {
+      "host": "hsk.blockscout.com",
+      "address": "0x9ce68eFd7267bAfF57F8D23Ebe45A77D8F92EcFE",
+      "result": "exact match"
+    },
+    "testnet": null
+  },
+  "explorer_note": "Mainnet: hashkey.blockscout.com, the host the network page printed, now answers a 301 to hsk.blockscout.com, the host ethereum-lists prints for 177; the contract above was verified there on the date recorded. Testnet: the host as printed on the network page; no verify run in this repository has reached it (ethereum-lists prints testnet-explorer.hskchain.net). A testnet verify that succeeds is what records explorer_checked.testnet. deploy.sh asks <explorer_api>/v2/stats before a verify and stops on a redirect.",
   "testnet": {
     "chain_id": 133,
     "rpc": "https://testnet.hsk.xyz",
     "explorer": "https://testnet-explorer.hsk.xyz",
-    "explorer_api": "https://testnet-explorer.hsk.xyz/api"
+    "explorer_api": "https://testnet-explorer.hsk.xyz/api",
+    "publisher": null,
+    "publisher_note": "PLACEHOLDER, not yet recorded: the address of the server's HASHKEY_SEAL_SIGNER_KEY (public; the first PublisherSet log of the testnet deployment). deploy.sh --network mainnet refuses this address as publisher or owner, and refuses to run at all while this is null."
   },
   "mainnet": {
     "chain_id": 177,
     "rpc": "https://mainnet.hsk.xyz",
-    "explorer": "https://hashkey.blockscout.com",
-    "explorer_api": "https://hashkey.blockscout.com/api"
+    "explorer": "https://hsk.blockscout.com",
+    "explorer_api": "https://hsk.blockscout.com/api"
   }
 }
