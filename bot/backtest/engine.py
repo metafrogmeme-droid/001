@@ -35,7 +35,7 @@ from bot.core.strategy_gate import side_rule, signal_clears_volume_min
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
 from bot.utils.logger import audit, system_log, trade_log
-from bot.utils.models import Direction, MarketSignal, RiskVerdict
+from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
 
 if TYPE_CHECKING:
@@ -241,6 +241,10 @@ class BacktestEngine:
         # Preset entry-gate rejections (volume-spike / regime / RSI). 0 unless a
         # named-agent replay set one of the BacktestConfig gates.
         self._ideas_rejected_preset = 0
+        # `target_r_after_gate`: targets replaced, and ideas left on their own
+        # target because their stop distance could not be read.
+        self._target_r_applied = 0
+        self._target_r_unread = 0
         # Per-gate risk-rejection tally (gate token -> count). Makes A/B
         # path-dependence visible: a diff in the STATEFUL gates below means two
         # runs took a different trade SET (not the parameter under test).
@@ -535,6 +539,40 @@ class BacktestEngine:
             return None
         self._preset_atr_by_idea[idea.id] = atr
         return revised
+
+    def _apply_post_gate_target(self, idea: TradeIdea) -> TradeIdea:
+        """`target_r_after_gate`: the approved idea's target at K stop distances.
+
+        Applied after the risk gate, so the gate judges and sizes the idea on
+        the analyzer's own levels. The stop is unchanged. Only the single-exit
+        model reads the target: under the partial-TP ladder (`--honest`) the
+        ladder's own multiples run the exits, and a next-open fill already past
+        the new target fails the position record and is not opened. That is an
+        entry filter, not a closer exit (closer_target_2026-10/REPORT.md).
+        An idea whose stop distance cannot be read keeps its own target and is
+        counted (`_target_r_unread`), never given a guessed one.
+        """
+        k = getattr(self.config, "target_r_after_gate", None)
+        if k is None:
+            return idea
+        try:
+            k = float(k)
+            entry = float(idea.entry_price)
+            stop = float(idea.stop_loss)
+        except (TypeError, ValueError):
+            self._target_r_unread += 1
+            return idea
+        dist = abs(entry - stop)
+        if not (k > 0 and entry > 0 and stop > 0 and dist > 0) or dist != dist:
+            self._target_r_unread += 1
+            return idea
+        long = idea.direction == Direction.LONG
+        target = entry + k * dist if long else entry - k * dist
+        if target <= 0:
+            self._target_r_unread += 1
+            return idea
+        self._target_r_applied += 1
+        return idea.model_copy(update={"take_profit": target})
 
     def _restore_learning_flags(self) -> None:
         """Give the operator's learning flags back. Idempotent — first call wins.
@@ -1053,6 +1091,9 @@ class BacktestEngine:
             audit(trade_log, f"[BT] Trade REJECTED: {risk_check.reason}",
                   action="backtest_risk", result="REJECTED")
             return
+
+        # Measurement control: the same approved entry, a different target.
+        idea = self._apply_post_gate_target(idea)
 
         # Round 7 Phase 1: register the approved entry as a pending intent so a
         # later same-bar correlated idea (next symbol in portfolio mode) sees it
