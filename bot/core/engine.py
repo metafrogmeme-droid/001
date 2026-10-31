@@ -36,6 +36,7 @@ from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
 from bot.core.leverage import LeveragePair, apply_margin_risk_cap, order_standards
+from bot.core.live_book import live_book_open
 from bot.core.live_executor import LiveExecutor, committed_margin, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
@@ -3678,6 +3679,49 @@ class RuneClawEngine:
             out.append({"venue": v, "free_usd": free})
         return out
 
+    #: Why every entry is refused on a live book that is winding down.
+    WIND_DOWN_HALT = "live trading is turned off"
+
+    def _winding_down_executors(self) -> list:
+        """The live executors that still hold rows while live is off.
+
+        Turning live off (`/golive OFF`, or an environment that is no longer
+        live) stops new live entries. It must not stop the bot managing a
+        position already on the venue: on 2026-10-31 an INJ long opened on
+        14 October was found 417 hours old, 10% through its stop, with both
+        time exits "due now", because every live management path (the
+        monitor, the stop self-heal, reconcile, /closeall, the emergency
+        flatten) asked `CONFIG.is_live()` and was told no.
+
+        Empty while live (the live path runs instead) and when no live book
+        holds anything. A book that cannot be read counts: it may hold one.
+        """
+        if CONFIG.is_live():
+            return []
+        executors = [getattr(self, "live_executor", None),
+                     *getattr(self, "_user_executors", {}).values()]
+        out = []
+        for ex in executors:
+            if ex is None:
+                continue
+            held = live_book_open(ex)
+            if held is None or held:
+                out.append(ex)
+        return out
+
+    def _note_wind_down(self, executors: list) -> None:
+        """Say once, when a wind-down starts, which book it manages."""
+        key = tuple(sorted(str(getattr(ex, "user_id", None) or "operator")
+                           for ex in executors))
+        if getattr(self, "_wind_down_noted", None) == key:
+            return
+        self._wind_down_noted: Optional[tuple[str, ...]] = key
+        audit(system_log,
+              f"Live is off and {len(executors)} live book(s) still hold positions: "
+              f"managing them (stops, exits, reconcile), opening nothing",
+              action="live_wind_down", result="MANAGING",
+              data={"accounts": list(key)})
+
     def _all_live_executors(self) -> list:
         """The shared operator executor plus every active per-user executor.
 
@@ -3823,13 +3867,20 @@ class RuneClawEngine:
         ``/closeall`` and the emergency kill-switch both route through here so a
         flatten can never miss a per-user account. Fail-open per account: one
         account's error is captured in its result and never blocks the others.
-        Returns ``[{"account": label, "messages": [...]}, ...]``. No-op in paper
-        mode. Default (per-user OFF) → just the operator account, as before.
+        Returns ``[{"account": label, "messages": [...]}, ...]``. Outside live
+        it closes only a book still winding down (`_winding_down_executors`),
+        and is a no-op when there is none. Default (per-user OFF) → just the
+        operator account, as before.
         """
         results: list[dict] = []
-        if not CONFIG.is_live():
-            return results
-        executors = self._all_live_executors()
+        if CONFIG.is_live():
+            executors = self._all_live_executors()
+        else:
+            # Live is off: only a book still winding down has anything to
+            # close, and closing it is what live-off is for.
+            executors = self._winding_down_executors()
+            if not executors:
+                return results
         for ex in executors:
             label = getattr(ex, "user_id", None) or "operator"
             try:
@@ -11521,14 +11572,27 @@ class RuneClawEngine:
         # Live positions are checked independently below — do NOT return early
         # when paper portfolio is empty, or live SL/TP monitoring is skipped entirely.
 
-        # Also check live positions if in live mode
-        if CONFIG.is_live():
+        # Also check live positions if in live mode, or while a live book
+        # winds down: live is off and a position it opened is still held.
+        # Winding down manages what is held (stops, exits, reconcile) and
+        # opens nothing: every entry is refused (`WIND_DOWN_HALT`), the
+        # executor's `execute` refuses outside live, and no orphan is adopted.
+        _live = CONFIG.is_live()
+        _winding = [] if _live else self._winding_down_executors()
+        if not _winding:
+            self._wind_down_noted = None
+        if _live or _winding:
+            if not _live:
+                self._note_wind_down(_winding)
             # Before anything below can open a row (`_agent_open_ids`).
-            if getattr(self, "live_executor", None) is not None:
+            if _live and getattr(self, "live_executor", None) is not None:
                 self._agent_open_ids(self.live_executor)
             # An executor dropped by a /connect, a /disconnect or a website
-            # control change is rebuilt before the loops below walk them.
-            self._rebind_invalidated_executors()
+            # control change is rebuilt before the loops below walk them, so
+            # the list they walk is read after it.
+            if _live:
+                self._rebind_invalidated_executors()
+            _executors = self._all_live_executors() if _live else _winding
             # SL/TP self-heal: re-place any stop that went missing DURING
             # operation (adopted-unprotected, cancelled SL, deferred-then-filled).
             # verify_and_fix_sltp is idempotent; throttled so it isn't run every
@@ -11537,7 +11601,7 @@ class RuneClawEngine:
             _now = time.monotonic()
             if (_now - self._last_sltp_verify_ts) >= self._SLTP_VERIFY_INTERVAL:
                 self._last_sltp_verify_ts = _now
-                for _ex in self._all_live_executors():
+                for _ex in _executors:
                     try:
                         await _ex.verify_and_fix_sltp()
                     except Exception as _vexc:
@@ -11558,10 +11622,11 @@ class RuneClawEngine:
 
             # Monitor every account (operator + any per-user). With per-user off
             # this loops once over the operator — identical to before.
-            for _ex in self._all_live_executors():
+            for _ex in _executors:
                 try:
                     live_closed = await _ex.check_positions(
-                        entry_halt=self._entry_halt_reason(_ex))
+                        entry_halt=(self._entry_halt_reason(_ex) if _live
+                                    else self.WIND_DOWN_HALT))
                     await self._route_monitor_messages(_ex, live_closed)
                 except Exception as exc:
                     audit(system_log, f"Live position monitor error: {exc}",
@@ -11597,9 +11662,10 @@ class RuneClawEngine:
             # Periodic orphan adoption: catch positions opened on exchange
             # but not tracked locally (e.g., after bot restart, manual trades,
             # or failed adoption on startup).  Runs every tick alongside
-            # reconciliation to keep local state in sync.
+            # reconciliation to keep local state in sync. Live only: a book
+            # winding down takes on nothing new.
             try:
-                sync_msgs = await sync_portfolio_with_exchange(self)
+                sync_msgs = (await sync_portfolio_with_exchange(self)) if _live else []
                 for msg in sync_msgs:
                     if "Adopted" in msg or "Ghost" in msg or "Orphan" in msg:
                         audit(system_log, f"Periodic sync: {msg}",

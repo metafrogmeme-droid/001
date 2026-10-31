@@ -33,6 +33,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.core.live_book import live_book_open
 from bot.core.margin_clamp import read_money_field
 from bot.formatters.drift_offer import flatten_venue_note
 from bot.formatters.money import signed_usd
@@ -40,28 +41,6 @@ from bot.skills.command_guard import guard
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
-
-
-def live_book_open(executor) -> Optional[list[str]]:
-    """The operator's live positions and resting entries, as symbols.
-
-    `[]` when there is no live executor or nothing is open; None when the
-    book cannot be read. `/golive OFF` refuses on both a non-empty list and
-    None: turning live off over a position nobody then manages as live is
-    the one outcome it must not produce, and an unread book may hold one.
-    """
-    if executor is None:
-        return []
-    try:
-        rows = list(getattr(executor, "_positions", {}).values())
-    except Exception:
-        return None
-    out = []
-    for p in rows:
-        status = getattr(p, "status", None)
-        if status in ("open", "pending_fill", "closing"):
-            out.append(str(getattr(p, "symbol", "?")))
-    return out
 
 
 def _leverage_words() -> str:
@@ -1723,7 +1702,12 @@ class EngineOpsCommands:
         if not self._is_admin(update):
             await self._send(update, "🔒 Admin only.")
             return
-        if not CONFIG.is_live() or not hasattr(self.engine, 'live_executor'):
+        # Live, or live turned off over a book that still holds positions
+        # (the engine winds it down): either has something to flatten.
+        _winding = getattr(self.engine, "_winding_down_executors", None)
+        _held = _winding() if callable(_winding) and not CONFIG.is_live() else []
+        if not hasattr(self.engine, 'live_executor') or not (
+                CONFIG.is_live() or (isinstance(_held, list) and _held)):
             await self._send(update, "No live executor available.")
             return
         kb = InlineKeyboardMarkup([[
