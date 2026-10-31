@@ -376,6 +376,34 @@ def _thesis_bq(reasoning: object, limit: int = 250, tail: str = "") -> str:
         out += f"{chr(10) if out else ''}⚖️ <i>Against:</i> {_esc(against[:limit])}"
     return f"{out}{tail}"
 
+def paper_position_row(pos: Any) -> str:
+    """One paper position on the status card.
+
+    Prices go through `fmt_price`: at two decimals a coin under a dollar
+    printed its entry and its stop as the same `$0.07`. The figure is the
+    notional at entry and says so (it was labelled `Size`, which read as
+    margin beside an exposure cap). A stop or target of 0.0 is no level on
+    record (`price_on_record`), not a level at zero.
+    """
+    from bot.core.position_telemetry import price_on_record
+    from bot.formatters.price_text import fmt_price
+    d_val = pos.direction.value if hasattr(pos.direction, 'value') else str(pos.direction)
+    d_icon = _OK if d_val == "LONG" else _BAD
+    d_arrow = "\u25b2" if d_val == "LONG" else "\u25bc"
+    entry = price_on_record(pos.entry_price)
+    qty = price_on_record(pos.quantity)
+    notional = entry * qty if entry is not None and qty is not None else None
+
+    def _level(v: Any) -> str:
+        p = price_on_record(v)
+        return f"<code>{fmt_price(p)}</code>" if p is not None else "<i>none on record</i>"
+    return (f"  {d_icon}{d_arrow} <b>{_esc(pos.asset)}</b>\n"
+            f"  - Entry: {_level(pos.entry_price)}\n"
+            f"  - Notional at entry: <code>{_money(notional)}</code>\n"
+            f"  - SL: {_level(pos.stop_loss)}\n"
+            f"  - TP: {_level(pos.take_profit)}")
+
+
 def status_position_row(pos: Any, mark: Optional[float],
                         display_equity: Optional[float],
                         now: Optional[datetime] = None) -> list[str]:
@@ -4217,17 +4245,7 @@ class PlaybookSkill(BaseSkill):
             if positions:
                 lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
                 for pid, pos in list(positions.items())[:5]:
-                    d_val = pos.direction.value if hasattr(pos.direction, 'value') else str(pos.direction)
-                    d_icon = _OK if d_val == "LONG" else _BAD
-                    d_arrow = "\u25b2" if d_val == "LONG" else "\u25bc"
-                    notional = pos.entry_price * pos.quantity
-                    lines.append(
-                        f"  {d_icon}{d_arrow} <b>{_esc(pos.asset)}</b>\n"
-                        f"  - Entry: <code>${pos.entry_price:,.2f}</code>\n"
-                        f"  - Size: <code>{_money(notional)}</code>\n"
-                        f"  - SL: <code>${pos.stop_loss:,.2f}</code>\n"
-                        f"  - TP: <code>${pos.take_profit:,.2f}</code>"
-                    )
+                    lines.append(paper_position_row(pos))
             else:
                 lines.append(f"\U0001f4ca <b>ACTIVE POSITIONS</b>\n{SEP}")
                 lines.append(f"  {_NEU} <i>No open positions</i>")
