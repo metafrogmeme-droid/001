@@ -50,3 +50,32 @@ Every walk-forward result on record measured a bot whose daily-weighted trend ga
 
 One universe of ten coins (recent, high-turnover listings, by the rule), one split. H2's 1d
 context was absent and its 4h context partial, for the reason above.
+
+## Addendum 1 result (2026-10-31): H3 with live's history does not make money
+
+`ADDENDUM_1.md` (sealed 2026-10-31 09:40:05Z, before the harness change and any run). Runs at code
+sha d452dfa0 on the same frozen `fresh10_1h`; outputs in `runs/` (`report_addendum_1.json`).
+
+| arm | positions | mean / position | 0.625th-pct bound | mean fold | verdict |
+|---|---|---|---|---|---|
+| **H3h** daily trend, with 4,824 bars of fold history | 453 | +0.209% | -0.274% | -4.41% | **does not make money** |
+| R1h the bot as it is, same history (reference) | 460 | +0.195% | -0.336% | -4.10% | reference |
+
+Reported, deciding nothing:
+- **The daily filter adds almost nothing once the bot can see the daily trend.** It removed 7 of
+  460 positions. The bot's own daily-weighted gate (`MTF_ALIGNMENT_GATE_ENABLED`) already refuses
+  most counter-trend ideas when it has daily bars to read.
+- **Live's history made the bot worse on these coins.** Against the sealed reference R1 (100 bars
+  of history per fold): 460 positions instead of 606, mean per position +0.195% instead of +0.625%,
+  mean fold -4.10% instead of -2.26%, size-weighted mean -0.242% instead of -0.102%. One universe,
+  one split: this is a measurement of what the missing context did here, not a general law. It
+  does mean the earlier walk-forward figures measured a bot other than the one that trades live.
+
+Folds (%): R1h -2.78, -9.63, -5.18, -2.61, -1.87, -2.54; H3h -6.51, -9.20, +0.45, -4.59, -6.04, -0.57.
+
+## Overall
+
+None of the four timeframe ideas makes money on unseen coins: swing stops on 4h, scalps on 15m,
+scalps on 5m, the 50-day trend filter. Scalps on 5m came nearest. The harness gap the study found
+is the more durable result: walk-forward runs should be given their history (`--fold-history-bars`)
+before any further figure is compared with live.
