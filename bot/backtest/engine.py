@@ -548,8 +548,9 @@ class BacktestEngine:
         model reads the target: under the partial-TP ladder (`--honest`) the
         ladder's own multiples run the exits, and a next-open fill already past
         the new target fails the position record and is not opened. That is an
-        entry filter, not a closer exit (closer_target_2026-10/REPORT.md). An idea whose stop distance cannot be read keeps its own
-        target and is counted (`_target_r_unread`), never given a guessed one.
+        entry filter, not a closer exit (closer_target_2026-10/REPORT.md).
+        An idea whose stop distance cannot be read keeps its own target and is
+        counted (`_target_r_unread`), never given a guessed one.
         """
         k = getattr(self.config, "target_r_after_gate", None)
         if k is None:
