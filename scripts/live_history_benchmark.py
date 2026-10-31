@@ -10,6 +10,7 @@ DIR holds ``<dataset>_<arm>.json`` and ``.trades.json`` for arms A, B, C.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 from pathlib import Path
 
@@ -67,7 +68,10 @@ def report(runs: Path) -> dict:
         per[ds] = {}
         for arm in ARMS:
             run = json.loads((runs / f"{ds}_{arm}.json").read_text())
-            rows = json.loads((runs / f"{ds}_{arm}.trades.json").read_text())["trades"]
+            plain = runs / f"{ds}_{arm}.trades.json"
+            raw = (plain.read_text() if plain.exists()
+                   else gzip.decompress((runs / f"{plain.name}.gz").read_bytes()).decode())
+            rows = json.loads(raw)["trades"]
             per[ds][arm] = summary(run, rows)
     q2 = gate_verdict({ds: per[ds]["B"]["folds"] for ds in DATASETS},
                       {ds: per[ds]["C"]["folds"] for ds in DATASETS})
