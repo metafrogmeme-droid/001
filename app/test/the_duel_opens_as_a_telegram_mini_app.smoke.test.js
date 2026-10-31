@@ -26,7 +26,14 @@ async function launch(browser, { init = INIT, signin = { status: 200, body: { to
   const { ctx, sent } = await H.context(browser, { locale,
     routes: { '/api/tgapp/signin': (route) => route.fulfill({ status: signin.status, contentType: 'application/json', body: JSON.stringify(signin.body) }) } });
   await ctx.addInitScript((i) => { window.__TG_INIT__ = i; }, init);
-  await ctx.route('https://telegram.org/**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: TG_STUB }));
+  // The page pins telegram-web-app.js with SRI. This stand-in is not those
+  // bytes, so the browser will not run it. The same stand-in is installed
+  // before the page, which is what tg-app.js calls.
+  await ctx.addInitScript(TG_STUB);
+  await ctx.route('https://telegram.org/**', (route) => route.fulfill({
+    status: 200, contentType: 'application/javascript', body: TG_STUB,
+    headers: { 'access-control-allow-origin': '*' },
+  }));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));

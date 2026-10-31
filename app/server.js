@@ -196,13 +196,12 @@ if (_trustProxy === false) {
 // static-served HTML) carries them.
 //
 // M14: script-src used to be `'self' 'unsafe-inline' https://telegram.org`,
-// which meant CSP was no backstop at all — any one innerHTML sink reached with
-// unescaped attacker data executes, and the session bearer token is readable
-// from localStorage. 'unsafe-inline' is what makes that chain one bug instead
-// of two. It is now the SHA-256 of each inline block the site actually ships
-// (lib/csp.js), computed from the same bytes express.static serves, so an
-// edited page cannot silently stop executing. Inline on* handlers cannot be
-// hashed at all and were converted to delegated listeners.
+// which meant CSP was no backstop at all. The session bearer is the HttpOnly
+// `rc_jwt` cookie (lib/session_cookie.js), not a localStorage value. It is
+// now the SHA-256 of each inline block the site actually ships (lib/csp.js),
+// computed from the same bytes express.static serves, so an edited page
+// cannot silently stop executing. Inline on* handlers cannot be hashed at
+// all and were converted to delegated listeners.
 //
 // style-src keeps 'unsafe-inline': the pages carry inline style attributes,
 // which have no hash form either, and an injected style is not the finding.
@@ -215,7 +214,7 @@ const CSP = [
   // egress. worker-src blob: covers optional GLTF Draco/KTX2 decoders.
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  "connect-src 'self' blob:",
+  `connect-src ${require('./lib/csp').connectSrc()}`,
   "worker-src 'self' blob:",
   "frame-src https://oauth.telegram.org",
   "object-src 'none'",
