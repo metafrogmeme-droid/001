@@ -26769,6 +26769,31 @@ for a caller the test config does not name as operator; they opt in to the old
 reading through one conftest fixture (`members_may_trade_live`) rather than
 each spelling a setter. (`tests/test_live_off_is_paper_and_live_is_the_operators.py`.)
 
+**LIVE OFF LEFT A LIVE POSITION MANAGED BY NOTHING.** 31 October, the owner's
+`/livepositions`: an INJ long opened on 14 October, 417 hours old, priced 10%
+through its own stop, both time exits "due now", and `/closeall` answered "No
+live executor available." Live had been off since 18 October. The refusal
+above (OFF over a held book) was the only thing standing between "live off" and
+"a live position managed by nothing", and it was not enough: this book got past
+it, and an environment that stops being live (`SIMULATION_MODE` flipped) never
+asks it. Every path that manages a live position asked `CONFIG.is_live()`: the
+monitor's stop self-heal, `check_positions` with its time exits, reconcile,
+`flatten_all_positions` (so `/closeall` and the emergency stop), and each
+answered no. A live book that still holds a row while live is off now winds
+down (`RuneClawEngine._winding_down_executors`): the monitor keeps the stops,
+exits and reconcile running on that book alone, with every entry refused
+(`WIND_DOWN_HALT`), no orphan adopted, and the executor's own `execute` still
+refusing outside live; `/closeall` and the emergency flatten close it. A flat
+book is untouched, so a paper deployment is the one it was. An unreadable book
+counts as held, the reading `/golive OFF` already took (`live_book_open`, now in
+`bot/core/live_book.py` so the engine and the command read one function). The
+first test fixture had one book, so a mutant that asked every account's venue
+during a wind-down survived; a flat operator book beside a held per-user book
+kills it. The lesson is the one this file keeps repeating: a switch named for
+what it stops ("live trading") was read by paths whose job is to stop losses.
+Ask of every gate whether the thing it refuses is a risk being opened or one
+being closed. (`tests/test_live_off_winds_the_live_book_down.py`.)
+
 **PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT.** The same evening, after
 `/golive OFF`: "works but I don't see open paper orders or positions". A tap
 opened on the paper book, but the engine's own confirms (the tick and

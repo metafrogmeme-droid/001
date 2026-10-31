@@ -610,139 +610,140 @@ about to change before changing it.
 - L26697: THE WEBSITE MOVED ONLY WHEN SOMEONE TYPED A SCAN, AND A VISITOR SAW NOTHING BUT LOCKS — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_visitor_sample_is_not_chosen_by_the_query.test.js`, `tests/test_the_engine_keeps_the_website_fresh.py`
 - L26729: THE /START CARD SHOWED ONE BOOK — `tests/test_start_shows_the_paper_book_beside_the_live_one.py`
 - L26748: LIVE OFF MEANS PAPER, AND LIVE IS THE OPERATOR'S — `tests/test_live_off_is_paper_and_live_is_the_operators.py`
-- L26772: PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT — `tests/test_live_off_is_paper_and_live_is_the_operators.py`
-- L26789: THE PAPER CARDS, READ FOR THE FIRST TIME AS THE MAIN BOOK — `tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`, `tests/test_the_details_button_reads_the_callers_account.py`
-- L26807: THE PAPER PERFORMANCE CARD AND THE CLOSE MESSAGE — `tests/test_performance_card_states.py`, `tests/test_the_details_button_reads_the_callers_account.py`
-- L26822: THE TAIWAN STOCK PERPS, ON TAIPEI'S HOURS — `tests/test_a_taiwan_stock_perp_is_a_stock_on_taipei_hours.py`
-- L26838: THE DUEL GOT FOUR CATEGORIES, AND EVERY SURFACE RENDERS A ROUND FROM THE ROUND'S OWN WORDS — `app/test/duel_engine.test.js`, `app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`, `app/test/fast_path_reconciles_every_later_column.test.js`, `app/test/migration_ddl.test.js`, `app/test/the_arena_shows_the_daily_duel.smoke.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`, `tests/test_duel_telegram_surface.py`
-- L26888: THE DUEL GOT A FOOTBALL ROUND, SETTLED BY A SCORE A FEED REPORTS, NOT BY A PRICE THE MARKET MOVES — `app/test/duel_engine.test.js`, `app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`, `app/test/sports_feed.test.js`, `app/test/the_arena_shows_the_daily_duel.smoke.test.js`, `app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`, `tests/test_duel_telegram_surface.py`
-- L26943: THE DAILY DUEL GOT ITS OWN TELEGRAM BOT, AND IT IS NOT THE BOT — `tests/test_claude_md_accuracy.py`, `tests/test_launch_all_starts_both.py`, `tests/test_systemd_units_supervise.py`, `tests/test_the_duel_bot_is_its_own_process.py`
-- L26984: THE PI APP BECAME THREE TABS BEHIND A STICKY TOP, AND A DUEL ROUND SAYS WHEN IT SETTLES — `app/test/cache_buster_ratchet.test.js`, `app/test/duel_scenarios.test.js`, `app/test/i18n.test.js`, `app/test/miniapp_arena.test.js`, `app/test/pi_duel_block.test.js`, `app/test/the_arena_shows_the_daily_duel.smoke.test.js`, `app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`, `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
-- L27033: THE DUEL BECAME PROVABLE END TO END: THE ROUND SEALED AS DEALT, THE SETTLEMENT SEALED AS WRITTEN, BOTH IN THE DAILY ROOT — `app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`, `app/test/provable_calls_spec.test.js`, `app/test/seal_roots.test.js`, `app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
-- L27070: A REVIEW FROM OUTSIDE READ A SEASON'S NAME AS A USER LABEL, A SCREENSHOT FIXTURE AS A MOVING KICK-OFF, AND THE HOST'S BADGE SCRIPT AS OURS — `app/test/canonical_links.test.js`, `app/test/duel_scenarios.test.js`, `app/test/embed_arena_view.test.js`, `app/test/the_home_page_warns_about_impostors.test.js`, `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_theater_asks_for_the_contract_symbol.test.js`
-- L27108: THE TELEGRAM IMAGE CARDS WERE TEN RENDERERS WITH TEN PALETTES; NOW THEY ARE ONE LOOK, AND THE HONESTY TESTS NEVER NOTICED — `app/test/the_share_card_knows_which_book_the_trade_was_on.test.js`, `tests/png_text.py`, `tests/test_a_paper_close_sends_its_card.py`, `tests/test_a_signed_dollar_reads_as_money.py`, `tests/test_the_cards_share_one_look.py`, `tests/test_the_position_cards_print_the_score_the_record_holds.py`, `tests/test_the_synced_trade_says_which_book_it_was_on.py`
+- L26772: LIVE OFF LEFT A LIVE POSITION MANAGED BY NOTHING — `tests/test_live_off_winds_the_live_book_down.py`
+- L26797: PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT — `tests/test_live_off_is_paper_and_live_is_the_operators.py`
+- L26814: THE PAPER CARDS, READ FOR THE FIRST TIME AS THE MAIN BOOK — `tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`, `tests/test_the_details_button_reads_the_callers_account.py`
+- L26832: THE PAPER PERFORMANCE CARD AND THE CLOSE MESSAGE — `tests/test_performance_card_states.py`, `tests/test_the_details_button_reads_the_callers_account.py`
+- L26847: THE TAIWAN STOCK PERPS, ON TAIPEI'S HOURS — `tests/test_a_taiwan_stock_perp_is_a_stock_on_taipei_hours.py`
+- L26863: THE DUEL GOT FOUR CATEGORIES, AND EVERY SURFACE RENDERS A ROUND FROM THE ROUND'S OWN WORDS — `app/test/duel_engine.test.js`, `app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`, `app/test/fast_path_reconciles_every_later_column.test.js`, `app/test/migration_ddl.test.js`, `app/test/the_arena_shows_the_daily_duel.smoke.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`, `tests/test_duel_telegram_surface.py`
+- L26913: THE DUEL GOT A FOOTBALL ROUND, SETTLED BY A SCORE A FEED REPORTS, NOT BY A PRICE THE MARKET MOVES — `app/test/duel_engine.test.js`, `app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`, `app/test/sports_feed.test.js`, `app/test/the_arena_shows_the_daily_duel.smoke.test.js`, `app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`, `tests/test_duel_telegram_surface.py`
+- L26968: THE DAILY DUEL GOT ITS OWN TELEGRAM BOT, AND IT IS NOT THE BOT — `tests/test_claude_md_accuracy.py`, `tests/test_launch_all_starts_both.py`, `tests/test_systemd_units_supervise.py`, `tests/test_the_duel_bot_is_its_own_process.py`
+- L27009: THE PI APP BECAME THREE TABS BEHIND A STICKY TOP, AND A DUEL ROUND SAYS WHEN IT SETTLES — `app/test/cache_buster_ratchet.test.js`, `app/test/duel_scenarios.test.js`, `app/test/i18n.test.js`, `app/test/miniapp_arena.test.js`, `app/test/pi_duel_block.test.js`, `app/test/the_arena_shows_the_daily_duel.smoke.test.js`, `app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`, `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
+- L27058: THE DUEL BECAME PROVABLE END TO END: THE ROUND SEALED AS DEALT, THE SETTLEMENT SEALED AS WRITTEN, BOTH IN THE DAILY ROOT — `app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`, `app/test/provable_calls_spec.test.js`, `app/test/seal_roots.test.js`, `app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
+- L27095: A REVIEW FROM OUTSIDE READ A SEASON'S NAME AS A USER LABEL, A SCREENSHOT FIXTURE AS A MOVING KICK-OFF, AND THE HOST'S BADGE SCRIPT AS OURS — `app/test/canonical_links.test.js`, `app/test/duel_scenarios.test.js`, `app/test/embed_arena_view.test.js`, `app/test/the_home_page_warns_about_impostors.test.js`, `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_theater_asks_for_the_contract_symbol.test.js`
+- L27133: THE TELEGRAM IMAGE CARDS WERE TEN RENDERERS WITH TEN PALETTES; NOW THEY ARE ONE LOOK, AND THE HONESTY TESTS NEVER NOTICED — `app/test/the_share_card_knows_which_book_the_trade_was_on.test.js`, `tests/png_text.py`, `tests/test_a_paper_close_sends_its_card.py`, `tests/test_a_signed_dollar_reads_as_money.py`, `tests/test_the_cards_share_one_look.py`, `tests/test_the_position_cards_print_the_score_the_record_holds.py`, `tests/test_the_synced_trade_says_which_book_it_was_on.py`
 
-## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE (line 27234)
+## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE (line 27259)
 
-- L27282: THE SEALED STUDIES, ON THE PAGE WHERE A VISITOR READS THE CARDS — `app/test/the_agents_page_shows_the_sealed_studies.test.js`
+- L27307: THE SEALED STUDIES, ON THE PAGE WHERE A VISITOR READS THE CARDS — `app/test/the_agents_page_shows_the_sealed_studies.test.js`
 
-## A RENTED DATA SOURCE IS A LINE ON THE CARD AND A CHECK ON THE RECEIPT, NEVER A VERDICT, AND IT ANSWERS THREE WAYS (line 27305)
+## A RENTED DATA SOURCE IS A LINE ON THE CARD AND A CHECK ON THE RECEIPT, NEVER A VERDICT, AND IT ANSWERS THREE WAYS (line 27330)
 
 
-## A DISPLAY NAME HAS NO INVERSE, AND A BUTTON THAT FINDS NOTHING HAS NOT CLOSED ANYTHING (line 27393)
+## A DISPLAY NAME HAS NO INVERSE, AND A BUTTON THAT FINDS NOTHING HAS NOT CLOSED ANYTHING (line 27418)
 
 
-## A SLOT THAT SHOWS NOTHING WHEN ITS RENDERER DOES NOT RUN IS AN EMPTY CLAIM, AND A SHARE WITH NO IMAGE BORROWS THE HOME PAGE'S (line 27442)
+## A SLOT THAT SHOWS NOTHING WHEN ITS RENDERER DOES NOT RUN IS AN EMPTY CLAIM, AND A SHARE WITH NO IMAGE BORROWS THE HOME PAGE'S (line 27467)
 
 
-## A NOTE THAT OUTLIVES ITS ACTION DESCRIBES THE NEXT ONE, AND A DOOR THE APP DOES NOT HAVE IS NOT A DIRECTION (line 27504)
+## A NOTE THAT OUTLIVES ITS ACTION DESCRIBES THE NEXT ONE, AND A DOOR THE APP DOES NOT HAVE IS NOT A DIRECTION (line 27529)
 
 
-## A COACH THAT CAN BE TOLD WHAT TO SAY IS NOT ONE THAT CANNOT SAY IT: THE RULE IS STRUCTURAL, AND THE FACTS ARE THE SERVER'S (line 27573)
+## A COACH THAT CAN BE TOLD WHAT TO SAY IS NOT ONE THAT CANNOT SAY IT: THE RULE IS STRUCTURAL, AND THE FACTS ARE THE SERVER'S (line 27598)
 
 
-## A SENTENCE IS ITS OWN KEY, A LIST OF SENTENCES IS READ FROM THE CODE, AND ONE WORD WITH TWO JOBS IS TWO SENTENCES (line 27640)
+## A SENTENCE IS ITS OWN KEY, A LIST OF SENTENCES IS READ FROM THE CODE, AND ONE WORD WITH TWO JOBS IS TWO SENTENCES (line 27665)
 
 
-## A LAUNCHPAD THE AGENT CANNOT REACH: THE RULE MOVED FOR A PERSON'S WALLET, AND THE CHAIN, NOT THE BROWSER, SAYS WHAT HAPPENED (line 27736)
+## A LAUNCHPAD THE AGENT CANNOT REACH: THE RULE MOVED FOR A PERSON'S WALLET, AND THE CHAIN, NOT THE BROWSER, SAYS WHAT HAPPENED (line 27761)
 
-- L27841: CHAT RUNS ON CLAUDE HAIKU 5.5 FOR EVERY CALLER, AND THE ADMIN-ONLY KEY GAINED ONE NAMED EXCEPTION — `tests/test_anthropic_admin_only.py`, `tests/test_chat_runs_on_claude_haiku_for_everyone.py`
-- L27868: THE WEEKLY PUBLIC RECORD IS A COMMITTED FILE, AND THE SLEEVE'S PART OF IT SAYS ONLY THAT ITS ROWS ARE KEPT — `app/test/letter.test.js`, `app/test/the_agents_page_shows_the_weekly_record.test.js`, `tests/test_the_weekly_public_record.py`
+- L27866: CHAT RUNS ON CLAUDE HAIKU 5.5 FOR EVERY CALLER, AND THE ADMIN-ONLY KEY GAINED ONE NAMED EXCEPTION — `tests/test_anthropic_admin_only.py`, `tests/test_chat_runs_on_claude_haiku_for_everyone.py`
+- L27893: THE WEEKLY PUBLIC RECORD IS A COMMITTED FILE, AND THE SLEEVE'S PART OF IT SAYS ONLY THAT ITS ROWS ARE KEPT — `app/test/letter.test.js`, `app/test/the_agents_page_shows_the_weekly_record.test.js`, `tests/test_the_weekly_public_record.py`
 
-## A TEST SUITE THAT IMPORTS THE REAL LIBRARY CANNOT SEE THE STUB PRODUCTION RUNS, A FRONT END ON ANOTHER ORIGIN NEEDS A DOOR, AND A CHAIN THAT REORGS 17 BLOCKS IS NOT CONFIRMED AT ONE (line 27921)
+## A TEST SUITE THAT IMPORTS THE REAL LIBRARY CANNOT SEE THE STUB PRODUCTION RUNS, A FRONT END ON ANOTHER ORIGIN NEEDS A DOOR, AND A CHAIN THAT REORGS 17 BLOCKS IS NOT CONFIRMED AT ONE (line 27946)
 
 
-## THREE MAINNETS, NO KEY OF OURS: A STAMP IS READ BACK FROM THE REGISTRY, A BITCOIN PROOF FROM THE HEADER, AND A PAYLOAD THAT DOES NOT FIT IS GIVEN ITS OWN TAG (line 28001)
+## THREE MAINNETS, NO KEY OF OURS: A STAMP IS READ BACK FROM THE REGISTRY, A BITCOIN PROOF FROM THE HEADER, AND A PAYLOAD THAT DOES NOT FIT IS GIVEN ITS OWN TAG (line 28026)
 
 
-## A TRACK RECORD COUNTS ONLY WHAT WAS SEALED BEFORE IT RESOLVED, AND SAYS WHEN ITS SAMPLE IS TOO SMALL TO MEAN ANYTHING (line 28063)
+## A TRACK RECORD COUNTS ONLY WHAT WAS SEALED BEFORE IT RESOLVED, AND SAYS WHEN ITS SAMPLE IS TOO SMALL TO MEAN ANYTHING (line 28088)
 
 
-## A VERDICT NEEDS TWO READERS THAT AGREE, AND A DAY NEEDS TWO CHAINS THAT DO NOT SHARE A FATE (line 28100)
+## A VERDICT NEEDS TWO READERS THAT AGREE, AND A DAY NEEDS TWO CHAINS THAT DO NOT SHARE A FATE (line 28125)
 
 
-## A WATCH THAT COULD NOT READ HAS NO FINDINGS, NOT ZERO OF THEM (line 28190)
+## A WATCH THAT COULD NOT READ HAS NO FINDINGS, NOT ZERO OF THEM (line 28215)
 
 
-## A TEST THAT READS THE WALL CLOCK FAILS AT NIGHT, AND A PUBLIC ROUTE IS PUBLIC ONLY WHERE IT SAYS SO (line 28223)
+## A TEST THAT READS THE WALL CLOCK FAILS AT NIGHT, AND A PUBLIC ROUTE IS PUBLIC ONLY WHERE IT SAYS SO (line 28248)
 
 
-## AN ALERT SAYS WHAT CHANGED, AND A FINDING THAT COULD NOT BE READ HAS NOT CLEARED (line 28257)
+## AN ALERT SAYS WHAT CHANGED, AND A FINDING THAT COULD NOT BE READ HAS NOT CLEARED (line 28282)
 
 
-## CHIPS ARE A COUNT RECOMPUTED FROM THE CALLS, AND A CALL'S COLUMN LIST WAS MISSING THE FLAG THEY DEPEND ON (line 28343)
+## CHIPS ARE A COUNT RECOMPUTED FROM THE CALLS, AND A CALL'S COLUMN LIST WAS MISSING THE FLAG THEY DEPEND ON (line 28368)
 
 
-## A REVIEW NAMES THE SETTLEMENT AND NEVER REWRITES IT, ONE VERDICT IS READ EVERYWHERE, AND A QUEUE THAT COULD NOT BE READ IS NOT EMPTY (line 28423)
+## A REVIEW NAMES THE SETTLEMENT AND NEVER REWRITES IT, ONE VERDICT IS READ EVERYWHERE, AND A QUEUE THAT COULD NOT BE READ IS NOT EMPTY (line 28448)
 
 
-## CHIPS RIDE WITH A CALL, SO A TAP THAT CANNOT SAY HOW MANY MUST ASK FIRST, AND A WORD A BUILD CANNOT FIND IS NEVER TRANSLATED (line 28508)
+## CHIPS RIDE WITH A CALL, SO A TAP THAT CANNOT SAY HOW MANY MUST ASK FIRST, AND A WORD A BUILD CANNOT FIND IS NEVER TRANSLATED (line 28533)
 
 
-## A BADGE NOBODY COULD READ IS NOT "NOT ANCHORED", AND SEVEN ASKS AT ONCE SPEND A BUDGET MEANT FOR THIRTY A MINUTE (line 28571)
+## A BADGE NOBODY COULD READ IS NOT "NOT ANCHORED", AND SEVEN ASKS AT ONCE SPEND A BUDGET MEANT FOR THIRTY A MINUTE (line 28596)
 
 
-## A HOST IS POST-QUANTUM WHEN IT CHOOSES THE HYBRID, AND A HANDSHAKE THAT NEVER HAPPENED IS NOT A CLASSICAL ONE (line 28606)
+## A HOST IS POST-QUANTUM WHEN IT CHOOSES THE HYBRID, AND A HANDSHAKE THAT NEVER HAPPENED IS NOT A CLASSICAL ONE (line 28631)
 
 
-## A SIGNATURE WHOSE CASE IS ITS VALUE MUST NOT BE LOWER-CASED, AND A COLUMN SIZED FOR ONE CHAIN DROPS ANOTHER'S ANCHOR (line 28653)
+## A SIGNATURE WHOSE CASE IS ITS VALUE MUST NOT BE LOWER-CASED, AND A COLUMN SIZED FOR ONE CHAIN DROPS ANOTHER'S ANCHOR (line 28678)
 
 
-## A VERIFIER THAT TRUSTS THE BUNDLE'S LABELS VERIFIES THE BUNDLE, AND A NEW DOOR ONTO A RECEIPT IS A NEW DOOR TO GUARD (line 28701)
+## A VERIFIER THAT TRUSTS THE BUNDLE'S LABELS VERIFIES THE BUNDLE, AND A NEW DOOR ONTO A RECEIPT IS A NEW DOOR TO GUARD (line 28726)
 
 
-## MORE PLACES TO STAMP A ROOT ARE NOT MORE WITNESSES, AND A CONTRACT ADDRESS IS READ, NOT REMEMBERED (line 28775)
+## MORE PLACES TO STAMP A ROOT ARE NOT MORE WITNESSES, AND A CONTRACT ADDRESS IS READ, NOT REMEMBERED (line 28800)
 
 
-## A SIGNED LAUNCH IS CHECKED WITH THE SIGNER'S PUBLIC KEY, AND A SHELL THAT ASSUMED AN ACCOUNT LEARNS TO RUN WITHOUT ONE (line 28832)
+## A SIGNED LAUNCH IS CHECKED WITH THE SIGNER'S PUBLIC KEY, AND A SHELL THAT ASSUMED AN ACCOUNT LEARNS TO RUN WITHOUT ONE (line 28857)
 
 
-## A COUNT OF VERIFIERS IS NOT A SAFETY RATING, AND NONE NEEDED IS NOT ONE (line 28906)
+## A COUNT OF VERIFIERS IS NOT A SAFETY RATING, AND NONE NEEDED IS NOT ONE (line 28931)
 
 
-## A CARD IS DRAWN FROM WHAT THE BROWSER CHECKED, AND A QR CODE CARRIES THE ORIGIN THE SERVER VOUCHES FOR (line 28957)
+## A CARD IS DRAWN FROM WHAT THE BROWSER CHECKED, AND A QR CODE CARRIES THE ORIGIN THE SERVER VOUCHES FOR (line 28982)
 
 
-## VOTERS THAT KEEP THEIR SIGNS ARE NOT WEIGHTS THAT PICK BETTER TRADES, AND A READY THAT LAPSES IS SAID (line 29027)
+## VOTERS THAT KEEP THEIR SIGNS ARE NOT WEIGHTS THAT PICK BETTER TRADES, AND A READY THAT LAPSES IS SAID (line 29052)
 
 
-## TAKING A SALE OFF A SITE IS A SWEEP OF EVERY SURFACE THAT ADVERTISED IT, AND THE RECORD THE TOOLING KEEPS IS NOT THE RECORD THE WEBSITE SHOWS (line 29126)
+## TAKING A SALE OFF A SITE IS A SWEEP OF EVERY SURFACE THAT ADVERTISED IT, AND THE RECORD THE TOOLING KEEPS IS NOT THE RECORD THE WEBSITE SHOWS (line 29151)
 
 
-## A TRANSLATED APP THAT PRINTS THE SERVER'S ENGLISH IS NOT TRANSLATED, AND THE ENGLISH IS READ FROM WHERE THE SERVER SAYS IT (line 29188)
+## A TRANSLATED APP THAT PRINTS THE SERVER'S ENGLISH IS NOT TRANSLATED, AND THE ENGLISH IS READ FROM WHERE THE SERVER SAYS IT (line 29213)
 
 
-## THE COACH SPOKE THE PUBLIC PAGE'S CONTRACT, AND A REPLY CUT AT THE CAP WAS SHOWN WHOLE (line 29243)
+## THE COACH SPOKE THE PUBLIC PAGE'S CONTRACT, AND A REPLY CUT AT THE CAP WAS SHOWN WHOLE (line 29268)
 
 
-## The Bitcoin leg stalled behind one read with no timeout (22 Oct 2026) (line 29315)
+## The Bitcoin leg stalled behind one read with no timeout (22 Oct 2026) (line 29340)
 
 
-## A label written before the translator loaded stayed English, and a longer wait in the test hid it (22 Oct 2026) (line 29345)
+## A label written before the translator loaded stayed English, and a longer wait in the test hid it (22 Oct 2026) (line 29370)
 
 
-## A CHECK BEFORE SIGNING NAMES A SIGNATURE ONLY BY ITS OWN TYPE, AND A SIMULATION IS A READING OF ONE BLOCK (line 29373)
+## A CHECK BEFORE SIGNING NAMES A SIGNATURE ONLY BY ITS OWN TYPE, AND A SIMULATION IS A READING OF ONE BLOCK (line 29398)
 
 
-## A REGISTRATION IS THE OWNER'S TRANSACTION, AND THE FILE LISTS ONLY WHAT WAS RECORDED (line 29459)
+## A REGISTRATION IS THE OWNER'S TRANSACTION, AND THE FILE LISTS ONLY WHAT WAS RECORDED (line 29484)
 
 
-## A SHARED LINK IS A SECOND SURFACE, AND ITS PREVIEW MAKES THE SAME CLAIM AS THE PAGE (line 29517)
+## A SHARED LINK IS A SECOND SURFACE, AND ITS PREVIEW MAKES THE SAME CLAIM AS THE PAGE (line 29542)
 
 
-## AVALANCHE C-CHAIN IS THE FIFTH INDEPENDENCE GROUP, AND IT STAYS OUT OF THE REGISTRY UNTIL THE FLAG IS ON (line 29562)
+## AVALANCHE C-CHAIN IS THE FIFTH INDEPENDENCE GROUP, AND IT STAYS OUT OF THE REGISTRY UNTIL THE FLAG IS ON (line 29587)
 
 
-## THE SWARM WAS SCAFFOLDING NOBODY CONSTRUCTED, AND WIRING IT MEANT DECIDING WHO OWNS THE HALT (line 29596)
+## THE SWARM WAS SCAFFOLDING NOBODY CONSTRUCTED, AND WIRING IT MEANT DECIDING WHO OWNS THE HALT (line 29621)
 
 
-## THE TELEMETRY DOORS: A GAUGE IS A CLAIM, A SOCKET IS A SURFACE, AND A CHAT ID IS A PERSON (line 29647)
+## THE TELEMETRY DOORS: A GAUGE IS A CLAIM, A SOCKET IS A SURFACE, AND A CHAT ID IS A PERSON (line 29672)
 
 
-## NINE REVIEW FINDINGS ON THE FOUR NEW LAYERS: A SET EVENT WITH NOTHING BEHIND IT, A FLAT NOBODY VERIFIED, AND AN ID IN A SENTENCE (line 29732)
+## NINE REVIEW FINDINGS ON THE FOUR NEW LAYERS: A SET EVENT WITH NOTHING BEHIND IT, A FLAT NOBODY VERIFIED, AND AN ID IN A SENTENCE (line 29757)
 
 
-## A STAND-IN SIGNER ACCEPTED WHAT THE REAL ONE REFUSED, AND A HASH-ONLY REGISTRY GAVE THE FIRST PUBLISHER THE LAST WORD (line 29778)
+## A STAND-IN SIGNER ACCEPTED WHAT THE REAL ONE REFUSED, AND A HASH-ONLY REGISTRY GAVE THE FIRST PUBLISHER THE LAST WORD (line 29803)
 
 
-## A VOTER THAT MUTED NOTHING READ AS DEAD WEIGHT, AND THE SAME A/B GAVE OPPOSITE VERDICTS ON TWO METRICS (line 29823)
+## A VOTER THAT MUTED NOTHING READ AS DEAD WEIGHT, AND THE SAME A/B GAVE OPPOSITE VERDICTS ON TWO METRICS (line 29848)
