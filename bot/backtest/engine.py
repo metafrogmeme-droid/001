@@ -1021,7 +1021,7 @@ class BacktestEngine:
         if idea is None:
             self._ideas_rejected_preset += 1
             return
-        # Timeframe-variant controls (BacktestConfig; all off by default).
+        # Timeframe-variant controls (BacktestConfig fields a run names; unset, a no-op).
         idea = self._apply_timeframe_variants(idea, bar_index)
         if idea is None:
             self._ideas_rejected_preset += 1
