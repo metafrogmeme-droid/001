@@ -442,6 +442,8 @@ contract HashKeySealTest {
             require(op != 0xf1 && op != 0xf2 && op != 0xf4 && op != 0xfa, "CALL family");
             require(op != 0xff, "SELFDESTRUCT");
             require(op != 0x5c && op != 0x5d, "transient storage");
+            // MCOPY is Cancun-only; foundry.toml says the runtime needs no Cancun opcode.
+            require(op != 0x5e, "MCOPY");
             if (op == 0x34) seen++;
             i++;
         }
