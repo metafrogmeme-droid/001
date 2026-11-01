@@ -26794,6 +26794,20 @@ what it stops ("live trading") was read by paths whose job is to stop losses.
 Ask of every gate whether the thing it refuses is a risk being opened or one
 being closed. (`tests/test_live_off_winds_the_live_book_down.py`.)
 
+**A FLAG THAT SET A FIELD NOBODY READ.** 31 October, the closer-target study
+(`docs/research/prereg/closer_target_2026-10/REPORT.md`). `--target-r-after-gate`
+replaced an approved idea's `take_profit`, and its tests checked exactly that: the
+field changed, the stop did not, the call sat after the gate. Under `--honest` the
+partial-TP ladder runs every exit at its own multiples and never reads the idea's
+target, so no exit moved. The flag's only effect was that a next-open fill already
+past the new target failed `TradeExecution` validation and was not opened: an entry
+filter, which halved the positions and "helped" by the sealed rule. The tell was in
+the first table: profit-target exits did not rise while positions halved. A test of
+a control should assert the consequence it is for (here, an exit at the new level),
+not the field it writes; and the first reading of any arm's result should be the
+quantity the intervention was meant to move.
+(`tests/test_backtest_closer_target.py`.)
+
 **PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT.** The same evening, after
 `/golive OFF`: "works but I don't see open paper orders or positions". A tap
 opened on the paper book, but the engine's own confirms (the tick and

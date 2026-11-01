@@ -95,6 +95,13 @@ class BacktestConfig(BaseModel):
     swing_stop_tf: str = ""
     daily_trend_days: int = 0
     mtf_scaled_history: bool = False
+    #   target_r_after_gate — K > 0: AFTER the risk gate approves an idea on
+    #     its own levels, its target becomes K times its stop distance from
+    #     entry; the stop is unchanged. None is unchanged. Only the single-exit
+    #     model reads the target: under the partial-TP ladder (`--honest`) it
+    #     moves no exit, and a fill opening past it is rejected, so it acts as
+    #     an entry filter (docs/research/prereg/closer_target_2026-10/REPORT.md).
+    target_r_after_gate: Optional[float] = None
     #   fold_history_bars — N > 0: each walk-forward fold's engines also read
     #     up to N bars that precede the fold's slice, as context only (the
     #     history live has); they are never traded. 0 is unchanged.

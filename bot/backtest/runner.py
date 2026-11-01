@@ -379,6 +379,7 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "setup_only": getattr(args, "setup_only", "") or "",
         "swing_stop_tf": getattr(args, "swing_stop_tf", "") or "",
         "daily_trend_days": int(getattr(args, "daily_trend_days", 0)),
+        "target_r_after_gate": getattr(args, "target_r_after_gate", None),
         "mtf_scaled_history": bool(getattr(args, "mtf_scaled_history", False)),
         "fold_history_bars": int(getattr(args, "fold_history_bars", 0)),
         "ma_fast": getattr(args, "ma_fast", None),
@@ -812,6 +813,13 @@ Examples:
     trade_group.add_argument("--daily-trend-days", type=int, default=0,
                              help="Measurement control: LONG only above the symbol's N-day daily "
                                   "close mean, SHORT only below it. 0 is off.")
+    trade_group.add_argument("--target-r-after-gate", type=float, default=None,
+                             help="Measurement control: after the risk gate approves an idea, set "
+                                  "its target to this many stop distances from entry (stop "
+                                  "unchanged). Under --honest the partial-TP ladder runs the "
+                                  "exits and never reads the target, so this moves no exit; "
+                                  "a fill that opens past the new target is rejected instead. "
+                                  "Unset leaves the analyzer's target.")
     trade_group.add_argument("--fold-history-bars", type=int, default=0,
                              help="Measurement control: give each walk-forward fold up to this many "
                                   "earlier bars as context (never traded). 0 is off.")
