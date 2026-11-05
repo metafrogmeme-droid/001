@@ -12,29 +12,49 @@ import { SITE } from '../facts'
 import { DOCS, PlatformLink, TELEGRAM } from '../components/PlatformLink'
 
 /**
- * Only destinations that EXIST.
+ * Desktop content links, Trade leftmost.
  *
- * The first draft listed How it works / Risk / Proof / Platform because the
- * brief's information architecture calls for them. None are built yet, so all
- * four would have 404'd — on a site whose entire argument is that it does not
- * assert things it cannot back. A nav is a promise about what is behind it.
- * These come back one at a time, as each page ships.
+ * Trade and AI are sections on the home page (`/#trade`, `/#ai`), not new
+ * routes — the platform doors inside those sections are the existing
+ * `data-platform-path` targets. Proof, Risk and Product are pages. Changelog
+ * and Privacy stay in the footer: five content links plus Open platform and
+ * Telegram is the bar that still fits.
  */
-/**
- * The header nav. Depth pages first, Privacy last.
- *
- * Ordered by what a sceptical reader came for. The site's pitch is "do not
- * trust it, check it", and the two pages that answer that — how the proof
- * works, and what the gate does when it cannot answer — were reachable only
- * from the footer, which is where links go to be reachable in principle.
- */
-const NAV = [
-  { to: '/product', label: 'Product' },
+const PAGES = [
   { to: '/proof', label: 'Proof' },
-  { to: '/risk', label: 'Risk gate' },
-  { to: '/changelog', label: 'Changelog' },
-  { to: '/privacy', label: 'Privacy' },
+  { to: '/risk', label: 'Risk' },
+  { to: '/product', label: 'Product' },
 ] as const
+
+const LINK = 'whitespace-nowrap text-sm transition-colors'
+
+function ContentLinks() {
+  return (
+    <>
+      <li>
+        <a href="/#trade" className={`${LINK} text-ink-2 hover:text-ink`}>Trade</a>
+      </li>
+      <li>
+        <a href="/#ai" className={`${LINK} text-ink-2 hover:text-ink`}>AI</a>
+      </li>
+      {PAGES.map((n) => (
+        <li key={n.to}>
+          {/* Colour lives on active/inactive, not on both. `text-ink-2` is
+              later in the stylesheet than `text-accent`, so leaving it on an
+              active link paints the current page the same grey as the rest. */}
+          <Link
+            to={n.to}
+            className={LINK}
+            inactiveProps={{ className: 'text-ink-2 hover:text-ink' }}
+            activeProps={{ className: 'text-accent' }}
+          >
+            {n.label}
+          </Link>
+        </li>
+      ))}
+    </>
+  )
+}
 
 function Wordmark() {
   return (
@@ -64,39 +84,36 @@ function Nav() {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-bg/85 backdrop-blur-md">
       <nav
-        className="mx-auto flex max-w-6xl items-center gap-6 px-5 py-3.5"
+        className="mx-auto max-w-6xl px-5 py-3.5"
         aria-label="Primary"
       >
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <Link to="/" className="shrink-0 text-ink hover:text-ink">
           <Wordmark />
         </Link>
-        <ul className="ml-auto hidden items-center gap-6 md:flex">
-          {NAV.map((n) => (
-            <li key={n.to}>
-              <Link
-                to={n.to}
-                className="text-sm text-ink-2 transition-colors hover:text-ink"
-                activeProps={{ className: 'text-accent' }}
-              >
-                {n.label}
-              </Link>
-            </li>
-          ))}
+        <ul className="ml-auto hidden items-center gap-4 md:flex lg:gap-6">
+          <ContentLinks />
         </ul>
-        <div className="ml-auto flex items-center gap-2 md:ml-0">
+        <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
           {/* Hidden until it resolves; Telegram is the always-present fallback
               so the nav is never left without a way through. */}
-          <PlatformLink className="!px-4">Open platform</PlatformLink>
+          <PlatformLink className="!px-4 whitespace-nowrap">Open platform</PlatformLink>
           <a
             href={TELEGRAM}
             target="_blank"
             rel="noopener"
-            className="inline-flex min-h-11 items-center rounded-md border border-line-2 px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent-bright"
+            className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md border border-line-2 px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent-bright"
           >
             Telegram
           </a>
         </div>
-      </nav>
+      </div>
+      {/* The same five links, on a phone, where the desktop row is hidden.
+          Trade stays first. One row, scroll if the viewport is narrower. */}
+      <ul className="mt-3 flex gap-4 overflow-x-auto pb-0.5 md:hidden">
+        <ContentLinks />
+      </ul>
+    </nav>
     </header>
   )
 }
@@ -112,9 +129,11 @@ function Footer() {
           </div>
           <nav aria-label="Footer" className="flex flex-wrap gap-x-10 gap-y-3 text-sm">
             <ul className="space-y-2">
-              <li><Link to="/product" className="text-ink-2 hover:text-ink">What ships today</Link></li>
-              <li><Link to="/proof" className="text-ink-2 hover:text-ink">How the proof works</Link></li>
-              <li><Link to="/risk" className="text-ink-2 hover:text-ink">The risk gate</Link></li>
+              <li><a href="/#trade" className="text-ink-2 hover:text-ink">Trade</a></li>
+              <li><a href="/#ai" className="text-ink-2 hover:text-ink">AI</a></li>
+              <li><Link to="/proof" className="text-ink-2 hover:text-ink">Proof</Link></li>
+              <li><Link to="/risk" className="text-ink-2 hover:text-ink">Risk</Link></li>
+              <li><Link to="/product" className="text-ink-2 hover:text-ink">Product</Link></li>
               <li><Link to="/changelog" className="text-ink-2 hover:text-ink">Changelog</Link></li>
               <li><Link to="/privacy" className="text-ink-2 hover:text-ink">Privacy</Link></li>
               <li><Link to="/terms" className="text-ink-2 hover:text-ink">Terms</Link></li>
@@ -173,8 +192,8 @@ function NotFound() {
       </h1>
       <p className="mx-auto mt-4 max-w-xl leading-relaxed text-ink-2">
         The address may be old or mistyped. Nothing on this site moved silently:
-        every page it has is linked from the header, and the platform lives at
-        its own address.
+        every page it has is linked from the header or the footer, and the
+        platform lives at its own address.
       </p>
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <Link

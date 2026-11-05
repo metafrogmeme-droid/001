@@ -18,8 +18,12 @@
  * Sections whose data is empty render NOTHING rather than a placeholder — the
  * omit strategy from CLAUDE.md's guard/omit table, applied to marketing copy.
  * A shorter page is the acceptable cost; an invented figure is not.
+ *
+ * SECTION ORDER. Trade, then a short "talk to it", then the proof line.
+ * Stats, the demo and the capability grid are still on this page — under
+ * that, not deleted. The sourced "what ships" write-up is the product page.
  */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { CAPABILITIES, SITE, STATS } from '../facts'
 import { DOCS, PlatformLink, TELEGRAM } from '../components/PlatformLink'
 
@@ -57,7 +61,9 @@ function Hero() {
           {SITE.promise}
         </p>
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <PlatformLink>Paper trade — free</PlatformLink>
+          {/* /arena is the paper-trade door (app/server.js). The button used to
+              open the platform root, which is a catalogue, not a trade. */}
+          <PlatformLink path="/arena">Paper trade — free</PlatformLink>
           <a
             href={TELEGRAM}
             target="_blank"
@@ -66,6 +72,117 @@ function Hero() {
           >
             Talk to it on Telegram
           </a>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * A platform card that stays readable when the origin is unknown.
+ * `data-platform-path` is filled in by platform-links.ts; with no href the
+ * card is text, not a link that 404s against this host.
+ */
+function PlatformCards(
+  { items }: { items: readonly { path: string; title: string; body: string }[] },
+) {
+  return (
+    <ul className="mt-6 grid gap-4 sm:grid-cols-3">
+      {items.map((l) => (
+        <li key={l.path}>
+          <a
+            data-platform-path={l.path}
+            className="reveal block h-full rounded-xl border border-line bg-surface p-5 transition-colors [&[href]]:hover:border-accent"
+          >
+            <span className="text-sm font-semibold text-accent">{l.title}</span>
+            <span className="mt-2 block text-sm leading-relaxed text-ink-2">{l.body}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * Trade strip. Paths that already exist on the platform — nothing invented:
+ *   /dashboard            app/server.js, the cockpit
+ *   /dashboard#signals    dashboard.js VIEWS id "signals"
+ *   /arena                app/server.js
+ */
+function TradeStrip() {
+  const doors = [
+    {
+      path: '/dashboard',
+      title: 'Cockpit',
+      body: 'Portfolio, markets and execution. Paper by default; live only on your own keys.',
+    },
+    {
+      path: '/dashboard#signals',
+      title: 'Signals',
+      body: 'The signal stream. Each call is hashed before the market moves.',
+    },
+    {
+      path: '/arena',
+      title: 'Arena',
+      body: 'Paper-trade against the engine. No deposit, no keys.',
+    },
+  ] as const
+  return (
+    <section id="trade" aria-labelledby="trade-h" className="scroll-mt-28 mx-auto max-w-6xl px-5 py-14">
+      <h2
+        id="trade-h"
+        className="font-[family-name:var(--font-brand)] font-bold"
+        style={{ fontSize: 'var(--text-h2)' }}
+      >
+        Trade
+      </h2>
+      <p className="mt-3 max-w-2xl text-ink-2">
+        Paper first. The cockpit, the signal stream, or the arena.
+      </p>
+      <PlatformCards items={doors} />
+    </section>
+  )
+}
+
+/**
+ * Short on purpose. The sourced write-up of the assistant lives on /product.
+ *   /dashboard#chat   VIEWS id "chat"
+ *   /dashboard#feed   VIEWS id "feed" — the agent's mind-stream
+ * Telegram is a real href, so the section still has a way through when the
+ * platform origin is unset.
+ */
+function AiTeaser() {
+  return (
+    <section id="ai" aria-labelledby="ai-h" className="scroll-mt-28 border-y border-line bg-surface/40">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-12 md:flex-row md:items-center md:justify-between">
+        <div className="max-w-xl">
+          <h2
+            id="ai-h"
+            className="font-[family-name:var(--font-brand)] font-bold"
+            style={{ fontSize: 'var(--text-h2)' }}
+          >
+            Talk to it
+          </h2>
+          <p className="mt-3 text-ink-2">
+            The chat reads your portfolio, your risk state and a live scan
+            through read-only tools — on the web and in Telegram.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <a
+            href={TELEGRAM}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex min-h-11 items-center justify-center rounded-md border border-line-2 px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent-bright"
+          >
+            Talk on Telegram
+          </a>
+          <PlatformLink path="/dashboard#chat" variant="ghost" hideUntilResolved={false}>
+            Open the chat
+          </PlatformLink>
+          <PlatformLink path="/dashboard#feed" variant="ghost" hideUntilResolved={false}>
+            Mind-stream
+          </PlatformLink>
         </div>
       </div>
     </section>
@@ -138,6 +255,12 @@ function Capabilities() {
       >
         What it does
       </h2>
+      <p className="mt-3 max-w-2xl text-sm text-ink-2">
+        The short list. What ships, and what does not, is on the{' '}
+        <Link to="/product" className="text-ink underline hover:text-accent">
+          product page
+        </Link>.
+      </p>
       <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {CAPABILITIES.map((c) => (
           <li
@@ -168,8 +291,9 @@ function Proof() {
     { path: '/provable', title: 'How the proof works', body: 'The full verification contract, in public.' },
   ]
   return (
-    <section className="mx-auto max-w-6xl px-5 py-20">
+    <section id="proof" aria-labelledby="proof-h" className="scroll-mt-28 mx-auto max-w-6xl px-5 py-14">
       <h2
+        id="proof-h"
         className="font-[family-name:var(--font-brand)] font-bold"
         style={{ fontSize: 'var(--text-h2)' }}
       >
@@ -179,19 +303,7 @@ function Proof() {
         The record is designed to be verified by someone who does not trust the
         operator — including you.
       </p>
-      <ul className="mt-8 grid gap-4 sm:grid-cols-3">
-        {links.map((l) => (
-          <li key={l.path}>
-            <a
-              data-platform-path={l.path}
-              className="reveal block h-full rounded-xl border border-line bg-surface p-5 transition-colors [&[href]]:hover:border-accent"
-            >
-              <span className="text-sm font-semibold text-accent">{l.title}</span>
-              <span className="mt-2 block text-sm leading-relaxed text-ink-2">{l.body}</span>
-            </a>
-          </li>
-        ))}
-      </ul>
+      <PlatformCards items={links} />
       <p className="mt-6 text-xs text-ink-3">
         These open on the live platform. Docs live at{' '}
         <a href={DOCS} target="_blank" rel="noopener" className="text-ink-2 underline">
@@ -203,13 +315,18 @@ function Proof() {
 }
 
 function Home() {
+  // Trade, then AI, then the one-line proof. Stats, the demo and the
+  // capability grid stay — below that, so the long story is still on the
+  // page and is no longer the first thing after the hero.
   return (
     <>
       <Hero />
+      <TradeStrip />
+      <AiTeaser />
+      <Proof />
       <Stats />
       <DemoFilm />
       <Capabilities />
-      <Proof />
     </>
   )
 }

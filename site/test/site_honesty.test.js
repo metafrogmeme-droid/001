@@ -131,8 +131,12 @@ for (const page of PAGES) {
     const refs = [...html.matchAll(/(?:href|src)="(\/[^"]*)"/g)]
       .map((m) => m[1])
       .filter((u) => !u.startsWith('//'))
-    const missing = [...new Set(refs)].filter(
-      (u) => !fs.existsSync(path.join(OUT, decodeURIComponent(u))))
+    const missing = [...new Set(refs)].filter((u) => {
+      // `/#trade` is a fragment on this site, not a file named "#trade".
+      const file = u.split(/[?#]/)[0]
+      if (file === '' || file === '/') return false
+      return !fs.existsSync(path.join(OUT, decodeURIComponent(file)))
+    })
     assert.deepStrictEqual(missing, [],
       `these link to nothing:\n  ${missing.join('\n  ')}\n`
       + 'A nav is a promise about what is behind it.')
@@ -258,6 +262,65 @@ test('no published surface claims a human confirms live trades', () => {
       + 'AUTO_CONFIRM_LIVE_ENABLED can still be turned on, so an unconditional '
       + 'human-confirmation claim is not a claim the code keeps')
   }
+})
+
+test('the homepage is trade-first, and the long story sits below the proof', () => {
+  const html = built('index.html')
+  const nav = html.match(/<nav[^>]*aria-label="Primary"[\s\S]*?<\/nav>/)
+  assert.ok(nav, 'no primary nav')
+  const labels = [...nav[0].matchAll(
+    />(Trade|AI|Proof|Risk|Product|Changelog|Privacy)</g)].map((m) => m[1])
+  // Desktop row, then the same row for a phone. Changelog and Privacy are
+  // footer links — the header is Trade · AI · Proof · Risk · Product.
+  assert.deepStrictEqual(labels, [
+    'Trade', 'AI', 'Proof', 'Risk', 'Product',
+    'Trade', 'AI', 'Proof', 'Risk', 'Product',
+  ])
+
+  const foot = html.match(/<nav[^>]*aria-label="Footer"[\s\S]*?<\/nav>/)
+  assert.ok(foot, 'no footer nav')
+  const footLabels = [...foot[0].matchAll(/>(Trade|AI|Proof|Risk|Product)</g)]
+    .map((m) => m[1])
+  assert.deepStrictEqual(footLabels, ['Trade', 'AI', 'Proof', 'Risk', 'Product'])
+
+  const main = html.match(/<main id="main">([\s\S]*?)<\/main>/)
+  assert.ok(main, 'no main')
+  const body = main[1]
+  const at = (needle) => {
+    const i = body.indexOf(needle)
+    assert.ok(i >= 0, `homepage is missing ${JSON.stringify(needle)}`)
+    return i
+  }
+  assert.ok(at('id="trade"') < at('id="ai"') && at('id="ai"') < at('id="proof"'),
+    'home sections should run trade, then AI, then proof')
+  assert.ok(at('id="proof"') < at('venue adapters'),
+    'the stats should follow the proof, not lead the page')
+  assert.ok(at('venue adapters') < at('/demo-recording.mp4'),
+    'the demo film should follow the stats')
+  assert.ok(at('/demo-recording.mp4') < at('What it does'),
+    'the capability grid should follow the demo, below the fold')
+  assert.match(body, /data-platform-path="\/arena"[^>]*>\s*Paper trade/)
+  for (const platformPath of [
+    '/arena', '/dashboard', '/dashboard#signals', '/dashboard#chat', '/dashboard#feed',
+  ]) {
+    assert.ok(body.includes(`data-platform-path="${platformPath}"`),
+      `homepage dropped the existing platform path ${platformPath}`)
+  }
+  assert.doesNotMatch(body, /data-platform-path="\/(?:cockpit|signals|ai|mind-stream)"/,
+    'a platform path was invented; reuse /dashboard, its hashes, and /arena')
+})
+
+test('the product page is the long account, and it leads with trade', () => {
+  const html = built(path.join('product', 'index.html'))
+  const article = html.match(/<article[\s\S]*?<\/article>/)
+  assert.ok(article, 'product page has no article')
+  const text = article[0]
+  const trade = text.search(/Trade[^<]{0,40}paper first/)
+  const talk = text.indexOf('Talk to it')
+  assert.ok(trade >= 0 && talk > trade,
+    'product should open with trade, then the assistant')
+  assert.match(text, /What is not here yet/)
+  assert.match(text, /Guardian/)
 })
 
 test('the true version of that promise IS still stated', () => {
