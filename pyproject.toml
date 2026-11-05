@@ -34,6 +34,7 @@ charts = [
     "mplfinance==0.12.10b0",
     "matplotlib==3.11.1",
     "pandas==3.0.5",
+    "six==1.17.0",
 ]
 dev = [
     "pytest==9.0.3",

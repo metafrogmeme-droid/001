@@ -63,3 +63,8 @@ redis==8.1.0
 matplotlib==3.11.1
 mplfinance==0.12.10b0
 pandas==3.0.5
+# mplfinance/_utils.py does `from six.moves import zip`. python-dateutil
+# 4.0.0, the unpinned transitive pandas now resolves, no longer depends on
+# six, so a fresh install of the three pins above could not import
+# mplfinance (CI, 2026-11-05).
+six==1.17.0
