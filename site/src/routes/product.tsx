@@ -62,6 +62,21 @@ function Product() {
         bottom, said plainly.
       </P>
 
+      <H>Trade — paper first</H>
+      <P>
+        Paper is the default. The Arena gives you a virtual account priced from
+        the live feed, with liquidation mechanics, seasons and a board that
+        publishes percentages and counts, never balances. Live trading is a
+        choice: you bring your own exchange keys, they are validated read-only
+        and encrypted at rest, and the operator switches live on per user.
+      </P>
+      <ul className="mt-5 space-y-3">
+        <Src at="app/routes/arena.js">The Arena</Src>
+        <Src at="bot/core/exchange_credentials.py">Per-user keys, encrypted at rest</Src>
+        <Src at="bot/core/venues.py">The venue adapters</Src>
+        <Src at="config/risk_manifest.yaml">The gate every entry passes — described on the risk page, without a count</Src>
+      </ul>
+
       <H>Talk to it</H>
       <P>
         The same assistant answers in Telegram and in the web drawer, with one
@@ -79,21 +94,6 @@ function Product() {
         </Src>
         <Src at="bot/nlp/conversation_store.py">Shared memory, with a rolling note of what the cap pruned</Src>
         <Src at="bot/utils/i18n.py">Answers in thirty-four languages; the interface in fourteen</Src>
-      </ul>
-
-      <H>Trade — paper first</H>
-      <P>
-        Paper is the default. The Arena gives you a virtual account priced from
-        the live feed, with liquidation mechanics, seasons and a board that
-        publishes percentages and counts, never balances. Live trading is a
-        choice: you bring your own exchange keys, they are validated read-only
-        and encrypted at rest, and the operator switches live on per user.
-      </P>
-      <ul className="mt-5 space-y-3">
-        <Src at="app/routes/arena.js">The Arena</Src>
-        <Src at="bot/core/exchange_credentials.py">Per-user keys, encrypted at rest</Src>
-        <Src at="bot/core/venues.py">The venue adapters</Src>
-        <Src at="config/risk_manifest.yaml">The gate every entry passes — described on the risk page, without a count</Src>
       </ul>
 
       <H>Prove it</H>
@@ -153,7 +153,7 @@ function Product() {
       </Gap>
 
       <div className="mt-12 flex flex-wrap items-center gap-3">
-        <PlatformLink>Paper trade — free</PlatformLink>
+        <PlatformLink path="/arena">Paper trade — free</PlatformLink>
         <a
           href={TELEGRAM}
           target="_blank"

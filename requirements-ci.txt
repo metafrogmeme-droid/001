@@ -45,6 +45,9 @@ PyJWT==2.15.1
 matplotlib==3.11.1
 mplfinance==0.12.10b0
 pandas==3.0.5
+# mplfinance imports six.moves. dateutil 4, resolved unpinned, no longer
+# installs it. Same pin as requirements.lock.
+six==1.17.0
 # Not gated by any test today — and that is the point. It is pinned in
 # requirements.lock, so the production Anthropic provider path exists on every
 # box and existed on no CI runner. A latent version of the same gap.
