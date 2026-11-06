@@ -310,6 +310,48 @@ test('the homepage is trade-first, and the long story sits below the proof', () 
     'a platform path was invented; reuse /dashboard, its hashes, and /arena')
 })
 
+test('BOT Chain is named after the trade story, with the two public origins exact', () => {
+  // The origins are BOT Chain's. The href has to be the string a reviewer
+  // searches for: a trailing slash, a path, or a label in place of the URL
+  // is a different link. The checker host is absent because it was not
+  // serving — a button to a 404 is a claim the click cannot keep.
+  const html = built('index.html')
+  const main = html.match(/<main id="main">([\s\S]*?)<\/main>/)
+  assert.ok(main, 'no main')
+  const body = main[1]
+  const at = (needle) => {
+    const i = body.indexOf(needle)
+    assert.ok(i >= 0, `homepage is missing ${JSON.stringify(needle)}`)
+    return i
+  }
+  assert.ok(at('What it does') < at('id="botchain"'),
+    'BOT Chain leads the page; it belongs after the trade story')
+  assert.ok(at('id="trade"') < at('id="botchain"') && at('id="proof"') < at('id="botchain"'))
+
+  const hrefs = [...body.matchAll(/href="([^"]*)"/g)].map((m) => m[1])
+  assert.ok(hrefs.includes('https://botchain.ai'),
+    `https://botchain.ai is not an href: ${hrefs.filter((h) => h.includes('botchain')).join(', ')}`)
+  assert.ok(hrefs.includes('https://scan.botchain.ai'),
+    `https://scan.botchain.ai is not an href: ${hrefs.filter((h) => h.includes('botchain')).join(', ')}`)
+  for (const url of ['https://botchain.ai', 'https://scan.botchain.ai']) {
+    assert.ok(body.includes(`>${url}<`) || body.includes(`>${url}<span`),
+      `${url} is not visible link text`)
+  }
+  assert.ok(body.includes('0x2554160560747dF51873171FBD838bbDEEdf9093'))
+  assert.ok(body.includes('0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F'))
+  assert.ok(body.includes('0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640'))
+  assert.match(body, /chain id 677/)
+  assert.match(body, /6 November 2026/)
+  assert.match(body, /no Anchored event/)
+  assert.match(body, /not proof that what the file says is true/)
+  assert.match(body, /not a finished product flow/)
+  assert.match(body, /not a trading result/)
+  assert.doesNotMatch(html, /bohr-seal-verify|vercel\.app/i,
+    'the unpublished checker is linked or named')
+  const section = body.slice(at('id="botchain"'))
+  assert.doesNotMatch(section, /profit|guaranteed return|beat the market/i)
+})
+
 test('the product page is the long account, and it leads with trade', () => {
   const html = built(path.join('product', 'index.html'))
   const article = html.match(/<article[\s\S]*?<\/article>/)

@@ -185,3 +185,37 @@ export const MUST_NOT_CLAIM: readonly string[] = [
   'a completed independent security audit',
   'any live market price baked into the page',
 ] as const
+
+/**
+ * BotChainSeal on BOT Chain, read 6 November 2026.
+ *
+ * The homepage quotes this object and nothing else, so the address, the
+ * transaction and the two public origins each appear once. A seal count is
+ * deliberately not a field: the log had no Anchored event on that date, and
+ * a count typed here would freeze the way a price typed into markup froze.
+ *
+ *   https://scan.botchain.ai/api/v2/smart-contracts/0x2554160560747dF51873171FBD838bbDEEdf9093
+ *     name BotChainSeal, is_fully_verified true, verified_at 2026-11-06T08:16:52Z
+ *     constructor firstPublisher 0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F
+ *   eth_call owner() on https://rpc.botchain.ai (eth_chainId 0x2a5 = 677)
+ *     0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F
+ *   creation tx 0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640
+ *     the same address is the creator; the log is PublisherSet(allowed=true)
+ *     and OwnershipTransferred only
+ *   https://scan.botchain.ai/api/v2/addresses/0x2554160560747dF51873171FBD838bbDEEdf9093/logs
+ *     two items, next_page_params null, no Anchored event
+ *
+ * botchain.ai and scan.botchain.ai are BOT Chain's. This file only links to
+ * them. The separate checker https://bohr-seal-verify.vercel.app/mainnet.html
+ * answered 404 on the same date and is not a field, so the page cannot link it.
+ */
+export const BOT_CHAIN = {
+  site: 'https://botchain.ai',
+  explorer: 'https://scan.botchain.ai',
+  chainId: '677',
+  name: 'BotChainSeal',
+  address: '0x2554160560747dF51873171FBD838bbDEEdf9093',
+  ownerPublisher: '0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F',
+  deployTx: '0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640',
+  readOn: '6 November 2026',
+} as const
