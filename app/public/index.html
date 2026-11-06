@@ -128,6 +128,16 @@
     background: rgba(0,0,0,.28); }
   .ps-cmd code { font-family: var(--font-data); font-size: 11.5px; color: var(--text-2); white-space: pre; }
   .ps-note { margin: 0; }
+  /* Long explorer URLs wrap inside the card instead of widening the page. */
+  #botchain a { word-break: break-all; }
+  #botchain .bc-links { display: flex; flex-direction: column; gap: 8px; margin: var(--s3) 0; align-items: flex-start; }
+  #botchain .bc-links a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  }
+  @media (min-width: 640px) {
+    #botchain .bc-links { flex-direction: row; flex-wrap: wrap; }
+  }
 </style>
 </head>
 <body>
@@ -581,6 +591,7 @@
     <li><a href="#marketplaceTease" data-i18n="nav.marketplace">Marketplace</a></li>
     <li><a href="#arenaTease" data-i18n="nav.arena">Arena</a></li>
       <li><a href="/explore" data-i18n="ex.nav">Explore everything</a></li>
+    <li><a href="#botchain" data-i18n="idx.botchain">BOT Chain</a></li>
   </ul>
 </nav>
 
@@ -875,6 +886,32 @@
   </div>
 </main>
 
+<!-- BOT Chain file-hash record. After the account form, so Trade and the
+     doors stay first. The two origin links are the href and the visible
+     text, with no trailing slash. A separate checker page is not linked
+     because it is not published. A deployed contract is not a finished
+     product flow. -->
+<section class="section" id="botchain" aria-labelledby="botchain-h">
+  <div class="section-head">
+    <p class="eyebrow" data-i18n="bc.kicker">Separate network · chain id 677</p>
+    <h2 id="botchain-h" data-i18n="bc.h">A file hash on BOT Chain</h2>
+  </div>
+  <div data-i18n-html="bc.body">
+    <p>BOT Chain is not operated here. Its site and its explorer are its own.</p>
+    <p class="bc-links">
+      <a href="https://botchain.ai" target="_blank" rel="noopener">https://botchain.ai</a>
+      <a href="https://scan.botchain.ai" target="_blank" rel="noopener">https://scan.botchain.ai</a>
+    </p>
+    <p>BotChainSeal is deployed on chain id 677. The explorer reports the source as verified, which means the published source matches the bytecode. That match is not an audit.</p>
+    <p>Contract <a href="https://scan.botchain.ai/address/0x2554160560747dF51873171FBD838bbDEEdf9093" target="_blank" rel="noopener">0x2554160560747dF51873171FBD838bbDEEdf9093</a></p>
+    <p>Owner and first publisher <a href="https://scan.botchain.ai/address/0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F" target="_blank" rel="noopener">0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F</a>. The deploy transaction set both roles to this one address.</p>
+    <p>Deploy transaction <a href="https://scan.botchain.ai/tx/0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640" target="_blank" rel="noopener">0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640</a></p>
+    <p>An anchor stores a 32-byte hash of a file’s bytes, the publisher who submitted it, and a label. A matching hash shows those exact bytes were submitted. It is not proof that what the file says is true, and it is not a trading result. This website does not submit a hash and does not sign or send a transaction.</p>
+    <p>On 6 November 2026 the contract log contained the deployment events only. There was no Anchored event. This sentence is that reading, not a live counter.</p>
+    <p>A deployed contract is not a finished product flow. A separate checker page is not published, so this section does not link to one.</p>
+  </div>
+</section>
+
 <footer class="site-footer">
   <div class="inner">
     <!-- The domain is humanoid-traders.com and the product is RUNECLAW; until
@@ -951,7 +988,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=213"></script>
+<script src="/js/i18n-core.js?v=214"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=18"></script>

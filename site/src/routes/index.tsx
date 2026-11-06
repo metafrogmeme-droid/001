@@ -22,9 +22,11 @@
  * SECTION ORDER. Trade, then a short "talk to it", then the proof line.
  * Stats, the demo and the capability grid are still on this page — under
  * that, not deleted. The sourced "what ships" write-up is the product page.
+ * The BOT Chain note is last. A deployed contract is not the product, so it
+ * does not lead the page and it is not a nav item.
  */
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { CAPABILITIES, SITE, STATS } from '../facts'
+import { BOT_CHAIN, CAPABILITIES, SITE, STATS } from '../facts'
 import { DOCS, PlatformLink, TELEGRAM } from '../components/PlatformLink'
 
 function Hero() {
@@ -314,10 +316,191 @@ function Proof() {
   )
 }
 
+/**
+ * An external URL whose visible text is the href.
+ *
+ * The two BOT Chain origins have to be findable as those exact strings, in
+ * the link and on the page. A label such as "explorer" would hide the URL
+ * the review is looking for, and a trailing slash would be a different URL.
+ */
+function ExactUrl({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener"
+      className="inline-flex min-h-11 w-full items-center break-all rounded-md border border-line-2 px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent-bright sm:w-auto"
+    >
+      {href}
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  )
+}
+
+/**
+ * Prefer breaks after a slash and every 12 characters, so a 42-character
+ * address wraps on a phone without leaving one glyph on its own line.
+ * The characters stay in order; a break opportunity is not a space.
+ */
+function withBreaks(value: string) {
+  const nodes: React.ReactNode[] = []
+  value.split(/(\/)/).forEach((part, i) => {
+    if (part === '/') {
+      nodes.push(<span key={`s${i}`}>/<wbr /></span>)
+      return
+    }
+    const groups = part.match(/.{1,12}/g) ?? []
+    groups.forEach((group, j) => {
+      nodes.push(
+        <span key={`${i}-${j}`}>
+          {group}
+          {j < groups.length - 1 ? <wbr /> : null}
+        </span>,
+      )
+    })
+  })
+  return nodes
+}
+
+function RecordLink({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener"
+      className="data mt-2 block text-sm text-ink underline decoration-line-2 underline-offset-4 hover:text-accent-bright"
+    >
+      {withBreaks(href)}
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  )
+}
+
+/**
+ * BOT Chain file-hash contract. Last on the page on purpose.
+ *
+ * WHAT THIS SECTION IS NOT. It is not a claim that RUNECLAW trades are
+ * sealed there, and it is not a button into a checker. The separate static
+ * checker answered 404 on the date in facts.ts, so it is not linked: a link
+ * to a missing page is a promise the click cannot keep. A deployed contract
+ * is the commitment surface. It is not a finished product flow, and this
+ * site does not sign or send anything to it.
+ *
+ * The hash commits the bytes of a file. It does not establish that the file's
+ * contents are true. facts.ts holds the addresses; this function does not
+ * restate them as a second copy.
+ */
+function BotChain() {
+  const contractUrl = `${BOT_CHAIN.explorer}/address/${BOT_CHAIN.address}`
+  const ownerUrl = `${BOT_CHAIN.explorer}/address/${BOT_CHAIN.ownerPublisher}`
+  const txUrl = `${BOT_CHAIN.explorer}/tx/${BOT_CHAIN.deployTx}`
+  return (
+    <section
+      id="botchain"
+      aria-labelledby="botchain-h"
+      className="scroll-mt-28 border-t border-line"
+    >
+      <div className="mx-auto max-w-6xl px-5 py-16">
+        <p className="data text-xs uppercase tracking-wider text-ink-3">
+          {`Separate network · chain id ${BOT_CHAIN.chainId}`}
+        </p>
+        <h2
+          id="botchain-h"
+          className="mt-3 max-w-3xl font-[family-name:var(--font-brand)] font-bold"
+          style={{ fontSize: 'var(--text-h2)' }}
+        >
+          A file hash on BOT Chain
+        </h2>
+        <p className="mt-3 max-w-2xl text-ink-2">
+          BOT Chain is not operated here. Its site and its explorer are its own.
+          These two open there.
+        </p>
+        <ul className="mt-6 flex list-none flex-col gap-3 p-0 sm:flex-row sm:flex-wrap">
+          <li><ExactUrl href={BOT_CHAIN.site} /></li>
+          <li><ExactUrl href={BOT_CHAIN.explorer} /></li>
+        </ul>
+
+        <p className="mt-8 max-w-3xl leading-relaxed text-ink-2">
+          {`${BOT_CHAIN.name} is deployed on that network. The explorer reports the `
+            + 'source as verified, which means the published source matches the '
+            + 'bytecode. That match is not an audit.'}
+        </p>
+        <dl className="mt-6 grid gap-4 sm:grid-cols-3">
+          <div className="min-w-0 rounded-xl border border-line bg-surface p-5">
+            <dt className="text-xs uppercase tracking-wider text-ink-3">Contract</dt>
+            <dd>
+              <p className="data mt-2 text-sm text-ink">{withBreaks(BOT_CHAIN.address)}</p>
+              <p className="mt-2 text-xs text-ink-3">{BOT_CHAIN.name}</p>
+              <RecordLink href={contractUrl} />
+            </dd>
+          </div>
+          <div className="min-w-0 rounded-xl border border-line bg-surface p-5">
+            <dt className="text-xs uppercase tracking-wider text-ink-3">
+              Owner and first publisher
+            </dt>
+            <dd>
+              <p className="data mt-2 text-sm text-ink">{withBreaks(BOT_CHAIN.ownerPublisher)}</p>
+              <p className="mt-2 text-xs leading-relaxed text-ink-3">
+                The deploy transaction set both roles to this one address.
+              </p>
+              <RecordLink href={ownerUrl} />
+            </dd>
+          </div>
+          <div className="min-w-0 rounded-xl border border-line bg-surface p-5">
+            <dt className="text-xs uppercase tracking-wider text-ink-3">Deploy transaction</dt>
+            <dd>
+              <p className="data mt-2 text-sm text-ink">{withBreaks(BOT_CHAIN.deployTx)}</p>
+              <RecordLink href={txUrl} />
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mt-8 max-w-3xl space-y-4 leading-relaxed text-ink-2">
+          <p>
+            An anchor stores a 32-byte hash, the publisher who submitted it, and
+            a label the publisher chooses. The hash is a commitment to a
+            file&rsquo;s bytes: hash the same file and you can see whether those
+            exact bytes were submitted, and by whom. The contract does not keep
+            the file. A matching hash is not proof that what the file says is
+            true, and it is not a trading result.
+          </p>
+          <p>
+            This is separate from the call hashes further up the page. Those are
+            RUNECLAW&rsquo;s own record. This website does not submit a hash,
+            and it does not sign or send a transaction.
+          </p>
+        </div>
+
+        <div className="mt-6 max-w-3xl rounded-lg border border-warn/40 bg-warn/5 p-4" role="note">
+          <p className="text-sm font-semibold text-warn">
+            No file hash had been committed when this page was written
+          </p>
+          <p className="mt-1.5 text-sm leading-relaxed text-ink-2">
+            {`On ${BOT_CHAIN.readOn} the contract log on the explorer contained the `
+              + 'deployment events only. There was no Anchored event. This sentence '
+              + 'is that reading, not a live counter. Anything anchored later is on '
+              + 'the contract page, not here.'}
+          </p>
+        </div>
+        <div className="mt-4 max-w-3xl rounded-lg border border-warn/40 bg-warn/5 p-4" role="note">
+          <p className="text-sm font-semibold text-warn">
+            A deployed contract is not a finished product flow
+          </p>
+          <p className="mt-1.5 text-sm leading-relaxed text-ink-2">
+            A separate page for checking a file against the contract is not
+            published, so this section does not link to one. Until that page
+            exists, the contract on the explorer is the public record.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function Home() {
   // Trade, then AI, then the one-line proof. Stats, the demo and the
   // capability grid stay — below that, so the long story is still on the
-  // page and is no longer the first thing after the hero.
+  // page and is no longer the first thing after the hero. BOT Chain is last.
   return (
     <>
       <Hero />
@@ -327,6 +510,7 @@ function Home() {
       <Stats />
       <DemoFilm />
       <Capabilities />
+      <BotChain />
     </>
   )
 }

@@ -1967,6 +1967,10 @@
     "ex.nav": { en: "Explore everything" },
     "ex.cta": { en: "See every tool on one page →" },
     "doors.h": { en: "Everything, behind five doors" },
+    "idx.botchain": { en: "BOT Chain" },
+    "bc.h": { en: "A file hash on BOT Chain" },
+    "bc.kicker": { en: "Separate network · chain id 677" },
+    "bc.body": { en: "<p>BOT Chain is not operated here. Its site and its explorer are its own.</p><p class=\"bc-links\"><a href=\"https://botchain.ai\" target=\"_blank\" rel=\"noopener\">https://botchain.ai</a> <a href=\"https://scan.botchain.ai\" target=\"_blank\" rel=\"noopener\">https://scan.botchain.ai</a></p><p>BotChainSeal is deployed on chain id 677. The explorer reports the source as verified, which means the published source matches the bytecode. That match is not an audit.</p><p>Contract <a href=\"https://scan.botchain.ai/address/0x2554160560747dF51873171FBD838bbDEEdf9093\" target=\"_blank\" rel=\"noopener\">0x2554160560747dF51873171FBD838bbDEEdf9093</a></p><p>Owner and first publisher <a href=\"https://scan.botchain.ai/address/0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F\" target=\"_blank\" rel=\"noopener\">0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F</a>. The deploy transaction set both roles to this one address.</p><p>Deploy transaction <a href=\"https://scan.botchain.ai/tx/0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640\" target=\"_blank\" rel=\"noopener\">0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640</a></p><p>An anchor stores a 32-byte hash of a file’s bytes, the publisher who submitted it, and a label. A matching hash shows those exact bytes were submitted. It is not proof that what the file says is true, and it is not a trading result. This website does not submit a hash and does not sign or send a transaction.</p><p>On 6 November 2026 the contract log contained the deployment events only. There was no Anchored event. This sentence is that reading, not a live counter.</p><p>A deployed contract is not a finished product flow. A separate checker page is not published, so this section does not link to one.</p>" },
     "doors.sub": { en: "The whole site, grouped by the job it does. Every page here is also linked from its own section below — this is just the shorter route." },
     "doors.d1_h": { en: "Evidence" },
     "doors.d1_p": { en: "Track record, Proof of PnL, the daily seal roots, and the full contract for verifying any single call yourself." },
@@ -2609,7 +2613,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"8c2a67b6","zh":"93c0d2ae","pt":"b9e71032","fr":"55ca2c61","de":"4ffd4dab","nl":"aef0ed68","ja":"805023e1","ko":"9b28ec05","ru":"11e0863e","tr":"61f687b0","it":"18fd86e9","hi":"2581f011","ar":"f66592de"};
+  var CHUNKS = {"es":"9b2b2631","zh":"aa05c794","pt":"af7f7b43","fr":"41d9488d","de":"7004456a","nl":"39646ee6","ja":"687f6014","ko":"5f39b60a","ru":"c794ce21","tr":"36efc2f3","it":"6eba8aa9","hi":"46b4dddf","ar":"191c3308"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
