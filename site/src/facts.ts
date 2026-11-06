@@ -187,35 +187,61 @@ export const MUST_NOT_CLAIM: readonly string[] = [
 ] as const
 
 /**
- * BotChainSeal on BOT Chain, read 6 November 2026.
+ * BotChainSeal on BOT Chain, re-read 6 November 2026.
  *
- * The homepage quotes this object and nothing else, so the address, the
- * transaction and the two public origins each appear once. A seal count is
- * deliberately not a field: the log had no Anchored event on that date, and
- * a count typed here would freeze the way a price typed into markup froze.
+ * The homepage quotes this object. The two Anchored transactions are named
+ * because they are specific receipts, not a live count. A later anchor shows
+ * up on the explorer and is not added here by itself.
  *
- *   https://scan.botchain.ai/api/v2/smart-contracts/0x2554160560747dF51873171FBD838bbDEEdf9093
- *     name BotChainSeal, is_fully_verified true, verified_at 2026-11-06T08:16:52Z
- *     constructor firstPublisher 0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F
- *   eth_call owner() on https://rpc.botchain.ai (eth_chainId 0x2a5 = 677)
- *     0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F
- *   creation tx 0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640
- *     the same address is the creator; the log is PublisherSet(allowed=true)
- *     and OwnershipTransferred only
  *   https://scan.botchain.ai/api/v2/addresses/0x2554160560747dF51873171FBD838bbDEEdf9093/logs
- *     two items, next_page_params null, no Anchored event
+ *     Anchored 0x7627bf71… (evidence file) and Anchored 0x2a6e494d… (first
+ *     receipt), both sender 0xd229…, plus the deploy PublisherSet and
+ *     OwnershipTransferred. next_page_params null.
+ *   https://bohr-seal-verify.vercel.app/mainnet answered 200 the same day.
+ *     The page hashes a file in the browser and reads the contract. It does
+ *     not upload the file and it does not ask for a wallet.
+ *
+ * Somnia Tokyo testnet is chain id 50383. That is where the session in the
+ * evidence file ran. BOT Chain mainnet is chain id 677. That is where the
+ * hash of the file was stored. They are not the same network.
  *
  * botchain.ai and scan.botchain.ai are BOT Chain's. This file only links to
- * them. The separate checker https://bohr-seal-verify.vercel.app/mainnet.html
- * answered 404 on the same date and is not a field, so the page cannot link it.
+ * them.
  */
 export const BOT_CHAIN = {
   site: 'https://botchain.ai',
   explorer: 'https://scan.botchain.ai',
   chainId: '677',
+  somniaChainId: '50383',
   name: 'BotChainSeal',
   address: '0x2554160560747dF51873171FBD838bbDEEdf9093',
   ownerPublisher: '0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F',
   deployTx: '0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640',
+  receiptTx: '0x2a6e494dad3eb2798433d683cba83ac94fb9bb2a8dfe8f75d8a775d6befb57ed',
+  evidenceTx: '0x7627bf71be3f1b54403ba88b9f901deeaa9ca5970374172b8361cd225fa58d5f',
+  verifier: 'https://bohr-seal-verify.vercel.app/mainnet',
   readOn: '6 November 2026',
 } as const
+
+export const BOT_CHAIN_FLOW = [
+  {
+    title: 'Somnia testnet session',
+    detail: 'Chain id 50383. One confirmed fill. The session ended early.',
+  },
+  {
+    title: 'Evidence JSON',
+    detail: 'A file that records that session. Not the session itself.',
+  },
+  {
+    title: 'Keccak-256 locally',
+    detail: 'Hashed on your machine. The file is not uploaded.',
+  },
+  {
+    title: 'BOT Chain commitment',
+    detail: 'Chain id 677. The contract stores the hash, not the file.',
+  },
+  {
+    title: 'Read-only check',
+    detail: 'No wallet and no signature.',
+  },
+] as const

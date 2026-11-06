@@ -26,7 +26,7 @@
  * does not lead the page and it is not a nav item.
  */
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { BOT_CHAIN, CAPABILITIES, SITE, STATS } from '../facts'
+import { BOT_CHAIN, BOT_CHAIN_FLOW, CAPABILITIES, SITE, STATS } from '../facts'
 import { DOCS, PlatformLink, TELEGRAM } from '../components/PlatformLink'
 
 function Hero() {
@@ -379,21 +379,16 @@ function RecordLink({ href }: { href: string }) {
 /**
  * BOT Chain file-hash contract. Last on the page on purpose.
  *
- * WHAT THIS SECTION IS NOT. It is not a claim that RUNECLAW trades are
- * sealed there, and it is not a button into a checker. The separate static
- * checker answered 404 on the date in facts.ts, so it is not linked: a link
- * to a missing page is a promise the click cannot keep. A deployed contract
- * is the commitment surface. It is not a finished product flow, and this
- * site does not sign or send anything to it.
- *
- * The hash commits the bytes of a file. It does not establish that the file's
- * contents are true. facts.ts holds the addresses; this function does not
- * restate them as a second copy.
+ * The diagram is an ordered list, so a screen reader walks the same five
+ * steps the eye does. Somnia testnet and BOT Chain mainnet are different
+ * networks. A stored hash commits bytes. It does not attest that the file
+ * is true, and it does not attest a trading result.
  */
 function BotChain() {
   const contractUrl = `${BOT_CHAIN.explorer}/address/${BOT_CHAIN.address}`
   const ownerUrl = `${BOT_CHAIN.explorer}/address/${BOT_CHAIN.ownerPublisher}`
-  const txUrl = `${BOT_CHAIN.explorer}/tx/${BOT_CHAIN.deployTx}`
+  const receiptUrl = `${BOT_CHAIN.explorer}/tx/${BOT_CHAIN.receiptTx}`
+  const evidenceUrl = `${BOT_CHAIN.explorer}/tx/${BOT_CHAIN.evidenceTx}`
   return (
     <section
       id="botchain"
@@ -413,19 +408,46 @@ function BotChain() {
         </h2>
         <p className="mt-3 max-w-2xl text-ink-2">
           BOT Chain is not operated here. Its site and its explorer are its own.
-          These two open there.
+          The session in the diagram was on Somnia testnet, not on BOT Chain.
         </p>
+        <ol
+          className="mt-8 flex list-none flex-col gap-0 p-0 sm:grid sm:grid-cols-5 sm:gap-3"
+          aria-label="How a session becomes a file-hash commitment"
+        >
+          {BOT_CHAIN_FLOW.map((step, i) => (
+            <li
+              key={step.title}
+              className="relative pb-4 pl-12 sm:rounded-xl sm:border sm:border-line sm:bg-surface sm:p-4 sm:pt-12"
+            >
+              {i < BOT_CHAIN_FLOW.length - 1 ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute bottom-0 left-[15px] top-8 w-0.5 bg-line-2 sm:left-12 sm:right-[-12px] sm:top-[22px] sm:h-0.5 sm:w-auto sm:bottom-auto"
+                />
+              ) : null}
+              <span
+                aria-hidden="true"
+                className="absolute left-0 top-0 flex size-8 items-center justify-center rounded-full border-2 border-accent bg-bg text-sm font-bold text-accent sm:left-4 sm:top-3"
+              >
+                {i + 1}
+              </span>
+              <span className="block font-semibold text-ink">{step.title}</span>
+              <span className="mt-1 block text-sm text-ink-2">{step.detail}</span>
+            </li>
+          ))}
+        </ol>
         <ul className="mt-6 flex list-none flex-col gap-3 p-0 sm:flex-row sm:flex-wrap">
           <li><ExactUrl href={BOT_CHAIN.site} /></li>
           <li><ExactUrl href={BOT_CHAIN.explorer} /></li>
         </ul>
 
         <p className="mt-8 max-w-3xl leading-relaxed text-ink-2">
-          {`${BOT_CHAIN.name} is deployed on that network. The explorer reports the `
+          {`${BOT_CHAIN.name} is deployed on chain id ${BOT_CHAIN.chainId}. The explorer reports the `
             + 'source as verified, which means the published source matches the '
-            + 'bytecode. That match is not an audit.'}
+            + 'bytecode. That match is not an audit. A stored hash is not proof '
+            + 'that what the file says is true, and it is not a trading result.'}
         </p>
-        <dl className="mt-6 grid gap-4 sm:grid-cols-3">
+        <dl className="mt-6 grid gap-4 sm:grid-cols-2">
           <div className="min-w-0 rounded-xl border border-line bg-surface p-5">
             <dt className="text-xs uppercase tracking-wider text-ink-3">Contract</dt>
             <dd>
@@ -447,51 +469,42 @@ function BotChain() {
             </dd>
           </div>
           <div className="min-w-0 rounded-xl border border-line bg-surface p-5">
-            <dt className="text-xs uppercase tracking-wider text-ink-3">Deploy transaction</dt>
+            <dt className="text-xs uppercase tracking-wider text-ink-3">First receipt</dt>
             <dd>
-              <p className="data mt-2 text-sm text-ink">{withBreaks(BOT_CHAIN.deployTx)}</p>
-              <RecordLink href={txUrl} />
+              <p className="mt-2 text-xs text-ink-3">On BOT Chain, not on Somnia.</p>
+              <RecordLink href={receiptUrl} />
+            </dd>
+          </div>
+          <div className="min-w-0 rounded-xl border border-line bg-surface p-5">
+            <dt className="text-xs uppercase tracking-wider text-ink-3">Evidence file</dt>
+            <dd>
+              <p className="mt-2 text-xs leading-relaxed text-ink-3">
+                {`One Somnia Tokyo testnet session, chain id ${BOT_CHAIN.somniaChainId}. `
+                  + 'It ended early with one confirmed fill. It is not a six-hour run '
+                  + 'and it is not a profit proof.'}
+              </p>
+              <RecordLink href={evidenceUrl} />
             </dd>
           </div>
         </dl>
-
-        <div className="mt-8 max-w-3xl space-y-4 leading-relaxed text-ink-2">
-          <p>
-            An anchor stores a 32-byte hash, the publisher who submitted it, and
-            a label the publisher chooses. The hash is a commitment to a
-            file&rsquo;s bytes: hash the same file and you can see whether those
-            exact bytes were submitted, and by whom. The contract does not keep
-            the file. A matching hash is not proof that what the file says is
-            true, and it is not a trading result.
-          </p>
-          <p>
-            This is separate from the call hashes further up the page. Those are
-            RUNECLAW&rsquo;s own record. This website does not submit a hash,
-            and it does not sign or send a transaction.
-          </p>
-        </div>
-
-        <div className="mt-6 max-w-3xl rounded-lg border border-warn/40 bg-warn/5 p-4" role="note">
-          <p className="text-sm font-semibold text-warn">
-            No file hash had been committed when this page was written
-          </p>
-          <p className="mt-1.5 text-sm leading-relaxed text-ink-2">
-            {`On ${BOT_CHAIN.readOn} the contract log on the explorer contained the `
-              + 'deployment events only. There was no Anchored event. This sentence '
-              + 'is that reading, not a live counter. Anything anchored later is on '
-              + 'the contract page, not here.'}
-          </p>
-        </div>
-        <div className="mt-4 max-w-3xl rounded-lg border border-warn/40 bg-warn/5 p-4" role="note">
-          <p className="text-sm font-semibold text-warn">
-            A deployed contract is not a finished product flow
-          </p>
-          <p className="mt-1.5 text-sm leading-relaxed text-ink-2">
-            A separate page for checking a file against the contract is not
-            published, so this section does not link to one. Until that page
-            exists, the contract on the explorer is the public record.
-          </p>
-        </div>
+        <p className="mt-4 max-w-3xl text-xs leading-relaxed text-ink-3">
+          {`On ${BOT_CHAIN.readOn} the contract log showed these two Anchored events. `
+            + 'Anything anchored later is on the contract page.'}
+        </p>
+        <p className="mt-6 max-w-3xl leading-relaxed text-ink-2">
+          Check a file at{' '}
+          <a
+            href={BOT_CHAIN.verifier}
+            target="_blank"
+            rel="noopener"
+            className="break-all text-ink underline decoration-line-2 underline-offset-4 hover:text-accent-bright"
+          >
+            {BOT_CHAIN.verifier}
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+          . The page hashes the file on your machine. It does not upload the
+          file, and it asks for no wallet and no signature.
+        </p>
       </div>
     </section>
   )

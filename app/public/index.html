@@ -138,6 +138,44 @@
   @media (min-width: 640px) {
     #botchain .bc-links { flex-direction: row; flex-wrap: wrap; }
   }
+  /* Connected steps. The list is the diagram: an ordered list a screen reader
+     can walk, with a line between the numbers. No image request. */
+  .bc-flow {
+    list-style: none; margin: var(--s4) 0; padding: 0;
+    display: flex; flex-direction: column; gap: 0;
+  }
+  .bc-flow li {
+    position: relative; margin: 0; padding: 4px 0 16px 46px; min-height: 44px;
+  }
+  .bc-flow li:last-child { padding-bottom: 0; }
+  .bc-flow li::before {
+    content: ''; position: absolute; left: 15px; top: 28px; bottom: 0; width: 2px;
+    background: var(--line-2);
+  }
+  .bc-flow li:last-child::before { display: none; }
+  .bc-flow-n {
+    position: absolute; left: 0; top: 2px; width: 32px; height: 32px;
+    border-radius: 50%; border: 2px solid var(--gold); color: var(--gold);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-data); font-size: 13px; font-weight: 700;
+    background: var(--bg);
+  }
+  .bc-flow-t { display: block; font-weight: 600; color: var(--text); }
+  .bc-flow-d { display: block; margin-top: 2px; color: var(--text-2); font-size: var(--fs-sm); }
+  @media (min-width: 900px) {
+    .bc-flow { flex-direction: row; align-items: stretch; gap: 8px; }
+    .bc-flow li { flex: 1; padding: 44px 10px 12px; border: 1px solid var(--line);
+      border-radius: var(--radius); background: var(--surface); min-width: 0; }
+    .bc-flow li::before { left: 44px; right: -8px; top: 22px; bottom: auto; width: auto; height: 2px; }
+    .bc-flow-n { left: 10px; top: 8px; }
+  }
+  /* The fixed "Get started" bar covers whatever sits in the bottom 70px.
+     Hide it only while this section is on screen, so its text stays readable. */
+  @media (max-width: 639px) {
+    body.past-hero .mobile-cta.mobile-cta--clear {
+      opacity: 0; visibility: hidden; pointer-events: none;
+    }
+  }
 </style>
 </head>
 <body>
@@ -896,21 +934,58 @@
     <p class="eyebrow" data-i18n="bc.kicker">Separate network · chain id 677</p>
     <h2 id="botchain-h" data-i18n="bc.h">A file hash on BOT Chain</h2>
   </div>
+  <ol class="bc-flow" data-i18n-attr="aria-label:bc.flow" aria-label="How a session becomes a file-hash commitment">
+    <li>
+      <span class="bc-flow-n" aria-hidden="true">1</span>
+      <span class="bc-flow-t" data-i18n="bc.s1">Somnia testnet session</span>
+      <span class="bc-flow-d" data-i18n="bc.s1n">Chain id 50383. One confirmed fill. The session ended early.</span>
+    </li>
+    <li>
+      <span class="bc-flow-n" aria-hidden="true">2</span>
+      <span class="bc-flow-t" data-i18n="bc.s2">Evidence JSON</span>
+      <span class="bc-flow-d" data-i18n="bc.s2n">A file that records that session. Not the session itself.</span>
+    </li>
+    <li>
+      <span class="bc-flow-n" aria-hidden="true">3</span>
+      <span class="bc-flow-t" data-i18n="bc.s3">Keccak-256 locally</span>
+      <span class="bc-flow-d" data-i18n="bc.s3n">Hashed on your machine. The file is not uploaded.</span>
+    </li>
+    <li>
+      <span class="bc-flow-n" aria-hidden="true">4</span>
+      <span class="bc-flow-t" data-i18n="bc.s4">BOT Chain commitment</span>
+      <span class="bc-flow-d" data-i18n="bc.s4n">Chain id 677. The contract stores the hash, not the file.</span>
+    </li>
+    <li>
+      <span class="bc-flow-n" aria-hidden="true">5</span>
+      <span class="bc-flow-t" data-i18n="bc.s5">Read-only check</span>
+      <span class="bc-flow-d" data-i18n="bc.s5n">No wallet and no signature.</span>
+    </li>
+  </ol>
   <div data-i18n-html="bc.body">
-    <p>BOT Chain is not operated here. Its site and its explorer are its own.</p>
+    <p>BOT Chain is not operated here. Its site and its explorer are its own. The session in the diagram was on Somnia testnet, not on BOT Chain.</p>
     <p class="bc-links">
       <a href="https://botchain.ai" target="_blank" rel="noopener">https://botchain.ai</a>
       <a href="https://scan.botchain.ai" target="_blank" rel="noopener">https://scan.botchain.ai</a>
     </p>
-    <p>BotChainSeal is deployed on chain id 677. The explorer reports the source as verified, which means the published source matches the bytecode. That match is not an audit.</p>
+    <p>BotChainSeal is deployed on chain id 677. The explorer reports the source as verified, which means the published source matches the bytecode. That match is not an audit. A stored hash is not proof that what the file says is true, and it is not a trading result.</p>
     <p>Contract <a href="https://scan.botchain.ai/address/0x2554160560747dF51873171FBD838bbDEEdf9093" target="_blank" rel="noopener">0x2554160560747dF51873171FBD838bbDEEdf9093</a></p>
     <p>Owner and first publisher <a href="https://scan.botchain.ai/address/0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F" target="_blank" rel="noopener">0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F</a>. The deploy transaction set both roles to this one address.</p>
-    <p>Deploy transaction <a href="https://scan.botchain.ai/tx/0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640" target="_blank" rel="noopener">0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640</a></p>
-    <p>An anchor stores a 32-byte hash of a file’s bytes, the publisher who submitted it, and a label. A matching hash shows those exact bytes were submitted. It is not proof that what the file says is true, and it is not a trading result. This website does not submit a hash and does not sign or send a transaction.</p>
-    <p>On 6 November 2026 the contract log contained the deployment events only. There was no Anchored event. This sentence is that reading, not a live counter.</p>
-    <p>A deployed contract is not a finished product flow. A separate checker page is not published, so this section does not link to one.</p>
+    <p>First receipt on BOT Chain <a href="https://scan.botchain.ai/tx/0x2a6e494dad3eb2798433d683cba83ac94fb9bb2a8dfe8f75d8a775d6befb57ed" target="_blank" rel="noopener">0x2a6e494dad3eb2798433d683cba83ac94fb9bb2a8dfe8f75d8a775d6befb57ed</a>. Evidence file from the Somnia session <a href="https://scan.botchain.ai/tx/0x7627bf71be3f1b54403ba88b9f901deeaa9ca5970374172b8361cd225fa58d5f" target="_blank" rel="noopener">0x7627bf71be3f1b54403ba88b9f901deeaa9ca5970374172b8361cd225fa58d5f</a>. On 6 November 2026 the contract log showed these two Anchored events.</p>
+    <p>That evidence file records one Somnia Tokyo testnet session, chain id 50383. The session ended early with one confirmed fill. It is not a six-hour run and it is not a profit proof.</p>
+    <p>Check a file at <a href="https://bohr-seal-verify.vercel.app/mainnet" target="_blank" rel="noopener">https://bohr-seal-verify.vercel.app/mainnet</a>. The page hashes the file on your machine. It does not upload the file, and it asks for no wallet and no signature.</p>
   </div>
 </section>
+<script>
+/* Hide the fixed mobile signup bar while it would cover this section. */
+(function () {
+  var cta = document.querySelector('.mobile-cta');
+  var section = document.getElementById('botchain');
+  if (!cta || !section || !('IntersectionObserver' in window)) return;
+  new IntersectionObserver(function (entries) {
+    cta.classList.toggle('mobile-cta--clear', entries[0].isIntersecting && entries[0].intersectionRatio >= 0.12);
+  }, { threshold: [0, 0.12, 0.4] }).observe(section);
+})();
+</script>
 
 <footer class="site-footer">
   <div class="inner">
@@ -988,7 +1063,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=214"></script>
+<script src="/js/i18n-core.js?v=215"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=18"></script>
