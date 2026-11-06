@@ -84,12 +84,18 @@ test('GET / is the Express homepage and it shows the two BOT Chain origins', asy
   assert.ok(html.includes('>https://scan.botchain.ai<'), 'the scan link text is not the URL');
   assert.ok(html.includes('0x2554160560747dF51873171FBD838bbDEEdf9093'));
   assert.ok(html.includes('0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F'));
-  assert.ok(html.includes('0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640'));
+  assert.ok(html.includes('0x2a6e494dad3eb2798433d683cba83ac94fb9bb2a8dfe8f75d8a775d6befb57ed'));
+  assert.ok(html.includes('0x7627bf71be3f1b54403ba88b9f901deeaa9ca5970374172b8361cd225fa58d5f'));
+  assert.ok(hrefs.includes('https://bohr-seal-verify.vercel.app/mainnet'));
   assert.match(html, /not proof that what the file says is true/);
   assert.match(html, /not a trading result/);
-  assert.match(html, /not a finished product flow/);
-  assert.match(html, /no Anchored event/);
-  assert.doesNotMatch(html, /bohr-seal-verify|vercel\.app/i);
+  assert.match(html, /not a profit proof/);
+  assert.match(html, /one confirmed fill/);
+  assert.match(html, /chain id 50383/);
+  assert.match(html, /two Anchored events/);
+  assert.match(html, /class="bc-flow"/);
+  assert.match(html, /mobile-cta--clear/);
+  assert.doesNotMatch(html, /no Anchored event/);
   const at = (needle) => {
     const i = html.indexOf(needle);
     assert.ok(i >= 0, `missing ${needle}`);
@@ -99,6 +105,9 @@ test('GET / is the Express homepage and it shows the two BOT Chain origins', asy
     'BOT Chain leads the Express homepage');
   assert.ok(at('data-i18n="nav.grp_trade"') < at('id="botchain"'));
   assert.ok(at('<h1') < at('id="botchain"'));
+  const flow = html.slice(at('class="bc-flow"'), at('data-i18n-html="bc.body"'));
+  assert.ok(flow.indexOf('Somnia testnet session') < flow.indexOf('Keccak-256 locally'));
+  assert.ok(flow.indexOf('Keccak-256 locally') < flow.indexOf('BOT Chain commitment'));
 });
 
 test('the route that serves / is still public/index.html', () => {
@@ -117,7 +126,9 @@ test('every locale keeps the two origin hrefs inside the translated section', ()
     assert.ok(html, `bc.body is missing ${code}`);
     assert.ok(html.includes('href="https://botchain.ai"'), `${code} dropped https://botchain.ai`);
     assert.ok(html.includes('href="https://scan.botchain.ai"'), `${code} dropped https://scan.botchain.ai`);
-    assert.ok(!/bohr-seal-verify|vercel\.app/i.test(html), `${code} names the unpublished checker`);
+    assert.ok(html.includes('href="https://bohr-seal-verify.vercel.app/mainnet"'),
+      `${code} dropped the verifier`);
     assert.match(html, /677/);
+    assert.match(html, /50383/);
   }
 });

@@ -313,8 +313,8 @@ test('the homepage is trade-first, and the long story sits below the proof', () 
 test('BOT Chain is named after the trade story, with the two public origins exact', () => {
   // The origins are BOT Chain's. The href has to be the string a reviewer
   // searches for: a trailing slash, a path, or a label in place of the URL
-  // is a different link. The checker host is absent because it was not
-  // serving — a button to a 404 is a claim the click cannot keep.
+  // is a different link. The verifier is a separate read-only page; the
+  // working URL is /mainnet, not the old /mainnet.html.
   const html = built('index.html')
   const main = html.match(/<main id="main">([\s\S]*?)<\/main>/)
   assert.ok(main, 'no main')
@@ -327,29 +327,35 @@ test('BOT Chain is named after the trade story, with the two public origins exac
   assert.ok(at('What it does') < at('id="botchain"'),
     'BOT Chain leads the page; it belongs after the trade story')
   assert.ok(at('id="trade"') < at('id="botchain"') && at('id="proof"') < at('id="botchain"'))
+  assert.ok(at('Somnia testnet session') < at('Keccak-256 locally')
+    && at('Keccak-256 locally') < at('BOT Chain commitment')
+    && at('BOT Chain commitment') < at('Read-only check'))
 
   const hrefs = [...body.matchAll(/href="([^"]*)"/g)].map((m) => m[1])
   assert.ok(hrefs.includes('https://botchain.ai'),
     `https://botchain.ai is not an href: ${hrefs.filter((h) => h.includes('botchain')).join(', ')}`)
   assert.ok(hrefs.includes('https://scan.botchain.ai'),
     `https://scan.botchain.ai is not an href: ${hrefs.filter((h) => h.includes('botchain')).join(', ')}`)
+  assert.ok(hrefs.includes('https://bohr-seal-verify.vercel.app/mainnet'))
   for (const url of ['https://botchain.ai', 'https://scan.botchain.ai']) {
     assert.ok(body.includes(`>${url}<`) || body.includes(`>${url}<span`),
       `${url} is not visible link text`)
   }
   assert.ok(body.includes('0x2554160560747dF51873171FBD838bbDEEdf9093'))
   assert.ok(body.includes('0xd229cab8bE1a674802DA9Fa847CFEdD7eAb7f11F'))
-  assert.ok(body.includes('0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640'))
+  assert.ok(body.includes('0x2a6e494dad3eb2798433d683cba83ac94fb9bb2a8dfe8f75d8a775d6befb57ed'))
+  assert.ok(body.includes('0x7627bf71be3f1b54403ba88b9f901deeaa9ca5970374172b8361cd225fa58d5f'))
   assert.match(body, /chain id 677/)
+  assert.match(body, /chain id 50383/)
   assert.match(body, /6 November 2026/)
-  assert.match(body, /no Anchored event/)
+  assert.match(body, /two Anchored events/)
   assert.match(body, /not proof that what the file says is true/)
-  assert.match(body, /not a finished product flow/)
   assert.match(body, /not a trading result/)
-  assert.doesNotMatch(html, /bohr-seal-verify|vercel\.app/i,
-    'the unpublished checker is linked or named')
+  assert.match(body, /not a profit proof/)
+  assert.match(body, /one confirmed fill/)
+  assert.doesNotMatch(body, /no Anchored event|not published/)
   const section = body.slice(at('id="botchain"'))
-  assert.doesNotMatch(section, /profit|guaranteed return|beat the market/i)
+  assert.doesNotMatch(section, /guaranteed return|beat the market|profitable/i)
 })
 
 test('the product page is the long account, and it leads with trade', () => {
