@@ -308,3 +308,41 @@ class TestEndToEnd:
         comp = self._comp(monkeypatch, _predictive(1))
         assert comp["state"] == "READY", comp["note"]
         assert comp["oos_trades"]["lower"] > 0
+
+
+class TestBetterThanTheHandTunedWeightsIsNotGood:
+    """The card shown on 2026-11-07:
+
+        ✅ voter_weights: READY
+           ... on those trades the learned weights rank winners above losers
+           better: AUC 0.47 with the learned weights vs 0.45 without (+0.02,
+           95% lower bound +0.00)
+        • voter_weights is validated but not applied — consider
+          VOTER_WEIGHT_LEARNING_ENABLED=true
+
+    An AUC under 0.50 ranks a loser above a winner more often than not. The
+    weights beat the hand-tuned ones only because both are worse than a coin
+    flip, and the bound printed +0.00 beside a gate that asks for > 0."""
+
+    LIVE = dict(holds=24, judged=35, n_test=65)
+
+    def test_an_improvement_below_a_coin_flip_is_not_READY(self, monkeypatch):
+        out = _planted(monkeypatch, **self.LIVE, trades=_trades(20, 26, 0.47, 0.45, 0.001))
+        comp = out["components"]["voter_weights"]
+        assert comp["state"] == "VALIDATING", comp["note"]
+        assert "no better than chance" in comp["note"]
+        assert "AUC 0.47 with the learned weights vs 0.45 without" in comp["note"]
+        assert not any("VOTER_WEIGHT_LEARNING_ENABLED=true" in r for r in out["recommendations"])
+
+    def test_exactly_a_coin_flip_is_not_READY_and_just_above_is(self, monkeypatch):
+        at = _planted(monkeypatch, **self.LIVE, trades=_trades(30, 35, 0.50, 0.46, 0.01))
+        assert at["components"]["voter_weights"]["state"] == "VALIDATING"
+        above = _planted(monkeypatch, **self.LIVE, trades=_trades(30, 35, 0.52, 0.46, 0.01))
+        assert above["components"]["voter_weights"]["state"] == "READY"
+
+    def test_a_bound_under_half_a_hundredth_prints_its_sign_and_size(self, monkeypatch):
+        comp = _planted(monkeypatch, **self.LIVE,
+                        trades=_trades(30, 35, 0.58, 0.55, 0.001))["components"]["voter_weights"]
+        assert comp["state"] == "READY", comp["note"]
+        assert "95% lower bound +0.001)" in comp["note"]
+        assert "+0.00)" not in comp["note"]

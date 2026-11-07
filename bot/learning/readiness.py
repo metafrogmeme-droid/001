@@ -67,6 +67,15 @@ _VW_Z = 1.96          # ~95%
 #: the 95% lower bound of the improvement, resampled over TRADES, above zero.
 _VW_MIN_EACH_OUTCOME = 10
 
+
+def _signed(x: float) -> str:
+    """A signed figure to two places, or to three where two would print a
+    nonzero bound as +0.00: the gate is `> 0`, so +0.00 beside READY reads
+    as a bar that was not cleared."""
+    if x != 0 and abs(x) < 0.005:
+        return f"{x:+.3f}"
+    return f"{x:+.2f}"
+
 #: SETUP EXPECTANCY'S TEST, and the floor under it. The favoured and the
 #: disfavoured unseen trades are compared; under fifteen in either group the
 #: interval on the difference is wide enough to straddle any real effect, and a
@@ -284,11 +293,12 @@ def assess_readiness(store=None) -> dict:
             t_few = (n_win is not None and n_loss is not None
                      and (n_win < _VW_MIN_EACH_OUTCOME or n_loss < _VW_MIN_EACH_OUTCOME))
             ranking = ""
-            if trades.get("auc_weighted") is not None and trades.get("auc_unweighted") is not None:
-                ranking = (f"AUC {trades['auc_weighted']:.2f} with the learned weights vs "
+            auc_w = trades.get("auc_weighted")
+            if auc_w is not None and trades.get("auc_unweighted") is not None:
+                ranking = (f"AUC {auc_w:.2f} with the learned weights vs "
                            f"{trades['auc_unweighted']:.2f} without "
                            f"({trades['diff']:+.2f}"
-                           + (f", 95% lower bound {t_lower:+.2f})" if t_lower is not None else ")"))
+                           + (f", 95% lower bound {_signed(t_lower)})" if t_lower is not None else ")"))
             if n_test < _VW_MIN_TEST_TRADES or n_voters < _VW_MIN_VOTERS:
                 comp["state"] = "VALIDATING"
                 comp["note"] = (
@@ -343,6 +353,19 @@ def assess_readiness(store=None) -> dict:
                     f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, 95% lower bound "
                     f"{lower:.0%}), but on those trades the learned weights do "
                     f"not yet rank winners above losers better: {ranking}")
+            elif rate >= _VW_HOLD_RATE_BAR and not (
+                    isinstance(auc_w, (int, float)) and auc_w > _VW_CHANCE):
+                # Better than the hand-tuned weights is not good: an AUC of
+                # 0.47 ranks a loser above a winner more often than the other
+                # way round, and "0.47 vs 0.45" is two rankings worse than a
+                # coin flip. The card shown on 2026-11-07 called that READY and
+                # recommended the live-money flag.
+                comp["state"] = "VALIDATING"
+                comp["note"] = (
+                    f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, 95% lower bound "
+                    f"{lower:.0%}), and the learned weights rank those trades "
+                    f"better than the hand-tuned ones, but still no better than "
+                    f"chance (0.50 is a coin flip): {ranking}")
             elif rate >= _VW_HOLD_RATE_BAR:
                 comp["state"] = "READY"
                 comp["note"] = (f"{evidence} (bar {_VW_HOLD_RATE_BAR:.0%}, "

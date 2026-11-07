@@ -29143,6 +29143,17 @@ test. This sandbox has no live decision store. After the deploy,
 `/readiness` answers it, and `VOTER_WEIGHT_LEARNING_ENABLED` stays off until
 it says READY under the new gate.
 
+**BETTER THAN THE HAND-TUNED WEIGHTS IS NOT GOOD (2026-11-07).** The live
+card answered the question above: READY, "AUC 0.47 with the learned weights vs
+0.45 without (+0.02, 95% lower bound +0.00)", and the recommendation to turn
+the flag on. Both rankings were worse than a coin flip; the learned one was
+less bad. The difference test stays the test, for the reason given above (a
+single AUC against 0.5 is noise on 90 trades), and READY now also needs the
+learned weights' own AUC above 0.5, so the card's sentence "rank winners above
+losers" is true when it is printed. The bound printed `+0.00` beside a gate
+that asks for `> 0`; a nonzero bound under half a hundredth now prints three
+places (`_signed`).
+
 - **Guard tests:** `tests/test_the_weights_have_to_pick_better_trades.py`
   (34), plus the planted reports in `tests/test_voter_bar_needs_a_margin.py`
   and `tests/test_readiness_bar_needs_evidence.py`, which now carry a trade
