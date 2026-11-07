@@ -1,0 +1,416 @@
+{
+  "mode": "portfolio_walk_forward",
+  "recorded_at": "2026-11-07T09:37:33+00:00",
+  "code_sha": "9dad434258a4ebfb6b0efd6c0634798460fbe3d2",
+  "dataset": "benchmark/alts_1h_v3",
+  "honest": true,
+  "folds_requested": 6,
+  "folds_run": 6,
+  "profitable_folds": 1,
+  "mean_oos_return_pct": -0.5033333333333333,
+  "worst_oos_return_pct": -0.98,
+  "pooled_trades": 69,
+  "pooled": {
+    "trades": 69,
+    "fills": 100,
+    "wins": 27,
+    "losses": 42,
+    "flat": 0,
+    "net_usd": -300.99,
+    "gross_win_usd": 657.37,
+    "gross_loss_usd": 958.36,
+    "win_rate": 0.391304347826087,
+    "pf": 0.6859322175382946,
+    "mean_net_usd": -4.3621739130434785
+  },
+  "data_source": "frozen_snapshot:2ddf52d13a2c9eaa9bc6198ca1e51a492ee8518628a04bc045d59b48298cdb36",
+  "universe": {
+    "requested": [
+      "APT/USDT:USDT",
+      "ARB/USDT:USDT",
+      "FLOKI/USDT:USDT",
+      "PENGU/USDT:USDT",
+      "PEPE/USDT:USDT",
+      "SEI/USDT:USDT",
+      "TRUMP/USDT:USDT",
+      "WIF/USDT:USDT"
+    ],
+    "measured": [
+      "APT/USDT:USDT",
+      "ARB/USDT:USDT",
+      "FLOKI/USDT:USDT",
+      "PENGU/USDT:USDT",
+      "PEPE/USDT:USDT",
+      "SEI/USDT:USDT",
+      "TRUMP/USDT:USDT",
+      "WIF/USDT:USDT"
+    ],
+    "dropped": []
+  },
+  "commission_pct": 0.06,
+  "slippage_pct": 0.05,
+  "fill_mode": "live",
+  "leverage": 5,
+  "folds": [
+    {
+      "fold": 0,
+      "oos_start": "2026-07-11 01:00:00+00:00",
+      "oos_end": "2026-07-23 12:00:00+00:00",
+      "trades": 9,
+      "return_pct": -0.09,
+      "win_rate": 0.4444,
+      "max_dd_pct": 0.95,
+      "profit_factor": 0.91,
+      "sharpe": -1.6,
+      "per_symbol": {
+        "APT/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -23.19,
+          "win_rate": 0.0
+        },
+        "ARB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": 30.85,
+          "win_rate": 0.6667
+        },
+        "PENGU/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 21.07,
+          "win_rate": 1.0
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 4.55,
+          "win_rate": 0.5
+        },
+        "TRUMP/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -42.01,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 118,
+      "limits": {
+        "filled": 9,
+        "expired": 10,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 1,
+      "oos_start": "2026-07-23 13:00:00+00:00",
+      "oos_end": "2026-08-05 00:00:00+00:00",
+      "trades": 7,
+      "return_pct": -0.98,
+      "win_rate": 0.1429,
+      "max_dd_pct": 0.98,
+      "profit_factor": 0.02,
+      "sharpe": -10.13,
+      "per_symbol": {
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ARB/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 2.07,
+          "win_rate": 1.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -94.57,
+          "win_rate": 0.0
+        },
+        "PENGU/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -4.41,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "TRUMP/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -0.77,
+          "win_rate": 0.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 173,
+      "limits": {
+        "filled": 7,
+        "expired": 6,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 2,
+      "oos_start": "2026-08-05 01:00:00+00:00",
+      "oos_end": "2026-08-17 12:00:00+00:00",
+      "trades": 5,
+      "return_pct": -0.95,
+      "win_rate": 0.0,
+      "max_dd_pct": 0.95,
+      "profit_factor": 0.0,
+      "sharpe": -10.97,
+      "per_symbol": {
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ARB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -3.85,
+          "win_rate": 0.0
+        },
+        "PENGU/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -11.62,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -49.24,
+          "win_rate": 0.0
+        },
+        "TRUMP/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -30.15,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 144,
+      "limits": {
+        "filled": 5,
+        "expired": 10,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 3,
+      "oos_start": "2026-08-17 13:00:00+00:00",
+      "oos_end": "2026-08-30 00:00:00+00:00",
+      "trades": 12,
+      "return_pct": -0.24,
+      "win_rate": 0.4167,
+      "max_dd_pct": 0.57,
+      "profit_factor": 0.85,
+      "sharpe": -2.24,
+      "per_symbol": {
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ARB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 20.47,
+          "win_rate": 0.5
+        },
+        "PENGU/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -18.28,
+          "win_rate": 0.0
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -35.3,
+          "win_rate": 0.3333
+        },
+        "SEI/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -23.75,
+          "win_rate": 0.0
+        },
+        "TRUMP/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 65.32,
+          "win_rate": 1.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -32.11,
+          "win_rate": 0.3333
+        }
+      },
+      "ideas": 141,
+      "limits": {
+        "filled": 12,
+        "expired": 9,
+        "cancelled_drift": 2
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 4,
+      "oos_start": "2026-08-30 01:00:00+00:00",
+      "oos_end": "2026-09-11 12:00:00+00:00",
+      "trades": 12,
+      "return_pct": -0.81,
+      "win_rate": 0.4167,
+      "max_dd_pct": 0.99,
+      "profit_factor": 0.54,
+      "sharpe": -5.12,
+      "per_symbol": {
+        "APT/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 24.15,
+          "win_rate": 1.0
+        },
+        "ARB/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -63.89,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 24.84,
+          "win_rate": 1.0
+        },
+        "PENGU/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -17.68,
+          "win_rate": 0.5
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -58.15,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "TRUMP/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -8.64,
+          "win_rate": 0.5
+        },
+        "WIF/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 18.56,
+          "win_rate": 1.0
+        }
+      },
+      "ideas": 165,
+      "limits": {
+        "filled": 12,
+        "expired": 7,
+        "cancelled_drift": 6
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 5,
+      "oos_start": "2026-09-11 13:00:00+00:00",
+      "oos_end": "2026-09-24 00:00:00+00:00",
+      "trades": 24,
+      "return_pct": 0.05,
+      "win_rate": 0.5,
+      "max_dd_pct": 1.34,
+      "profit_factor": 1.01,
+      "sharpe": -0.27,
+      "per_symbol": {
+        "APT/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": 34.16,
+          "win_rate": 0.6667
+        },
+        "ARB/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": 3.24,
+          "win_rate": 0.75
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": 32.11,
+          "win_rate": 0.6667
+        },
+        "PENGU/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -55.81,
+          "win_rate": 0.4
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -80.39,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -29.87,
+          "win_rate": 0.0
+        },
+        "TRUMP/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": 14.73,
+          "win_rate": 0.3333
+        },
+        "WIF/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 86.57,
+          "win_rate": 1.0
+        }
+      },
+      "ideas": 146,
+      "limits": {
+        "filled": 24,
+        "expired": 22,
+        "cancelled_drift": 11
+      },
+      "entries_skipped_random": 0
+    }
+  ]
+}
