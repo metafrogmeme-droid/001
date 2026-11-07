@@ -3887,7 +3887,7 @@ class RuneClawEngine:
                 msgs = await ex.close_all_positions(reason=reason)
             except Exception as exc:
                 logger.error("Flatten-all: account %s close failed: %s", label, exc)
-                msgs = [f"close_all_positions failed: {exc}"]
+                msgs = [f"close_all_positions failed: {type(exc).__name__}"]
             # `msgs` reports per-position failures in its TEXT rather than
             # raising, so "we called close" and "it closed" were the same value
             # to every caller. `ok` is the difference, and the emergency card

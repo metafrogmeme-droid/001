@@ -1391,7 +1391,7 @@
     "lp.w1_h": { en: "Chat with the engine" },
     "lp.w1_p": { en: "Ask for a scan, your portfolio, or type \"buy SOL 71 sl 70 tp 76\" — the assistant shares memory with the Telegram bot and proposes trades you confirm or cancel." },
     "lp.w2_h": { en: "Trade from the dashboard" },
-    "lp.w2_p": { en: "A clean order ticket with risk/reward preview. Every trade runs the full fail-closed risk gate. Paper by default; live is opt-in and runs on your own exchange keys." },
+    "lp.w2_p": { en: "A clean order ticket with risk/reward preview. Every trade runs the full fail-closed risk gate. Paper by default; live only when the operator turns it on for your account." },
     "lp.w3_p": { en: "Every setup the engine generates — taken or not — with pattern, confidence, entry, stop, and target." },
     "lp.w4_h": { en: "Your portfolio, tracked" },
     "lp.w4_p": { en: "Equity curve, win-rate, PnL calendar, and a trade journal — built from your actual fills, never invented numbers." },
@@ -1975,8 +1975,8 @@
     "bc.s1n": { en: "Chain id 50383. One confirmed fill. The session ended early." },
     "bc.s2": { en: "Evidence JSON" },
     "bc.s2n": { en: "A file that records that session. Not the session itself." },
-    "bc.s3": { en: "Keccak-256 locally" },
-    "bc.s3n": { en: "Hashed on your machine. The file is not uploaded." },
+    "bc.s3": { en: "Keccak-256 hash" },
+    "bc.s3n": { en: "The publisher hashed this file. Only the hash went on chain." },
     "bc.s4": { en: "BOT Chain commitment" },
     "bc.s4n": { en: "Chain id 677. The contract stores the hash, not the file." },
     "bc.s5": { en: "Read-only check" },
@@ -2624,7 +2624,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"5a794c01","zh":"839d223e","pt":"aee1affe","fr":"7305d955","de":"89ca9cc4","nl":"417fac96","ja":"a2554b8c","ko":"180fd1cc","ru":"bc198c92","tr":"e4495c6d","it":"7cc3b3b6","hi":"ca1adf2f","ar":"74590d7e"};
+  var CHUNKS = {"es":"eaf21a76","zh":"e9f83dbd","pt":"d2d39430","fr":"5133cb1b","de":"b525ea11","nl":"f524201c","ja":"bd1631a2","ko":"b24d2423","ru":"be498886","tr":"8e7033f1","it":"f11b4adf","hi":"ebc2a0a1","ar":"b0f96868"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

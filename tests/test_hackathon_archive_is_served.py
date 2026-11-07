@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import os
 import secrets
+from pathlib import Path
 
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="module")
@@ -37,3 +40,15 @@ def test_nginx_does_not_hand_the_archive_to_the_app_shell():
     conf = Path(__file__).resolve().parents[1].joinpath("nginx.conf").read_text(encoding="utf-8")
     assert "location = /archive/hackathon" in conf
     assert "/archive/hackathon/index.html" in conf
+
+
+def test_the_archive_carries_no_account_dollar_figure():
+    """No dollar amounts on a public page (CLAUDE.md, "Public-surface rules").
+    The archive showed the operator's trade cost, PnL and balance in dollars
+    and a dollar size-clamp example until the audit of 2026-11-07. Market
+    prices (BTC at $72,704.85, ETH, SOL) are public market facts and stay."""
+    html = (ROOT / "website" / "archive" / "hackathon" / "index.html").read_text(encoding="utf-8")
+    for figure in ("$4.94", "$49.93", "$49.92", "-$0.001", "$8,000", "$2,000"):
+        assert figure not in html, figure
+    assert "Size clamped to the 20% limit" in html
+    assert "$72,704.85" in html, "a market price is a public fact and is kept"

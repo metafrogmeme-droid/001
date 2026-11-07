@@ -106,8 +106,12 @@ test('GET / is the Express homepage and it shows the two BOT Chain origins', asy
   assert.ok(at('data-i18n="nav.grp_trade"') < at('id="botchain"'));
   assert.ok(at('<h1') < at('id="botchain"'));
   const flow = html.slice(at('class="bc-flow"'), at('data-i18n-html="bc.body"'));
-  assert.ok(flow.indexOf('Somnia testnet session') < flow.indexOf('Keccak-256 locally'));
-  assert.ok(flow.indexOf('Keccak-256 locally') < flow.indexOf('BOT Chain commitment'));
+  assert.ok(flow.indexOf('Somnia testnet session') < flow.indexOf('Keccak-256 hash'));
+  assert.ok(flow.indexOf('Keccak-256 hash') < flow.indexOf('BOT Chain commitment'));
+  // The step before the commitment is the PUBLISHER's hash. "Hashed on your
+  // machine" there read as if checking a file anchors it (audit, 2026-11-07).
+  assert.match(flow, /The publisher hashed this file\. Only the hash went on chain\./);
+  assert.doesNotMatch(flow, /on your machine/);
 });
 
 test('the route that serves / is still public/index.html', () => {

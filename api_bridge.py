@@ -319,6 +319,14 @@ class ChatRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine, _start_time
+    # The guard, however this app was started. `python api_bridge.py` asks it
+    # below before uvicorn imports the module; the Docker image and compose
+    # file run `uvicorn api_bridge:app`, which never reaches that block, so a
+    # bridge started there with a mainnet signing key in its `.env` served
+    # (audit, 2026-11-07). Every uvicorn start runs this lifespan before the
+    # first request, and the engine is not built until the guard has passed.
+    from bot.web.mainnet_guard import refuse_server_start
+    refuse_server_start()
     engine = RuneClawEngine()
     # A READER of the bot's state, never a writer: this process shares the
     # bot's data directory, and its saves stamped a stale copy of the

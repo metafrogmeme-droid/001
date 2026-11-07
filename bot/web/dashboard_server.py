@@ -615,7 +615,7 @@ async def handle_ready(request: web.Request) -> web.Response:
         return web.json_response(body, status=200 if ready else 503)
     except Exception as exc:
         return web.json_response(
-            {"ready": False, "error": str(exc)[:120]}, status=503)
+            {"ready": False, "error": type(exc).__name__}, status=503)
 
 
 #: The most gate labels one scrape will carry. The names come from the risk
