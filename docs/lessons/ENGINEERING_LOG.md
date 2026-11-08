@@ -30172,3 +30172,31 @@ produce the state it names.
 daily_trend_sleeve_prereg_addendum_1.md`): the same recorded weights priced on
 Bitget spot with no funding, read on the sleeve's sealed date beside the perp
 reading, so the record can say which venue the one passing rule belongs on.
+
+## /RESUME SAID CLEAR AND /START SAID PAUSED: THE CONTROL RESET ONE ENGINE AND THE CONFIRMS GATE ON ANOTHER
+
+8 November 2026, from the owner's phone: `/resume` printed "Trading ENABLED /
+Circuit Breaker CLEAR", and `/start` a second later printed "🔴 Paused | PAPER".
+
+**Each card was right about the engine it read.** While live is off, every
+confirm the operator makes, tapped or unattended, opens on the operator's
+practice book (`confirm_is_practice`), and that book has its own RiskEngine
+(`practice_risk_for`, `data/risk_state_<id>_practice.json`). The confirm's
+re-check runs on that engine alone, and `/start`'s headline reads it
+(`trade_gate.caller_risk`). `/resume` and `/pause` act on `_control_scope`,
+which is the shared engine for an operator. So `/resume` cleared and read the
+shared engine while the practice breaker kept refusing every entry, and
+`/pause` halted the shared engine while paper entries kept opening.
+
+**A control acts on the engine the actions run through, and its card reads
+what the status card reads.** `/resume` and `/pause` now also act on the
+caller's entry engine when it is another one (`_entry_risk_beside`, asking
+`caller_risk`, /start's own reading); `/resume`'s card folds that engine's gate
+in, says UNREAD when it cannot be read, and names the kill switch, which only
+`/reset` clears. With live on, the operator confirms live and nothing beside
+the shared engine is touched. `/reset` already walked every engine, which is
+why it was the workaround.
+
+Guarded by `tests/test_resume_clears_the_book_the_confirms_land_on.py`, driven
+through the real engine, `/resume`, `/pause` and the `entry_gate` /start
+renders, both arms each; six mutations each killed by a named test.

@@ -770,6 +770,9 @@ def resume_gate_line(gate: Optional[str]) -> str:
         return (f"  \u26d4 New entries are still <b>refused</b>: live-performance "
                 f"governor paused ({why}). /resume tried to clear it and could "
                 "not; the log says why.")
+    if gate == "kill_switch":
+        return ("  \u26d4 New entries are still <b>refused</b>: the kill switch is "
+                "engaged. /reset clears it; /resume does not.")
     if gate == "equity_curve_pause":
         return ("  \u26d4 New entries are still <b>refused</b>: equity-curve breaker "
                 "(equity below its moving band). /resume does not clear it.")
