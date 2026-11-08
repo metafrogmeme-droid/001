@@ -30122,3 +30122,40 @@ real confirm and positions pass), `tests/test_sizing_forward.py` (the window,
 the split, the record written once), and `tests/test_duplicate_entry_guard.py`
 (a resting limit holds its symbol). Seventeen mutations of the fix were each
 killed by a named test.
+
+## THREE MORE STRATEGY FAMILIES, SEALED FIRST: NONE MAKES MONEY, AND THE BOT'S SIGNALS HAVE RUN OUT OF FILTERS
+
+8 November 2026. Asked to look at different strategies and then to "do all",
+three studies were sealed before their data or evaluator existed and run the
+same day.
+
+**Long only, behind BTC's 150-day mean, on the bot's own signals**
+(`docs/research/prereg/long_regime_2026-11`). The reason to try it was three
+earlier readings: the calls point the right way before costs, every long/short
+rule lost on its holdout, and BTC's 150-day trend was the one filter that held.
+On ten fresh coins (`benchmark/fresh10b_1h`, in no earlier manifest) the
+reference lost 1.48% a fold, long only 0.94%, long only behind BTC 0.88%; both
+tested arms failed the bound and the folds, and the wider-stop arm traded too
+little to judge. On the two older sets, where the bot's shorts are most of its
+trades, dropping them made it worse. The new backtest control
+(`--btc-regime-days`, `_btc_regime_admits`) reads only daily bars closed by the
+deciding bar's close; Bitget's daily bars open at 16:00 UTC, which a
+calendar-day reading would have got wrong.
+
+**A per-row mean above zero is not money.** Every arm's mean net per row was
+positive and every account lost: partial take-profit fills are many and small,
+stops are few and full-size. The size-weighted mean was negative in all four.
+Judge the account (the folds), not the average fill.
+
+**Two market-neutral daily rules** (`docs/research/prereg/daily_neutral_2026-11`):
+a weekly reversal spread and an ETH/BTC ratio reversion both failed every bar on
+development and holdout, both losing before costs on development. The test
+fixtures for the evaluator were wrong three times before the evaluator was: a
+coin count at the floor rather than under it, a cost that forgot the legs net,
+and a sine wave that a 30-day z reads as a trend. A fixture must be able to
+produce the state it names.
+
+**The daily trend sleeve gets a spot reading** (`docs/research/
+daily_trend_sleeve_prereg_addendum_1.md`): the same recorded weights priced on
+Bitget spot with no funding, read on the sleeve's sealed date beside the perp
+reading, so the record can say which venue the one passing rule belongs on.
