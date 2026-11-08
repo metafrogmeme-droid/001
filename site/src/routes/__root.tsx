@@ -148,6 +148,11 @@ function Footer() {
                 </a>
               </li>
               <li>
+                <Link to="/submissions" className="text-ink-2 hover:text-ink">
+                  Submissions
+                </Link>
+              </li>
+              <li>
                 <a href="/archive/hackathon" className="text-ink-2 hover:text-ink">
                   Hackathon archive
                 </a>

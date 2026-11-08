@@ -1,0 +1,389 @@
+{
+  "checked": "2026-11-08",
+  "statuses": {
+    "confirmed": {
+      "label": "Confirmed submission",
+      "meaning": "A public submission page exists, and it was opened and read on the date above."
+    },
+    "owner-reported": {
+      "label": "Owner-reported submission",
+      "meaning": "The owner confirms it was submitted. A public receipt has not been retrieved for this page yet, so none is linked."
+    },
+    "live": {
+      "label": "Live product",
+      "meaning": "Deployed and reachable today. No hackathon submission is claimed for it."
+    },
+    "wip": {
+      "label": "Work in progress",
+      "meaning": "Being built. No submission is claimed, and a private project shows only its name until its owner approves what to publish."
+    }
+  },
+  "entries": [
+    {
+      "slug": "claw-pay",
+      "name": "Claw Pay",
+      "status": "confirmed",
+      "event": "PayPal AI Hackathon, on Devpost",
+      "summary": "A rule gate in front of AI-agent PayPal payments: the AI suggests, your rules decide.",
+      "body": [
+        "Claw Pay sits between an AI agent and the PayPal Orders v2 API. Every money call the agent proposes is checked against the owner's rules first and gets one of three answers: allowed, blocked by a rule, or needs the owner's OK. A blocked call makes no PayPal call at all.",
+        "The verdicts are deterministic, with no model in the decision path. It pins the payee, caps amounts per call, per seller and per day, allows only listed currencies, and re-checks an order before it captures it.",
+        "It runs against the PayPal sandbox only."
+      ],
+      "links": [
+        {
+          "kind": "submission",
+          "label": "Devpost submission",
+          "href": "https://devpost.com/software/claw-pay"
+        },
+        {
+          "kind": "video",
+          "label": "Demo video: Claw Pay, PayPal AI Hackathon Demo",
+          "href": "https://youtu.be/pAAhR8rAJas"
+        },
+        {
+          "kind": "repo",
+          "label": "Public repository",
+          "href": "https://github.com/metafrogmeme-droid/claw-pay-paypal"
+        }
+      ],
+      "notShown": [
+        "Social posts: none on file.",
+        "Explorer links: none apply. Claw Pay runs on the PayPal sandbox and puts nothing on chain."
+      ]
+    },
+    {
+      "slug": "claw-guard-near",
+      "name": "Claw Guard NEAR",
+      "status": "owner-reported",
+      "event": "NEAR HACKATHON",
+      "summary": "A signing gate for AI agents on NEAR: the agent proposes, the contract decides, and only then is anything signed.",
+      "body": [
+        "An AI agent can only propose orders. A NEAR contract checks each one against the owner's rules (allowed markets and receivers, per-order and daily caps, a leverage limit, an expiry and a pause switch) and only when every rule passes does it ask NEAR chain signatures to sign. Every decision is stored on chain as a receipt.",
+        "The agent holds one function-call key that can call a single method. It cannot move funds, add keys or call admin methods.",
+        "A prototype, not audited. It runs on NEAR testnet, plus one small demo contract on NEAR mainnet that was deployed and locked on 1 November 2026."
+      ],
+      "links": [
+        {
+          "kind": "repo",
+          "label": "Public repository",
+          "href": "https://github.com/metafrogmeme-droid/claw-guard-near"
+        },
+        {
+          "kind": "repo",
+          "label": "Repository tag marking the submitted state",
+          "href": "https://github.com/metafrogmeme-droid/claw-guard-near/tree/hackathon-submission"
+        },
+        {
+          "kind": "explorer",
+          "label": "Demo contract clawguard-demo.near on NEAR mainnet (NearBlocks)",
+          "href": "https://nearblocks.io/address/clawguard-demo.near"
+        }
+      ],
+      "notShown": [
+        "Submission receipt: not retrieved yet. The hackathon keeps submissions private, so there is no public page to link.",
+        "Video: none on file.",
+        "Social posts: none on file."
+      ]
+    },
+    {
+      "slug": "keylease",
+      "name": "KeyLease",
+      "status": "wip",
+      "event": "Built at NEAR HACKATHON",
+      "summary": "Lend the call, never the key: API key leases on NEAR, with the key sealed in a trusted execution environment.",
+      "body": [
+        "An owner seals an API key once and shares leases: a number of calls, until a time, for named endpoints only. Agents call through KeyLease, and only one pinned, open-source proxy build running in an Intel TDX enclave can open the key. Revoking a lease refuses the next call.",
+        "A prototype, not audited, on NEAR testnet only."
+      ],
+      "links": [
+        {
+          "kind": "demo",
+          "label": "Testnet demo",
+          "href": "https://keylease.humanoid-traders.com"
+        },
+        {
+          "kind": "repo",
+          "label": "Public repository",
+          "href": "https://github.com/metafrogmeme-droid/keylease"
+        },
+        {
+          "kind": "repo",
+          "label": "Published proxy build",
+          "href": "https://github.com/metafrogmeme-droid/keylease-wasm"
+        },
+        {
+          "kind": "explorer",
+          "label": "Contract on NEAR testnet (NearBlocks)",
+          "href": "https://testnet.nearblocks.io/address/keylease.keylease-spike-3298edc1.testnet"
+        }
+      ],
+      "notShown": [
+        "Submission: no record found, so this page claims none.",
+        "Video: none on file.",
+        "Social posts: none on file."
+      ]
+    },
+    {
+      "slug": "hashkey-seal",
+      "name": "HashKey Seal",
+      "status": "live",
+      "event": null,
+      "summary": "Anchors RUNECLAW's sealed receipts as hashes on HashKey Chain.",
+      "body": [
+        "RUNECLAW seals agent calls and receipts as hashes. HashKeySeal stores each hash on HashKey Chain with the publisher that anchored it and its kind. It accepts no value, has no function that sends value, and is not upgradeable.",
+        "The contract is deployed on HashKey Chain mainnet (chain id 177), and the explorer reports its source as verified. A mainnet deploy is done by the owner by hand: no server path signs on that chain."
+      ],
+      "links": [
+        {
+          "kind": "explorer",
+          "label": "HashKeySeal on HashKey Chain mainnet (Blockscout)",
+          "href": "https://hsk.blockscout.com/address/0x9ce68eFd7267bAfF57F8D23Ebe45A77D8F92EcFE"
+        },
+        {
+          "kind": "repo",
+          "label": "Contract source in the public repository",
+          "href": "https://github.com/metafrogmeme-droid/001/tree/main/contracts/hashkey"
+        }
+      ],
+      "notShown": [
+        "Submission: none on file, so this page claims none.",
+        "Video: none on file.",
+        "Social posts: none on file."
+      ]
+    },
+    {
+      "slug": "runeclaw-arena-pi",
+      "name": "RUNECLAW Arena (Pi)",
+      "status": "owner-reported",
+      "event": "Pi hackathon, in the Pi Browser",
+      "summary": "The practice Arena as a Pi app: call the market against an AI, with every call locked before the market moves.",
+      "body": [
+        "In the Pi Browser, RUNECLAW is a free practice app you sign in to with Pi: a Daily Duel against the AI, an AI coach, practice trading at live prices and a season board. Everyone starts on the same practice balance of credits, and credits are not money.",
+        "Duel rounds are sealed with a hash before the market moves, and a round's receipt can be checked in the browser.",
+        "The app is live and can be opened today."
+      ],
+      "links": [
+        {
+          "kind": "demo",
+          "label": "Open the Arena for Pi",
+          "href": "https://www.humanoid-traders.com/pi"
+        },
+        {
+          "kind": "repo",
+          "label": "How the Pi app works (public docs)",
+          "href": "https://github.com/metafrogmeme-droid/001/blob/main/app/content/docs/pi-network.md"
+        }
+      ],
+      "notShown": [
+        "Submission receipt: not retrieved yet.",
+        "Video: none approved on file.",
+        "Social posts: none on file."
+      ]
+    },
+    {
+      "slug": "bitget-ai-s2",
+      "name": "Bitget AI S2",
+      "status": "owner-reported",
+      "event": "Bitget AI hackathon, season 2 (Agentic Trading track)",
+      "summary": "A weekend event agent for Bitget demo trading, held to an honest forward test.",
+      "body": [
+        "The plan is an event-driven agent that trades Bitget's demo (paper) account only, inside RUNECLAW's fail-closed risk gate, with every decision replayable.",
+        "The pre-registered first test did not pass: no weekend price rule survived trading costs. The entry therefore claims no edge, and neither does this page. What it can show is the risk cage and an honest forward test.",
+        "The season 1 entry is archived separately on this site."
+      ],
+      "links": [
+        {
+          "kind": "repo",
+          "label": "Readiness review (public repository)",
+          "href": "https://github.com/metafrogmeme-droid/001/blob/main/docs/plans/HACKATHON_READINESS_2026-10.md"
+        },
+        {
+          "kind": "repo",
+          "label": "Draft playbook packages and their research",
+          "href": "https://github.com/metafrogmeme-droid/Playbooks-BITGET"
+        },
+        {
+          "kind": "site",
+          "label": "Season 1 archive",
+          "href": "/archive/hackathon"
+        }
+      ],
+      "notShown": [
+        "Submission receipt: not retrieved yet.",
+        "Demo and video: none on file.",
+        "Social posts: none on file."
+      ]
+    },
+    {
+      "slug": "botchainseal",
+      "name": "BotChainSeal",
+      "status": "live",
+      "event": null,
+      "summary": "Commits a file's hash to BOT Chain, and lets anyone check it without a wallet.",
+      "body": [
+        "BotChainSeal stores a hash on BOT Chain mainnet (chain id 677). The contract keeps the hash, not the file. A read-only page hashes a file in your browser and reads the contract: nothing is uploaded and no wallet is asked for.",
+        "It began on Bohr, BOT Chain's testnet, which is why the verifier's address still carries that name. Bohr and BotChainSeal are one project, listed once.",
+        "The first evidence it sealed records a session on Somnia testnet (chain id 50383), a different network. The hash is on BOT Chain; the session was not."
+      ],
+      "links": [
+        {
+          "kind": "explorer",
+          "label": "BotChainSeal on BOT Chain mainnet (explorer)",
+          "href": "https://scan.botchain.ai/address/0x2554160560747dF51873171FBD838bbDEEdf9093"
+        },
+        {
+          "kind": "explorer",
+          "label": "Deploy transaction",
+          "href": "https://scan.botchain.ai/tx/0xc40e34faa530d2318c6658681471fb64cb2a5a6c4382fbe082066a5d16ca9640"
+        },
+        {
+          "kind": "explorer",
+          "label": "First receipt anchored",
+          "href": "https://scan.botchain.ai/tx/0x2a6e494dad3eb2798433d683cba83ac94fb9bb2a8dfe8f75d8a775d6befb57ed"
+        },
+        {
+          "kind": "demo",
+          "label": "Read-only verifier",
+          "href": "https://bohr-seal-verify.vercel.app/mainnet"
+        },
+        {
+          "kind": "site",
+          "label": "The BOT Chain section on the home page",
+          "href": "/#botchain"
+        }
+      ],
+      "notShown": [
+        "Source repository: private, so not linked.",
+        "Submission: none on file, so this page claims none.",
+        "Video: none on file.",
+        "Social posts: none on file."
+      ]
+    },
+    {
+      "slug": "claw-guard-perps",
+      "name": "Claw Guard Perps",
+      "status": "wip",
+      "event": "dreamDEX Perps Builder Bounty, on DoraHacks",
+      "summary": "A pre-trade firewall between a perps trading agent and its dreamDEX bot key, on Somnia testnet.",
+      "body": [
+        "The agent proposes orders, and Claw Guard checks each one against the owner's rules before the key signs anything. Every order gets one answer: allowed, blocked by a rule, or needs the owner's OK.",
+        "Each decision is a signed, hash-chained receipt, anchored on Somnia so anyone can check what the agent was allowed to do. A watcher using Somnia Reactivity can trip a kill switch from a stop anchored on chain.",
+        "Somnia Tokyo testnet only (chain id 50383)."
+      ],
+      "links": [
+        {
+          "kind": "repo",
+          "label": "Public repository",
+          "href": "https://github.com/metafrogmeme-droid/claw-guard-perps-public"
+        },
+        {
+          "kind": "explorer",
+          "label": "Receipts contract on Somnia Tokyo testnet (explorer)",
+          "href": "https://explorer.testnet.somnia.network/tokyo/address/0xeda7071961c518ce154062cb6d8e94219f8c29b3"
+        },
+        {
+          "kind": "explorer",
+          "label": "Receipts contract deploy transaction",
+          "href": "https://explorer.testnet.somnia.network/tokyo/tx/0x3f6cda22ad6905c078f509bc44952cc15cb7c378dd93642c75a9702e3502d5e7"
+        },
+        {
+          "kind": "social",
+          "label": "Post on X: Trading bots should not get a blank check",
+          "href": "https://x.com/RUNECLAW_AI/status/2118411003675176991"
+        },
+        {
+          "kind": "social",
+          "label": "Post on X: Proof, not promises",
+          "href": "https://x.com/RUNECLAW_AI/status/2118411011556336020"
+        },
+        {
+          "kind": "social",
+          "label": "Post on X: A kill switch you can hit from anywhere",
+          "href": "https://x.com/RUNECLAW_AI/status/2118411025544286651"
+        }
+      ],
+      "notShown": [
+        "Submission: none on file yet, so this page claims none.",
+        "Video: none approved for this page."
+      ]
+    },
+    {
+      "slug": "qie-proof-of-call",
+      "name": "QIE Proof of Call",
+      "status": "wip",
+      "private": true,
+      "event": null,
+      "summary": null,
+      "body": [],
+      "links": [],
+      "notShown": []
+    },
+    {
+      "slug": "claw-guard-arbitrum",
+      "name": "Claw Guard on Arbitrum",
+      "status": "wip",
+      "private": true,
+      "event": null,
+      "summary": null,
+      "body": [],
+      "links": [],
+      "notShown": []
+    },
+    {
+      "slug": "ascon",
+      "name": "ASCON",
+      "status": "wip",
+      "private": true,
+      "event": null,
+      "summary": null,
+      "body": [],
+      "links": [],
+      "notShown": []
+    },
+    {
+      "slug": "claw-reconcile",
+      "name": "Claw Reconcile",
+      "status": "wip",
+      "private": true,
+      "event": null,
+      "summary": null,
+      "body": [],
+      "links": [],
+      "notShown": []
+    },
+    {
+      "slug": "claw-meter",
+      "name": "Claw Meter",
+      "status": "wip",
+      "private": true,
+      "event": null,
+      "summary": null,
+      "body": [],
+      "links": [],
+      "notShown": []
+    },
+    {
+      "slug": "agent-passport",
+      "name": "Agent Passport",
+      "status": "wip",
+      "private": true,
+      "event": null,
+      "summary": null,
+      "body": [],
+      "links": [],
+      "notShown": []
+    },
+    {
+      "slug": "paid-lock",
+      "name": "paid.lock",
+      "status": "wip",
+      "private": true,
+      "event": null,
+      "summary": null,
+      "body": [],
+      "links": [],
+      "notShown": []
+    }
+  ]
+}

@@ -16,6 +16,8 @@ import { Route as ProductRouteImport } from './routes/product'
 import { Route as ProofRouteImport } from './routes/proof'
 import { Route as RiskRouteImport } from './routes/risk'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SubmissionsIndexRouteImport } from './routes/submissions.index'
+import { Route as SubmissionsSlugRouteImport } from './routes/submissions.$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -52,6 +54,16 @@ const TermsRoute = TermsRouteImport.update({
   path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SubmissionsIndexRoute = SubmissionsIndexRouteImport.update({
+  id: '/submissions/',
+  path: '/submissions/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SubmissionsSlugRoute = SubmissionsSlugRouteImport.update({
+  id: '/submissions/$slug',
+  path: '/submissions/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -61,6 +73,8 @@ export interface FileRoutesByFullPath {
   '/proof': typeof ProofRoute
   '/risk': typeof RiskRoute
   '/terms': typeof TermsRoute
+  '/submissions/$slug': typeof SubmissionsSlugRoute
+  '/submissions/': typeof SubmissionsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +84,8 @@ export interface FileRoutesByTo {
   '/proof': typeof ProofRoute
   '/risk': typeof RiskRoute
   '/terms': typeof TermsRoute
+  '/submissions/$slug': typeof SubmissionsSlugRoute
+  '/submissions': typeof SubmissionsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,14 +96,32 @@ export interface FileRoutesById {
   '/proof': typeof ProofRoute
   '/risk': typeof RiskRoute
   '/terms': typeof TermsRoute
+  '/submissions/$slug': typeof SubmissionsSlugRoute
+  '/submissions/': typeof SubmissionsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/changelog' | '/privacy' | '/product' | '/proof' | '/risk' | '/terms'
+    | '/'
+    | '/changelog'
+    | '/privacy'
+    | '/product'
+    | '/proof'
+    | '/risk'
+    | '/terms'
+    | '/submissions/$slug'
+    | '/submissions/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/changelog' | '/privacy' | '/product' | '/proof' | '/risk' | '/terms'
+    | '/'
+    | '/changelog'
+    | '/privacy'
+    | '/product'
+    | '/proof'
+    | '/risk'
+    | '/terms'
+    | '/submissions/$slug'
+    | '/submissions'
   id:
     | '__root__'
     | '/'
@@ -97,6 +131,8 @@ export interface FileRouteTypes {
     | '/proof'
     | '/risk'
     | '/terms'
+    | '/submissions/$slug'
+    | '/submissions/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -107,6 +143,8 @@ export interface RootRouteChildren {
   ProofRoute: typeof ProofRoute
   RiskRoute: typeof RiskRoute
   TermsRoute: typeof TermsRoute
+  SubmissionsSlugRoute: typeof SubmissionsSlugRoute
+  SubmissionsIndexRoute: typeof SubmissionsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -160,6 +198,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/submissions/': {
+      id: '/submissions/'
+      path: '/submissions'
+      fullPath: '/submissions/'
+      preLoaderRoute: typeof SubmissionsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/submissions/$slug': {
+      id: '/submissions/$slug'
+      path: '/submissions/$slug'
+      fullPath: '/submissions/$slug'
+      preLoaderRoute: typeof SubmissionsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -171,6 +223,8 @@ const rootRouteChildren: RootRouteChildren = {
   ProofRoute: ProofRoute,
   RiskRoute: RiskRoute,
   TermsRoute: TermsRoute,
+  SubmissionsSlugRoute: SubmissionsSlugRoute,
+  SubmissionsIndexRoute: SubmissionsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
