@@ -1,0 +1,12 @@
+R  --dataset benchmark/fresh10b_1h
+L1 --dataset benchmark/fresh10b_1h --direction long_only
+L2 --dataset benchmark/fresh10b_1h --direction long_only --btc-regime-days 150 --btc-regime-dataset benchmark/fresh10b_btc_1d
+L3 --dataset benchmark/fresh10b_1h --direction long_only --btc-regime-days 150 --btc-regime-dataset benchmark/fresh10b_btc_1d --swing-stop-tf 4h
+L2_100 --dataset benchmark/fresh10b_1h --direction long_only --btc-regime-days 100 --btc-regime-dataset benchmark/fresh10b_btc_1d
+L2_200 --dataset benchmark/fresh10b_1h --direction long_only --btc-regime-days 200 --btc-regime-dataset benchmark/fresh10b_btc_1d
+dev_majors_R  --dataset benchmark/majors_1h
+dev_majors_L1 --dataset benchmark/majors_1h --direction long_only
+dev_majors_L2 --dataset benchmark/majors_1h --direction long_only --btc-regime-days 150 --btc-regime-dataset benchmark/majors_1d
+dev_corr_R  --dataset benchmark/corr_dense_1h
+dev_corr_L1 --dataset benchmark/corr_dense_1h --direction long_only
+dev_corr_L2 --dataset benchmark/corr_dense_1h --direction long_only --btc-regime-days 150 --btc-regime-dataset benchmark/majors_1d
