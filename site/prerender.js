@@ -37,6 +37,33 @@ const SHELL = join(OUT, 'index.html')
 const ORIGIN = (process.env.SITE_ORIGIN || 'https://www.humanoid-traders.com')
   .replace(/\/+$/, '')
 
+/**
+ * The submissions index and one page per entry, read from the same JSON the
+ * pages render (`src/submissions.json`), so a page cannot exist without an
+ * entry or an entry without a page. A private entry's description says only
+ * that it is private: its page carries nothing else.
+ */
+const SUBMISSIONS = JSON.parse(
+  readFileSync(join(HERE, 'src', 'submissions.json'), 'utf8'))
+
+const SUBMISSION_ROUTES = [
+  {
+    path: '/submissions',
+    title: 'Submissions and projects — RUNECLAW',
+    description:
+      'Hackathon entries, live products and work in progress, each with its own '
+      + 'page and a status that says only what the evidence shows.',
+  },
+  ...SUBMISSIONS.entries.map((e) => ({
+    path: `/submissions/${e.slug}`,
+    title: `${e.name} — Submissions — RUNECLAW`,
+    description: `${SUBMISSIONS.statuses[e.status].label}. `
+      + (e.private
+        ? 'A private project: details are not published yet.'
+        : e.summary),
+  })),
+]
+
 const ROUTES = [
   {
     path: '/',
@@ -97,6 +124,7 @@ const ROUTES = [
       'What you agree to by using RUNECLAW: paper trading, no advice, optional '
       + 'tips, and what the service does not promise.',
   },
+  ...SUBMISSION_ROUTES,
 ]
 
 /**

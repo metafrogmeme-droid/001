@@ -26,3 +26,19 @@
 - [Changelog — RUNECLAW](https://www.humanoid-traders.com/changelog): What changed, when, and where to check it — each entry points at the pull requests behind it.
 - [Privacy — RUNECLAW](https://www.humanoid-traders.com/privacy): What RUNECLAW collects, where it is stored, and what leaves the system.
 - [Terms of use — RUNECLAW](https://www.humanoid-traders.com/terms): What you agree to by using RUNECLAW: paper trading, no advice, optional tips, and what the service does not promise.
+- [Submissions and projects — RUNECLAW](https://www.humanoid-traders.com/submissions): Hackathon entries, live products and work in progress, each with its own page and a status that says only what the evidence shows.
+- [Claw Pay — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-pay): Confirmed submission. A rule gate in front of AI-agent PayPal payments: the AI suggests, your rules decide.
+- [Claw Guard NEAR — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-guard-near): Owner-reported submission. A signing gate for AI agents on NEAR: the agent proposes, the contract decides, and only then is anything signed.
+- [KeyLease — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/keylease): Work in progress. Lend the call, never the key: API key leases on NEAR, with the key sealed in a trusted execution environment.
+- [HashKey Seal — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/hashkey-seal): Live product. Anchors RUNECLAW's sealed receipts as hashes on HashKey Chain.
+- [RUNECLAW Arena (Pi) — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/runeclaw-arena-pi): Live product. The practice Arena as a Pi app: call the market against an AI, with every call locked before the market moves.
+- [Bitget AI S2 — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/bitget-ai-s2): Work in progress. A weekend event agent for Bitget demo trading, held to an honest forward test.
+- [BotChainSeal — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/botchainseal): Live product. Commits a file's hash to BOT Chain, and lets anyone check it without a wallet.
+- [Claw Guard Perps — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-guard-perps): Work in progress. A pre-trade firewall between a perps trading agent and its dreamDEX bot key, on Somnia testnet.
+- [QIE Proof of Call — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/qie-proof-of-call): Work in progress. A private project: details are not published yet.
+- [Claw Guard on Arbitrum — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-guard-arbitrum): Work in progress. A private project: details are not published yet.
+- [ASCON — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/ascon): Work in progress. A private project: details are not published yet.
+- [Claw Reconcile — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-reconcile): Work in progress. A private project: details are not published yet.
+- [Claw Meter — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-meter): Work in progress. A private project: details are not published yet.
+- [Agent Passport — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/agent-passport): Work in progress. A private project: details are not published yet.
+- [paid.lock — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/paid-lock): Work in progress. A private project: details are not published yet.
