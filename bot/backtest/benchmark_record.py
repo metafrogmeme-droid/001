@@ -12,8 +12,12 @@ benchmark command writes.
 
 ``benchmark/majors_1h/result.json`` is produced by
 
-    python -m bot.backtest.runner --dataset benchmark/majors_1h \\
-        --honest --walk-forward 6 -o benchmark/majors_1h/result.json
+    python -m bot.backtest.runner --dataset benchmark/majors_1h --as-live \\
+        --walk-forward 6 --fold-history-bars 4824 --breaker-reset-bars 24 \\
+        -o benchmark/majors_1h/result.json
+
+(the method since 2026-11-08: live's own limit entries and live's history;
+docs/FROZEN_BENCHMARK.md says why, with the sealed studies behind it)
 
 and COMMITTED, because ``app/`` and ``bot/`` are different deploy targets and
 a card that had to run a seventy-second backtest to learn the benchmark would
@@ -50,7 +54,8 @@ MANIFEST = ROOT / DATASET / "manifest.json"
 #: the two spellings equal, because a sentence telling an operator what to
 #: run is a claim about another surface.
 WRITE_COMMAND = (f"python -m bot.backtest.runner --dataset {DATASET} "
-                 f"--honest --walk-forward 6 -o {DATASET}/result.json")
+                 f"--as-live --walk-forward 6 --fold-history-bars 4824 "
+                 f"--breaker-reset-bars 24 -o {DATASET}/result.json")
 
 
 class BenchmarkReading(NamedTuple):
@@ -78,6 +83,13 @@ class BenchmarkReading(NamedTuple):
     #: as 1 with ``leverage_recorded`` False, and the card says which.
     leverage: Optional[int] = None
     leverage_recorded: bool = False
+    #: How the record was measured, as it says: the fill model (`live` is
+    #: `--as-live`, `next_open` is `--honest`), each fold's context history
+    #: and the breaker's reset. None where the artefact predates the key.
+    honest: Optional[bool] = None
+    fill_mode: Optional[str] = None
+    fold_history_bars: Optional[int] = None
+    breaker_reset_bars: Optional[int] = None
 
 
 _POOLED_FIELDS = ("trades", "wins", "losses", "net_usd", "win_rate", "mean_net_usd")
@@ -203,7 +215,29 @@ def benchmark_on_record(path: Optional[Path] = None) -> BenchmarkReading:
         universe=tuple(symbol_base(s) for s in measured),
         leverage=leverage,
         leverage_recorded=lev_recorded,
+        honest=d.get("honest") if isinstance(d.get("honest"), bool) else None,
+        fill_mode=str(d["fill_mode"]) if isinstance(d.get("fill_mode"), str) else None,
+        fold_history_bars=_int(d.get("fold_history_bars")),
+        breaker_reset_bars=_int(d.get("breaker_reset_bars")),
     )
+
+
+def method_label(r: BenchmarkReading) -> str:
+    """How the record was measured, from what it says: `--as-live` for live's
+    resting-limit entries, `--honest` for market entries at the next open,
+    and the context history and breaker reset where it recorded them. The
+    card used to print `--honest` as a literal whatever the record said."""
+    if r.fill_mode == "live":
+        label = "--as-live"
+    elif r.fill_mode == "next_open" or r.honest is True:
+        label = "--honest"
+    else:
+        label = "fill model not recorded"
+    if r.fold_history_bars is not None and r.fold_history_bars > 0:
+        label += f", {r.fold_history_bars} bars of history"
+    if r.breaker_reset_bars is not None and r.breaker_reset_bars > 0:
+        label += f", breaker reset after {r.breaker_reset_bars} bars"
+    return label
 
 
 def code_sha() -> Optional[str]:
@@ -243,7 +277,7 @@ def card_line(r: BenchmarkReading) -> str:
     when = (r.recorded_at or "date not recorded")[:10]
     at = f"at {r.code_sha[:7]}" if r.code_sha else "commit not recorded"
     if not r.folds_run:
-        return (f"  Benchmark on record ({r.dataset}, --honest, recorded {when} {at}): "
+        return (f"  Benchmark on record ({r.dataset}, {method_label(r)}, recorded {when} {at}): "
                 f"NO FOLD RAN — nothing was measured, so no return is quoted.")
     pf = "— (no losing trade)" if r.pooled_pf is None else f"{r.pooled_pf:.2f}"
     mean = ("n/a" if r.mean_oos_return_pct is None
@@ -259,6 +293,6 @@ def card_line(r: BenchmarkReading) -> str:
         lev = f"fills at {r.leverage}x"
     else:
         lev = f"fills at {r.leverage}x (recorded before the artefact said; the runner then had no other)"
-    return (f"  Benchmark on record ({r.dataset}, --honest, {r.folds_run} folds, recorded "
+    return (f"  Benchmark on record ({r.dataset}, {method_label(r)}, {r.folds_run} folds, recorded "
             f"{when} {at}, {lev}): mean OOS {mean} · {r.profitable_folds}/{r.folds_run} folds "
             f"profitable · pooled {r.pooled_trades} tr  net {net}  win {win}  PF {pf}")

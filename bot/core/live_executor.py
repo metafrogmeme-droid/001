@@ -47,7 +47,9 @@ from bot.core.order_rules import (
     is_market_open, is_weekend_queued, adjust_sl_for_gap_risk,
     adjust_size_for_weekend, should_defer_tp_sl,
 )
-from bot.core.limit_entry import (calculate_entry, levels_as_shown, limit_crosses_market,
+from bot.core.limit_entry import (calculate_entry, drift_chase_decision, drift_chase_precheck,
+                                  drift_max_chase_pct,
+                                  levels_as_shown, limit_crosses_market,
                                   order_fill_price, placement_price, resting_limit_drift)
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
@@ -12962,85 +12964,30 @@ class LiveExecutor:
         """
         try:
             min_adx = CONFIG.limit_orders.drift_market_min_adx
-
-            # QC-2: hard chase bound — momentum or not, never market-chase a
+            # QC-2: hard chase bound -- momentum or not, never market-chase a
             # fill more than DRIFT_MARKET_MAX_CHASE_PCT beyond the planned
             # limit (default 5%; 0 disables). Past that distance the SL/TP
             # geometry that justified the trade no longer exists.
-            if pos.entry_price > 0:
-                _chase_pct = abs(cur_price - pos.entry_price) / pos.entry_price * 100
-                _max_chase = float(os.environ.get("DRIFT_MARKET_MAX_CHASE_PCT", "5.0"))
-                if _max_chase > 0 and _chase_pct > _max_chase:
-                    return False
-
-            # Check direction alignment: only fallback if price moved
-            # favorably (we're chasing a breakout, not averaging into a loser)
-            if pos.direction == "LONG":
-                # Price moved UP past our buy limit → breakout
-                if cur_price <= pos.entry_price:
-                    return False  # price is below limit, that's normal for a buy
-            else:
-                # SHORT: price moved DOWN past our sell limit → breakdown
-                if cur_price >= pos.entry_price:
-                    return False
-
+            max_chase = drift_max_chase_pct()
+            # The cheap refusals first, before any bar is fetched; the full
+            # rule is `drift_chase_decision`, which the paper book reads too.
+            if drift_chase_precheck(pos.direction, pos.entry_price, cur_price,
+                                    max_chase_pct=max_chase) is not None:
+                return False
             # Fetch recent candles for ADX (closed bars only — repaint guard)
             ohlcv = await exchange.fetch_ohlcv(pos.symbol, "15m", limit=30)
             from bot.utils.candles import drop_forming_candle
             ohlcv = drop_forming_candle(ohlcv, "15m")
-            if not ohlcv or len(ohlcv) < 14:
-                return False
-
-            import numpy as np
-            closes = np.array([c[4] for c in ohlcv])
-            highs = np.array([c[2] for c in ohlcv])
-            lows = np.array([c[3] for c in ohlcv])
-
-            # Simple ADX calculation
-            period = 14
-            tr = np.maximum(highs[1:] - lows[1:],
-                            np.maximum(np.abs(highs[1:] - closes[:-1]),
-                                       np.abs(lows[1:] - closes[:-1])))
-            plus_dm = np.maximum(highs[1:] - highs[:-1], 0)
-            minus_dm = np.maximum(lows[:-1] - lows[1:], 0)
-
-            # Zero out when other DM is larger
-            mask = plus_dm > minus_dm
-            minus_dm[mask & (plus_dm > minus_dm)] = 0
-            plus_dm[~mask & (minus_dm > plus_dm)] = 0
-
-            # Smoothed averages (simple rolling for efficiency)
-            if len(tr) < period:
-                return False
-            atr_vals = np.convolve(tr, np.ones(period)/period, mode='valid')
-            plus_di = np.convolve(plus_dm, np.ones(period)/period, mode='valid')
-            minus_di = np.convolve(minus_dm, np.ones(period)/period, mode='valid')
-
-            if len(atr_vals) == 0 or atr_vals[-1] == 0:
-                return False
-
-            plus_di_pct = (plus_di[-1] / atr_vals[-1]) * 100
-            minus_di_pct = (minus_di[-1] / atr_vals[-1]) * 100
-
-            dx = abs(plus_di_pct - minus_di_pct) / max(plus_di_pct + minus_di_pct, 1e-10) * 100
-            # Use current DX as ADX proxy (simplified)
-            adx_value = dx
-
-            # Direction alignment check via DI
-            if pos.direction == "LONG" and plus_di_pct <= minus_di_pct:
-                return False  # momentum is bearish, don't chase
-            elif pos.direction == "SHORT" and minus_di_pct <= plus_di_pct:
-                return False  # momentum is bullish, don't chase
-
-            if adx_value >= min_adx:
+            chase, d = drift_chase_decision(pos.direction, pos.entry_price, cur_price, ohlcv,
+                                            min_adx=min_adx, max_chase_pct=max_chase)
+            if chase:
                 audit(trade_log,
-                      f"Drift market fallback: ADX={adx_value:.1f} >= {min_adx}, "
-                      f"+DI={plus_di_pct:.1f}, -DI={minus_di_pct:.1f} → converting {pos.symbol}",
+                      f"Drift market fallback: ADX={d['adx']:.1f} >= {min_adx}, "
+                      f"+DI={d['plus_di']:.1f}, -DI={d['minus_di']:.1f} → converting {pos.symbol}",
                       action="drift_market_check", result="ELIGIBLE",
-                      data={"adx": round(adx_value, 1), "plus_di": round(plus_di_pct, 1),
-                            "minus_di": round(minus_di_pct, 1)})
+                      data={"adx": round(d["adx"], 1), "plus_di": round(d["plus_di"], 1),
+                            "minus_di": round(d["minus_di"], 1)})
                 return True
-
             return False
         except Exception as exc:
             logger.debug("Drift market fallback check failed for %s: %s", pos.symbol, exc)

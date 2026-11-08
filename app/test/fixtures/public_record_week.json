@@ -19,16 +19,16 @@
  "parity": {
   "aborts": 0,
   "benchmark": {
-   "code_sha": "5c46595e3222b6b32320b412c8cb1ed4e0991376",
+   "code_sha": "3db993a7223064255ae9a0ddfe17adedceaf7dc0",
    "dataset": "benchmark/majors_1h",
    "folds_run": 6,
-   "mean_oos_return_pct": -3.275,
-   "pooled_pf": 0.6459844550254641,
-   "pooled_trades": 196,
-   "pooled_win_rate": 0.5459183673469388,
-   "profitable_folds": 1,
+   "mean_oos_return_pct": -0.26833333333333337,
+   "pooled_pf": 0.8450392336205651,
+   "pooled_trades": 105,
+   "pooled_win_rate": 0.4857142857142857,
+   "profitable_folds": 3,
    "reason": "",
-   "recorded_at": "2026-10-12T06:53:15+00:00",
+   "recorded_at": "2026-11-08T01:55:26+00:00",
    "state": "read"
   },
   "excluded_non_fills": 1,

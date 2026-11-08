@@ -31,7 +31,8 @@ def _drive(monkeypatch, last_prices, sent=None):
     monkeypatch.setattr(sc, "render_position_card", lambda d: (cards.append(d), b"PNG")[1])
     pos = _paper_pos()
     portfolio = NS(open_positions=[pos], _positions={"P1": pos}, _lock=threading.RLock(),
-                   _last_prices=dict(last_prices), mark_to_market=lambda fresh: None)
+                   _last_prices=dict(last_prices), mark_to_market=lambda fresh: None,
+                   pending_limits=[])
 
     async def _no_exchange():
         raise RuntimeError("venue down")

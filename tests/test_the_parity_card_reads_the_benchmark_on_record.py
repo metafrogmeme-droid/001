@@ -696,3 +696,40 @@ class TestTheWebSection:
         assert sec["benchmark"]["state"] == "read" and sec["benchmark"]["pooled_pf"] == 0.63
         assert "$" not in json.dumps(sec), "a public section carries words and ratios only"
         assert "pooled_net_usd" not in sec["benchmark"] and "net_pnl" not in sec
+
+
+class TestTheCardSaysHowTheRecordWasMeasured:
+    """It printed `--honest` as a literal. Since 2026-11-08 the record is
+    measured with live's resting-limit entries (`--as-live`), live's history
+    and a breaker reset; a card that kept saying `--honest` would describe a
+    method the number was not measured with. It reads the record's own keys."""
+
+    def test_a_record_measured_as_live_says_so_with_its_history_and_reset(self, tmp_path):
+        r = benchmark_on_record(_plant(tmp_path, _artefact(
+            fill_mode="live", honest=True, fold_history_bars=4824, breaker_reset_bars=24)))
+        line = card_line(r)
+        assert "--as-live, 4824 bars of history, breaker reset after 24 bars" in line, line
+        assert "--honest" not in line
+
+    def test_an_older_record_still_reads_as_honest_and_claims_nothing_it_lacks(self, tmp_path):
+        r = benchmark_on_record(_plant(tmp_path, _artefact(fill_mode="next_open", honest=True)))
+        line = card_line(r)
+        assert "(benchmark/majors_1h, --honest, " in line, line
+        assert "bars of history" not in line and "breaker reset" not in line
+
+    def test_a_record_that_names_no_fill_model_says_it_was_not_recorded(self, tmp_path):
+        art = _artefact()
+        art.pop("fill_mode", None)
+        art.pop("honest", None)
+        line = card_line(benchmark_on_record(_plant(tmp_path, art)))
+        assert "fill model not recorded" in line, line
+
+    def test_the_committed_record_was_measured_with_the_command_it_names(self):
+        """The record on disk and WRITE_COMMAND describe one method."""
+        r = benchmark_on_record()
+        if "--as-live" in br.WRITE_COMMAND:
+            assert r.fill_mode == "live", r
+        if "--fold-history-bars 4824" in br.WRITE_COMMAND:
+            assert r.fold_history_bars == 4824, r
+        if "--breaker-reset-bars 24" in br.WRITE_COMMAND:
+            assert r.breaker_reset_bars == 24, r

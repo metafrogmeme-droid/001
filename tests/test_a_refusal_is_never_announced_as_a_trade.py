@@ -200,7 +200,8 @@ PASSED_THROUGH = {
     "result": (
         "confirm_trade's answer from the inner path, walked below, returned "
         "after the why-not record keeps it when it placed nothing"),
-    "await self._simulate_paper_fill(idea, recheck, self._practice_book_user(user_id), trade_id)":
+    ("await self._simulate_paper_fill(idea, recheck, self._practice_book_user(user_id), "
+     "trade_id, market_price=current_price)"):
         "the practice fill, walked below",
     "practice_book_refusal(exc)": (
         "the practice book could not be read; the sentence is Trade REJECTED, "
@@ -211,6 +212,9 @@ PASSED_THROUGH = {
 # Literal answers that DID place something, each with what it placed.
 PLACED = {
     "\U0001f4dd <b>[PAPER]</b> Simulated": "a practice position in the person's own paper book",
+    "\U0001f4dd <b>[PAPER]</b> X <b>X</b> limit rests at": (
+        "a practice limit resting on the person's own paper book, which the "
+        "paper monitor fills, expires or drift-cancels on live's rules"),
 }
 
 

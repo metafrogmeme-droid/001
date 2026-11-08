@@ -30064,3 +30064,111 @@ in three of four datasets, which is adverse selection showing: the saving is
 real and the selection is no better, and may be worse. The way to attribute a
 gain to a cost is an arm that differs from its comparator in the cost and
 nothing else, not an argument from equal profit factors.
+
+## THE PAPER BOOK FILLED EVERY LIMIT LIVE NEVER FILLED, AT THE BETTER PRICE
+
+8 November 2026. Live trading had been off since 18 October, so every confirm
+opened on the operator's paper book, and the paper book was the reading the
+equal-sizing forward test (Addendum 1) would judge. Asked whether paper fills
+like live, the answer was no.
+
+**A paper fill is a claim about a fill that would have happened.** A paper
+confirm of a limit idea called `PortfolioTracker.open_position` at once, at
+`idea.entry_price`: the limit price, whether or not the market ever came back
+to it. Live rests the same order, and from 2026-08-18 to 2026-10-14, 123 of
+the operator's 407 live records were limits that never filled (expired,
+cancelled, or pulled for drift). Paper booked every one of those, at the
+better price. A market order filled at the analysis price too, not the price
+read at confirm. Addendum 1 described paper as filling "at the price the
+engine reads", which was wrong; Addendum 2 corrects it and was sealed before
+the change shipped.
+
+**One rule, two books, one reading.** The drift chase (cancel a limit the
+market ran from, or buy it at the market when the trend agrees) lived inside
+`LiveExecutor._check_drift_market_fallback`. The paper book needed the same
+decision, so it moved to `bot/core/limit_entry.py::drift_chase_decision` (and
+`drift_chase_precheck`, `drift_max_chase_pct`) and the live executor now asks
+it. A second copy in the paper sweep would have been a second answer that
+drifts from the first.
+
+**What paper does now** (`bot/core/paper_limits.py`): a limit on its own side
+of the market rests (`PortfolioTracker.rest_limit`, persisted by both savers);
+each paper pass fills it at the limit when the last price reaches it, drops it
+past live's horizon (`limit_expiry_seconds`), and on a 2% drift since
+placement cancels it or, for an engine idea live would chase, fills at the
+market with stop and target shifted by the same ratio. A typed ticket is never
+drift-read, as live. A market order, or a limit at or through the market,
+fills now at the market price (a limit no worse than its price). A resting
+limit holds its symbol for the duplicate guard, and the confirm's card carries
+live's `⏳ PENDING FILL` so the door says "resting", not "executed".
+
+**A reading's window opens on a record the code writes, not a date picked by
+hand.** Addendum 2 counts only paper trades opened under the new fill model.
+The first paper confirm made under it writes `data/paper_fill_model.json`
+once, before it rests or fills anything; `scripts/sizing_forward.py --book
+paper-limits` reads twelve weeks from that time, scores only rows opened at or
+after it, and calls an unreadable record no verdict rather than "not yet".
+Addendum 1's reading stays whole under its sealed rule and is also reported
+split at that time.
+
+**The bias that remains runs the other way.** Paper reads the last price once
+per pass, and live fills on any touch between passes, so paper can now miss a
+fill live would have had. A paper fill has no queue and no slippage. Both are
+stated in the addendum.
+
+**A resting order is a thing the person has to be able to see, cancel and
+hear about.** The first cut rested the limit and told nobody: `/positions`
+listed nothing, a fill or an expiry was only an audit row, and the
+practice book's position cap counted open rows, so resting limits could
+stack past it. Now `/positions` lists them under PENDING ORDERS
+(`practice_pending_rows`, through the same `pending_order_card` live uses),
+Cancel drops one (`drop_limit`, booking nothing), each fill, expiry and cancel
+goes to the book's owner and to no one else (`_owner_notify_callback`, kind
+`paper`, never the public channels), and the practice re-check's MAX_POSITIONS
+gate reads open rows plus resting limits (`_practice_open_slots`), as live's
+pending orders hold slots. Four hand-written stand-ins for a practice book had
+to learn `pending_limits`; the real tracker always has it.
+
+Guarded by `tests/test_paper_limits_rest_like_live.py` (every rule both ways,
+the real tracker, the real chase decision on bars it can decide from, and the
+real confirm and positions pass), `tests/test_sizing_forward.py` (the window,
+the split, the record written once), and `tests/test_duplicate_entry_guard.py`
+(a resting limit holds its symbol). Seventeen mutations of the fix were each
+killed by a named test.
+
+## THREE MORE STRATEGY FAMILIES, SEALED FIRST: NONE MAKES MONEY, AND THE BOT'S SIGNALS HAVE RUN OUT OF FILTERS
+
+8 November 2026. Asked to look at different strategies and then to "do all",
+three studies were sealed before their data or evaluator existed and run the
+same day.
+
+**Long only, behind BTC's 150-day mean, on the bot's own signals**
+(`docs/research/prereg/long_regime_2026-11`). The reason to try it was three
+earlier readings: the calls point the right way before costs, every long/short
+rule lost on its holdout, and BTC's 150-day trend was the one filter that held.
+On ten fresh coins (`benchmark/fresh10b_1h`, in no earlier manifest) the
+reference lost 1.48% a fold, long only 0.94%, long only behind BTC 0.88%; both
+tested arms failed the bound and the folds, and the wider-stop arm traded too
+little to judge. On the two older sets, where the bot's shorts are most of its
+trades, dropping them made it worse. The new backtest control
+(`--btc-regime-days`, `_btc_regime_admits`) reads only daily bars closed by the
+deciding bar's close; Bitget's daily bars open at 16:00 UTC, which a
+calendar-day reading would have got wrong.
+
+**A per-row mean above zero is not money.** Every arm's mean net per row was
+positive and every account lost: partial take-profit fills are many and small,
+stops are few and full-size. The size-weighted mean was negative in all four.
+Judge the account (the folds), not the average fill.
+
+**Two market-neutral daily rules** (`docs/research/prereg/daily_neutral_2026-11`):
+a weekly reversal spread and an ETH/BTC ratio reversion both failed every bar on
+development and holdout, both losing before costs on development. The test
+fixtures for the evaluator were wrong three times before the evaluator was: a
+coin count at the floor rather than under it, a cost that forgot the legs net,
+and a sine wave that a 30-day z reads as a trend. A fixture must be able to
+produce the state it names.
+
+**The daily trend sleeve gets a spot reading** (`docs/research/
+daily_trend_sleeve_prereg_addendum_1.md`): the same recorded weights priced on
+Bitget spot with no funding, read on the sleeve's sealed date beside the perp
+reading, so the record can say which venue the one passing rule belongs on.

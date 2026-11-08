@@ -1656,6 +1656,19 @@ class CallbackHandler:
                 return
 
             if not live_closed:
+                # A resting PAPER limit (`bot/core/paper_limits.py`): Cancel
+                # takes it off the practice book. Nothing was open, so nothing
+                # closes and no P&L is booked.
+                for resting in list(portfolio.pending_limits):
+                    if resting["trade_id"] == ident or (
+                            not is_trade_id
+                            and pair_symbol(resting["idea"].get("asset", "")) == pair_symbol(ident)):
+                        portfolio.drop_limit(resting["trade_id"], "cancelled")
+                        await self._send(update,
+                            f"\U0001f4dd <b>{html.escape(pair_symbol(resting['idea'].get('asset', '')))}"
+                            "</b> paper limit cancelled. It had not filled, so nothing was "
+                            "open and nothing closed.", edit=True)
+                        return
                 # Paper mode close
                 for pos in list(portfolio.open_positions):
                     if pair_symbol(pos.asset) == pair_symbol(ident):

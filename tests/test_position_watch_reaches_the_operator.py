@@ -273,6 +273,7 @@ class _Portfolio:
         p = _Pos()
         self._positions = {"t1": p}
         self._last_prices = {"BTC/USDT": 50500.0}
+        self.pending_limits: list = []   # no resting paper limit
         self.open_positions = [p]
 
     def mark_to_market(self, fresh):

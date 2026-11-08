@@ -1,0 +1,2259 @@
+{
+  "trades": [
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-03T00:00:00+00:00",
+      "exit_time": "2026-05-03T01:00:00+00:00",
+      "size_rel": 1.2931095732738407,
+      "net_pnl_pct": -0.5294505494505495,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          1.0
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.6666666666666666
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "candlestick",
+          -1.0,
+          0.8
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.3333333333333333
+        ],
+        [
+          "divergence",
+          1.0,
+          0.519
+        ],
+        [
+          "stoch",
+          0.0,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "reversal",
+          0.0,
+          0.9
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.8
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          -0.0018,
+          0.6
+        ],
+        [
+          "poc_magnet",
+          -0.218,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.59
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "squeeze",
+          0.3,
+          0.5
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "keltner",
+          0.5,
+          0.7
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "ETH/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-03T21:00:00+00:00",
+      "exit_time": "2026-05-03T22:00:00+00:00",
+      "size_rel": 0.5600528611825558,
+      "net_pnl_pct": 0.7779238111669872,
+      "exit_reason": "TP1",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.7142857142857142
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.47619047619047616
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "candlestick",
+          1.0,
+          0.8
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.23809523809523808
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.7
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -1.0,
+          0.5714285714285714
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.8
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.0
+        ],
+        [
+          "mtf_structure",
+          -0.7,
+          0.5
+        ],
+        [
+          "sentiment",
+          -0.0019,
+          0.6
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.315
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-03T23:00:00+00:00",
+      "exit_time": "2026-05-03T23:00:00+00:00",
+      "size_rel": 0.6450002131499297,
+      "net_pnl_pct": 0.4291637475600674,
+      "exit_reason": "TP1",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.8108108108108107
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.5405405405405405
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          0.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          0.0,
+          0.3
+        ],
+        [
+          "chart_patterns",
+          -1.0,
+          0.7
+        ],
+        [
+          "divergence",
+          -1.0,
+          0.52
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.6486486486486486
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.8
+        ],
+        [
+          "ew_corrective",
+          0.6,
+          0.6
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          -0.0016,
+          0.6
+        ],
+        [
+          "poc_magnet",
+          -0.085,
+          0.6
+        ],
+        [
+          "fib_extension",
+          -1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "ETH/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-03T21:00:00+00:00",
+      "exit_time": "2026-05-03T23:00:00+00:00",
+      "size_rel": 0.5600528611825558,
+      "net_pnl_pct": 0.6307627509984116,
+      "exit_reason": "TRAILING_SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.7142857142857142
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.47619047619047616
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "candlestick",
+          1.0,
+          0.8
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.23809523809523808
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.7
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -1.0,
+          0.5714285714285714
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.8
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.0
+        ],
+        [
+          "mtf_structure",
+          -0.7,
+          0.5
+        ],
+        [
+          "sentiment",
+          -0.0019,
+          0.6
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.315
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-03T23:00:00+00:00",
+      "exit_time": "2026-05-04T00:00:00+00:00",
+      "size_rel": 0.6450002131499297,
+      "net_pnl_pct": -0.12777976056716586,
+      "exit_reason": "TRAILING_SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.8108108108108107
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.5405405405405405
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          0.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          0.0,
+          0.3
+        ],
+        [
+          "chart_patterns",
+          -1.0,
+          0.7
+        ],
+        [
+          "divergence",
+          -1.0,
+          0.52
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.6486486486486486
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.8
+        ],
+        [
+          "ew_corrective",
+          0.6,
+          0.6
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          -0.0016,
+          0.6
+        ],
+        [
+          "poc_magnet",
+          -0.085,
+          0.6
+        ],
+        [
+          "fib_extension",
+          -1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-04T00:00:00+00:00",
+      "exit_time": "2026-05-04T01:00:00+00:00",
+      "size_rel": 0.6475921162946017,
+      "net_pnl_pct": 0.4827419744146753,
+      "exit_reason": "TP1",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          0.0,
+          1.5
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          0.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          0.5,
+          0.5
+        ],
+        [
+          "chart_patterns",
+          -1.0,
+          0.43510691198408746
+        ],
+        [
+          "divergence",
+          -1.0,
+          0.483
+        ],
+        [
+          "stoch",
+          0.0,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.4972650422675286
+        ],
+        [
+          "ew_diagonal",
+          0.55,
+          0.404027846842367
+        ],
+        [
+          "mtf_alignment",
+          0.88,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          0.1771,
+          0.6
+        ],
+        [
+          "poc_magnet",
+          -0.38,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.6737941322725013
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.48980606663351567
+        ],
+        [
+          "fib_extension",
+          1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "keltner",
+          0.5,
+          0.7
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-04T00:00:00+00:00",
+      "exit_time": "2026-05-04T01:00:00+00:00",
+      "size_rel": 0.38855526977676097,
+      "net_pnl_pct": 0.9179411786218448,
+      "exit_reason": "TP2",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          0.0,
+          1.5
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          0.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          0.5,
+          0.5
+        ],
+        [
+          "chart_patterns",
+          -1.0,
+          0.43510691198408746
+        ],
+        [
+          "divergence",
+          -1.0,
+          0.483
+        ],
+        [
+          "stoch",
+          0.0,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.4972650422675286
+        ],
+        [
+          "ew_diagonal",
+          0.55,
+          0.404027846842367
+        ],
+        [
+          "mtf_alignment",
+          0.88,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          0.1771,
+          0.6
+        ],
+        [
+          "poc_magnet",
+          -0.38,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.6737941322725013
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.48980606663351567
+        ],
+        [
+          "fib_extension",
+          1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "keltner",
+          0.5,
+          0.7
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-04T00:00:00+00:00",
+      "exit_time": "2026-05-04T02:00:00+00:00",
+      "size_rel": 0.25903684651784065,
+      "net_pnl_pct": 1.6961797555570184,
+      "exit_reason": "TRAILING_SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          0.0,
+          1.5
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          0.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          0.5,
+          0.5
+        ],
+        [
+          "chart_patterns",
+          -1.0,
+          0.43510691198408746
+        ],
+        [
+          "divergence",
+          -1.0,
+          0.483
+        ],
+        [
+          "stoch",
+          0.0,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.4972650422675286
+        ],
+        [
+          "ew_diagonal",
+          0.55,
+          0.404027846842367
+        ],
+        [
+          "mtf_alignment",
+          0.88,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          0.1771,
+          0.6
+        ],
+        [
+          "poc_magnet",
+          -0.38,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.6737941322725013
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.48980606663351567
+        ],
+        [
+          "fib_extension",
+          1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "keltner",
+          0.5,
+          0.7
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-04T10:00:00+00:00",
+      "exit_time": "2026-05-04T10:00:00+00:00",
+      "size_rel": 1.091697099739957,
+      "net_pnl_pct": -0.7833285606435321,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          1.1111111111111112
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          0.0,
+          0.3
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.8888888888888888
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "reversal",
+          0.0,
+          0.9
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          0.0885,
+          0.6
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.567
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "DOGE/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-04T09:00:00+00:00",
+      "exit_time": "2026-05-04T10:00:00+00:00",
+      "size_rel": 0.4726812840151763,
+      "net_pnl_pct": -1.4448051948051948,
+      "exit_reason": "SMART_EXIT:signal_hold",
+      "entry_regime": "RANGE",
+      "setup": "intraday",
+      "signal_type": "vwap_reversion",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.9375
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          0.3,
+          0.7
+        ],
+        [
+          "vwap",
+          0.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.3125
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.7
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.75
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.8
+        ],
+        [
+          "ew_corrective",
+          0.65,
+          0.6
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.2
+        ],
+        [
+          "sentiment",
+          0.0211,
+          0.6
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.585
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "ETH/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-04T10:00:00+00:00",
+      "exit_time": "2026-05-04T10:00:00+00:00",
+      "size_rel": 1.2995182811589672,
+      "net_pnl_pct": -0.5294638658953975,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          0.0,
+          1.5
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          0.0,
+          0.3
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          1.0
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -0.8,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "reversal",
+          0.0,
+          0.9
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          0.0556,
+          0.6
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.657
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-05T16:00:00+00:00",
+      "exit_time": "2026-05-05T17:00:00+00:00",
+      "size_rel": 1.2795532377474315,
+      "net_pnl_pct": 0.020878217799791217,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -1.0,
+          0.7142857142857142
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.47619047619047616
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.23809523809523808
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.6693440428380187
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -1.0,
+          0.5714285714285714
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "wyckoff",
+          -0.7,
+          0.535475234270415
+        ],
+        [
+          "ew_corrective",
+          -0.6,
+          0.40160642570281124
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.125
+        ],
+        [
+          "mtf_bos",
+          1.0,
+          0.375
+        ],
+        [
+          "sentiment",
+          0.1767,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.47456492637215525
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.4190093708165997
+        ],
+        [
+          "fib_extension",
+          1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.405
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "LINK/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-06T23:00:00+00:00",
+      "exit_time": "2026-05-07T01:00:00+00:00",
+      "size_rel": 0.7689738962386142,
+      "net_pnl_pct": -1.0503557239212788,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          0.0,
+          1.5
+        ],
+        [
+          "macd",
+          -1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          -1.0,
+          0.6
+        ],
+        [
+          "candlestick",
+          1.0,
+          0.8
+        ],
+        [
+          "fibonacci",
+          0.0,
+          0.3
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.7
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          0.0,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "ew_diagonal",
+          0.55,
+          0.65
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.0
+        ],
+        [
+          "mtf_structure",
+          0.7,
+          0.5
+        ],
+        [
+          "fib_extension",
+          1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.495
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "taker",
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "ETH/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-08T20:00:00+00:00",
+      "exit_time": "2026-05-08T22:00:00+00:00",
+      "size_rel": 1.130405126966308,
+      "net_pnl_pct": -0.024638592080452545,
+      "exit_reason": "SMART_EXIT:progress",
+      "entry_regime": "EXPANSION",
+      "setup": "scalp",
+      "signal_type": "momentum_confluence",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.702028081123245
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.46801872074883
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          0.5,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -0.5,
+          0.15600624024961
+        ],
+        [
+          "divergence",
+          -1.0,
+          0.52
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.6739469578783152
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "reversal",
+          0.0,
+          1.35
+        ],
+        [
+          "mtf_alignment",
+          -0.18,
+          0.6923076923076922
+        ],
+        [
+          "mtf_structure",
+          0.7,
+          0.5192307692307692
+        ],
+        [
+          "mtf_choch",
+          1.0,
+          0.28846153846153844
+        ],
+        [
+          "sentiment",
+          0.0208,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          1.0,
+          0.607
+        ],
+        [
+          "liquidity_sweep",
+          1.0,
+          0.282
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ],
+        [
+          "taker",
+          -0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BTC/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-10T20:00:00+00:00",
+      "exit_time": "2026-05-10T20:00:00+00:00",
+      "size_rel": 1.2857061657169653,
+      "net_pnl_pct": -0.5296256589926945,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.7142857142857142
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.47619047619047616
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.23809523809523808
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          1.0
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.5714285714285714
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "wyckoff",
+          -0.7,
+          0.8
+        ],
+        [
+          "ew_diagonal",
+          0.55,
+          0.65
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.7999999999999998
+        ],
+        [
+          "sentiment",
+          0.0131,
+          0.6
+        ],
+        [
+          "fib_extension",
+          1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "BNB/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-13T12:00:00+00:00",
+      "exit_time": "2026-05-13T12:00:00+00:00",
+      "size_rel": 0.7247097608457789,
+      "net_pnl_pct": -1.1011764705882352,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "voter_votes": [
+        [
+          "rsi",
+          0.0,
+          1.5
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          0.3,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          -1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.5
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -0.3,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "ew_corrective",
+          -0.65,
+          0.6
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.125
+        ],
+        [
+          "mtf_bos",
+          1.0,
+          0.375
+        ],
+        [
+          "sentiment",
+          0.0625,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.792
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.359
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.585
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "LINK/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-13T12:00:00+00:00",
+      "exit_time": "2026-05-13T12:00:00+00:00",
+      "size_rel": 1.0,
+      "net_pnl_pct": -0.8338425248319669,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "voter_votes": [
+        [
+          "rsi",
+          0.0,
+          1.5
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          0.3,
+          0.7
+        ],
+        [
+          "vwap",
+          0.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "candlestick",
+          -1.0,
+          0.8
+        ],
+        [
+          "fibonacci",
+          0.0,
+          0.3
+        ],
+        [
+          "stoch",
+          -0.3,
+          1.2
+        ],
+        [
+          "donchian",
+          0.0,
+          1.0
+        ],
+        [
+          "mtf_alignment",
+          1.0,
+          1.0
+        ],
+        [
+          "mtf_structure",
+          0.7,
+          0.5
+        ],
+        [
+          "sentiment",
+          0.1457,
+          0.6
+        ],
+        [
+          "poc_magnet",
+          -0.4895,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.725
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 3,
+      "symbol": "AVAX/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-14T16:00:00+00:00",
+      "exit_time": "2026-05-14T16:00:00+00:00",
+      "size_rel": 1.5188637687749564,
+      "net_pnl_pct": -0.5907172995780591,
+      "exit_reason": "SL",
+      "entry_regime": "EXPANSION",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.6578947368421052
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.43859649122807015
+        ],
+        [
+          "adx",
+          0.3,
+          0.7
+        ],
+        [
+          "vwap",
+          0.5,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -1.0,
+          0.21929824561403508
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.5199667221297837
+        ],
+        [
+          "divergence",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.6842105263157895
+        ],
+        [
+          "donchian",
+          1.0,
+          2.0
+        ],
+        [
+          "reversal",
+          0.7,
+          0.4679700499168053
+        ],
+        [
+          "wyckoff",
+          0.7,
+          0.415973377703827
+        ],
+        [
+          "ew_diagonal",
+          0.55,
+          0.3379783693843594
+        ],
+        [
+          "mtf_alignment",
+          0.72,
+          1.1249999999999998
+        ],
+        [
+          "mtf_bos",
+          -1.0,
+          0.375
+        ],
+        [
+          "sentiment",
+          0.1712,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.4123336106489185
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.3457778702163062
+        ],
+        [
+          "fib_extension",
+          1.0,
+          0.4
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.657
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 4,
+      "symbol": "BNB/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-21T05:00:00+00:00",
+      "exit_time": "2026-05-21T06:00:00+00:00",
+      "size_rel": 1.2931095732738407,
+      "net_pnl_pct": 0.017582417582417586,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "voter_votes": [
+        [
+          "rsi",
+          -1.0,
+          0.7142857142857142
+        ],
+        [
+          "macd",
+          1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          -1.0,
+          0.47619047619047616
+        ],
+        [
+          "adx",
+          1.0,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.23809523809523808
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.7
+        ],
+        [
+          "divergence",
+          1.0,
+          0.383
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -1.0,
+          0.5714285714285714
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "reversal",
+          0.0,
+          0.9
+        ],
+        [
+          "wyckoff",
+          -0.7,
+          0.8
+        ],
+        [
+          "mtf_alignment",
+          0.58,
+          0.9999999999999999
+        ],
+        [
+          "mtf_structure",
+          0.7,
+          0.5
+        ],
+        [
+          "sentiment",
+          -0.0032,
+          0.6
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    },
+    {
+      "fold": 4,
+      "symbol": "BNB/USDT:USDT",
+      "direction": "LONG",
+      "entry_time": "2026-05-21T10:00:00+00:00",
+      "exit_time": "2026-05-21T11:00:00+00:00",
+      "size_rel": 1.2932090432410157,
+      "net_pnl_pct": -0.43183491379783967,
+      "exit_reason": "SL",
+      "entry_regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "voter_votes": [
+        [
+          "rsi",
+          -0.3,
+          0.9375
+        ],
+        [
+          "macd",
+          -1.0,
+          1.0
+        ],
+        [
+          "bb_pct_b",
+          0.0,
+          1.0
+        ],
+        [
+          "adx",
+          0.3,
+          0.7
+        ],
+        [
+          "vwap",
+          1.0,
+          0.5
+        ],
+        [
+          "obv",
+          1.0,
+          0.6
+        ],
+        [
+          "fibonacci",
+          -0.3,
+          0.3125
+        ],
+        [
+          "chart_patterns",
+          1.0,
+          0.5163765122455001
+        ],
+        [
+          "divergence",
+          1.0,
+          0.382
+        ],
+        [
+          "volume_profile",
+          1.0,
+          0.7
+        ],
+        [
+          "stoch",
+          -0.3,
+          0.75
+        ],
+        [
+          "donchian",
+          0.5,
+          1.0
+        ],
+        [
+          "wyckoff",
+          -0.7,
+          0.5901445854234287
+        ],
+        [
+          "ew_corrective",
+          -0.55,
+          0.44260843906757147
+        ],
+        [
+          "ew_diagonal",
+          0.55,
+          0.4794924756565358
+        ],
+        [
+          "mtf_alignment",
+          0.58,
+          0.9999999999999999
+        ],
+        [
+          "mtf_structure",
+          0.7,
+          0.5
+        ],
+        [
+          "sentiment",
+          0.1534,
+          0.6
+        ],
+        [
+          "liquidity_sweep",
+          -1.0,
+          0.47137798760696364
+        ],
+        [
+          "supply_demand",
+          1.0,
+          0.45
+        ],
+        [
+          "ema_ribbon",
+          0.6,
+          0.5
+        ]
+      ]
+    }
+  ]
+}

@@ -469,6 +469,48 @@ class BacktestEngine:
                 out[tf] = groups[-200:]
         return out
 
+    def _btc_daily_closes(self) -> Optional[list[tuple[int, float]]]:
+        """``(close_ms, close)`` of every daily BTC bar in the frozen snapshot
+        ``btc_regime_dataset``, oldest first, loaded once; None when the
+        snapshot does not read or holds no BTC series."""
+        cached: tuple[Optional[list[tuple[int, float]]]] | None = getattr(
+            self, "_btc_daily_cache", None)
+        if cached is not None:
+            return cached[0]
+        out: Optional[list[tuple[int, float]]] = None
+        try:
+            from bot.backtest.snapshot import load_dataset
+            data = load_dataset(self.config.btc_regime_dataset)
+            bars = next((v for k, v in data.items() if k.split("/")[0] == "BTC"), None)
+            if bars:
+                out = sorted((int(b.timestamp.timestamp() * 1000) + 86_400_000, float(b.close))
+                             for b in bars)
+        except Exception as exc:
+            system_log.warning("BTC regime snapshot unread: %s", type(exc).__name__)
+        # A one-tuple, so a snapshot that did not read is cached as read-once
+        # and never re-tried on every bar.
+        self._btc_daily_cache = (out,)
+        return out
+
+    def _btc_regime_admits(self, idea, bar_index: int) -> bool:
+        """BTC's trend for ``btc_regime_days``: a LONG only above the mean of
+        the last N daily closes that had closed by this bar's close, a SHORT
+        only below. Any reading that cannot be made admits nothing."""
+        from bot.utils.candles import timeframe_to_ms
+        n = int(self.config.btc_regime_days)
+        closes = self._btc_daily_closes()
+        raw = getattr(self, "_all_raw", None)
+        if not closes or not raw or bar_index >= len(raw):
+            return False
+        decided_at = int(raw[bar_index][0]) + timeframe_to_ms(self.config.timeframe)
+        done = [c for t, c in closes if t <= decided_at]
+        if len(done) < n:
+            return False
+        last, mean = float(done[-1]), float(sum(done[-n:])) / n
+        if idea.direction == Direction.LONG:
+            return bool(last > mean)
+        return bool(last < mean)
+
     def _apply_timeframe_variants(self, idea, bar_index: int):
         """``setup_only``, ``daily_trend_days`` and ``swing_stop_tf``. None is a
         rejection. An unreadable reading never admits a trade: no daily trend
@@ -487,6 +529,8 @@ class BacktestEngine:
             long = idea.direction == Direction.LONG
             if (long and not last > mean) or (not long and not last < mean):
                 return None
+        if int(cfg.btc_regime_days) > 0 and not self._btc_regime_admits(idea, bar_index):
+            return None
         tf = (getattr(cfg, "swing_stop_tf", "") or "").strip()
         if tf and stype == "swing":
             groups = self._closed_groups(bar_index, tf, 15)

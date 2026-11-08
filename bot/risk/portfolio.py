@@ -81,6 +81,23 @@ def _restore_mark_times(data: dict) -> dict[str, float]:
     return out
 
 
+def _restore_pending_limits(data: dict) -> dict[str, dict]:
+    """Resting paper limits from a saved book. A file written before the key
+    existed has none; a row missing what a fill needs is dropped and said."""
+    raw = data.get("pending_limits")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict] = {}
+    need = {"trade_id", "idea", "size_usd", "leverage", "placed_at", "placed_market",
+            "expires_at", "chase_allowed"}
+    for tid, row in raw.items():
+        if isinstance(row, dict) and need <= set(row) and isinstance(row.get("idea"), dict):
+            out[str(tid)] = row
+        else:
+            trade_log.warning("Discarding unreadable resting paper limit %s", tid)
+    return out
+
+
 class PortfolioTracker:
     """In-memory paper trading portfolio with PnL tracking."""
 
@@ -129,6 +146,10 @@ class PortfolioTracker:
         # Keys: trade_id -> {"best_price": float, "trailing_active": bool,
         #                     "initial_risk": float, "atr": float}
         self._trailing_state: dict[str, dict] = {}
+        #: Resting paper limits, trade_id -> row (`rest_limit`). A paper
+        #: confirm of a limit idea rests here and fills only when the market
+        #: reaches it, as the live order does (bot/core/paper_limits.py).
+        self._pending_limits: dict[str, dict] = {}
         # Mark-to-market: latest prices for unrealized PnL
         self._last_prices: dict[str, float] = {}  # asset -> price
         #: asset -> epoch seconds of the mark above. `_last_prices` is
@@ -152,6 +173,85 @@ class PortfolioTracker:
             self._persistence_active = True
 
     # -- Public API --
+
+    # Resting paper limits. The paper book used to open a limit idea at its
+    # limit price the moment it was confirmed; live places that limit and
+    # waits, and about 30% of live limits never filled (2026-08-18 to
+    # 2026-10-14). These rows are the waiting; `bot/core/paper_limits.py`
+    # decides when one fills, drifts or expires, on live's own rules.
+
+    def rest_limit(self, idea: TradeIdea, size_usd: float, leverage: int = 1, *,
+                   fill_label: str = "", placed_market: float,
+                   expires_in_seconds: float, chase_allowed: bool) -> dict:
+        """Rest a paper limit for ``idea``; returns the row. Nothing is held
+        from the balance while it rests: the fill reads the balance, and a
+        fill the balance cannot carry is dropped with that reason."""
+        if not (isinstance(size_usd, (int, float)) and size_usd > 0):
+            raise ValueError("a resting limit needs a positive size")
+        now = time.time()
+        row = {
+            "trade_id": idea.id,
+            "idea": idea.model_dump(mode="json"),
+            "size_usd": float(size_usd),
+            "leverage": int(leverage),
+            "fill_label": str(fill_label or ""),
+            "placed_at": now,
+            "placed_market": float(placed_market),
+            "expires_at": now + float(expires_in_seconds),
+            "chase_allowed": bool(chase_allowed),
+        }
+        with self._lock:
+            if idea.id in self._pending_limits or idea.id in self._positions:
+                raise ValueError(f"{idea.id} already rests or is open")
+            self._pending_limits[idea.id] = row
+            self._auto_save()
+        audit(trade_log, f"PAPER limit rests: {idea.direction.value} {idea.asset} @ {idea.entry_price}",
+              action="paper_limit", result="RESTING",
+              data={"trade_id": idea.id, "asset": idea.asset, "limit": idea.entry_price,
+                    "placed_market": placed_market, "expires_in_s": expires_in_seconds})
+        return dict(row)
+
+    @property
+    def pending_limits(self) -> list[dict]:
+        with self._lock:
+            return [dict(r) for r in self._pending_limits.values()]
+
+    def drop_limit(self, trade_id: str, reason: str) -> Optional[dict]:
+        """Take a resting limit off the book without a fill; the row, or None."""
+        with self._lock:
+            row = self._pending_limits.pop(trade_id, None)
+            if row is not None:
+                self._auto_save()
+        if row is not None:
+            audit(trade_log, f"PAPER limit {reason}: {row['idea'].get('asset')}",
+                  action="paper_limit", result=reason.upper(),
+                  data={"trade_id": trade_id, "reason": reason})
+        return row
+
+    def fill_limit(self, trade_id: str, fill_price: float, *,
+                   stop_loss: Optional[float] = None,
+                   take_profit: Optional[float] = None) -> TradeExecution:
+        """Fill a resting limit at ``fill_price``: the row leaves the book and
+        the position opens with the idea's own stop and target, or the ones
+        given (a drift chase shifts both, as live does). A fill that raises
+        (the balance cannot carry it) leaves the row dropped."""
+        with self._lock:
+            row = self._pending_limits.pop(trade_id, None)
+        if row is None:
+            raise ValueError(f"no resting limit {trade_id}")
+        update: dict = {"entry_price": float(fill_price)}
+        if stop_loss is not None:
+            update["stop_loss"] = float(stop_loss)
+        if take_profit is not None:
+            update["take_profit"] = float(take_profit)
+        idea = TradeIdea.model_validate(row["idea"]).model_copy(update=update)
+        try:
+            return self.open_position(idea, row["size_usd"], leverage=row["leverage"],
+                                      fill_label=row.get("fill_label", ""))
+        except Exception:
+            with self._lock:
+                self._auto_save()
+            raise
 
     def open_position(self, idea: TradeIdea, size_usd: float, leverage: int = 1,
                       venue: str = "bitget", *, fill_label: str = "") -> TradeExecution:
@@ -692,6 +792,7 @@ class PortfolioTracker:
             "history": [t.model_dump(mode="json") for t in self._history],
             "daily_pnl": dict(self._daily_pnl),
             "trailing_state": dict(self._trailing_state),
+            "pending_limits": {tid: dict(r) for tid, r in self._pending_limits.items()},
             "last_prices": dict(self._last_prices),
             "last_price_at": dict(self._last_price_at),
             "saved_at": datetime.now(UTC).isoformat(),
@@ -852,6 +953,7 @@ class PortfolioTracker:
             self._positions = {}
             for tid, tdata in data.get("positions", {}).items():
                 self._positions[tid] = TradeExecution.model_validate(tdata)
+            self._pending_limits = _restore_pending_limits(data)
             # Restore trade history
             self._history = [
                 TradeExecution.model_validate(t) for t in data.get("history", [])
@@ -931,6 +1033,7 @@ class PortfolioTracker:
             "history": [t.model_dump(mode="json") for t in self._history],
             "daily_pnl": dict(self._daily_pnl),
             "trailing_state": dict(self._trailing_state),
+            "pending_limits": {tid: dict(r) for tid, r in self._pending_limits.items()},
             "last_prices": dict(self._last_prices),
             "last_price_at": dict(self._last_price_at),
         }
@@ -948,6 +1051,7 @@ class PortfolioTracker:
         self._positions = {}
         for tid, tdata in data.get("positions", {}).items():
             self._positions[tid] = TradeExecution.model_validate(tdata)
+        self._pending_limits = _restore_pending_limits(data)
         self._history = [
             TradeExecution.model_validate(t) for t in data.get("history", [])
         ]

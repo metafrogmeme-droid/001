@@ -101,11 +101,21 @@ class _OperatorExecutor:
 class _PaperPortfolio:
     """The CALLER's own paper book."""
 
-    def __init__(self, sink):
+    def __init__(self, sink, resting=()):
         self.sink = sink
         self.open_positions = [
             SimpleNamespace(trade_id="TI-paper-1", asset="BTC/USDT")
         ]
+        self._resting = list(resting)
+
+    @property
+    def pending_limits(self):
+        """Resting paper limits (`PortfolioTracker.pending_limits`)."""
+        return list(self._resting)
+
+    def drop_limit(self, trade_id, reason):
+        self._resting = [r for r in self._resting if r["trade_id"] != trade_id]
+        self.sink.append(("dropped", trade_id, reason))
 
     def close_position(self, trade_id, close_price):
         self.sink.append((trade_id, close_price))
@@ -116,7 +126,8 @@ class _PaperPortfolio:
 
 
 def _tap(role, *, can_live, is_admin, live, owner_tag=UID, paper_sink=None,
-         ident=TRADE_ID, per_user_live=False, own_book=False, closed=None):
+         ident=TRADE_ID, per_user_live=False, own_book=False, closed=None,
+         resting=()):
     """One ordinary tap through the REAL dispatcher. Returns (closed, replies).
 
     ``own_book``: the caller has their OWN live executor (per-user live, keys
@@ -127,7 +138,7 @@ def _tap(role, *, can_live, is_admin, live, owner_tag=UID, paper_sink=None,
     op = _OperatorExecutor(closed)
     own = _OperatorExecutor(closed)
     own.user_id = UID
-    portfolio = _PaperPortfolio(paper_sink if paper_sink is not None else [])
+    portfolio = _PaperPortfolio(paper_sink if paper_sink is not None else [], resting)
 
     class _Users:
         def get(self, tid):
@@ -327,6 +338,24 @@ class TestTheDoorIsGated:
              paper_sink=sink, ident="BTCUSDT", per_user_live=True)
         assert sink, "a paper user lost their own book to the live gate"
         assert sink[0][0] == "TI-paper-1"
+
+    def test_cancel_on_a_resting_paper_limit_takes_it_off_and_closes_nothing(self):
+        """`/positions` lists a practice book's resting paper limits under
+        PENDING ORDERS with a Cancel that carries the limit's id
+        (`bot/core/paper_limits.py`). The tap drops that limit and leaves the
+        open position alone; a tap on the open position still closes it and
+        leaves the limit resting."""
+        rest = [{"trade_id": "TI-rest-1", "idea": {"asset": "ETH/USDT"}}]
+        sink: list = []
+        _, replies = _tap("paper", can_live=False, is_admin=False, live=False,
+                          paper_sink=sink, ident="TI-rest-1", resting=rest)
+        assert sink == [("dropped", "TI-rest-1", "cancelled")], (sink, replies)
+        assert any("paper limit cancelled" in r for r in replies), replies
+        sink2: list = []
+        _tap("paper", can_live=False, is_admin=False, live=False,
+             paper_sink=sink2, ident="BTCUSDT", resting=rest)
+        assert sink2 and sink2[0][0] == "TI-paper-1", sink2
+        assert not any(s[0] == "dropped" for s in sink2)
 
     def test_a_viewer_cannot_close_a_paper_position_either(self):
         """`viewer` is the role that may look and not act, in either mode."""

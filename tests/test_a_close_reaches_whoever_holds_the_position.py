@@ -324,6 +324,22 @@ class TestTheOwnerDoor:
         assert _chats(w) == [OWNER], w.sent
         assert marker in w.sent[0]["text"]
 
+    def test_a_paper_limit_notice_reaches_the_owner_alone_and_is_no_trade_card(self):
+        """A resting PAPER limit's fill, expiry or cancel
+        (`engine._sweep_paper_limits`) goes to the book's owner and nobody
+        else, as its own sentence: not a TRADE OPENED card, because no venue
+        order exists, and never published."""
+        fw = _forwarder()
+        w = _monitor(fw)
+        msg = "\U0001f4dd [PAPER] BTC/USDT limit filled at $100: the position is open <here>"
+        _fire(w, "owner", OWNER, "paper", msg, None)
+        assert _chats(w) == [OWNER], w.sent
+        text = w.sent[0]["text"]
+        assert "[PAPER]" in text and "TRADE OPENED" not in text
+        assert "&lt;here&gt;" in text, "the sentence is escaped for the HTML parse mode"
+        fw.post_trade_closed.assert_not_awaited()
+        fw.post_signal.assert_not_awaited()
+
     def test_an_owner_with_no_chat_reaches_nobody_and_it_is_said(self):
         # `caplog` cannot see this: `bot.utils.logger` sets `propagate =
         # False`, so a handler goes on `system_log` itself -- the reason
