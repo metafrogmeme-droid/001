@@ -107,6 +107,32 @@ test('a status is one of four, and only a confirmed entry carries a submission l
   assert.equal(DATA.entries.find((e) => e.slug === 'claw-pay').status, 'confirmed')
 })
 
+test('owner-confirmed submissions say only that the receipt is missing', () => {
+  // Pi Arena and Bitget AI S2 were confirmed submitted by the owner on
+  // 2026-11-08. Their pages must not read as doubt about the submission: the
+  // one thing missing is a retrieved public receipt, and that is all they say.
+  for (const slug of ['runeclaw-arena-pi', 'bitget-ai-s2', 'claw-guard-near']) {
+    const e = DATA.entries.find((x) => x.slug === slug)
+    assert.equal(e.status, 'owner-reported', `${slug} is ${e.status}`)
+    assert.ok(e.notShown.some((t) => /^Submission receipt: not retrieved yet/.test(t)),
+      `${slug}: the missing receipt is not said`)
+    const text = JSON.stringify(e)
+    for (const doubt of [/claims none/i, /no submission/i, /\bplanned\b/i, /no record/i, /unconfirmed/i]) {
+      assert.doesNotMatch(text, doubt, `${slug}: reads as doubt about the submission (${doubt})`)
+    }
+    assert.ok(article(page(slug)).includes(DATA.statuses['owner-reported'].label))
+  }
+  // The other arm: an entry with no submission on record still says so.
+  const kl = DATA.entries.find((x) => x.slug === 'keylease')
+  assert.equal(kl.status, 'wip')
+  assert.ok(kl.notShown.some((t) => /claims none/.test(t)))
+})
+
+test('Claw Guard NEAR links the public tag that marks its submitted state', () => {
+  const a = article(page('claw-guard-near'))
+  assert.ok(a.includes('https://github.com/metafrogmeme-droid/claw-guard-near/tree/hackathon-submission'))
+})
+
 test('every link is https, or a path on this site', () => {
   for (const e of DATA.entries) {
     for (const l of e.links) {
