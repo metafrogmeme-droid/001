@@ -19,6 +19,7 @@ import pytest
 
 from bot.web import web3_signer as signer
 from bot.web.mainnet_guard import (
+    SERVER_MARKER,
     execution_refused,
     mainnet_chain_ids,
     refuse_server_start,
@@ -165,10 +166,67 @@ def test_both_server_entry_points_call_the_guard_with_the_process_env():
 
     bridge = (ROOT / "api_bridge.py").read_text(encoding="utf-8")
     bridge_calls = _call_sites(ROOT / "api_bridge.py")
-    assert len(bridge_calls) == 1
-    assert bridge_calls[0].args == [] and bridge_calls[0].keywords == []
+    # Two: the `__main__` block, before uvicorn re-imports the module, and the
+    # lifespan, which every uvicorn start runs (the Docker image's
+    # `uvicorn api_bridge:app` never reaches `__main__`).
+    assert len(bridge_calls) == 2
+    assert all(c.args == [] and c.keywords == [] for c in bridge_calls)
     tail = bridge[bridge.index('if __name__ == "__main__"'):]
     assert tail.index("refuse_server_start(") < tail.index("uvicorn.run(")
+
+
+def _bridge_lifespan(monkeypatch):
+    """The real `api_bridge.lifespan`, with the engine it builds recorded."""
+    import secrets
+    monkeypatch.setenv("JWT_SECRET", os.environ.get("JWT_SECRET") or secrets.token_hex(32))
+    import api_bridge
+    built: list = []
+
+    class _Engine:
+        def __init__(self):
+            built.append(self)
+
+        def detach_state_persistence(self):
+            pass
+
+        async def get_exchange(self):
+            return None
+
+    monkeypatch.setattr(api_bridge, "RuneClawEngine", _Engine)
+    monkeypatch.setattr(api_bridge, "_telemetry_feeds", None, raising=False)
+    return api_bridge, built
+
+
+def test_the_bridge_refuses_under_uvicorn_before_it_builds_an_engine(monkeypatch):
+    """`uvicorn api_bridge:app` (the Docker CMD and the compose command) runs
+    the lifespan and never `__main__`: the refusal has to be there."""
+    import asyncio
+    api_bridge, built = _bridge_lifespan(monkeypatch)
+    monkeypatch.setenv("WEB3_LIVE_EXEC_ALLOW_MAINNET", "1")
+    monkeypatch.delenv(SERVER_MARKER, raising=False)
+
+    async def _start():
+        async with api_bridge.lifespan(api_bridge.app):
+            pass
+
+    with pytest.raises(SystemExit):
+        asyncio.run(_start())
+    assert built == [], "the engine was built before the guard refused"
+
+
+def test_a_clean_bridge_starts_under_uvicorn_and_is_marked_as_the_server(monkeypatch):
+    import asyncio
+    api_bridge, built = _bridge_lifespan(monkeypatch)
+    for name in ("WEB3_LIVE_EXEC_ALLOW_MAINNET", "ETH_PRIVATE_KEY", "HYPERLIQUID_PRIVATE_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv(SERVER_MARKER, raising=False)
+
+    async def _start():
+        async with api_bridge.lifespan(api_bridge.app):
+            assert os.environ.get(SERVER_MARKER) == "1"
+
+    asyncio.run(_start())
+    assert len(built) == 1
 
 
 def _strip_js_comments(text: str) -> str:

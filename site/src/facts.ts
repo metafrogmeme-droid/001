@@ -51,16 +51,20 @@ export const SITE = {
    * The first draft read "Paper by default, risk-gated, human-confirmed". Two
    * of those three survived a check against the code; the third did not.
    *
-   *   bot/config.py:2188-2190
-   *     # Allow auto-confirm to place LIVE (real-money) orders with no human
-   *     # press. OPERATOR-ACTIVATED default ON. Set AUTO_CONFIRM_LIVE_ENABLED=0
-   *     # to require a human tap for every live trade (the fail-closed posture).
+   *   bot/config.py (then)
    *     auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", True)
    *
    * With that default and `auto_confirm_threshold` at 0.85, a signal clearing
-   * the bar places a real-money order with nobody pressing anything. README.md
-   * says "explicit human confirmation before execution" in three places and is
+   * the bar placed a real-money order with nobody pressing anything. README.md
+   * said "explicit human confirmation before execution" in three places and was
    * wrong in all three. The homepage would have been the fourth.
+   *
+   * SINCE THEN THE DEFAULT IS OFF (`AUTO_CONFIRM_LIVE_ENABLED`, False), and an
+   * autonomous live order also needs an eligibility record for the running
+   * strategy (`bot/core/live_eligibility.py`), of which none ships. llms.txt
+   * still said auto-confirm "can place live orders without a per-trade human
+   * tap" until the repo audit of 2026-11-07. "Human-confirmed" is closer to
+   * true now, but the promise below still names only what the defaults decide.
    *
    * What replaced it is the pair that IS true on shipped defaults:
    *   bot/config.py:2142  simulation_mode: bool = _env_bool("SIMULATION_MODE", True)
@@ -233,8 +237,8 @@ export const BOT_CHAIN_FLOW = [
     detail: 'A file that records that session. Not the session itself.',
   },
   {
-    title: 'Keccak-256 locally',
-    detail: 'Hashed on your machine. The file is not uploaded.',
+    title: 'Keccak-256 hash',
+    detail: 'The publisher hashed this file. Only the hash went on chain.',
   },
   {
     title: 'BOT Chain commitment',

@@ -48,7 +48,7 @@ function Hero() {
             places live orders with no human press on shipped defaults. */}
         <p className="data mb-5 inline-flex items-center gap-2 rounded-full border border-line-2 px-3 py-1 text-xs text-ink-2">
           <span className="size-1.5 rounded-full bg-up" aria-hidden="true" />
-          Paper by default · live is opt-in
+          Paper by default · live is operator-enabled
         </p>
         <h1
           className="font-[family-name:var(--font-brand)] font-bold leading-[1.05] tracking-tight"
@@ -116,7 +116,7 @@ function TradeStrip() {
     {
       path: '/dashboard',
       title: 'Cockpit',
-      body: 'Portfolio, markets and execution. Paper by default; live only on your own keys.',
+      body: 'Portfolio, markets and execution. Paper by default; live only when the operator turns it on for your account.',
     },
     {
       path: '/dashboard#signals',

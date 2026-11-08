@@ -26808,6 +26808,24 @@ not the field it writes; and the first reading of any arm's result should be the
 quantity the intervention was meant to move.
 (`tests/test_backtest_closer_target.py`.)
 
+**THE GUARD RAN ON ONE OF THE TWO WAYS THE BRIDGE STARTS (audit, 2026-11-07).**
+`api_bridge.py` asked `refuse_server_start()` under `if __name__ == "__main__"`,
+and its test asserted exactly that. The Dockerfile's CMD and the compose file
+start `uvicorn api_bridge:app`, which imports the module and never reaches
+`__main__`, so a Docker bridge with a mainnet signing key in its `.env` served,
+unmarked as the server. The guard now runs first in the lifespan, which every
+uvicorn start runs, before the engine is built; the test drives the real
+lifespan. A guard is placed by asking how the process is started, every way,
+not by finding the obvious entry point. The same audit found seven sites
+putting `str(exc)` in front of a person (now the class), `llms.txt` saying
+auto-confirm places live orders with no tap (it is off by default and needs an
+eligibility record), the homepage saying "live only on your own keys" (a
+member's confirm is paper while `LIVE_ADMIN_ONLY` stands), a BOT Chain step
+that read as if a reader's check anchors a file, and account dollars on the
+public hackathon archive. (`tests/test_the_server_does_not_sign_mainnet.py`,
+`tests/test_a_failure_names_its_class_not_its_message.py`,
+`tests/test_hackathon_archive_is_served.py`, `site/test/site_honesty.test.js`.)
+
 **PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT.** The same evening, after
 `/golive OFF`: "works but I don't see open paper orders or positions". A tap
 opened on the paper book, but the engine's own confirms (the tick and

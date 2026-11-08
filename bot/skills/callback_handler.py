@@ -1525,7 +1525,7 @@ class CallbackHandler:
                             live_closed = True  # prevent fallthrough to "not found"
                             await self._send(update,
                                 f"Couldn't close {html.escape(pair)}.\n\n"
-                                f"{html.escape(str(e)[:200])}\n"
+                                f"The exchange answered {type(e).__name__}.\n"
                                 "You can try again or close it on the exchange directly.",
                                 edit=True)
                         break
@@ -1644,7 +1644,7 @@ class CallbackHandler:
                             except Exception as e:
                                 await self._send(update,
                                     f"Couldn't close {html.escape(ep_clean)} on exchange.\n\n"
-                                    f"{html.escape(str(e)[:200])}\n"
+                                    f"The exchange answered {type(e).__name__}.\n"
                                     "Try closing it on the exchange directly.",
                                     edit=True)
                             live_closed = True

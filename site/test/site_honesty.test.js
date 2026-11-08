@@ -327,9 +327,13 @@ test('BOT Chain is named after the trade story, with the two public origins exac
   assert.ok(at('What it does') < at('id="botchain"'),
     'BOT Chain leads the page; it belongs after the trade story')
   assert.ok(at('id="trade"') < at('id="botchain"') && at('id="proof"') < at('id="botchain"'))
-  assert.ok(at('Somnia testnet session') < at('Keccak-256 locally')
-    && at('Keccak-256 locally') < at('BOT Chain commitment')
+  assert.ok(at('Somnia testnet session') < at('Keccak-256 hash')
+    && at('Keccak-256 hash') < at('BOT Chain commitment')
     && at('BOT Chain commitment') < at('Read-only check'))
+  // The step before the commitment is the publisher's hash, not the reader's:
+  // "Hashed on your machine" there read as if checking a file anchors it.
+  assert.ok(at('The publisher hashed this file. Only the hash went on chain.') < at('BOT Chain commitment'))
+  assert.ok(!body.includes('Hashed on your machine'), 'the reader does not hash what was committed')
 
   const hrefs = [...body.matchAll(/href="([^"]*)"/g)].map((m) => m[1])
   assert.ok(hrefs.includes('https://botchain.ai'),
@@ -381,6 +385,29 @@ test('the true version of that promise IS still stated', () => {
   assert.match(fs.readFileSync(path.join(OUT, 'llms.txt'), 'utf8'),
     /live trading is off until/i,
     'llms.txt no longer tells a summariser what the live-trading default is')
+})
+
+test('llms.txt does not say auto-confirm places live orders on its own', () => {
+  // It did until the audit of 2026-11-07: "auto-confirm can then place live
+  // orders without a per-trade human tap". AUTO_CONFIRM_LIVE_ENABLED defaults
+  // off, and an autonomous live order also needs an eligibility record, of
+  // which none ships. Both arms: the false sentence is gone, the true one is
+  // there.
+  // The quoted block wraps with "> " on every line: read it as one paragraph.
+  const llms = fs.readFileSync(path.join(OUT, 'llms.txt'), 'utf8').replace(/\n> /g, ' ')
+  assert.doesNotMatch(llms, /without a per-trade human tap/)
+  assert.match(llms, /A live order waits for a person to confirm it/)
+  assert.match(llms, /auto-confirm of live orders is off by default/)
+})
+
+test('the homepage does not promise live trading on your own keys alone', () => {
+  // LIVE_ADMIN_ONLY is on and PER_USER_LIVE_ENABLED off by default: a member's
+  // confirm is paper even with keys connected. "Live only on your own keys"
+  // read as if connecting keys were the switch.
+  const html = built('index.html')
+  assert.doesNotMatch(html, /live only on your own keys/i)
+  assert.doesNotMatch(html, /live is opt-in/i)
+  assert.match(html, /live only when the operator turns it on for your account/)
 })
 
 /**

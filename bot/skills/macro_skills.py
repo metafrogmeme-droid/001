@@ -352,7 +352,7 @@ class CheckEventRiskSkill(BaseSkill):
             try:
                 result = ctx_fn(symbol=symbol)
             except Exception as exc:
-                return f"Error checking risk for {symbol}: {exc}"
+                return f"Error checking risk for {symbol}: {type(exc).__name__}"
 
             risk_state = getattr(result, "risk_state", "UNKNOWN")
             # `severity` and `window` are Optional on MacroContext and are None
@@ -515,7 +515,7 @@ class RequestLiveApprovalSkill(BaseSkill):
         try:
             token = issue_fn(trade_id=trade_id)
         except Exception as exc:
-            return f"Failed to issue approval token: {exc}"
+            return f"Failed to issue approval token: {type(exc).__name__}"
 
         # An unreadable token id used to be replaced by `str(uuid4())[:8]` —
         # a freshly INVENTED identifier, printed to the operator as the token
@@ -607,7 +607,7 @@ class KillSwitchSkill(BaseSkill):
         except Exception as exc:
             # Never report a kill that did not happen.
             return (f"{_html_bold('KILL SWITCH FAILED')}\n"
-                    f"<b>NOTHING WAS STOPPED.</b> {exc}")
+                    f"<b>NOTHING WAS STOPPED.</b> ({type(exc).__name__})")
 
         # Seal to the audit chain. The old probe looked for `seal()`, which
         # AuditChain does not have (`append`/`seal_decision` are the real
