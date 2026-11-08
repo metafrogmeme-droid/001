@@ -362,10 +362,13 @@ class MultiUserPortfolio:
         """
         return list(self._portfolios.values()) + list(self._venue_portfolios.values())
 
-    def pending_limit_books(self) -> list[PortfolioTracker]:
-        """Every tracker, default-venue and split, holding a resting paper
-        limit (`PortfolioTracker.rest_limit`)."""
-        return [p for p in self._every_tracker() if p.pending_limits]
+    def pending_limit_books(self) -> list[tuple[str, PortfolioTracker]]:
+        """``(owner, tracker)`` for every tracker, default-venue and split,
+        holding a resting paper limit (`PortfolioTracker.rest_limit`). The
+        owner is who a fill, expiry or cancel is told to."""
+        books = [(uid, p) for uid, p in self._portfolios.items()]
+        books += [(uid, p) for (uid, _venue), p in self._venue_portfolios.items()]
+        return [(uid, p) for uid, p in books if p.pending_limits]
 
     def has_user(self, user_id: str) -> bool:
         """Check if a user has an active portfolio."""

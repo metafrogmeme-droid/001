@@ -30116,6 +30116,19 @@ per pass, and live fills on any touch between passes, so paper can now miss a
 fill live would have had. A paper fill has no queue and no slippage. Both are
 stated in the addendum.
 
+**A resting order is a thing the person has to be able to see, cancel and
+hear about.** The first cut rested the limit and told nobody: `/positions`
+listed nothing, a fill or an expiry was only an audit row, and the
+practice book's position cap counted open rows, so resting limits could
+stack past it. Now `/positions` lists them under PENDING ORDERS
+(`practice_pending_rows`, through the same `pending_order_card` live uses),
+Cancel drops one (`drop_limit`, booking nothing), each fill, expiry and cancel
+goes to the book's owner and to no one else (`_owner_notify_callback`, kind
+`paper`, never the public channels), and the practice re-check's MAX_POSITIONS
+gate reads open rows plus resting limits (`_practice_open_slots`), as live's
+pending orders hold slots. Four hand-written stand-ins for a practice book had
+to learn `pending_limits`; the real tracker always has it.
+
 Guarded by `tests/test_paper_limits_rest_like_live.py` (every rule both ways,
 the real tracker, the real chase decision on bars it can decide from, and the
 real confirm and positions pass), `tests/test_sizing_forward.py` (the window,

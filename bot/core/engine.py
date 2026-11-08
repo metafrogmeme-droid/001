@@ -9186,6 +9186,20 @@ class RuneClawEngine:
                 return owner
         return user_id
 
+    def _practice_open_slots(self, user_id: str) -> Optional[int]:
+        """Open positions plus resting paper limits on this caller's practice
+        book: the count its MAX_POSITIONS gate reads, so a resting limit holds
+        a slot as a live pending order does. None when the book cannot be
+        read; the gate then reads its own book's count, as it always did."""
+        try:
+            book = self.user_portfolios.get(user_id)
+            if book is None:
+                return None
+            return len(book.open_positions) + len(book.pending_limits)
+        except Exception as exc:
+            logger.warning("Practice slots for %s unread: %s", user_id, type(exc).__name__)
+            return None
+
     def _practice_book_symbols(self, user_id: str) -> list:
         """The symbols open on this caller's practice book.
 
@@ -9620,6 +9634,11 @@ class RuneClawEngine:
             else:
                 _rc = await self._live_recheck_context(user_id)
             live_eq_recheck, live_open_recheck = _rc.equity, _rc.open_count
+            if _practice:
+                # The practice book's slots: its open positions AND its resting
+                # paper limits, as a live account's pending orders hold slots.
+                live_open_recheck = self._practice_open_slots(
+                    self._practice_book_user(user_id))
             # The account this confirm will EXECUTE on decides the bound, so
             # it is read off THAT executor. With the balance-relative feature
             # off, or with no available margin on the payload, it is
@@ -11878,12 +11897,23 @@ class RuneClawEngine:
                                  asset, type(exc).__name__)
                 return None
 
+        from bot.core.paper_limits import event_sentence
         events: list[dict] = []
-        for book in self.user_portfolios.pending_limit_books():
+        for owner, book in self.user_portfolios.pending_limit_books():
             for ev in await sweep_paper_limits(book, prices, fetch_bars=_bars):
                 audit(trade_log, f"PAPER limit {ev['kind']}: {ev['asset']}",
-                      action="paper_limit_sweep", result=ev["kind"].upper(), data=ev)
-                events.append(ev)
+                      action="paper_limit_sweep", result=ev["kind"].upper(),
+                      data=ev | {"owner": owner})
+                events.append(ev | {"owner": owner})
+                # Told to the book's owner and nobody else: a practice book is
+                # a person's, and the operator's chats are not its door.
+                if self._owner_notify_callback is not None:
+                    try:
+                        await self._owner_notify_callback(
+                            str(owner), "paper", event_sentence(ev), None)
+                    except Exception as exc:
+                        system_log.warning("Paper limit notice for %s not sent: %s",
+                                           owner, type(exc).__name__)
         return events
 
     async def _check_paper_positions(self, positions) -> None:
@@ -11915,7 +11945,7 @@ class RuneClawEngine:
                 p for pf in self.user_portfolios.all_portfolios().values()
                 for p in pf.open_positions] + [
                 _types.SimpleNamespace(asset=row["idea"].get("asset"))
-                for pf in self.user_portfolios.pending_limit_books()
+                for _owner, pf in self.user_portfolios.pending_limit_books()
                 for row in pf.pending_limits]
 
             # Prefer WebSocket prices (sub-second) over REST (polling), but only

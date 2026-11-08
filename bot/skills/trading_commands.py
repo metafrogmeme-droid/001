@@ -346,6 +346,41 @@ def _caption_with_time_exits(cap: str, positions: list, now: Any, lang: str,
     return out
 
 
+def practice_pending_rows(rows: list, marks: dict, now: Optional[float] = None) -> list[dict]:
+    """A practice book's resting paper limits as pending-order rows, the
+    shape `pending_order_card` reads. The mark is the book's last price for
+    the symbol, None when it has none; every figure comes off the row."""
+    import time as _time
+    now = _time.time() if now is None else now
+    out: list[dict] = []
+    for r in rows:
+        idea = r["idea"]
+        entry = price_on_record(idea.get("entry_price"))
+        lev = int(r["leverage"])
+        size = float(r["size_usd"])
+        mark = price_on_record(marks.get(idea.get("asset")))
+        out.append({
+            "pair": pair_symbol(idea.get("asset", "")),
+            "asset": idea.get("asset"),
+            "direction": idea.get("direction"),
+            "entry": entry,
+            "current": mark,
+            "sl": price_on_record(idea.get("stop_loss")),
+            "tp": price_on_record(idea.get("take_profit")),
+            "size_usd": round(size, 2),
+            "notional_usd": round(size * lev, 2),
+            "leverage": lev,
+            "quantity": (size * lev / entry) if entry else 0,
+            "hold_hours": round(max(0.0, now - float(r["placed_at"])) / 3600, 1),
+            "order_type": "limit",
+            "status": "pending_fill",
+            "trade_id": r["trade_id"],
+            "sl_order": "",
+            "tp_order": "",
+        })
+    return out
+
+
 def pending_order_card(po: dict) -> str:
     """One resting limit order, as the card a person reads before cancelling it.
 
@@ -2285,6 +2320,10 @@ class TradingCommands:
                         "time_exit_line": time_exit_line(
                             TimeExitPlan("practice"), lang=self._lang(update)),
                     })
+                # Resting paper limits (`bot/core/paper_limits.py`): unfilled
+                # orders, listed where live lists its own, with a Cancel.
+                positions_data.extend(practice_pending_rows(
+                    portfolio.pending_limits, portfolio._last_prices))
 
         # ── Split into filled positions vs pending orders ──
         filled_positions = [p for p in positions_data if p.get("status", "open") != "pending_fill"]

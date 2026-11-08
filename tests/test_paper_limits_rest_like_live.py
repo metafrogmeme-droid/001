@@ -344,7 +344,7 @@ class TestTheConfirm:
 
 # ── through the whole confirm ───────────────────────────────────────────────
 
-def _confirm_at(market: float, order_type: str):
+def _confirm_at(market: float, order_type: str, prepare=None):
     """A practice confirm through the real `confirm_trade`, the perp's last
     price at ``market`` (the scaffolding the practice-confirm suite drives)."""
     import uuid
@@ -359,6 +359,8 @@ def _confirm_at(market: float, order_type: str):
     engine.scanner._get_exchange = AsyncMock(return_value=ex)
     engine.scanner._get_futures_exchange = AsyncMock(return_value=ex)
     uid = str(424242000 + uuid.uuid4().int % 10**6)
+    if prepare is not None:
+        prepare(engine.user_portfolios.get(uid))
     result = _confirm(host, engine, idea, uid=uid)
     return result, engine.user_portfolios.get(uid), idea
 
@@ -376,3 +378,131 @@ class TestThroughTheConfirm:
         assert "Simulated" in result, result
         assert book.pending_limits == []
         assert book.open_positions[0].entry_price == pytest.approx(65000 * 1.005)
+
+
+# ── the owner is told, the view lists it, the cap counts it ─────────────────
+
+class TestTheOwnerIsTold:
+    def test_a_fill_is_told_to_the_books_owner_and_only_them(self):
+        eng = _engine()
+        asyncio.run(eng._simulate_paper_fill(_idea(), _recheck(), "user-1", "T1",
+                                             market_price=101.0))
+        told: list = []
+
+        async def owner(uid, kind, msg, slot):
+            told.append((uid, kind, msg))
+        eng._owner_notify_callback = owner
+        assert [o for o, _ in eng.user_portfolios.pending_limit_books()] == ["user-1"]
+        asyncio.run(eng._sweep_paper_limits({"BTC/USDT": 99.0}))
+        assert len(told) == 1
+        uid, kind, msg = told[0]
+        assert (uid, kind) == ("user-1", "paper")
+        assert "filled" in msg and "practice book" in msg and "No real order" in msg
+
+    def test_no_callback_is_no_error_and_the_fill_still_happens(self):
+        eng = _engine()
+        eng._owner_notify_callback = None
+        asyncio.run(eng._simulate_paper_fill(_idea(), _recheck(), "user-1", "T1",
+                                             market_price=101.0))
+        assert [e["kind"] for e in asyncio.run(
+            eng._sweep_paper_limits({"BTC/USDT": 99.0}))] == [pl.FILLED]
+
+    @pytest.mark.parametrize("ev,words", [
+        ({"kind": pl.FILLED, "asset": "BTC/USDT", "price": 100.0}, "filled"),
+        ({"kind": pl.CHASED, "asset": "BTC/USDT", "price": 103.5}, "at the market"),
+        ({"kind": pl.EXPIRED, "asset": "BTC/USDT"}, "Nothing opened"),
+        ({"kind": pl.DRIFT_CANCELLED, "asset": "BTC/USDT", "drift_pct": 2.4}, "2.4% away"),
+        ({"kind": pl.FILL_FAILED, "asset": "BTC/USDT", "error": "ValueError"}, "ValueError"),
+    ])
+    def test_each_event_has_its_own_sentence(self, ev, words):
+        msg = pl.event_sentence(ev)
+        assert "[PAPER]" in msg and words in msg
+
+
+class TestTheViewListsIt:
+    def test_a_resting_row_renders_as_a_pending_order(self):
+        from bot.skills.trading_commands import pending_order_card, practice_pending_rows
+        pf = _book()
+        row = pf.pending_limits[0]
+        [po] = practice_pending_rows([row], {"BTC/USDT": 100.8},
+                                     now=row["placed_at"] + 5400)
+        assert po["status"] == "pending_fill" and po["trade_id"] == "T1"
+        assert (po["entry"], po["current"], po["leverage"], po["hold_hours"]) == (100.0, 100.8, 2, 1.5)
+        card = pending_order_card(po)
+        assert "to fill" in card
+
+    def test_an_unread_mark_is_said_not_priced(self):
+        from bot.skills.trading_commands import pending_order_card, practice_pending_rows
+        [po] = practice_pending_rows(_book().pending_limits, {})
+        assert po["current"] is None
+        assert "current price unread" in pending_order_card(po)
+
+
+class TestTheCapCountsIt:
+    def test_a_resting_limit_holds_a_slot(self):
+        eng = _engine()
+        assert eng._practice_open_slots("user-1") == 0
+        asyncio.run(eng._simulate_paper_fill(_idea(), _recheck(), "user-1", "T1",
+                                             market_price=101.0))
+        assert eng._practice_open_slots("user-1") == 1
+        asyncio.run(eng._simulate_paper_fill(_idea(order_type="market", tid="T2"),
+                                             _recheck(), "user-1", "T2", market_price=101.0))
+        assert eng._practice_open_slots("user-1") == 2
+
+    def test_an_unreadable_book_is_no_count(self):
+        eng = _engine()
+
+        class _Broken:
+            def get(self, _uid):
+                raise RuntimeError("unreadable")
+        eng.user_portfolios = _Broken()
+        assert eng._practice_open_slots("user-1") is None
+
+
+    def test_a_book_full_of_resting_limits_refuses_the_next_confirm(self):
+        """The practice re-check's MAX_POSITIONS gate counts resting limits:
+        a book holding the cap in resting limits refuses one more, as a live
+        account holding the cap in pending orders does."""
+        def fill_with_resting(book):
+            for i in range(CONFIG.risk.max_open_positions):
+                book.rest_limit(_idea(tid=f"R{i}").model_copy(update={"asset": f"C{i}/USDT"}),
+                                100.0, placed_market=101.0, expires_in_seconds=3600,
+                                chase_allowed=True)
+        result, book, _ = _confirm_at(65000 * 1.005, "limit", prepare=fill_with_resting)
+        assert "MAX_POSITIONS" in result, result
+        assert len(book.pending_limits) == CONFIG.risk.max_open_positions
+        result, book, _ = _confirm_at(65000 * 1.005, "limit")
+        assert "PENDING FILL" in result, "an empty book still rests the limit"
+
+
+def test_positions_lists_a_resting_paper_limit_with_its_cancel(monkeypatch):
+    """Through the real `/positions` in paper mode, on a real practice book
+    holding one resting limit and nothing open."""
+    from types import SimpleNamespace as NS
+
+    from bot.skills import telegram_handler as th
+    monkeypatch.setattr(type(CONFIG), "is_live", lambda self: False)
+    pf = _book()
+    sent: list = []
+
+    async def _no_exchange():
+        raise RuntimeError("venue down")
+
+    h = object.__new__(th.TelegramHandler)
+    h.engine = NS(user_portfolios={7: pf}, scanner=NS(_get_exchange=_no_exchange),
+                  pending_ideas=[], position_watch=lambda: None)
+    h._get_tg_id = lambda update: 7
+    h._lang = lambda update: "en"
+
+    async def _allow(update, command="", ctx=None):
+        return True
+    h._guard = _allow
+
+    async def _send(update, text, **kw):
+        sent.append((text, kw.get("reply_markup")))
+    h._send = _send
+    asyncio.run(h._cmd_open_positions(None, None))
+    texts = [t for t, _ in sent]
+    assert any("PENDING ORDERS (1)" in t for t in texts), texts
+    buttons = [b.callback_data for _, kb in sent if kb for row in kb.inline_keyboard for b in row]
+    assert "pos_close_T1:7" in buttons, buttons

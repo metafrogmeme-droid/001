@@ -649,6 +649,11 @@ class AlertsMonitor:
                 await _deliver_fill([chat], msg)
             elif kind == "sync":
                 await _deliver_sync([chat], msg)
+            elif kind == "paper":
+                # A resting PAPER limit filled, expired or was cancelled
+                # (`engine._sweep_paper_limits`). Not a TRADE OPENED card: no
+                # venue order exists, and the sentence says so.
+                await _notify_chats([chat], "PAPER_LIMIT", html.escape(msg))
             else:
                 system_log.warning("unknown owner event kind %r for %r", kind, owner)
 

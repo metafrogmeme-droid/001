@@ -469,13 +469,15 @@ class BacktestEngine:
                 out[tf] = groups[-200:]
         return out
 
-    def _btc_daily_closes(self) -> Optional[list]:
+    def _btc_daily_closes(self) -> Optional[list[tuple[int, float]]]:
         """``(close_ms, close)`` of every daily BTC bar in the frozen snapshot
         ``btc_regime_dataset``, oldest first, loaded once; None when the
         snapshot does not read or holds no BTC series."""
-        if hasattr(self, "_btc_daily_cache"):
-            return self._btc_daily_cache
-        out: Optional[list] = None
+        cached: tuple[Optional[list[tuple[int, float]]]] | None = getattr(
+            self, "_btc_daily_cache", None)
+        if cached is not None:
+            return cached[0]
+        out: Optional[list[tuple[int, float]]] = None
         try:
             from bot.backtest.snapshot import load_dataset
             data = load_dataset(self.config.btc_regime_dataset)
@@ -485,7 +487,9 @@ class BacktestEngine:
                              for b in bars)
         except Exception as exc:
             system_log.warning("BTC regime snapshot unread: %s", type(exc).__name__)
-        self._btc_daily_cache = out
+        # A one-tuple, so a snapshot that did not read is cached as read-once
+        # and never re-tried on every bar.
+        self._btc_daily_cache = (out,)
         return out
 
     def _btc_regime_admits(self, idea, bar_index: int) -> bool:
@@ -502,10 +506,10 @@ class BacktestEngine:
         done = [c for t, c in closes if t <= decided_at]
         if len(done) < n:
             return False
-        last, mean = done[-1], sum(done[-n:]) / n
+        last, mean = float(done[-1]), float(sum(done[-n:])) / n
         if idea.direction == Direction.LONG:
-            return last > mean
-        return last < mean
+            return bool(last > mean)
+        return bool(last < mean)
 
     def _apply_timeframe_variants(self, idea, bar_index: int):
         """``setup_only``, ``daily_trend_days`` and ``swing_stop_tf``. None is a

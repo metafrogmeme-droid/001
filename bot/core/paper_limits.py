@@ -185,3 +185,27 @@ def _fill(portfolio, tid: str, asset, price: float, kind: str, *,
         return {"kind": FILL_FAILED, "trade_id": tid, "asset": asset,
                 "error": type(exc).__name__}
     return {"kind": kind, "trade_id": tid, "asset": asset, "price": price}
+
+
+def event_sentence(ev: dict) -> str:
+    """What the book's owner is told about one sweep event."""
+    from bot.formatters.rich_cards import _fmt_price
+    asset = str(ev.get("asset") or "?")
+    kind = ev.get("kind")
+    head = f"\U0001f4dd [PAPER] {asset} limit"
+    if kind == FILLED:
+        return (f"{head} filled at {_fmt_price(ev['price'])}: the position is open on your "
+                f"practice book. No real order was placed.")
+    if kind == CHASED:
+        return (f"{head}: the market ran away in the trade's direction, so it was filled at "
+                f"the market, {_fmt_price(ev['price'])}, with its stop and target moved by "
+                f"the same ratio, as live chases a drifted limit. No real order was placed.")
+    if kind == EXPIRED:
+        return f"{head} expired unfilled after its horizon, as a live limit does. Nothing opened."
+    if kind == DRIFT_CANCELLED:
+        return (f"{head} cancelled: the market moved {ev.get('drift_pct')}% away since it was "
+                f"placed, as a live limit is cancelled. Nothing opened.")
+    if kind == FILL_FAILED:
+        return (f"{head} reached its price, but the practice book refused the fill "
+                f"({ev.get('error')}). Nothing opened.")
+    return f"{head}: {kind}."
