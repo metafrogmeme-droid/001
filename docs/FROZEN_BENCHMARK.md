@@ -216,7 +216,7 @@ artefact, never typed into the card. The artefact is produced by the benchmark
 one-liner with `-o` and committed:
 
 ```bash
-python -m bot.backtest.runner --dataset benchmark/majors_1h --honest --walk-forward 6 -o benchmark/majors_1h/result.json
+python -m bot.backtest.runner --dataset benchmark/majors_1h --as-live --walk-forward 6 --fold-history-bars 4824 --breaker-reset-bars 24 -o benchmark/majors_1h/result.json
 ```
 
 It carries `data_source` (the frozen dataset's hash — the reader refuses an

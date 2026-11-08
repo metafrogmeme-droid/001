@@ -1351,6 +1351,11 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
                 "commission_pct": config.commission_pct,
                 "slippage_pct": config.slippage_pct,
                 "fill_mode": config.fill_mode,
+                # The rest of the method, so a record says how it was measured
+                # (the parity card prints it): each fold's context-only
+                # history, and the breaker's automatic reset.
+                "fold_history_bars": int(getattr(args, "fold_history_bars", 0) or 0),
+                "breaker_reset_bars": int(getattr(args, "breaker_reset_bars", 0) or 0),
                 # The leverage every fill was opened at. A record that does
                 # not say is the 1x this key was added beside.
                 "leverage": config.leverage,
