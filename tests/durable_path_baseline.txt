@@ -25,6 +25,7 @@ bot/utils/audit_chain.py :: "logs/audit_chain.jsonl" :: AuditChain.__init__ wrap
 bot/core/trade_journal.py :: "data/trade_journal.json" :: TradeJournal.__init__ wraps it in state_path()
 bot/core/slippage.py :: "data/slippage_state.json" :: SlippageTracker.__init__ wraps it in state_path()
 bot/core/smart_exits.py :: "data/limit_distance_state.json" :: __init__ wraps it in state_path()
+bot/core/paper_limits.py :: "data/paper_fill_model.json" :: mark_fill_model_start wraps FILL_MODEL_MARKER in state_path() before any read or write
 bot/proofofpnl/leaderboard.py :: "data/proofofpnl_leaderboard.json" :: __init__ wraps it in state_path()
 bot/proofofpnl/publish.py :: "data/proofofpnl_publication.json" :: __init__ wraps it in state_path()
 bot/proofofpnl/seasons.py :: "data/proofofpnl_seasons.json" :: __init__ wraps it in state_path()

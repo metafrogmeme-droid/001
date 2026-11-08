@@ -52,6 +52,11 @@ class _UserPortfolios:
     def all_portfolios():
         return {}
 
+    @staticmethod
+    def pending_limit_books():
+        """No practice book holds a resting paper limit (`bot/core/paper_limits.py`)."""
+        return []
+
 
 def _engine(portfolio, on_paper_check):
     """A bare engine with only what _check_open_positions touches."""
