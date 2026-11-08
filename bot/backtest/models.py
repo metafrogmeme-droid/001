@@ -94,6 +94,14 @@ class BacktestConfig(BaseModel):
     setup_only: str = ""
     swing_stop_tf: str = ""
     daily_trend_days: int = 0
+    #   btc_regime_days — N > 0: an entry only while BTC's last daily bar
+    #     CLOSED by the deciding bar's close is above the mean of its last N
+    #     closed daily closes (a SHORT only below), read off the frozen daily
+    #     snapshot ``btc_regime_dataset``. Fewer than N closed days, or a
+    #     snapshot that does not read, admits nothing
+    #     (docs/research/prereg/long_regime_2026-11).
+    btc_regime_days: int = 0
+    btc_regime_dataset: str = ""
     mtf_scaled_history: bool = False
     #   target_r_after_gate — K > 0: AFTER the risk gate approves an idea on
     #     its own levels, its target becomes K times its stop distance from

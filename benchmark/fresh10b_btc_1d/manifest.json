@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "timeframe": "1d",
+  "limit": 600,
+  "created_at": "2026-11-08T02:52:24.157987+00:00",
+  "dataset_hash": "7d64fdaf8e40af2330fd8dbc45ccadb4d13a3387aae73be8bdb4555e08236779",
+  "symbols": {
+    "BTC/USDT:USDT": {
+      "file": "BTC_USDT_USDT.csv.gz",
+      "bars": 600,
+      "first": "2025-03-17T16:00:00+00:00",
+      "last": "2026-11-06T16:00:00+00:00",
+      "sha256": "8d7ce1914f22088805a93f1f638f16ec16a60fcc80a1cb76c63e35155cdfd9e7",
+      "missing": []
+    }
+  }
+}

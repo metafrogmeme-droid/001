@@ -1,0 +1,482 @@
+{
+  "mode": "portfolio_walk_forward",
+  "recorded_at": "2026-11-08T02:56:56+00:00",
+  "code_sha": "6641312a4d5dce68349a3c9a4929d47608eecc88",
+  "dataset": "benchmark/fresh10b_1h",
+  "honest": true,
+  "folds_requested": 6,
+  "folds_run": 6,
+  "profitable_folds": 1,
+  "mean_oos_return_pct": -0.2783333333333333,
+  "worst_oos_return_pct": -1.38,
+  "pooled_trades": 24,
+  "pooled": {
+    "trades": 24,
+    "fills": 33,
+    "wins": 10,
+    "losses": 14,
+    "flat": 0,
+    "net_usd": -166.18,
+    "gross_win_usd": 143.53,
+    "gross_loss_usd": 309.71,
+    "win_rate": 0.4166666666666667,
+    "pf": 0.46343353459688097,
+    "mean_net_usd": -6.924166666666667
+  },
+  "data_source": "frozen_snapshot:2b87754aa931a3884bf8ba67538e0b0039e77b766c9dc69dcf64a75b5a1f09bb",
+  "universe": {
+    "requested": [
+      "ACT/USDT:USDT",
+      "ARIA/USDT:USDT",
+      "CYBER/USDT:USDT",
+      "FIL/USDT:USDT",
+      "ICNT/USDT:USDT",
+      "LYN/USDT:USDT",
+      "MET/USDT:USDT",
+      "ONE/USDT:USDT",
+      "QNT/USDT:USDT",
+      "SIGN/USDT:USDT"
+    ],
+    "measured": [
+      "ACT/USDT:USDT",
+      "ARIA/USDT:USDT",
+      "CYBER/USDT:USDT",
+      "FIL/USDT:USDT",
+      "ICNT/USDT:USDT",
+      "LYN/USDT:USDT",
+      "MET/USDT:USDT",
+      "ONE/USDT:USDT",
+      "QNT/USDT:USDT",
+      "SIGN/USDT:USDT"
+    ],
+    "dropped": []
+  },
+  "commission_pct": 0.06,
+  "slippage_pct": 0.05,
+  "fill_mode": "live",
+  "fold_history_bars": 4824,
+  "breaker_reset_bars": 24,
+  "leverage": 5,
+  "folds": [
+    {
+      "fold": 0,
+      "oos_start": "2026-03-28 02:00:00+00:00",
+      "oos_end": "2026-05-04 13:00:00+00:00",
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate": 0.0,
+      "max_dd_pct": 0.0,
+      "profit_factor": 0.0,
+      "sharpe": 0.0,
+      "per_symbol": {
+        "ACT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ARIA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CYBER/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FIL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ICNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LYN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "MET/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ONE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "QNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SIGN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 267,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 1,
+      "oos_start": "2026-05-04 14:00:00+00:00",
+      "oos_end": "2026-06-11 01:00:00+00:00",
+      "trades": 3,
+      "return_pct": 0.21,
+      "win_rate": 0.3333,
+      "max_dd_pct": 0.09,
+      "profit_factor": 3.13,
+      "sharpe": -2.25,
+      "per_symbol": {
+        "ACT/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -8.62,
+          "win_rate": 0.0
+        },
+        "ARIA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CYBER/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FIL/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -1.12,
+          "win_rate": 0.0
+        },
+        "ICNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LYN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "MET/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 30.51,
+          "win_rate": 1.0
+        },
+        "ONE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "QNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SIGN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 139,
+      "limits": {
+        "filled": 3,
+        "expired": 2,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 2,
+      "oos_start": "2026-06-11 02:00:00+00:00",
+      "oos_end": "2026-07-18 13:00:00+00:00",
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate": 0.0,
+      "max_dd_pct": 0.0,
+      "profit_factor": 0.0,
+      "sharpe": 0.0,
+      "per_symbol": {
+        "ACT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ARIA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CYBER/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FIL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ICNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LYN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "MET/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ONE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "QNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SIGN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 223,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 3,
+      "oos_start": "2026-07-18 14:00:00+00:00",
+      "oos_end": "2026-08-25 01:00:00+00:00",
+      "trades": 1,
+      "return_pct": -0.19,
+      "win_rate": 0.0,
+      "max_dd_pct": 0.19,
+      "profit_factor": 0.0,
+      "sharpe": -10.97,
+      "per_symbol": {
+        "ACT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ARIA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CYBER/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FIL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ICNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LYN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "MET/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -18.55,
+          "win_rate": 0.0
+        },
+        "ONE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "QNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SIGN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 289,
+      "limits": {
+        "filled": 1,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 4,
+      "oos_start": "2026-08-25 02:00:00+00:00",
+      "oos_end": "2026-10-01 13:00:00+00:00",
+      "trades": 10,
+      "return_pct": -0.31,
+      "win_rate": 0.6,
+      "max_dd_pct": 0.54,
+      "profit_factor": 0.71,
+      "sharpe": -3.57,
+      "per_symbol": {
+        "ACT/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -19.36,
+          "win_rate": 0.0
+        },
+        "ARIA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CYBER/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FIL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ICNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LYN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "MET/USDT:USDT": {
+          "trades": 7,
+          "net_pnl": -38.24,
+          "win_rate": 0.5714
+        },
+        "ONE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "QNT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SIGN/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 26.94,
+          "win_rate": 1.0
+        }
+      },
+      "ideas": 327,
+      "limits": {
+        "filled": 10,
+        "expired": 5,
+        "cancelled_drift": 1
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 5,
+      "oos_start": "2026-10-01 14:00:00+00:00",
+      "oos_end": "2026-11-08 01:00:00+00:00",
+      "trades": 10,
+      "return_pct": -1.38,
+      "win_rate": 0.3,
+      "max_dd_pct": 1.62,
+      "profit_factor": 0.22,
+      "sharpe": -5.58,
+      "per_symbol": {
+        "ACT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ARIA/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 17.14,
+          "win_rate": 1.0
+        },
+        "CYBER/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -9.91,
+          "win_rate": 0.0
+        },
+        "FIL/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -28.18,
+          "win_rate": 0.0
+        },
+        "ICNT/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -11.41,
+          "win_rate": 0.5
+        },
+        "LYN/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "MET/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -26.68,
+          "win_rate": 0.0
+        },
+        "ONE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "QNT/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -48.25,
+          "win_rate": 0.3333
+        },
+        "SIGN/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -30.45,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 282,
+      "limits": {
+        "filled": 10,
+        "expired": 6,
+        "cancelled_drift": 2
+      },
+      "entries_skipped_random": 0
+    }
+  ]
+}

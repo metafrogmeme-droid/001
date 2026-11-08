@@ -379,6 +379,8 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "setup_only": getattr(args, "setup_only", "") or "",
         "swing_stop_tf": getattr(args, "swing_stop_tf", "") or "",
         "daily_trend_days": int(getattr(args, "daily_trend_days", 0)),
+        "btc_regime_days": int(getattr(args, "btc_regime_days", 0)),
+        "btc_regime_dataset": str(getattr(args, "btc_regime_dataset", "")),
         "target_r_after_gate": getattr(args, "target_r_after_gate", None),
         "mtf_scaled_history": bool(getattr(args, "mtf_scaled_history", False)),
         "fold_history_bars": int(getattr(args, "fold_history_bars", 0)),
@@ -813,6 +815,12 @@ Examples:
     trade_group.add_argument("--daily-trend-days", type=int, default=0,
                              help="Measurement control: LONG only above the symbol's N-day daily "
                                   "close mean, SHORT only below it. 0 is off.")
+    trade_group.add_argument("--btc-regime-days", type=int, default=0,
+                             help="Measurement control: LONG only while BTC's last closed daily "
+                                  "close is above its N-day mean, SHORT only below "
+                                  "(docs/research/prereg/long_regime_2026-11). 0 is off.")
+    trade_group.add_argument("--btc-regime-dataset", type=str, default="", metavar="DIR",
+                             help="The frozen daily BTC snapshot --btc-regime-days reads.")
     trade_group.add_argument("--target-r-after-gate", type=float, default=None,
                              help="Measurement control: after the risk gate approves an idea, set "
                                   "its target to this many stop distances from entry (stop "

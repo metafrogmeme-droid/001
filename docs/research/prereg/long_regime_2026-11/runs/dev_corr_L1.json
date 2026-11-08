@@ -1,0 +1,834 @@
+{
+  "mode": "portfolio_walk_forward",
+  "recorded_at": "2026-11-08T03:07:36+00:00",
+  "code_sha": "6641312a4d5dce68349a3c9a4929d47608eecc88",
+  "dataset": "benchmark/corr_dense_1h",
+  "honest": true,
+  "folds_requested": 6,
+  "folds_run": 6,
+  "profitable_folds": 0,
+  "mean_oos_return_pct": -1.8633333333333333,
+  "worst_oos_return_pct": -3.87,
+  "pooled_trades": 148,
+  "pooled": {
+    "trades": 148,
+    "fills": 185,
+    "wins": 52,
+    "losses": 96,
+    "flat": 0,
+    "net_usd": -1117.95,
+    "gross_win_usd": 847.91,
+    "gross_loss_usd": 1965.86,
+    "win_rate": 0.35135135135135137,
+    "pf": 0.4313175912832043,
+    "mean_net_usd": -7.553716216216216
+  },
+  "data_source": "frozen_snapshot:c4b0874f4d86baff1f1989865c8d435b6d98b6235fd14f5a343334f4a02648dc",
+  "universe": {
+    "requested": [
+      "AAVE/USDT:USDT",
+      "ADA/USDT:USDT",
+      "APT/USDT:USDT",
+      "ATOM/USDT:USDT",
+      "AVAX/USDT:USDT",
+      "CRV/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "DOT/USDT:USDT",
+      "FLOKI/USDT:USDT",
+      "INJ/USDT:USDT",
+      "LDO/USDT:USDT",
+      "LINK/USDT:USDT",
+      "NEAR/USDT:USDT",
+      "PEPE/USDT:USDT",
+      "SEI/USDT:USDT",
+      "SHIB/USDT:USDT",
+      "SOL/USDT:USDT",
+      "SUI/USDT:USDT",
+      "TRX/USDT:USDT",
+      "UNI/USDT:USDT",
+      "WIF/USDT:USDT"
+    ],
+    "measured": [
+      "AAVE/USDT:USDT",
+      "ADA/USDT:USDT",
+      "APT/USDT:USDT",
+      "ATOM/USDT:USDT",
+      "AVAX/USDT:USDT",
+      "CRV/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "DOT/USDT:USDT",
+      "FLOKI/USDT:USDT",
+      "INJ/USDT:USDT",
+      "LDO/USDT:USDT",
+      "LINK/USDT:USDT",
+      "NEAR/USDT:USDT",
+      "PEPE/USDT:USDT",
+      "SEI/USDT:USDT",
+      "SHIB/USDT:USDT",
+      "SOL/USDT:USDT",
+      "SUI/USDT:USDT",
+      "TRX/USDT:USDT",
+      "UNI/USDT:USDT",
+      "WIF/USDT:USDT"
+    ],
+    "dropped": []
+  },
+  "commission_pct": 0.06,
+  "slippage_pct": 0.05,
+  "fill_mode": "live",
+  "fold_history_bars": 4824,
+  "breaker_reset_bars": 24,
+  "leverage": 5,
+  "folds": [
+    {
+      "fold": 0,
+      "oos_start": "2025-09-09 12:00:00+00:00",
+      "oos_end": "2025-10-29 11:00:00+00:00",
+      "trades": 56,
+      "return_pct": -3.87,
+      "win_rate": 0.3571,
+      "max_dd_pct": 4.13,
+      "profit_factor": 0.51,
+      "sharpe": -3.78,
+      "per_symbol": {
+        "AAVE/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -28.89,
+          "win_rate": 0.0
+        },
+        "ADA/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -84.04,
+          "win_rate": 0.0
+        },
+        "APT/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -26.82,
+          "win_rate": 0.0
+        },
+        "ATOM/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -9.68,
+          "win_rate": 0.0
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -74.38,
+          "win_rate": 0.0
+        },
+        "CRV/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -36.66,
+          "win_rate": 0.3333
+        },
+        "DOT/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -18.79,
+          "win_rate": 0.5
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "INJ/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -27.56,
+          "win_rate": 0.0
+        },
+        "LDO/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -30.3,
+          "win_rate": 0.4
+        },
+        "LINK/USDT:USDT": {
+          "trades": 7,
+          "net_pnl": -40.7,
+          "win_rate": 0.5714
+        },
+        "NEAR/USDT:USDT": {
+          "trades": 8,
+          "net_pnl": -8.65,
+          "win_rate": 0.5
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 18.34,
+          "win_rate": 0.5
+        },
+        "SHIB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SOL/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": 15.96,
+          "win_rate": 0.6667
+        },
+        "SUI/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -28.13,
+          "win_rate": 0.3333
+        },
+        "TRX/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": 2.77,
+          "win_rate": 0.25
+        },
+        "UNI/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -9.01,
+          "win_rate": 0.3333
+        },
+        "WIF/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 704,
+      "limits": {
+        "filled": 56,
+        "expired": 48,
+        "cancelled_drift": 6
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 1,
+      "oos_start": "2025-10-29 12:00:00+00:00",
+      "oos_end": "2025-12-18 11:00:00+00:00",
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate": 0.0,
+      "max_dd_pct": 0.0,
+      "profit_factor": 0.0,
+      "sharpe": 0.0,
+      "per_symbol": {
+        "AAVE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ADA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ATOM/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CRV/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "INJ/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LDO/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LINK/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "NEAR/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SHIB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SOL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SUI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "TRX/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "UNI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 347,
+      "limits": {
+        "filled": 0,
+        "expired": 0,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 2,
+      "oos_start": "2025-12-18 12:00:00+00:00",
+      "oos_end": "2026-02-06 11:00:00+00:00",
+      "trades": 9,
+      "return_pct": -0.9,
+      "win_rate": 0.2222,
+      "max_dd_pct": 1.01,
+      "profit_factor": 0.11,
+      "sharpe": -8.23,
+      "per_symbol": {
+        "AAVE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ADA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ATOM/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -12.48,
+          "win_rate": 0.0
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CRV/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "INJ/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LDO/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LINK/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "NEAR/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -22.17,
+          "win_rate": 0.5
+        },
+        "SEI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SHIB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SOL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SUI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "TRX/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": -55.77,
+          "win_rate": 0.1667
+        },
+        "UNI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 520,
+      "limits": {
+        "filled": 9,
+        "expired": 5,
+        "cancelled_drift": 1
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 3,
+      "oos_start": "2026-02-06 12:00:00+00:00",
+      "oos_end": "2026-03-28 11:00:00+00:00",
+      "trades": 4,
+      "return_pct": -0.66,
+      "win_rate": 0.25,
+      "max_dd_pct": 0.78,
+      "profit_factor": 0.03,
+      "sharpe": -7.09,
+      "per_symbol": {
+        "AAVE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ADA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ATOM/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CRV/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "INJ/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LDO/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "LINK/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "NEAR/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -6.18,
+          "win_rate": 0.5
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SHIB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SOL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SUI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "TRX/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -59.98,
+          "win_rate": 0.0
+        },
+        "UNI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 692,
+      "limits": {
+        "filled": 4,
+        "expired": 12,
+        "cancelled_drift": 0
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 4,
+      "oos_start": "2026-03-28 12:00:00+00:00",
+      "oos_end": "2026-05-17 11:00:00+00:00",
+      "trades": 50,
+      "return_pct": -3.87,
+      "win_rate": 0.32,
+      "max_dd_pct": 4.19,
+      "profit_factor": 0.41,
+      "sharpe": -6.64,
+      "per_symbol": {
+        "AAVE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ADA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ATOM/USDT:USDT": {
+          "trades": 5,
+          "net_pnl": -41.62,
+          "win_rate": 0.2
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "CRV/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -27.18,
+          "win_rate": 0.5
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 11.52,
+          "win_rate": 0.5
+        },
+        "DOT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -40.48,
+          "win_rate": 0.5
+        },
+        "INJ/USDT:USDT": {
+          "trades": 7,
+          "net_pnl": 130.78,
+          "win_rate": 0.8571
+        },
+        "LDO/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": -53.46,
+          "win_rate": 0.0
+        },
+        "LINK/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -28.84,
+          "win_rate": 0.0
+        },
+        "NEAR/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": -91.93,
+          "win_rate": 0.1667
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 4,
+          "net_pnl": -106.54,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -27.0,
+          "win_rate": 0.0
+        },
+        "SHIB/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -8.34,
+          "win_rate": 0.0
+        },
+        "SOL/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -30.38,
+          "win_rate": 0.0
+        },
+        "SUI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "TRX/USDT:USDT": {
+          "trades": 11,
+          "net_pnl": -78.43,
+          "win_rate": 0.2727
+        },
+        "UNI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": 5.39,
+          "win_rate": 0.5
+        }
+      },
+      "ideas": 1011,
+      "limits": {
+        "filled": 50,
+        "expired": 34,
+        "cancelled_drift": 8
+      },
+      "entries_skipped_random": 0
+    },
+    {
+      "fold": 5,
+      "oos_start": "2026-05-17 12:00:00+00:00",
+      "oos_end": "2026-07-06 11:00:00+00:00",
+      "trades": 29,
+      "return_pct": -1.88,
+      "win_rate": 0.4483,
+      "max_dd_pct": 1.95,
+      "profit_factor": 0.46,
+      "sharpe": -5.4,
+      "per_symbol": {
+        "AAVE/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ADA/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "APT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "ATOM/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -27.17,
+          "win_rate": 0.5
+        },
+        "AVAX/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 11.13,
+          "win_rate": 1.0
+        },
+        "CRV/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "DOGE/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -50.58,
+          "win_rate": 0.0
+        },
+        "DOT/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "FLOKI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "INJ/USDT:USDT": {
+          "trades": 9,
+          "net_pnl": 32.88,
+          "win_rate": 0.7778
+        },
+        "LDO/USDT:USDT": {
+          "trades": 2,
+          "net_pnl": -37.27,
+          "win_rate": 0.0
+        },
+        "LINK/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -29.04,
+          "win_rate": 0.0
+        },
+        "NEAR/USDT:USDT": {
+          "trades": 6,
+          "net_pnl": -93.05,
+          "win_rate": 0.1667
+        },
+        "PEPE/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -5.02,
+          "win_rate": 0.0
+        },
+        "SEI/USDT:USDT": {
+          "trades": 3,
+          "net_pnl": 32.64,
+          "win_rate": 0.6667
+        },
+        "SHIB/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SOL/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "SUI/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        },
+        "TRX/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": -23.93,
+          "win_rate": 0.0
+        },
+        "UNI/USDT:USDT": {
+          "trades": 1,
+          "net_pnl": 1.09,
+          "win_rate": 1.0
+        },
+        "WIF/USDT:USDT": {
+          "trades": 0,
+          "net_pnl": 0,
+          "win_rate": 0.0
+        }
+      },
+      "ideas": 571,
+      "limits": {
+        "filled": 29,
+        "expired": 16,
+        "cancelled_drift": 11
+      },
+      "entries_skipped_random": 0
+    }
+  ]
+}

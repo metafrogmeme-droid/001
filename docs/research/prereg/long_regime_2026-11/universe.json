@@ -1,0 +1,28 @@
+{
+ "chosen": [
+  "ONE/USDT:USDT",
+  "ICNT/USDT:USDT",
+  "LYN/USDT:USDT",
+  "CYBER/USDT:USDT",
+  "QNT/USDT:USDT",
+  "MET/USDT:USDT",
+  "ACT/USDT:USDT",
+  "ARIA/USDT:USDT",
+  "SIGN/USDT:USDT",
+  "FIL/USDT:USDT"
+ ],
+ "passed_over": [
+  "AKE/USDT:USDT",
+  "UAI/USDT:USDT",
+  "JCT/USDT:USDT",
+  "CAP/USDT:USDT",
+  "EVAA/USDT:USDT",
+  "CT/USDT:USDT",
+  "PONS/USDT:USDT",
+  "BTW/USDT:USDT",
+  "MEGA/USDT:USDT",
+  "XMR/USDT:USDT"
+ ],
+ "fresh10b_1h": "2b87754aa931a3884bf8ba67538e0b0039e77b766c9dc69dcf64a75b5a1f09bb",
+ "fresh10b_btc_1d": "7d64fdaf8e40af2330fd8dbc45ccadb4d13a3387aae73be8bdb4555e08236779"
+}
