@@ -30064,3 +30064,61 @@ in three of four datasets, which is adverse selection showing: the saving is
 real and the selection is no better, and may be worse. The way to attribute a
 gain to a cost is an arm that differs from its comparator in the cost and
 nothing else, not an argument from equal profit factors.
+
+## THE PAPER BOOK FILLED EVERY LIMIT LIVE NEVER FILLED, AT THE BETTER PRICE
+
+8 November 2026. Live trading had been off since 18 October, so every confirm
+opened on the operator's paper book, and the paper book was the reading the
+equal-sizing forward test (Addendum 1) would judge. Asked whether paper fills
+like live, the answer was no.
+
+**A paper fill is a claim about a fill that would have happened.** A paper
+confirm of a limit idea called `PortfolioTracker.open_position` at once, at
+`idea.entry_price`: the limit price, whether or not the market ever came back
+to it. Live rests the same order, and from 2026-08-18 to 2026-10-14, 123 of
+the operator's 407 live records were limits that never filled (expired,
+cancelled, or pulled for drift). Paper booked every one of those, at the
+better price. A market order filled at the analysis price too, not the price
+read at confirm. Addendum 1 described paper as filling "at the price the
+engine reads", which was wrong; Addendum 2 corrects it and was sealed before
+the change shipped.
+
+**One rule, two books, one reading.** The drift chase (cancel a limit the
+market ran from, or buy it at the market when the trend agrees) lived inside
+`LiveExecutor._check_drift_market_fallback`. The paper book needed the same
+decision, so it moved to `bot/core/limit_entry.py::drift_chase_decision` (and
+`drift_chase_precheck`, `drift_max_chase_pct`) and the live executor now asks
+it. A second copy in the paper sweep would have been a second answer that
+drifts from the first.
+
+**What paper does now** (`bot/core/paper_limits.py`): a limit on its own side
+of the market rests (`PortfolioTracker.rest_limit`, persisted by both savers);
+each paper pass fills it at the limit when the last price reaches it, drops it
+past live's horizon (`limit_expiry_seconds`), and on a 2% drift since
+placement cancels it or, for an engine idea live would chase, fills at the
+market with stop and target shifted by the same ratio. A typed ticket is never
+drift-read, as live. A market order, or a limit at or through the market,
+fills now at the market price (a limit no worse than its price). A resting
+limit holds its symbol for the duplicate guard, and the confirm's card carries
+live's `⏳ PENDING FILL` so the door says "resting", not "executed".
+
+**A reading's window opens on a record the code writes, not a date picked by
+hand.** Addendum 2 counts only paper trades opened under the new fill model.
+The first paper confirm made under it writes `data/paper_fill_model.json`
+once, before it rests or fills anything; `scripts/sizing_forward.py --book
+paper-limits` reads twelve weeks from that time, scores only rows opened at or
+after it, and calls an unreadable record no verdict rather than "not yet".
+Addendum 1's reading stays whole under its sealed rule and is also reported
+split at that time.
+
+**The bias that remains runs the other way.** Paper reads the last price once
+per pass, and live fills on any touch between passes, so paper can now miss a
+fill live would have had. A paper fill has no queue and no slippage. Both are
+stated in the addendum.
+
+Guarded by `tests/test_paper_limits_rest_like_live.py` (every rule both ways,
+the real tracker, the real chase decision on bars it can decide from, and the
+real confirm and positions pass), `tests/test_sizing_forward.py` (the window,
+the split, the record written once), and `tests/test_duplicate_entry_guard.py`
+(a resting limit holds its symbol). Seventeen mutations of the fix were each
+killed by a named test.

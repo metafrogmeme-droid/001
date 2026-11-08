@@ -17,10 +17,16 @@ from bot.core.engine import RuneClawEngine
 class _FakeExec:
     def __init__(self):
         self._pos = []
+        self._resting = []
 
     @property
     def open_positions(self):
         return list(self._pos)
+
+    @property
+    def pending_limits(self):
+        """A practice book's resting limits (`PortfolioTracker.pending_limits`)."""
+        return list(self._resting)
 
 
 class _FakeEngine:
@@ -169,6 +175,18 @@ def test_a_second_practice_tap_on_one_symbol_is_suppressed(monkeypatch, live):
     # It names the book it read: there is no order on a practice book.
     assert "already have an open practice position" in skipped[0]
     assert len(eng.user_portfolios.books["p1"]._pos) == 1
+
+
+def test_a_resting_practice_limit_holds_its_symbol(_live):
+    """A paper limit rests now, as live's does (`bot/core/paper_limits.py`),
+    and holds its symbol as a live pending order does."""
+    eng = _PracticeEngine({"A": _idea("GRASS/USDT"), "B": _idea("ONDO/USDT")})
+    eng.user_portfolios.get("p1")._resting.append(
+        {"trade_id": "r1", "idea": {"asset": "GRASS/USDT"}})
+    out = asyncio.run(eng.confirm_trade("A", user_id="p1"))
+    assert "duplicate suppressed" in out and "resting practice limit" in out
+    asyncio.run(eng.confirm_trade("B", user_id="p1"))
+    assert eng.inner_calls == ["B"], "another symbol is not held by it"
 
 
 def test_a_practice_tap_on_another_symbol_opens(_live):

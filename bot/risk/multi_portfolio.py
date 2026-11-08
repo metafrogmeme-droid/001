@@ -362,6 +362,11 @@ class MultiUserPortfolio:
         """
         return list(self._portfolios.values()) + list(self._venue_portfolios.values())
 
+    def pending_limit_books(self) -> list[PortfolioTracker]:
+        """Every tracker, default-venue and split, holding a resting paper
+        limit (`PortfolioTracker.rest_limit`)."""
+        return [p for p in self._every_tracker() if p.pending_limits]
+
     def has_user(self, user_id: str) -> bool:
         """Check if a user has an active portfolio."""
         try:

@@ -546,3 +546,95 @@ def resting_limit_drift(side: str, limit_price, current_price,
         away = (cur - placed) if word in ("LONG", "BUY") else (placed - cur)
         return away / placed * 100.0, "placement"
     return abs(cur - lim) / lim * 100.0, "limit"
+
+
+def drift_chase_precheck(direction: str, limit_price, cur_price, *,
+                         max_chase_pct: float) -> Optional[str]:
+    """The refusals of `drift_chase_decision` that need no bars, or None.
+
+    Asked first so a chase that cannot happen fetches nothing: unreadable
+    prices, a move past the chase bound, or a move against the trade."""
+    word = str(getattr(direction, "value", direction) or "").upper()
+    try:
+        lim, cur = float(limit_price), float(cur_price)
+    except (TypeError, ValueError):
+        return "prices unread"
+    if not (lim > 0 and cur > 0):
+        return "prices unread"
+    if max_chase_pct > 0 and abs(cur - lim) / lim * 100 > max_chase_pct:
+        return "beyond the chase bound"
+    if (word == "LONG" and cur <= lim) or (word != "LONG" and cur >= lim):
+        return "the market moved against the trade"
+    return None
+
+def drift_chase_decision(direction: str, limit_price: float, cur_price: float,
+                         ohlcv, *, min_adx: float, max_chase_pct: float) -> tuple[bool, dict]:
+    """Whether a drifted resting limit is chased at the market, and why.
+
+    The one reading of the rule the live executor applies before turning a
+    drifted engine limit into a market order, and the paper book applies to
+    its own resting limits so a paper fill is the fill live would have made.
+    Chased only when every condition holds:
+
+      * the market moved in the TRADE's direction past the limit (a buy
+        limit the market ran above; a sell limit it fell below), never into
+        a loser;
+      * no further than ``max_chase_pct`` beyond the limit (0 disables the
+        bound): past that the stop and target that justified the trade are
+        somewhere else;
+      * on closed 15m bars, the directional index agrees with the side and
+        the trend strength (a DX reading, the proxy live has always used) is
+        at least ``min_adx``.
+
+    Returns ``(chase, details)``: ``details`` names the reason when it
+    declines, and carries the ADX and DI readings when they were computed.
+    Pure: the caller fetches the bars, and an unreadable input declines.
+    """
+    import numpy as np
+    word = str(getattr(direction, "value", direction) or "").upper()
+    early = drift_chase_precheck(direction, limit_price, cur_price, max_chase_pct=max_chase_pct)
+    if early is not None:
+        return False, {"reason": early}
+    if not ohlcv or len(ohlcv) < 14:
+        return False, {"reason": "too few closed bars"}
+    closes = np.array([c[4] for c in ohlcv], dtype=float)
+    highs = np.array([c[2] for c in ohlcv], dtype=float)
+    lows = np.array([c[3] for c in ohlcv], dtype=float)
+    period = 14
+    tr = np.maximum(highs[1:] - lows[1:],
+                    np.maximum(np.abs(highs[1:] - closes[:-1]),
+                               np.abs(lows[1:] - closes[:-1])))
+    plus_dm = np.maximum(highs[1:] - highs[:-1], 0)
+    minus_dm = np.maximum(lows[:-1] - lows[1:], 0)
+    mask = plus_dm > minus_dm
+    minus_dm[mask & (plus_dm > minus_dm)] = 0
+    plus_dm[~mask & (minus_dm > plus_dm)] = 0
+    if len(tr) < period:
+        return False, {"reason": "too few closed bars"}
+    atr_vals = np.convolve(tr, np.ones(period) / period, mode="valid")
+    plus_di = np.convolve(plus_dm, np.ones(period) / period, mode="valid")
+    minus_di = np.convolve(minus_dm, np.ones(period) / period, mode="valid")
+    if len(atr_vals) == 0 or atr_vals[-1] == 0:
+        return False, {"reason": "no range to measure"}
+    plus_di_pct = float(plus_di[-1] / atr_vals[-1] * 100)
+    minus_di_pct = float(minus_di[-1] / atr_vals[-1] * 100)
+    adx = abs(plus_di_pct - minus_di_pct) / max(plus_di_pct + minus_di_pct, 1e-10) * 100
+    details = {"adx": adx, "plus_di": plus_di_pct, "minus_di": minus_di_pct}
+    if word == "LONG" and plus_di_pct <= minus_di_pct:
+        return False, details | {"reason": "momentum opposes the side"}
+    if word != "LONG" and minus_di_pct <= plus_di_pct:
+        return False, details | {"reason": "momentum opposes the side"}
+    if adx < min_adx:
+        return False, details | {"reason": "trend too weak"}
+    return True, details
+
+
+def drift_max_chase_pct() -> float:
+    """`DRIFT_MARKET_MAX_CHASE_PCT` (default 5; 0 disables the bound): the one
+    reading the live executor and the paper book both take. A value that does
+    not parse is the default, never "no bound"."""
+    import os
+    try:
+        return float(os.environ.get("DRIFT_MARKET_MAX_CHASE_PCT", "5.0"))
+    except ValueError:
+        return 5.0

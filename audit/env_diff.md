@@ -119,7 +119,7 @@ string, never to `os.getenv`) — a naive diff reports those as dead and is wron
 - `DRAWDOWN_RECOVERY_CONF_MIN` — e.g. `bot/config.py`
 - `DRAWDOWN_RECOVERY_ENABLED` — e.g. `bot/config.py`
 - `DRAWDOWN_RECOVERY_SIZE_MULT` — e.g. `bot/config.py`
-- `DRIFT_MARKET_MAX_CHASE_PCT` — e.g. `bot/core/live_executor.py`
+- `DRIFT_MARKET_MAX_CHASE_PCT` — e.g. `bot/core/limit_entry.py`
 - `DROP_UNCLOSED_CANDLE_ENABLED` — e.g. `bot/config.py`
 - `DUEL_CANDLES_URL` — e.g. `app/lib/candles.js`
 - `E2E_ALLOCATION_RECIPIENT` — e.g. `token/e2e/devnet_dryrun.mjs`

@@ -8837,12 +8837,19 @@ class RuneClawEngine:
         return bool(CONFIG.simulation_mode)
 
     async def _simulate_paper_fill(
-        self, idea, recheck, user_id: str, trade_id: str
+        self, idea, recheck, user_id: str, trade_id: str,
+        market_price: Optional[float] = None,
     ) -> str:
         """Open a SIMULATED position in the user's paper portfolio. Pure in-memory
         (no exchange interaction whatsoever) — the per-user sim opt-in path. The
         position is then monitored for SL/TP by the existing paper loop
         (``check_stops_all``). Never calls ``live_executor``.
+
+        Entered as live enters (`bot/core/paper_limits.py`): a limit on its own
+        side of ``market_price`` RESTS on the book and the paper monitor fills,
+        expires or drift-cancels it on live's rules; a market order, or a
+        limit at or through the market, fills now at the market (a limit no
+        worse than its price). With no ``market_price``, the idea's entry, now.
         """
         _practice = self._self_admitted_practice(user_id)
         try:
@@ -8899,10 +8906,36 @@ class RuneClawEngine:
         # ladder, so the paper book is byte-identical with the flag off. A
         # card saying "leverage x0.80" beside "@ 5x" would be two answers.
         leverage = apply_margin_risk_cap(leverage, idea)
+        from bot.core.live_executor import RESTING_ANSWER, limit_expiry_seconds
+        from bot.core.paper_limits import (
+            mark_fill_model_start,
+            paper_entry_price,
+            paper_limit_rests,
+        )
         try:
-            trade = portfolio.open_position(
-                idea, size_usd, leverage=leverage,
-                fill_label=PRACTICE_FILL if _practice else "")
+            mark_fill_model_start()
+        except OSError as exc:
+            logger.warning("Paper fill-model record not written: %s", type(exc).__name__)
+        from bot.core.limit_entry import placement_price
+        _placed = placement_price(market_price)
+        _rests = _placed is not None and paper_limit_rests(idea, _placed)
+        _horizon = limit_expiry_seconds(typed=getattr(idea, "source", None) == "manual")
+        try:
+            if _rests and _placed is not None:
+                portfolio.rest_limit(
+                    idea, size_usd, leverage=leverage,
+                    fill_label=PRACTICE_FILL if _practice else "",
+                    placed_market=_placed,
+                    expires_in_seconds=_horizon,
+                    chase_allowed=not levels_as_shown(idea))
+                trade = None
+            else:
+                _fill_px = paper_entry_price(idea, market_price)
+                if _fill_px != idea.entry_price:
+                    idea = idea.model_copy(update={"entry_price": _fill_px})
+                trade = portfolio.open_position(
+                    idea, size_usd, leverage=leverage,
+                    fill_label=PRACTICE_FILL if _practice else "")
         except Exception as exc:
             self._drop_pending_idea(trade_id)
             self._transition(AgentState.IDLE, f"paper fill error {trade_id}")
@@ -8937,12 +8970,33 @@ class RuneClawEngine:
                     checks_passed=getattr(recheck, "checks_passed", []),
                     checks_failed=[],
                     decision="TRADE_ACCEPTED_PAPER",
-                    paper_trade_id=trade.trade_id,
+                    paper_trade_id=trade.trade_id if trade is not None else idea.id,
                     confluence_votes=getattr(idea, "_confluence_votes", []),
                     source="paper_decision",
                 )
         except Exception as _pd_exc:
             logger.debug("Paper decision-log skipped: %s", _pd_exc)
+        if trade is None:
+            # Resting: `rest_limit` audited it. The card says what live's
+            # limit would do, because that is now what this one does, and
+            # carries live's resting words, so the door says "resting" and
+            # not "executed" (`left_resting`).
+            self._transition(AgentState.IDLE, f"paper limit resting {trade_id}")
+            _hours = _horizon / 3600
+            return (
+                f"📝 <b>[PAPER]</b> {idea.direction.value} <b>{idea.asset}</b> "
+                f"limit rests at <code>${idea.entry_price:,.4f}</code>\n"
+                f"SL <code>${idea.stop_loss:,.4f}</code> | "
+                f"TP <code>${idea.take_profit:,.4f}</code>  •  "
+                f"Size <code>${size_usd:,.2f}</code> @ {leverage}x\n"
+                f"Status: {RESTING_ANSWER}\n"
+                f"<i>It fills only if the price comes back to it, and is cancelled "
+                f"after {_hours:g}h or once the market moves "
+                f"{CONFIG.limit_orders.price_drift_cancel_pct:g}% away, as a live limit is. "
+                f"{'PRACTICE — not the engine record. ' if _practice else ''}"
+                f"practice mode — no real order placed</i>\n"
+                f"Trade ID: <code>{idea.id}</code>"
+            )
         audit(trade_log,
               f"PAPER fill: {idea.direction.value} {idea.asset} @ {idea.entry_price} "
               f"size ${size_usd:.2f} (user {user_id})",
@@ -9065,7 +9119,7 @@ class RuneClawEngine:
                 # live book (`_same_symbol_verdict`), and the practice fill
                 # drops it and opens a plain row.
                 _held = self._practice_book_symbols(self._practice_book_user(user_id))
-                _what = "an open practice position"
+                _what = "an open practice position or resting practice limit"
             elif (CONFIG.is_live() and hasattr(self, "live_executor")
                     and not self._pending_pyramid.get(trade_id)):
                 # The book of the account THIS confirm places on. It read the
@@ -9144,12 +9198,14 @@ class RuneClawEngine:
         try:
             book = self.user_portfolios.get(user_id)
             rows = book.open_positions if book is not None else []
+            # A resting limit holds its symbol, as a live pending order does.
+            resting = book.pending_limits if book is not None else []
         except Exception as exc:
             logger.warning("Practice book for %s could not be read for the "
                            "duplicate check (%s); the practice fill refuses on it",
                            user_id, type(exc).__name__)
             return []
-        return [row.asset for row in rows]
+        return [row.asset for row in rows] + [r["idea"].get("asset") for r in resting]
 
     async def _pyramid_move_existing_sl_to_breakeven(
             self, executor, asset: str, new_trade_id: str) -> None:
@@ -9784,7 +9840,8 @@ class RuneClawEngine:
         if _practice:
             self._pending_pyramid.pop(trade_id, None)
             return await self._simulate_paper_fill(
-                idea, recheck, self._practice_book_user(user_id), trade_id)
+                idea, recheck, self._practice_book_user(user_id), trade_id,
+                market_price=current_price)
 
         # LIVE-ONLY: this bot only executes live trades. Paper mode is disabled.
         if not CONFIG.is_live():
@@ -11565,8 +11622,11 @@ class RuneClawEngine:
         # Run paper monitoring when the shared portfolio OR any per-user (sim
         # opt-in) portfolio has open positions, so opted-in paper trades get
         # SL/TP monitoring even when the shared paper portfolio is empty.
+        # A resting paper limit needs the pass too: it is filled, expired or
+        # drift-cancelled there (`_sweep_paper_limits`).
         _user_paper_open = any(
-            pf.open_positions for pf in self.user_portfolios.all_portfolios().values())
+            pf.open_positions for pf in self.user_portfolios.all_portfolios().values()
+        ) or bool(self.user_portfolios.pending_limit_books())
         if positions or _user_paper_open:
             await self._check_paper_positions(positions)
         # Live positions are checked independently below — do NOT return early
@@ -11795,6 +11855,37 @@ class RuneClawEngine:
             except Exception as exc:
                 logger.debug("Loss-cooldown scan failed: %s", exc)
 
+    async def _sweep_paper_limits(self, prices: dict) -> list[dict]:
+        """Fill, expire or drift-cancel every practice book's resting limits
+        (`bot.core.paper_limits.sweep_paper_limits`); the events, audited.
+
+        The drift chase reads closed 15m bars off the exchange the paper
+        prices come from. Bars that cannot be read decide no chase, so the
+        drifted limit is cancelled, as live's is."""
+        from bot.core.paper_limits import sweep_paper_limits
+        from bot.utils.candles import drop_forming_candle
+
+        async def _bars(asset):
+            try:
+                if _classify_symbol(asset) == "Crypto":
+                    ex = await self.scanner._get_exchange()
+                else:
+                    ex = await self.scanner._get_futures_exchange()
+                return drop_forming_candle(
+                    await ex.fetch_ohlcv(asset, "15m", limit=30), "15m")
+            except Exception as exc:
+                system_log.debug("Paper chase bars unread for %s: %s",
+                                 asset, type(exc).__name__)
+                return None
+
+        events: list[dict] = []
+        for book in self.user_portfolios.pending_limit_books():
+            for ev in await sweep_paper_limits(book, prices, fetch_bars=_bars):
+                audit(trade_log, f"PAPER limit {ev['kind']}: {ev['asset']}",
+                      action="paper_limit_sweep", result=ev["kind"].upper(), data=ev)
+                events.append(ev)
+        return events
+
     async def _check_paper_positions(self, positions) -> None:
         """Monitor paper portfolio positions for SL/TP hits.
 
@@ -11819,9 +11910,13 @@ class RuneClawEngine:
             # shared portfolio is empty. The exit loops below still iterate only
             # the shared portfolio, so this never closes a user position in the
             # wrong book.
+            import types as _types
             _priced_positions = list(positions) + [
                 p for pf in self.user_portfolios.all_portfolios().values()
-                for p in pf.open_positions]
+                for p in pf.open_positions] + [
+                _types.SimpleNamespace(asset=row["idea"].get("asset"))
+                for pf in self.user_portfolios.pending_limit_books()
+                for row in pf.pending_limits]
 
             # Prefer WebSocket prices (sub-second) over REST (polling), but only
             # FRESH ticks — a stale-but-connected feed must not drive stop logic.
@@ -11960,6 +12055,13 @@ class RuneClawEngine:
                     # a VWAP of its own, so the rule can never apply to one.
             except Exception as exc:
                 system_log.debug("Signal hold check failed: %s", exc)
+
+            # Resting paper limits, decided on this pass's prices before the
+            # stop check, so a limit filled now is stop-checked on the next.
+            try:
+                await self._sweep_paper_limits(prices)
+            except Exception as exc:
+                system_log.warning("Paper limit sweep failed: %s", type(exc).__name__)
 
             closed = [] if _shared_live else self.portfolio.check_stops(prices)
             # The SHARED book's closes, taken before the practice ones join
