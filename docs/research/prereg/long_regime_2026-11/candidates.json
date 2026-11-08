@@ -1,0 +1,202 @@
+[
+ {
+  "symbol": "ONE/USDT:USDT",
+  "base": "ONE",
+  "turnover24h": 61208352.8526724
+ },
+ {
+  "symbol": "AKE/USDT:USDT",
+  "base": "AKE",
+  "turnover24h": 35724039.3623536
+ },
+ {
+  "symbol": "ICNT/USDT:USDT",
+  "base": "ICNT",
+  "turnover24h": 17503115.8721
+ },
+ {
+  "symbol": "UAI/USDT:USDT",
+  "base": "UAI",
+  "turnover24h": 12472034.71405
+ },
+ {
+  "symbol": "JCT/USDT:USDT",
+  "base": "JCT",
+  "turnover24h": 10577009.051927
+ },
+ {
+  "symbol": "LYN/USDT:USDT",
+  "base": "LYN",
+  "turnover24h": 7610671.56999
+ },
+ {
+  "symbol": "CAP/USDT:USDT",
+  "base": "CAP",
+  "turnover24h": 7516115.27608
+ },
+ {
+  "symbol": "CYBER/USDT:USDT",
+  "base": "CYBER",
+  "turnover24h": 6708489.85066
+ },
+ {
+  "symbol": "EVAA/USDT:USDT",
+  "base": "EVAA",
+  "turnover24h": 3743710.9611
+ },
+ {
+  "symbol": "QNT/USDT:USDT",
+  "base": "QNT",
+  "turnover24h": 3686691.9696
+ },
+ {
+  "symbol": "CT/USDT:USDT",
+  "base": "CT",
+  "turnover24h": 3457258.57543
+ },
+ {
+  "symbol": "MET/USDT:USDT",
+  "base": "MET",
+  "turnover24h": 3352680.1331
+ },
+ {
+  "symbol": "ACT/USDT:USDT",
+  "base": "ACT",
+  "turnover24h": 3130118.076712
+ },
+ {
+  "symbol": "ARIA/USDT:USDT",
+  "base": "ARIA",
+  "turnover24h": 2808583.53882
+ },
+ {
+  "symbol": "PONS/USDT:USDT",
+  "base": "PONS",
+  "turnover24h": 2559050.07921
+ },
+ {
+  "symbol": "BTW/USDT:USDT",
+  "base": "BTW",
+  "turnover24h": 2456392.51791
+ },
+ {
+  "symbol": "SIGN/USDT:USDT",
+  "base": "SIGN",
+  "turnover24h": 2192705.634139
+ },
+ {
+  "symbol": "MEGA/USDT:USDT",
+  "base": "MEGA",
+  "turnover24h": 2156952.95052
+ },
+ {
+  "symbol": "XMR/USDT:USDT",
+  "base": "XMR",
+  "turnover24h": 2102004.4391
+ },
+ {
+  "symbol": "FIL/USDT:USDT",
+  "base": "FIL",
+  "turnover24h": 2036119.98935
+ },
+ {
+  "symbol": "RENDER/USDT:USDT",
+  "base": "RENDER",
+  "turnover24h": 1931509.28952
+ },
+ {
+  "symbol": "AIO/USDT:USDT",
+  "base": "AIO",
+  "turnover24h": 1823729.74196
+ },
+ {
+  "symbol": "TIA/USDT:USDT",
+  "base": "TIA",
+  "turnover24h": 1713723.97547
+ },
+ {
+  "symbol": "STONK/USDT:USDT",
+  "base": "STONK",
+  "turnover24h": 1668549.55675
+ },
+ {
+  "symbol": "CARV/USDT:USDT",
+  "base": "CARV",
+  "turnover24h": 1654704.09724
+ },
+ {
+  "symbol": "LIT/USDT:USDT",
+  "base": "LIT",
+  "turnover24h": 1649300.937
+ },
+ {
+  "symbol": "STRK/USDT:USDT",
+  "base": "STRK",
+  "turnover24h": 1556909.2818627
+ },
+ {
+  "symbol": "APR/USDT:USDT",
+  "base": "APR",
+  "turnover24h": 1536874.6531
+ },
+ {
+  "symbol": "HBAR/USDT:USDT",
+  "base": "HBAR",
+  "turnover24h": 1501384.39405
+ },
+ {
+  "symbol": "DASH/USDT:USDT",
+  "base": "DASH",
+  "turnover24h": 1421873.5921
+ },
+ {
+  "symbol": "MAGMA/USDT:USDT",
+  "base": "MAGMA",
+  "turnover24h": 1404080.21836
+ },
+ {
+  "symbol": "BIRB/USDT:USDT",
+  "base": "BIRB",
+  "turnover24h": 1300949.19121
+ },
+ {
+  "symbol": "ERA/USDT:USDT",
+  "base": "ERA",
+  "turnover24h": 1286310.02457
+ },
+ {
+  "symbol": "FET/USDT:USDT",
+  "base": "FET",
+  "turnover24h": 1280691.6464
+ },
+ {
+  "symbol": "STX/USDT:USDT",
+  "base": "STX",
+  "turnover24h": 1194455.37619
+ },
+ {
+  "symbol": "AERO/USDT:USDT",
+  "base": "AERO",
+  "turnover24h": 1146592.8302
+ },
+ {
+  "symbol": "FARTCOIN/USDT:USDT",
+  "base": "FARTCOIN",
+  "turnover24h": 1103990.954313
+ },
+ {
+  "symbol": "ELSA/USDT:USDT",
+  "base": "ELSA",
+  "turnover24h": 1065959.83253
+ },
+ {
+  "symbol": "ETHFI/USDT:USDT",
+  "base": "ETHFI",
+  "turnover24h": 1011332.88373
+ },
+ {
+  "symbol": "\u725b\u6765/USDT:USDT",
+  "base": "\u725b\u6765",
+  "turnover24h": 1007013.10447
+ }
+]
