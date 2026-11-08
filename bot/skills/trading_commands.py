@@ -2530,6 +2530,17 @@ class TradingCommands:
             await self._refuse_shared_control(update, "pause")
             return
         risk.emergency_halt("pause_telegram")
+        # And the engine this caller's own entries are gated on, when it is
+        # another one: while live is off the operator's confirms open on the
+        # practice book and are re-checked on ITS engine alone, so a pause of
+        # the shared engine left paper entries opening under a "paused" card.
+        # An engine that cannot be read is said; the shared halt stands.
+        _entry, _entry_unread = self._entry_risk_beside(update, risk)
+        if _entry is not None:
+            _entry.emergency_halt("pause_telegram")
+        elif _entry_unread:
+            system_log.warning("/pause: the caller's entry engine could not be read; "
+                               "only the shared engine was halted")
         rendered = wr_pause(scope=scope)
         await self._send(update, rendered["text"])
         audit(system_log, "Bot paused via /pause", action="pause", result="OK",
@@ -2560,6 +2571,34 @@ class TradingCommands:
         # ENABLED" was printed over entries still being refused (live, 13:59
         # on 2026-09-03). Read AFTER the reset, through the seam.
         _gate = self._resume_gate_state(risk)
+        # THE ENGINE THIS CALLER'S OWN ENTRIES ARE GATED ON, when it is not
+        # the one reset above. While live is off the operator's confirms open
+        # on their PRACTICE book, whose own engine (`practice_risk_for`) the
+        # confirm re-checks and /start reads; /resume reset the shared engine
+        # alone, and printed "Trading ENABLED / CLEAR" over a practice breaker
+        # still refusing every entry (2026-11-08, /start "Paused" a second
+        # later). `caller_risk` is /start's own reading of which engine that is.
+        _entry, _entry_unread = self._entry_risk_beside(update, risk)
+        if _entry_unread:
+            _gate = None
+        elif _entry is not None:
+            _entry.reset_circuit_breaker()
+            _gov_entry = self._clear_governor(_entry).get("")
+            if _gov is None:
+                _gov = _gov_entry
+            try:
+                _retrip = _retrip or (_entry.pending_retrip_reason() or "")
+            except Exception:
+                pass
+            _entry_gate = self._resume_gate_state(_entry)
+            if _entry_gate is None:
+                _gate = None
+            elif _gate == "":
+                _gate = _entry_gate
+        # The kill switch sits outside every risk engine: /reset clears it,
+        # /resume does not, and a card that said ENABLED over it was false.
+        if getattr(self.engine, "_halted", None) is True and _gate is not None:
+            _gate = _gate or "kill_switch"
         rendered = wr_resume(retrip_warning=_retrip, scope=scope, gate=_gate,
                              governor_cleared=_gov)
         await self._send(update, rendered["text"])
@@ -2590,6 +2629,17 @@ class TradingCommands:
         except Exception as exc:
             system_log.warning("governor clear failed: %s", type(exc).__name__)
             return {}
+
+    def _entry_risk_beside(self, update: Update, risk) -> tuple[Any, bool]:
+        """The RiskEngine this caller's own entries are gated on, when it is
+        not ``risk``: ``(engine, False)``, ``(None, False)`` when it is ``risk``
+        itself, ``(None, True)`` when it could not be read. The reading is
+        `trade_gate.caller_risk`, the one /start's headline asks."""
+        from bot.core.trade_gate import caller_risk
+        own = caller_risk(self.engine, str(self._get_tg_id(update) or ""))
+        if own is None:
+            return None, callable(getattr(self.engine, "risk_for", None))
+        return (None, False) if own is risk else (own, False)
 
     @staticmethod
     def _resume_gate_state(risk) -> Optional[str]:
