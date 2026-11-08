@@ -341,6 +341,31 @@ the profit factor is still below 1, so the verdict holds. A fold's trade
 count does not: 60 bars moved one fold from 11 trades to 60, so on windows
 this short a count is not a reading of the strategy.
 
+**Re-recorded on 2026-11-08 at `3db993a7` with a changed method: live's own
+entries and live's history.** 105 pooled positions (144 fills), 51/54, net
+−$160.95, PF 0.85, 3 of 6 folds profitable, mean OOS −0.27%, worst −2.56%, on
+`dataset_hash` `ccc3f70b7ed7…`. The command is now `--as-live --walk-forward 6
+--fold-history-bars 4824 --breaker-reset-bars 24` (above). Two sealed studies
+found the old method measuring something live does not do:
+
+- every walk-forward fold saw about 100 bars of history, so the analyzer's
+  daily context, which live always has, formed only in a fold's last days
+  (`docs/research/prereg/live_history_benchmark_2026-10/REPORT.md`);
+- every entry filled at the next bar's open, where live places the analyzer's
+  limit and lets it rest, and about half of those never fill
+  (`docs/research/prereg/exit_ladder_2026-11/REPORT.md`, whose sealed rule
+  sends a "helps" for live's entries to exactly this re-record).
+
+On this dataset the two changes move the mean OOS fold return from −3.62%
+(the old command with the breaker reset, arm A of the first study) to −1.71%
+with live's history (arm B) and to −0.27% with live's entries as well (arm LV
+of the second). **It still loses**, and the change of method
+is not an improvement to the strategy: it measures the same strategy the way
+live runs it. Live's own record (249 exits, PF 0.61) is worse than this, and
+a touch of a 1h bar counted as a fill is optimistic about a resting limit, so
+read this as an upper bound on what live's entries do. The figures recorded
+above were measured the old way and are left as they were.
+
 **The stamps above were taken on branches that were rebased before they
 merged.** `afec9d2a`, `cbbf9348`, `d8b0f7d6`, `b8c36630` and `facb316b` do not
 resolve in this repository. Each change is on `main` as the commit below.
