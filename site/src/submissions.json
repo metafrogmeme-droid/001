@@ -331,17 +331,6 @@
       "notShown": []
     },
     {
-      "slug": "ascon",
-      "name": "ASCON",
-      "status": "wip",
-      "private": true,
-      "event": null,
-      "summary": null,
-      "body": [],
-      "links": [],
-      "notShown": []
-    },
-    {
       "slug": "claw-reconcile",
       "name": "Claw Reconcile",
       "status": "wip",
