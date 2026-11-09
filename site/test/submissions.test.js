@@ -40,12 +40,6 @@ const PUBLIC_REPOS = new Set([
   'metafrogmeme-droid/claw-guard-perps-public',
 ])
 
-/** Private repositories behind some entries. None may be linked. */
-const PRIVATE_REPOS = [
-  'Claw-Pay', 'claw-guard-near-dev', 'botchain-seal', 'claw-guard-perps',
-  'QIE', 'proof-of-call', 'ARB', 'ASCON', 'claw-reconcile', 'claw-meter',
-  'agent-passport', 'paid-lock',
-]
 
 const APPROVED_VIDEO = 'pAAhR8rAJas'
 /** Videos found in the repositories that nobody approved for these pages. */
@@ -73,10 +67,10 @@ const external = (html) => hrefs(html).filter((h) => /^https?:\/\//.test(h))
 
 // ── the data ──────────────────────────────────────────────────────────────
 
-test('the data names the fifteen entries the owner asked for, once each', () => {
+test('the data names the fourteen entries the owner asked for, once each', () => {
   const names = DATA.entries.map((e) => e.name)
   assert.deepStrictEqual([...names].sort(), [
-    'ASCON', 'Agent Passport', 'Bitget AI S2', 'BotChainSeal', 'Claw Guard NEAR',
+    'Agent Passport', 'Bitget AI S2', 'BotChainSeal', 'Claw Guard NEAR',
     'Claw Guard Perps', 'Claw Guard on Arbitrum', 'Claw Meter', 'Claw Pay',
     'Claw Reconcile', 'HashKey Seal', 'KeyLease', 'QIE Proof of Call',
     'RUNECLAW Arena (Pi)', 'paid.lock',
@@ -167,7 +161,7 @@ test('every page, old and new, links the submissions index from its footer', () 
 
 test('a private entry carries its name and status and nothing else', () => {
   const priv = DATA.entries.filter((e) => e.private)
-  assert.equal(priv.length, 7)
+  assert.equal(priv.length, 6)
   for (const e of priv) {
     assert.equal(e.status, 'wip', `${e.slug}: a private entry claims ${e.status}`)
     assert.equal(e.summary, null)
@@ -184,15 +178,13 @@ test('a private entry carries its name and status and nothing else', () => {
   assert.match(pub, /signing gate/i)
 })
 
-test('only public repositories are linked, and no private one by name', () => {
+test('only public repositories are linked', () => {
+  // An allowlist, not a list of private names: a private repository's name
+  // does not belong in a public tree, and anything not on this list fails.
   for (const e of DATA.entries) {
     for (const h of external(article(page(e.slug)))) {
       const m = h.match(/^https:\/\/github\.com\/([^/]+\/[^/#?]+)/)
       if (m) assert.ok(PUBLIC_REPOS.has(m[1]), `${e.slug}: links ${m[1]}, not on the public list`)
-      for (const r of PRIVATE_REPOS) {
-        assert.ok(!new RegExp(`github\\.com/metafrogmeme-droid/${r}(?:[/"#?]|$)`, 'i').test(h),
-          `${e.slug}: links the private repository ${r}`)
-      }
     }
   }
 })
@@ -236,4 +228,14 @@ test('each page has one h1 and a breadcrumb that marks the current page', () => 
 
 test('a page that is not an entry is the 404, not a blank submission page', () => {
   assert.ok(!fs.existsSync(path.join(OUT, 'submissions', 'celo')), 'a Celo page was built')
+})
+
+test('ASCON is removed: no entry, no page, and no mention anywhere on the site', () => {
+  // The owner removed it on 2026-11-09. The build writes pages but never
+  // deletes one, so a page left over from an earlier build is checked too.
+  assert.ok(!DATA.entries.some((e) => /ascon/i.test(e.slug) || /ascon/i.test(e.name)))
+  assert.ok(!fs.existsSync(path.join(OUT, 'submissions', 'ascon')), 'a stale ASCON page is still built')
+  for (const rel of ['submissions/index.html', 'sitemap.xml', 'llms.txt']) {
+    assert.doesNotMatch(built(rel), /ascon/i, `${rel} still mentions ASCON`)
+  }
 })

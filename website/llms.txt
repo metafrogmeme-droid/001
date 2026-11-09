@@ -37,7 +37,6 @@
 - [Claw Guard Perps — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-guard-perps): Work in progress. A pre-trade firewall between a perps trading agent and its dreamDEX bot key, on Somnia testnet.
 - [QIE Proof of Call — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/qie-proof-of-call): Work in progress. A private project: details are not published yet.
 - [Claw Guard on Arbitrum — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-guard-arbitrum): Work in progress. A private project: details are not published yet.
-- [ASCON — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/ascon): Work in progress. A private project: details are not published yet.
 - [Claw Reconcile — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-reconcile): Work in progress. A private project: details are not published yet.
 - [Claw Meter — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/claw-meter): Work in progress. A private project: details are not published yet.
 - [Agent Passport — Submissions — RUNECLAW](https://www.humanoid-traders.com/submissions/agent-passport): Work in progress. A private project: details are not published yet.
