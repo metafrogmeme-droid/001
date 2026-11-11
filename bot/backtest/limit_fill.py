@@ -10,6 +10,22 @@ On, the decision uses only the bar it is handed and the order's own fields.
 A bar at or before the order was placed is not a fill: the order was not
 resting while that bar printed. Nothing here reads a later bar.
 
+**A RESTING FILL NEVER READS ITS BAR'S CLOSE.** A resting limit fills on the
+touch, and the close prints after it. Whether a resting order filled is read
+from the bar's low (a long) or high (a short) and the order's own fields, and
+nothing else. The close is read only for two decisions taken AT the close:
+
+* a reclaim entry, which is not a resting order and is booked at that close
+  (``fill_at_close``);
+* a cancel of an order this bar did not fill.
+
+This rule was broken once. The reclaim knob kept a resting fill only when its
+bar closed back through the limit, and the adverse-cancel knob cancelled an
+order whose bar closed through it; both were booked, or refused, at the
+limit price. That kept the fills that came back, dropped the ones that kept
+going, and priced the kept ones where no order placed after the close could
+fill. `tests/test_a_resting_fill_never_reads_the_close_after_its_touch.py`.
+
 Knobs, each off at None/false:
 
 * ``through_bp`` — the bar must trade this many basis points through the
@@ -17,10 +33,14 @@ Knobs, each off at None/false:
 * ``queue_p`` — a qualified touch fills with this probability. The draw is a
   hash of the order and the bar, so a re-run takes the same fills.
 * ``queue_sure_bp`` — a trade-through this deep fills regardless of the draw.
-* ``reclaim`` — the close must come back through the limit. A close that
-  stays through is the adverse fill, and it is left resting.
-* ``cancel_adverse_bp`` — a close that far through the limit cancels the
-  order instead of filling it.
+* ``reclaim`` — the order is not resting: it watches the level, and enters
+  with a taker order at the close of a bar that traded through it
+  (``through_bp`` deep) and closed back. The answer is ``fill_at_close``; the
+  caller books the entry at that close, at the taker rate, and does not
+  expose it to the range that printed before it. A taker order is not in a
+  queue, so ``queue_p`` does not apply.
+* ``cancel_adverse_bp`` — a close that far through the limit cancels an order
+  this bar did not fill. An order the touch filled stays filled.
 """
 
 from __future__ import annotations
@@ -30,9 +50,12 @@ from typing import Optional
 
 
 def decide_resting_fill(config, order: dict, bar) -> str:
-    """``legacy``, ``fill``, ``rest`` or ``cancel``.
+    """``legacy``, ``fill``, ``fill_at_close``, ``rest`` or ``cancel``.
 
     ``legacy`` means no knob is set and the caller keeps its own touch.
+    ``fill`` is a resting fill at the order's own price. ``fill_at_close`` is
+    a reclaim entry at this bar's close, at the taker rate, exposed only to
+    the bars after this one.
     """
     through = _first(order, config, "through_bp", "limit_through_bp")
     queue = _first(order, config, "queue_p", "limit_queue_p")
@@ -51,20 +74,23 @@ def decide_resting_fill(config, order: dict, bar) -> str:
     if not isinstance(px, (int, float)) or isinstance(px, bool) or px <= 0 or direction is None:
         return "rest"
     long = _is_long(direction)
-    if cancel_bp is not None and _close_through(bar, px, long, cancel_bp):
-        return "cancel"
     need = through if through is not None else 0.0
-    if not _penetrated(bar, px, long, need):
-        return "rest"
-    if reclaim and not _reclaimed(bar, px, long):
-        return "rest"
-    if queue is not None:
+    traded_through = _penetrated(bar, px, long, need)
+    if reclaim:
+        # Decided at the close, entered at the close: nothing earlier is priced.
+        if traded_through and _reclaimed(bar, px, long):
+            return "fill_at_close"
+    elif traded_through:
+        if queue is None:
+            return "fill"
         if sure is not None and _penetrated(bar, px, long, sure):
             return "fill"
         if _uniform(order, bar) < queue:
             return "fill"
-        return "rest"
-    return "fill"
+    # Not filled on this bar. Only now may its close decide a cancel.
+    if cancel_bp is not None and _close_through(bar, px, long, cancel_bp):
+        return "cancel"
+    return "rest"
 
 
 def _is_long(direction) -> bool:

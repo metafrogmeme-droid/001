@@ -886,8 +886,10 @@ Examples:
     trade_group.add_argument("--limit-queue-sure-bp", type=float, default=None, metavar="BP",
                              help="A trade-through this deep fills regardless of the queue draw.")
     trade_group.add_argument("--limit-reclaim", action="store_true",
-                             help="The close must come back through the limit: a close that "
-                                  "stays through is the adverse fill and the order keeps resting.")
+                             help="Do not rest a fill at the limit: enter at the close of a bar "
+                                  "that traded through it and closed back, as a market entry "
+                                  "(this run's commission and slippage), first exposed to the "
+                                  "next bar.")
     trade_group.add_argument("--limit-maker-entry", action="store_true",
                              help="Charge the maker rate and no slippage on a limit that fills "
                                   "under the realism knobs above.")

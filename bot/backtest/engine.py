@@ -291,6 +291,9 @@ class BacktestEngine:
         # here: the result builder reads it and two tests reach that builder
         # without calling run().
         self._pending_limits: list[dict] = []
+        # Reclaims a bar confirmed, booked at that bar's close after its stop
+        # check (`_fill_reclaims_at_close`).
+        self._close_fills: list[dict] = []
         # `--as-live` (fill_mode="live"): the entry and exit model live runs.
         # A limit idea rests from the NEXT bar and fills on a touch at its own
         # price as a maker, a market idea fills at the next open as a taker,
@@ -740,6 +743,10 @@ class BacktestEngine:
 
             # --- Monitor open positions against this bar's high/low ---
             self._check_stops_intrabar(current_bar)
+
+            # --- A reclaim this bar confirmed enters at its close, after the
+            # stop check: its range printed before the entry existed. ---
+            self._fill_reclaims_at_close(current_bar)
 
             # --- Generate signal every scan_interval bars ---
             # A moving-average preset reads every primary bar so a closed
@@ -1321,6 +1328,11 @@ class BacktestEngine:
                 self._limits_cancelled_drift += 1
                 self.risk.clear_pending_intent(idea.id)
                 continue
+            if _fill == "fill_at_close":
+                # Entered at this bar's close, so it must not meet this bar's
+                # range: booked after the stop check, by the run loop.
+                self._close_fills.append(order)
+                continue
             _touched = _fill == "fill" or (
                 _fill == "legacy" and self._limit_is_touched(bar, px, idea.direction))
             if _touched:
@@ -1364,6 +1376,20 @@ class BacktestEngine:
                 continue
             still.append(order)
         self._pending_limits = still
+
+    def _fill_reclaims_at_close(self, bar) -> None:
+        """Book each reclaim this bar confirmed, at its close, as a market entry.
+
+        The run loop calls this after `_check_stops_intrabar`, so the position
+        meets the next bar's range first. A reclaim is decided by the close,
+        and a fill decided by a close cannot be priced before it
+        (`bot/backtest/limit_fill.py`).
+        """
+        confirmed, self._close_fills = self._close_fills, []
+        for order in confirmed:
+            self._limits_filled += 1
+            self._execute_fill(order["idea"], order["risk_check"], float(bar.close), bar,
+                               maker=False)
 
     def _execute_fill(self, idea, risk_check, fill_price: float, bar,
                       maker: bool = False) -> None:

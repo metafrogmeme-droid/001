@@ -12,6 +12,12 @@ is a new test, not a member of this one.
 Fees are basis points of notional, per side. Funding is priced only when a
 rate was supplied. Unpriced funding is not zero, and a forward verdict
 cannot be a pass while it is unpriced.
+
+A reclaim (V1, V3) is not a resting fill. It is entered at the close of the
+bar that traded through the limit and closed back, at the taker rate, and
+its first exit step is the next bar. Until 2026-11-11 it was booked at the
+limit price, which only a fill that knew its own bar's close could get
+(`bot/backtest/limit_fill.py` records why).
 """
 
 from __future__ import annotations
@@ -37,6 +43,7 @@ from bot.core.limit_scanner import (
     snapshot_from_bars,
     step_exit,
 )
+from bot.core.trade_costs import TAKER, leg_rate_pct
 
 FORWARD_CUTOFF = "2026-10-23T00:00:00+00:00"
 FORWARD_CUTOFF_MS = int(datetime(2026, 10, 23, tzinfo=timezone.utc).timestamp() * 1000)
@@ -262,6 +269,9 @@ def _mark_to_market(resting, positions, meta, live_bar, params, spec, cfg, trade
         if filled and bar[0] > order["placed_ms"]:
             _open_position(order, bar, positions, meta, params, spec, trades)
             continue
+        if decision == "fill_at_close" and bar[0] > order["placed_ms"]:
+            _open_at_close(order, bar, positions, meta)
+            continue
         order["bars_waited"] += 1
         if order["bars_waited"] >= REST_BARS:
             continue
@@ -275,7 +285,8 @@ def _mark_to_market(resting, positions, meta, live_bar, params, spec, cfg, trade
         if bar is None:
             continue
         state = positions[sym]
-        # The fill bar was already stepped with its favourable side clamped.
+        # The fill bar was already stepped with its favourable side clamped,
+        # or the entry was at its close and nothing of it is left to step.
         if state.opened_ms == bar[0]:
             continue
         fills = step_exit(state, params, open_=bar[1], high=bar[2], low=bar[3],
@@ -306,10 +317,32 @@ def _open_position(order, bar, positions, meta, params, spec, trades) -> None:
     state = ExitState(side=order["side"], entry=px, stop=order["stop"],
                       atr=order["atr"], opened_ms=bar[0])
     positions[order["symbol"]] = state
-    info = {
+    meta[order["symbol"]] = _entry_info(order, bar, px, spec.entry_fee_bp)
+    fills = step_exit(state, params, open_=bar[1], high=high, low=low,
+                      close=bar[4], close_ms=bar[0])
+    _book_exits(order["symbol"], fills, positions, meta, spec, trades)
+
+
+def _open_at_close(order, bar, positions, meta) -> None:
+    """A reclaim entry: a taker order at the close of the bar that showed it.
+
+    The bar's range printed before the entry existed, so the bar is not
+    stepped; the first exit step is the next bar.
+    """
+    if order["symbol"] in positions:
+        return
+    px = bar[4]
+    positions[order["symbol"]] = ExitState(side=order["side"], entry=px, stop=order["stop"],
+                                           atr=order["atr"], opened_ms=bar[0])
+    meta[order["symbol"]] = _entry_info(order, bar, px, leg_rate_pct(TAKER) * 100.0)
+
+
+def _entry_info(order, bar, px: float, entry_fee_bp: float) -> dict:
+    return {
         "symbol": order["symbol"],
         "side": order["side"],
         "entry": px,
+        "entry_fee_bp": entry_fee_bp,
         "fill_ms": bar[0],
         "decision_ms": order["placed_ms"],
         "points": order["points"],
@@ -318,10 +351,6 @@ def _open_position(order, bar, positions, meta, params, spec, trades) -> None:
         "exit_share": 0.0,
         "reasons": [],
     }
-    meta[order["symbol"]] = info
-    fills = step_exit(state, params, open_=bar[1], high=high, low=low,
-                      close=bar[4], close_ms=bar[0])
-    _book_exits(order["symbol"], fills, positions, meta, spec, trades)
 
 
 def _book_exits(sym, fills, positions, meta, spec, trades) -> None:
@@ -340,7 +369,7 @@ def _book_exits(sym, fills, positions, meta, spec, trades) -> None:
     if state.remaining > 0:
         return
     gross = info["gross_bp"]
-    fee = spec.entry_fee_bp + spec.exit_fee_bp * min(info["exit_share"], 1.0)
+    fee = info["entry_fee_bp"] + spec.exit_fee_bp * min(info["exit_share"], 1.0)
     trades.append({
         "symbol": sym,
         "side": info["side"],

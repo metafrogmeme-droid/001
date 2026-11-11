@@ -30200,3 +30200,43 @@ why it was the workaround.
 Guarded by `tests/test_resume_clears_the_book_the_confirms_land_on.py`, driven
 through the real engine, `/resume`, `/pause` and the `entry_gate` /start
 renders, both arms each; six mutations each killed by a named test.
+
+## THE SCANNER'S PAPER FILL KEPT THE LIMITS WHOSE BAR CLOSED BACK, AND BOOKED THEM AT A PRICE THAT CLOSE HAD LEFT
+
+11 November 2026. The Limit Entry Scanner's shadow book
+(`bot/core/limit_shadow.py`) and the backtest engine both ask
+`bot/backtest/limit_fill.py::decide_resting_fill` whether a resting limit
+filled on a bar. Two of its knobs read that bar's close.
+
+**A resting fill happens at the touch, and the close prints after it.** The
+reclaim knob (pre-registered variants V1 and V3) filled only when the bar
+traded through the limit and closed back through it, then booked the entry at
+the limit price. A live resting limit cannot refuse the fills that keep going,
+and a bot that waits for the close to confirm cannot buy at the limit any
+more, because that close is past it. The adverse-cancel knob read the close
+first and cancelled an order the touch had already filled. On the frozen
+book, V1 read +29.5 bp a trade on the holdout and V3 +30.4; booked at the
+reclaim close as a taker, the same trades read -13.0 and -12.4 (measured
+2026-11-11 at 85a3752, in the RESULTS.md of metafrogmeme-droid/Playbooks-BITGET's
+research/runeclaw-limit-scanner).
+
+**What the fill does now.** Whether a resting order filled is read from the
+bar's low or high and the order's own fields, never the close. A reclaim is
+not a resting order: the decision answers `fill_at_close`, and both callers
+book it at that close at the taker rate with no exposure to the range that
+printed before it (the shadow book does not step the fill bar; the engine
+books it after `_check_stops_intrabar`, in `run()` and in the portfolio
+loop). The adverse cancel applies only to an order the bar did not fill.
+
+**The bot's paper book is not this defect.** `bot/core/paper_limits.py` fills
+on the last price a pass reads and reads closed bars only for the drift
+chase; nothing there is decided by a close that had not printed.
+
+The pre-registered forward test's V1 and V3 change meaning with this, which
+`docs/research/prereg/limit_scanner_forward/AMENDMENT_2026-11-11.md` records.
+
+Guarded by `tests/test_a_resting_fill_never_reads_the_close_after_its_touch.py`:
+an invariant that no resting fill changes with its bar's close across seven
+knob settings, both arms of the reclaim and the cancel, and the real shadow
+book, portfolio backtester and single-engine `run()` on hand-built bars.
+Seven mutations of the fix were each killed by a named test.
