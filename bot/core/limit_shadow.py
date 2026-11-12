@@ -307,7 +307,7 @@ def _mark_to_market(resting, positions, meta, live_bar, params, spec, cfg, trade
             continue
         fills = step_exit(state, params, open_=bar[1], high=bar[2], low=bar[3],
                           close=bar[4], close_ms=bar[0])
-        _book_exits(sym, fills, positions, meta, spec, trades)
+        _book_exits(sym, fills, positions, meta, spec, trades, bar[0])
 
 
 def _touch(bar: Sequence[float], px: float, side: str) -> bool:
@@ -336,7 +336,7 @@ def _open_position(order, bar, positions, meta, params, spec, trades) -> None:
     meta[order["symbol"]] = _entry_info(order, bar, px, spec.entry_fee_bp)
     fills = step_exit(state, params, open_=bar[1], high=high, low=low,
                       close=bar[4], close_ms=bar[0])
-    _book_exits(order["symbol"], fills, positions, meta, spec, trades)
+    _book_exits(order["symbol"], fills, positions, meta, spec, trades, bar[0])
 
 
 def _open_at_close(order, bar, positions, meta) -> None:
@@ -366,10 +366,16 @@ def _entry_info(order, bar, px: float, entry_fee_bp: float) -> dict:
         "gross_bp": 0.0,
         "exit_share": 0.0,
         "reasons": [],
+        "exits": [],
     }
 
 
-def _book_exits(sym, fills, positions, meta, spec, trades) -> None:
+def _book_exits(sym, fills, positions, meta, spec, trades, bar_ms: int) -> None:
+    """Book ``fills`` made on the bar that opened at ``bar_ms``; close the trade when flat.
+
+    A trade records the bar each part of it left on (``exits``, ``exit_ms``),
+    so funding can be priced over what it held (`price_funding`).
+    """
     info = meta.get(sym)
     state = positions.get(sym)
     if info is None or state is None:
@@ -382,6 +388,7 @@ def _book_exits(sym, fills, positions, meta, spec, trades) -> None:
         info["gross_bp"] += fill.share * move * 10_000.0
         info["exit_share"] += fill.share
         info["reasons"].append(fill.reason)
+        info["exits"].append([bar_ms, fill.share])
     if state.remaining > 0:
         return
     gross = info["gross_bp"]
@@ -391,6 +398,8 @@ def _book_exits(sym, fills, positions, meta, spec, trades) -> None:
         "side": info["side"],
         "fill_ms": info["fill_ms"],
         "decision_ms": info["decision_ms"],
+        "exit_ms": bar_ms,
+        "exits": info["exits"],
         "points": info["points"],
         "class": info["class"],
         "gross_bp": gross,
@@ -512,6 +521,107 @@ def evaluate_forward(trades: Sequence[dict], *, funding_priced: bool,
         return {**base, "evaluable": True, "verdict": "refuted", "reason": "upper bound is below zero"}
     base["reason"] = "the lower bound is not above zero, or the deflated Sharpe is below the bar"
     return base
+
+
+# Bitget's longest funding interval is eight hours. Two prints further apart
+# than that across a trade's window mean a print between them was not read.
+FUNDING_MAX_GAP_MS = 8 * 3_600_000
+
+
+def price_funding(trades: Sequence[dict], prints: Mapping[str, Sequence[tuple]], *,
+                  max_gap_ms: int = FUNDING_MAX_GAP_MS) -> list[dict]:
+    """Each trade, priced for the funding prints it held through when all were read.
+
+    ``prints`` maps a trade's symbol to ``(time_ms, rate)`` pairs, the rate a
+    fraction per print (0.0001 is 1 bp). A trade pays a print at ``t`` when
+    the bar it filled on opened before ``t`` and the bar it left on opened at
+    or after ``t``, on the share still open at ``t``: a share that left on a
+    bar opening before ``t`` is gone. A long pays a positive rate and a short
+    receives it, in bp of the entry notional (the venue charges the mark
+    notional; over a few hours the difference is a fraction of a bp).
+
+    Priced only when the prints bracket the window (one at or before the fill
+    bar, one at or after the exit bar) with no gap over ``max_gap_ms`` across
+    it. Then ``funding`` is "priced", ``funding_bp`` is the cost (0.0 when no
+    print fell inside: a read zero) and ``net_bp`` has it taken off.
+    Otherwise the trade is returned as it was, "unpriced": a print that was
+    not read is not a zero.
+    """
+    out = []
+    for trade in trades:
+        row = dict(trade)
+        cost = _funding_bp(trade, prints.get(trade["symbol"]), max_gap_ms)
+        if cost is not None:
+            row["funding"] = "priced"
+            row["funding_bp"] = cost
+            row["net_bp"] = float(trade["net_bp"]) - cost
+        out.append(row)
+    return out
+
+
+def _funding_bp(trade: Mapping, series: Optional[Sequence[tuple]], max_gap_ms: int) -> Optional[float]:
+    fill, left, exits = trade.get("fill_ms"), trade.get("exit_ms"), trade.get("exits")
+    if not series or fill is None or left is None or not exits:
+        return None
+    times = sorted((int(ms), float(rate)) for ms, rate in series)
+    first = max((i for i, (ms, _) in enumerate(times) if ms <= fill), default=None)
+    last = min((i for i, (ms, _) in enumerate(times) if ms >= left), default=None)
+    if first is None or last is None:
+        return None
+    span = times[first:last + 1]
+    if any(b[0] - a[0] > max_gap_ms for a, b in zip(span, span[1:])):
+        return None
+    sign = 1.0 if trade["side"] == LONG else -1.0
+    cost = 0.0
+    for ms, rate in span:
+        if fill < ms <= left:
+            held = 1.0 - sum(share for exit_ms, share in exits if exit_ms < ms)
+            cost += sign * rate * max(held, 0.0) * 10_000.0
+    return cost
+
+
+def all_funding_priced(trades: Sequence[dict]) -> bool:
+    """True only for a non-empty set whose every trade was priced."""
+    return bool(trades) and all(t.get("funding") == "priced" for t in trades)
+
+
+def forward_verdict(trades: Sequence[dict], prints: Mapping[str, Sequence[tuple]], *,
+                    cutoff_ms: int, cutoff: str, n_trials: int) -> dict:
+    """One test's verdict: its window, funding priced from ``prints``, its N.
+
+    Trades on or before the cutoff are left out, as they are not this test's.
+    Funding is priced only when every trade in the window was priced.
+    """
+    window = price_funding([t for t in trades if int(t["fill_ms"]) > cutoff_ms], prints)
+    return evaluate_forward(window, funding_priced=all_funding_priced(window),
+                            n_trials=n_trials, cutoff_ms=cutoff_ms, cutoff=cutoff)
+
+
+def load_funding(directory: Path, dataset: Path) -> dict[str, list[tuple[int, float]]]:
+    """Funding prints per dataset symbol, from ``<directory>/<bar file stem>.json``.
+
+    Each file is a list of ``{"ms": ..., "rate": ...}`` rows, as Bitget's public
+    ``/api/v2/mix/market/history-fund-rate`` reports them. A missing or
+    unreadable file leaves its symbol out, and a row that does not read is
+    dropped, which `price_funding` then sees as a gap.
+    """
+    manifest = json.loads((Path(dataset) / "manifest.json").read_text(encoding="utf-8"))
+    out: dict[str, list[tuple[int, float]]] = {}
+    for sym, entry in manifest.get("symbols", {}).items():
+        stem = str(entry["file"]).split(".", 1)[0]
+        try:
+            rows = json.loads((Path(directory) / f"{stem}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        prints = []
+        for row in rows if isinstance(rows, list) else []:
+            try:
+                prints.append((int(row["ms"]), float(row["rate"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if prints:
+            out[sym] = sorted(prints)
+    return out
 
 
 def book_overlap(symbols: Iterable[str], *, b1v: Optional[Sequence[str]],
