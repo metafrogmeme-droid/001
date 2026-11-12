@@ -1,9 +1,10 @@
 """Shadow book for the Limit Entry Scanner, and the forward test's rules.
 
 The playbook places nothing here. A pass writes the order it would have
-rested and the fill the model would have given it. The forward test scores
-only trades whose fill is strictly after 2026-10-23. A trade on or before
-that instant refuses the score. An empty window is not a zero.
+rested and the fill the model would have given it. A forward test scores
+only trades whose fill is strictly after its cutoff (2026-10-23 for the
+original, 2026-11-12 for the reclaim test). A trade on or before that
+instant refuses the score. An empty window is not a zero.
 
 The four variants below are the pre-registered set. Their count is the N
 the deflated Sharpe uses. Adding a variant after the window has been read
@@ -18,6 +19,14 @@ bar that traded through the limit and closed back, at the taker rate, and
 its first exit step is the next bar. Until 2026-11-11 it was booked at the
 limit price, which only a fill that knew its own bar's close could get
 (`bot/backtest/limit_fill.py` records why).
+
+**TWO FORWARD TESTS, AND THEY ARE NOT ONE.** The original test (cutoff
+2026-10-23, V0 to V3, N = 4) was registered under the pre-fix reclaim fill;
+its record is kept as written and labelled pre-fix
+(`docs/research/prereg/limit_scanner_forward/PRE_FIX.md`). V1 and V3 as they
+now fill are a new test, registered 2026-11-12 with their own cutoff and N
+(`RECLAIM_FORWARD_*`, `docs/research/prereg/limit_scanner_reclaim_forward/`).
+`evaluate_forward` scores the original unless it is handed the new one's.
 """
 
 from __future__ import annotations
@@ -60,8 +69,15 @@ DRIFT_CANCEL_PCT = 2.0
 
 # Names fixed before any forward result. The fill is the realistic one:
 # 5 bp of trade-through, a queue that fills half of mere qualifications and
-# every trade-through of 10 bp, maker 2 bp a side.
+# every trade-through of 10 bp, maker 2 bp a side. Pre-fix: V1 and V3 here
+# were registered with the reclaim fill this code no longer runs.
 PREREG_VARIANTS = ("V0", "V1", "V2", "V3")
+
+# The corrected reclaim variants' own forward test, registered 2026-11-12.
+RECLAIM_FORWARD_CUTOFF = "2026-11-12T00:00:00+00:00"
+RECLAIM_FORWARD_CUTOFF_MS = int(datetime(2026, 11, 12, tzinfo=timezone.utc).timestamp() * 1000)
+RECLAIM_FORWARD_VARIANTS = ("V1", "V3")
+N_RECLAIM_FORWARD = len(RECLAIM_FORWARD_VARIANTS)
 
 
 @dataclass(frozen=True)
@@ -432,17 +448,22 @@ def summarize(trades: Sequence[dict]) -> dict:
 
 
 def evaluate_forward(trades: Sequence[dict], *, funding_priced: bool,
-                     n_trials: int = N_PREREGISTERED) -> dict:
+                     n_trials: int = N_PREREGISTERED,
+                     cutoff_ms: int = FORWARD_CUTOFF_MS,
+                     cutoff: str = FORWARD_CUTOFF) -> dict:
     """The pre-registered verdict. Old trades refuse the call.
 
     Empty, unreadable and unpriced are not a measured zero and not a pass.
+    The defaults are the original test; the reclaim test passes its own
+    ``RECLAIM_FORWARD_*`` cutoff and ``N_RECLAIM_FORWARD``.
     """
+    day = cutoff[:10]
     for trade in trades:
-        if int(trade["fill_ms"]) <= FORWARD_CUTOFF_MS:
+        if int(trade["fill_ms"]) <= cutoff_ms:
             return {
                 "evaluable": False,
                 "verdict": "refused",
-                "reason": "a trade is on or before 2026-10-23",
+                "reason": f"a trade is on or before {day}",
                 "mean_net_bp": None,
                 "n": None,
             }
@@ -464,11 +485,11 @@ def evaluate_forward(trades: Sequence[dict], *, funding_priced: bool,
         "upper_bp": stats["upper_bp"],
         "dsr": None,
         "funding": "priced" if funding_priced else "unpriced",
-        "cutoff": FORWARD_CUTOFF,
+        "cutoff": cutoff,
         "n_trials": n_trials,
     }
     if stats["n"] == 0:
-        base["reason"] = "no closed trades after 2026-10-23"
+        base["reason"] = f"no closed trades after {day}"
         base["mean_net_bp"] = None
         return base
     if not funding_priced:
