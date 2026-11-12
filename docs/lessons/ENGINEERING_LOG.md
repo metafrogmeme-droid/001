@@ -30240,3 +30240,38 @@ an invariant that no resting fill changes with its bar's close across seven
 knob settings, both arms of the reclaim and the cancel, and the real shadow
 book, portfolio backtester and single-engine `run()` on hand-built bars.
 Seven mutations of the fix were each killed by a named test.
+
+## THE FORWARD TEST COULD NEVER PASS: ITS TRADES DID NOT SAY WHEN THEY CLOSED, SO FUNDING COULD NOT BE PRICED
+
+12 November 2026. Both Limit Entry Scanner forward tests (the original,
+labelled pre-fix, and the reclaim test registered today) refuse a pass while
+funding is unpriced, and every trade the shadow book wrote said
+`"funding": "unpriced"`. It also recorded only when it filled. A rate cannot
+be charged over a holding period nobody wrote down, so no verdict could ever
+have read "survives", whatever the market did.
+
+**A trade records when it left, and when each part of it left.**
+`bot/core/limit_shadow.py::_book_exits` is handed the bar it books on and
+writes `exit_ms` and `exits` (each part's bar and share). Then
+`price_funding` charges the prints the position held through: a print at `t`
+is paid when the fill bar opened before `t` and the exit bar opened at or
+after `t`, on the share still open at `t`. Funding times sit on hour
+boundaries, so no print falls inside an hourly bar and the rule has no
+ambiguous case.
+
+**Unread is never zero, and a read zero is a zero.** A trade is priced only
+when the symbol's prints bracket its window with no gap over eight hours
+(Bitget's longest interval); a missing file, a dropped row or a hole leaves it
+unpriced and its `net_bp` untouched, with no `funding_bp` at all. A covered
+window with no print inside it is priced at 0.0. `forward_verdict` passes
+`funding_priced` only when every trade in the window was priced, and
+`scripts/limit_scanner_forward.py` scores a test from bar and funding files,
+the reclaim test also with every exit at the taker rate, as it was registered.
+
+On real Bitget prints (all 34 symbols at four- or eight-hour intervals),
+every trade in the spent 2026-10-01 to 10-10 stretch was priced, at a few
+tenths of a basis point on average.
+
+Guarded by `tests/test_limit_scanner_funding_is_priced_or_said_unpriced.py`,
+both arms of each rule, the real shadow book, the loader on files, and the
+scoring script; ten mutations each killed by a named test.
