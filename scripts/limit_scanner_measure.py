@@ -20,7 +20,10 @@ from bot.core.limit_shadow import (  # noqa: E402
     CARD_TOUCH,
     FORWARD_CUTOFF_MS,
     HOLDOUT_START_MS,
+    N_RECLAIM_FORWARD,
     REALISTIC,
+    RECLAIM_FORWARD_CUTOFF,
+    RECLAIM_FORWARD_CUTOFF_MS,
     FillSpec,
     book_overlap,
     evaluate_forward,
@@ -41,14 +44,25 @@ def _row(name, params, spec, bars, *, cancel_adverse_bp=0.0):
     trades = out["trades"]
     dev = slice_trades(trades, 0, HOLDOUT_START_MS)
     hold = slice_trades(trades, HOLDOUT_START_MS, FORWARD_CUTOFF_MS + 1)
-    forward = [t for t in trades if int(t["fill_ms"]) > FORWARD_CUTOFF_MS]
+    if spec.reclaim:
+        # The corrected reclaim is its own test (registered 2026-11-12); the
+        # original test's V1 and V3 were the pre-fix fill this code no longer runs.
+        test = "limit_scanner_reclaim_forward"
+        forward = [t for t in trades if int(t["fill_ms"]) > RECLAIM_FORWARD_CUTOFF_MS]
+        verdict = evaluate_forward(forward, funding_priced=False, n_trials=N_RECLAIM_FORWARD,
+                                   cutoff_ms=RECLAIM_FORWARD_CUTOFF_MS, cutoff=RECLAIM_FORWARD_CUTOFF)
+    else:
+        test = "limit_scanner_forward"
+        forward = [t for t in trades if int(t["fill_ms"]) > FORWARD_CUTOFF_MS]
+        verdict = evaluate_forward(forward, funding_priced=False)
     return {
         "name": name,
         "fill": spec.name,
         "orders": len(out["orders"]),
         "dev": summarize(dev),
         "holdout": summarize(hold),
-        "forward": evaluate_forward(forward, funding_priced=False),
+        "forward_test": test,
+        "forward": verdict,
         "holdout_symbols": hold,
     }
 
