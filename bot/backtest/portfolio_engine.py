@@ -244,6 +244,10 @@ class PortfolioBacktester:
 
                 eng._check_stops_intrabar(bar)
 
+                # A reclaim this bar confirmed enters at its close, after the
+                # stop check, as run() does.
+                eng._fill_reclaims_at_close(bar)
+
                 if self._scanner is None and eng._wants_signal_bar(i):
                     window = bars[max(0, i - lookback):i + 1]
                     await eng._process_bar(bar, window, i)
