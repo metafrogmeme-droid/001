@@ -23,6 +23,7 @@ from telegram.error import InvalidToken
 from telegram.ext import ApplicationBuilder
 
 from bot.core.boot_health import REJECTED_TOKEN_LINE, run_boot, stop_telegram
+from tests.fake_secrets import fake_telegram_bot_token
 from tests.source_scan import code_only
 
 REPO = Path(__file__).resolve().parents[1]
@@ -31,7 +32,7 @@ REPO = Path(__file__).resolve().parents[1]
 def _never_started():
     # A well-formed token: building needs none of the network, and nothing
     # here initialises, so nothing is sent.
-    return ApplicationBuilder().token("123456789:AAFakeTokenNeverSentAnywhere000").build()
+    return ApplicationBuilder().token(fake_telegram_bot_token()).build()
 
 
 @pytest.mark.asyncio
@@ -92,7 +93,7 @@ def test_main_stops_telegram_through_the_guarded_helper():
 
 # ── and the error it exits with names the class, never the token ────────
 
-SECRET = "123456789:AAThisWouldBeTheOperatorsRealToken00"
+SECRET = fake_telegram_bot_token()
 
 
 def _drive(coro_fn):

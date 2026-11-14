@@ -49,6 +49,7 @@ from bot.utils.secret_shapes import (
     scrub_diagnostic,
     scrub_secrets,
 )
+from tests.fake_secrets import FAKE_GOOGLE_API_KEY
 
 # ── 1. the table pins itself ─────────────────────────────────────────────────
 
@@ -86,6 +87,11 @@ def test_token_shapes_come_before_the_key_value_families():
 
 # ── 2. the drive that justified the module ──────────────────────────────────
 
+# Assembled at import so this file has no contiguous Google API key literal.
+_QUERY_GOOGLE_KEY_TEXT = (
+    "see https://maps.example.com/v1/x?key=" + FAKE_GOOGLE_API_KEY + "&v=3"
+)
+
 PASSED_BEFORE = {
     "bearer header": ("Authorization: Bearer sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghijk",
                       "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghijk"),
@@ -106,8 +112,8 @@ PASSED_BEFORE = {
                              "bg_1234567890abcdef1234567890abcdef"),
     "private key label": ("private key: 4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a",
                           "4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a"),
-    "query key= that is not api_key": ("see https://maps.example.com/v1/x?key=AIzaSyA0123456789abcdefghijklmnopqrstuv&v=3",
-                                       "AIzaSyA0123456789abcdefghijklmnopqrstuv"),
+    "query key= that is not api_key": (_QUERY_GOOGLE_KEY_TEXT,
+                                       FAKE_GOOGLE_API_KEY),
 }
 
 

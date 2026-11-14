@@ -37,6 +37,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { fakeTelegramBotToken, FAKE_GOOGLE_API_KEY } = require('./fake_secrets');
 
 const { safeErrorText, LIMIT } = require('../lib/safe_error');
 const { ROWS, REDACTED, scrubSecrets, looksLikeCredential, buildShapes } = require('../lib/secret_shapes');
@@ -76,7 +77,7 @@ test('the table is the rows the bot renders, in its order', () => {
 // ── 2. what this runtime published before ───────────────────────────────────
 
 const LEAKED = {
-  telegram_token: 'send failed for bot 7123456789:AAHfSomeRealLookingTokenValue_abcdef12345',
+  telegram_token: 'send failed for bot ' + fakeTelegramBotToken(),
   provider_key: 'provider rejected sk-proj-abc123def456ghi789jkl012mno345pqr',
   xai_key: 'client built with xai-abcdefghijklmnopqrstuvwxyz0123456789',
   jwt: 'session eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk',
@@ -126,7 +127,7 @@ test('the rows an error body needs and a card does not still apply', () => {
     'ENOENT ***path*** missing');
   assert.equal(safeErrorText(new Error('upstream sent cookie=abcd1234efgh5678ijkl')),
     `upstream sent cookie=${REDACTED}`);
-  assert.equal(safeErrorText(new Error('GET https://api.example.com/v1/x?key=AIzaSyA1b2C3d4E5f6G7h8I9j0&v=3 failed')),
+  assert.equal(safeErrorText(new Error('GET https://api.example.com/v1/x?key=' + FAKE_GOOGLE_API_KEY + '&v=3 failed')),
     'GET https://api.example.com/v1/x?*** failed');
 });
 
