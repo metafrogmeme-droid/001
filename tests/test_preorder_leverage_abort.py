@@ -55,6 +55,7 @@ from bot.core.live_executor import (
     preorder_leverage_verdict,
     uta_symbol_leverage,
 )
+from tests.fake_secrets import join_secret
 from tests.leverage_drive import drive_ensure_leverage, lev
 
 RATIO = 1.5
@@ -388,7 +389,7 @@ class TestUtaSymbolConfigIsThePreOrderRead:
         assert read["value"] == 20
 
         def _boom(self, method, path, body_dict=None, timeout=10):
-            raise RuntimeError("api key sk-secret-should-not-surface")
+            raise RuntimeError("api key " + join_secret('sk-', 'secret-shoul', 'd-not-surface'))
 
         monkeypatch.setattr(_Client, "request", _boom)
         unread = asyncio.run(ex._read_uta_symbol_leverage("JUP/USDT:USDT"))

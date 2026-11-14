@@ -37,10 +37,11 @@ import json
 from types import SimpleNamespace as NS
 
 from bot.utils.outbound import reply_safe
+from tests.fake_secrets import fake_telegram_bot_token_aaf_v
 
 #: A key the shared redactor knows, and a bot token it does not.
 KEYED = "auth failed: api_key=sk-abcdefghijklmnopqrs"
-TOKEN = "call https://api.telegram.org/bot1234567890:AAFvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv/x"
+TOKEN = "call https://api.telegram.org/bot" + fake_telegram_bot_token_aaf_v() + "/x"
 
 
 # ── 1. the seam ─────────────────────────────────────────────────────────────

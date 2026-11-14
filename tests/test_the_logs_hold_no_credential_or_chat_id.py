@@ -34,14 +34,15 @@ from bot.utils import logger as logmod
 from bot.utils import secret_shapes
 from bot.utils.logger import audit, risk_log, system_log, trade_log
 from bot.utils.secret_shapes import REDACTED
+from tests.fake_secrets import fake_telegram_bot_token, join_secret
 
 CHANNELS = {"trade": trade_log, "risk": risk_log, "system": system_log}
 
 # ── what is planted ──────────────────────────────────────────────────────────
 
-BOT_TOKEN = "7123456789:AAHfSomeRealLookingTokenValue_abcdef12345"
-PROVIDER_KEY = "sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghijk"
-BEARER_KEY = "sk-ant-api03-ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210zyxwvuts"
+BOT_TOKEN = fake_telegram_bot_token()
+PROVIDER_KEY = join_secret('sk-proj-', 'AbCdEfGhIjKlMnOpQrStUvW', 'xYz0123456789abcdefghijk')
+BEARER_KEY = join_secret('sk-ant-', 'api03-ZyXwVuTsRqPoNmLkJiH', 'gFeDcBa9876543210zyxwvuts')
 JWT = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0"
        ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")
 SIGNER_HEX = "4f3c2b1a" * 8

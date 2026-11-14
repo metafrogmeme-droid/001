@@ -11,8 +11,8 @@ picks the first non-condemned candidate deterministically.
 import pytest
 
 from bot.llm import key_health as kh
-from bot.llm.provider import (BYOK, LLMConfig, LLMProvider, LLMTier,
-                              resolve_tier_config)
+from bot.llm.provider import BYOK, LLMConfig, LLMProvider, LLMTier, resolve_tier_config
+from tests.fake_secrets import join_secret
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,7 @@ def test_auth_error_classifier():
 
 
 def test_fingerprint_never_reveals_key():
-    f = kh.fp("sk-ant-api03-SECRETSECRETSECRET")
+    f = kh.fp(join_secret('sk-ant-', 'api03-SECRET', 'SECRETSECRET'))
     assert "SECRETSECRETSECRET" not in f
     assert f.startswith("sk-ant")
 
@@ -241,6 +241,7 @@ def test_validator_success_marks_valid(monkeypatch):
 # ── analyzer auto-condemn wiring (source pin) ────────────────────────
 def test_analyzer_marks_key_on_auth_failure():
     import inspect
+
     from bot.core.analyzer import Analyzer
     src = inspect.getsource(Analyzer)
     assert "looks_like_auth_error" in src

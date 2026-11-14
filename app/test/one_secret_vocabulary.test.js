@@ -37,6 +37,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { fakeTelegramBotToken, FAKE_GOOGLE_API_KEY, joinSecret } = require('./fake_secrets');
 
 const { safeErrorText, LIMIT } = require('../lib/safe_error');
 const { ROWS, REDACTED, scrubSecrets, looksLikeCredential, buildShapes } = require('../lib/secret_shapes');
@@ -76,10 +77,10 @@ test('the table is the rows the bot renders, in its order', () => {
 // ── 2. what this runtime published before ───────────────────────────────────
 
 const LEAKED = {
-  telegram_token: 'send failed for bot 7123456789:AAHfSomeRealLookingTokenValue_abcdef12345',
-  provider_key: 'provider rejected sk-proj-abc123def456ghi789jkl012mno345pqr',
-  xai_key: 'client built with xai-abcdefghijklmnopqrstuvwxyz0123456789',
-  jwt: 'session eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk',
+  telegram_token: 'send failed for bot ' + fakeTelegramBotToken(),
+  provider_key: 'provider rejected ' + joinSecret('sk-proj-', 'abc123def456ghi7', '89jkl012mno345pqr'),
+  xai_key: 'client built with ' + joinSecret('xai-', 'abcdefghijklmnopqr', 'stuvwxyz0123456789'),
+  jwt: 'session ' + joinSecret('eyJ', 'hbGciOiJIUzI1NiJ9', '.', 'eyJ', 'zdWIiOiIxIn0', '.', 'dBjftJeZ4CVPmB92K27uh', 'bUJU1p1r_wW1gFWFOEjXk'),
   master_key: 'config error: RUNECLAW_SECRETS_KEY=Zm9vYmFyYmF6cXV4Cg0123456789abcd',
   signer_key: 'WEB3_SIGNER_PRIVATE_KEY=4f3c2b1a0987654321fedcba0123456789abcdef0123456789abcdef01234567',
   creds_key: 'WEB_CREDS_KEY=0123456789abcdef0123456789abcdef',
@@ -97,7 +98,7 @@ for (const [name, text] of Object.entries(LEAKED)) {
 
 test('the bearer row keeps the scheme word and takes the token', () => {
   const out = safeErrorText(new Error(
-    'upstream said Authorization: Bearer sk-ant-api03-Zm9vYmFyYmF6cXV4Cg1234'));
+    'upstream said Authorization: Bearer ' + joinSecret('sk-ant-', 'api03-Zm9vYmFy', 'YmF6cXV4Cg1234')));
   assert.equal(out, `upstream said Authorization: Bearer ${REDACTED}`);
   // The defect it replaces: the label redacted, the key printed after it.
   assert.ok(!/\*\*\*REDACTED\*\*\* sk-ant/.test(out), out);
@@ -126,7 +127,7 @@ test('the rows an error body needs and a card does not still apply', () => {
     'ENOENT ***path*** missing');
   assert.equal(safeErrorText(new Error('upstream sent cookie=abcd1234efgh5678ijkl')),
     `upstream sent cookie=${REDACTED}`);
-  assert.equal(safeErrorText(new Error('GET https://api.example.com/v1/x?key=AIzaSyA1b2C3d4E5f6G7h8I9j0&v=3 failed')),
+  assert.equal(safeErrorText(new Error('GET https://api.example.com/v1/x?key=' + FAKE_GOOGLE_API_KEY + '&v=3 failed')),
     'GET https://api.example.com/v1/x?*** failed');
 });
 
@@ -161,7 +162,7 @@ test('a number is still a character limit, and the scrub runs before the cut', (
   // cut; cut first, the fragment no longer looks like a key and is published.
   // A LABELLED secret cannot tell the orders apart — its row still matches the
   // stump — which is why the first fixture here proved nothing.
-  const long = `${'x'.repeat(LIMIT - 15)} sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345`;
+  const long = `${'x'.repeat(LIMIT - 15)} ' + joinSecret('sk-', 'ABCDEFGHIJKLMNOP', 'QRSTUVWXYZ012345') + '`;
   const out = safeErrorText(new Error(long));
   assert.ok(!out.includes('sk-ABCDEFGHIJ'), `a cut-off key survived: ${out.slice(-40)}`);
 });

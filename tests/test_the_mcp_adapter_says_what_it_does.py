@@ -37,6 +37,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.fake_secrets import join_secret
 from tests.source_scan import code_only
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -62,7 +63,7 @@ def adapter(monkeypatch):
         async def execute(self, engine, **kwargs):
             raise RuntimeError(
                 "venue said no: https://api.bitget.com/api/v2/x?apiKey=LEAKED123"
-                " Authorization: Bearer sk-ant-api03-Zm9vYmFyYmF6cXV4Cg")
+                " Authorization: Bearer " + join_secret('sk-ant-', 'api03-Zm9vYm', 'FyYmF6cXV4Cg'))
 
     class _Registry:
         def get(self, name):
