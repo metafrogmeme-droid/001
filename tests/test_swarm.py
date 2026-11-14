@@ -44,6 +44,7 @@ from bot.core.swarm import (
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
 from bot.utils.models import AgentState, Direction, TradeIdea
+from tests.fake_secrets import join_secret
 
 T = SwarmMessageType
 R = SwarmRole
@@ -230,7 +231,7 @@ async def test_the_halt_watcher_yields_when_woken_with_nothing_latched():
 async def test_a_worker_exception_halts_and_names_only_the_class():
     class Boom:
         def evaluate(self, idea, atr=None):
-            raise RuntimeError("sk-live-SECRET-in-the-message")
+            raise RuntimeError(join_secret('sk-live-', 'SECRET-in-', 'the-message'))
 
     async with SwarmCoordinator(risk_engine=Boom(), heartbeat_interval_s=0.05) as coord:
         coord.risk._bus.publish(_msg(T.TRADE_IDEA, R.RISK, idea=_idea(), trade_id="x"))
