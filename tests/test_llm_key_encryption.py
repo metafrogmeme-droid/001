@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 from cryptography.fernet import Fernet
 
+from tests.fake_secrets import join_secret
+
 
 @pytest.fixture()
 def models(monkeypatch, tmp_path):
@@ -44,8 +46,10 @@ class TestHelpers:
     def test_legacy_plaintext_passthrough(self, models):
         # A value that isn't valid Fernet ciphertext is treated as legacy
         # plaintext and returned as-is (transparent migration).
-        assert models._decrypt_llm_key("sk-legacy-plaintext-key") == "sk-legacy-plaintext-key"
+        assert models._decrypt_llm_key(join_secret('sk-', 'legacy-pla', 'intext-key')) == (
+            join_secret('sk-', 'legacy-pla', 'intext-key')
 
+        )
 
 class TestRoundTripThroughDb:
     def test_save_get_round_trips_plaintext(self, models):

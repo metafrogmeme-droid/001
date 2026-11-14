@@ -790,6 +790,56 @@ jobs:
               exit 1
             }
 
+  # TREE gate, not a history scan. The job above answers "is a secret still
+  # reachable in this ref's history". This one answers "does the current
+  # tree contain a contiguous provider-pattern literal?" — the class of
+  # defect GitHub secret scanning already opened as alerts 1–3 (Telegram
+  # bot tokens and a Google API key in test fixtures). Historical values
+  # stay a rotation problem; this job will not go red on them.
+  #
+  # Required-style: fast, deterministic, no network after the pinned
+  # download, contents:read only. It can be added next to
+  # "Lint + tests (baseline gate)" in the branch ruleset. It is not added
+  # automatically — changing required checks is an owner decision.
+  #
+  # Two scanners, one rule set. The Python gate is what developers and
+  # pre-commit run; gitleaks is the pinned binary CI additionally trusts.
+  # Both must pass. Findings print rule, path and line — never the value.
+  secret-literals:
+    name: Secret literals (tree gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Python tree gate
+        run: python3 scripts/secret_literal_gate.py
+
+      - name: gitleaks (current tree, pinned)
+        env:
+          GITLEAKS_VERSION: 8.28.0
+          GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSLo "$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar xzf "$tarball" gitleaks
+          ./gitleaks dir \
+            --config .gitleaks-tree.toml \
+            --report-path gitleaks-tree-report.json \
+            --redact \
+            --no-banner \
+            . || {
+              echo "::error::gitleaks found a contiguous provider-pattern literal in the current tree."
+              echo "--- findings: rule, file and line. Secret values are masked. ---"
+              cat gitleaks-tree-report.json 2>/dev/null || echo "(no report was written)"
+              exit 1
+            }
+
   token-tooling:
     name: Token tooling (node)
     runs-on: ubuntu-latest

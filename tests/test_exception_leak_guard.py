@@ -32,6 +32,7 @@ redactors match.
 from __future__ import annotations
 
 from bot.skills.telegram_handler import _safe_exc_text
+from tests.fake_secrets import join_secret
 
 
 class _Err(Exception):
@@ -53,7 +54,7 @@ class TestSecretsAreScrubbed:
     def test_a_bot_token_in_a_url_is_redacted(self):
         # The shape the shared key=value redactor cannot see.
         out = _safe_exc_text(
-            _Err("bot7654321:AAH0abcdefghijklmnopqrstuvwxyz123456 invalid"))
+            _Err(join_secret('bot', '7654321', ':', 'AAH0abcdefghijklmn', 'opqrstuvwxyz123456') + " invalid"))
         assert "AAH0abcdefghijklmnopqrstuvwxyz123456" not in out
         assert "REDACTED" in out
 
@@ -62,10 +63,11 @@ class TestSecretsAreScrubbed:
         # the Authorization header a provider error echoes, a bare provider
         # key, and an env name that ends in KEY without starting with api.
         for msg, secret in (
-            ("401 from provider: Authorization: Bearer sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123",
-             "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123"),
-            ("provider refused sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
-             "sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"),
+            ("401 from provider: Authorization: Bearer "
+             + join_secret('sk-ant-', 'api03-AbCdEfGhIjKl', 'MnOpQrStUvWxYz0123'),
+             join_secret('sk-ant-', 'api03-AbCdEfGhIjKl', 'MnOpQrStUvWxYz0123')),
+            ("provider refused " + join_secret('sk-proj-', 'AbCdEfGhIjKlMnOpQr', 'StUvWxYz0123456789'),
+             join_secret('sk-proj-', 'AbCdEfGhIjKlMnOpQr', 'StUvWxYz0123456789')),
             ("KeyError: WEB3_SIGNER_PRIVATE_KEY=4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a",
              "4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a"),
         ):

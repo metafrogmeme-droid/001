@@ -25,10 +25,11 @@ from bot.skills.telegram_handler import (
     _operator_exc_detail,
 )
 
+# A realistic Telegram token shape. Not a real credential.
+from tests.fake_secrets import fake_telegram_bot_token
 from tests.source_scan import code_only
 
-# A realistic Telegram token shape. Not a real credential.
-FAKE_TOKEN = "123456789:AAFakeTokenForTestingOnly_NotReal12345"
+FAKE_TOKEN = fake_telegram_bot_token()
 
 
 class TestItAnswersTheQuestionTheClassCouldNot:

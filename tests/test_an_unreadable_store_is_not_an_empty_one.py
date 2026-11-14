@@ -48,10 +48,11 @@ from bot.utils.json_store import (
     read_json_store,
     update_json_store,
 )
+from tests.fake_secrets import join_secret
 
 _REAL_OPEN = builtins.open
 _REAL_FDOPEN = os.fdopen
-CORRUPT = b'{"111": 2, "222": 3, "sk-live-THIS-IS-FILE-TEXT'
+CORRUPT = b'{"111": 2, "222": 3, "' + join_secret('sk-live-', 'THIS-IS-', 'FILE-TEXT').encode()
 
 
 @pytest.fixture

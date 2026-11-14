@@ -27,6 +27,7 @@ import pytest
 import bot.web.dashboard_server as ds
 from bot.core.engine import RuneClawEngine, _is_connectivity_error
 from bot.core.system_health import SystemHealthMonitor
+from tests.fake_secrets import join_secret
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -313,7 +314,7 @@ def test_answers_and_bugs_are_not_connectivity_faults(exc):
 
 # ── the error label must not carry the driver's prose ─────────────────────
 
-_SECRET = "sk-RUNECLAW-TESTKEY-9d3f"
+_SECRET = join_secret('sk-', 'RUNECLAW-T', 'ESTKEY-9d3f')
 
 
 def test_the_recorded_error_is_a_class_name_not_the_exception_text():

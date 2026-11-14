@@ -1,0 +1,91 @@
+# Tree-only secret literal gate. Not a history scan.
+#
+# The existing `.gitleaks.toml` + history baseline answers "is a secret still
+# reachable in this ref's history". This config answers a different question:
+# "does the current tree contain a contiguous provider-pattern literal?"
+# Historical values are out of scope here; they stay a rotation problem.
+#
+# Do not extend the default rule set. Generic-api-key and 64-hex rules fire
+# on transaction hashes, checksums and env-var names, and would train people
+# to ignore this gate. The rules below are the shapes GitHub's provider
+# patterns flag, at the same lengths as bot/utils/secret_shapes.py.
+#
+# The path allowlist is ONLY the runtime fake builders, the official secret
+# vocabulary table (and its generated website artifact), and the history-scan
+# config whose stopwords are themselves documented fixtures. Do not add
+# tests/ or app/test/ — that is what let the 2026-11 alerts exist.
+
+title = "runeclaw tree literals"
+
+[[rules]]
+id = "telegram-bot-token"
+description = "Telegram bot token"
+regex = '''(?:bot)?\d{6,12}:[A-Za-z0-9_-]{20,}'''
+
+[[rules]]
+id = "google-api-key"
+description = "Google API key"
+regex = '''\bAIza[0-9A-Za-z_-]{30,}'''
+
+[[rules]]
+id = "anthropic-key"
+description = "Anthropic API key"
+regex = '''\bsk-ant-[A-Za-z0-9_-]{16,}'''
+
+[[rules]]
+id = "openai-key"
+description = "OpenAI-style API key"
+regex = '''\bsk-(?:proj-|svcacct-|live-)?[A-Za-z0-9_-]{20,}'''
+
+[[rules]]
+id = "xai-key"
+description = "xAI API key"
+regex = '''\bxai-[A-Za-z0-9_-]{20,}'''
+
+[[rules]]
+id = "groq-key"
+description = "Groq API key"
+regex = '''\bgsk_[A-Za-z0-9_-]{20,}'''
+
+[[rules]]
+id = "perplexity-key"
+description = "Perplexity API key"
+regex = '''\bpplx-[A-Za-z0-9_-]{20,}'''
+
+[[rules]]
+id = "jwt"
+description = "JSON Web Token"
+regex = '''\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'''
+
+[[rules]]
+id = "pem-private-key"
+description = "PEM private key header"
+regex = '''-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'''
+
+[allowlist]
+# Two kinds of path, kept in one table because gitleaks has one global
+# allowlist. The first five are documented exceptions that may contain a
+# literal (builders, official table, history-scan stopwords). Everything
+# after that is an unscanned location — caches, deps, VCS metadata, and
+# binary assets — not permission to store a secret there. Do not add
+# tests/ or app/test/.
+description = "Documented exceptions, then unscanned caches/deps/binaries"
+paths = [
+  '''^tests/fake_secrets\.py$''',
+  '''^app/test/fake_secrets\.js$''',
+  '''^bot/utils/secret_shapes\.py$''',
+  '''^app/lib/secret_shapes\.generated\.json$''',
+  '''^\.gitleaks\.toml$''',
+  '''(^|/)\.git/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)__pycache__/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)venv/''',
+  '''(^|/)target/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)\.ruff_cache/''',
+  '''(^|/)\.mypy_cache/''',
+  '''(^|/)\.pytest_cache/''',
+  '''(?i)\.(png|jpe?g|gif|webp|ico|pdf|woff2?|ttf|eot|mp4|zip|gz|tgz|pyc|so|wasm|bin|map)$''',
+]

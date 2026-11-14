@@ -1,0 +1,13 @@
+# Optional local hook. Install with `pip install pre-commit && pre-commit install`.
+# CI runs the same gate; this is a faster copy for a developer workstation.
+# The hook does not download gitleaks: scripts/secret_literal_gate.py is the
+# same rule set, with no third-party binary.
+repos:
+  - repo: local
+    hooks:
+      - id: secret-literal-gate
+        name: no contiguous secret-shaped literals
+        entry: python3 scripts/secret_literal_gate.py
+        language: system
+        pass_filenames: false
+        always_run: true

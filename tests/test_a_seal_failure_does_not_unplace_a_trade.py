@@ -47,6 +47,7 @@ from bot.config import CONFIG
 from bot.core.confirm_result import placed_nothing
 from bot.utils.audit_chain import TORN_TAIL_EVENT, AuditChain
 from bot.utils.models import AgentState, Direction, RiskCheck, RiskVerdict, TradeIdea
+from tests.fake_secrets import join_secret
 
 # The live confirm is driven for a caller the test config does not name as
 # an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
@@ -182,12 +183,12 @@ class TestAFilledTradeStaysFilled:
         engine, idea = _engine(tmp_path)
 
         def _leaky(*_a, **_k):
-            raise OSError("write failed api_key=sk-live-0123456789abcdefghij")
+            raise OSError("write failed api_key=" + join_secret('sk-live-', '0123456789', 'abcdefghij'))
         engine.audit_chain.seal_decision = _leaky
         _confirm(engine, idea)
         msg = _seal_errors(trade_records)[0].getMessage()
         assert "write failed" in msg
-        assert "sk-live-0123456789abcdefghij" not in msg
+        assert join_secret('sk-live-', '0123456789', 'abcdefghij') not in msg
 
     def test_a_refused_order_whose_seal_fails_still_reads_as_refused(self, tmp_path):
         """The note is appended to the executor's answer either way; it must

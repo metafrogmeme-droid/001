@@ -19,17 +19,18 @@ import pytest
 
 from bot.llm.provider import (
     _THINKING_ALWAYS_ON_RE,
+    ULTRA_TIER_ROUTING,
     LLMConfig,
     LLMProvider,
     LLMTier,
-    ULTRA_TIER_ROUTING,
     is_ultra_mode,
     llm_complete,
     resolve_tier_config,
     set_ultra_mode,
 )
+from tests.fake_secrets import join_secret
 
-_TEST_KEY = "sk-ant-ultra-test-key-000000000000000000"
+_TEST_KEY = join_secret('sk-ant-', 'ultra-test-key-0', '00000000000000000')
 
 
 @pytest.fixture(autouse=True)

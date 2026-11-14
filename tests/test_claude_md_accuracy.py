@@ -390,11 +390,12 @@ def test_the_seam_and_the_old_scrub_read_one_vocabulary_now():
     from bot.utils.exc_text import _safe_exc_text
     from bot.utils.logger import _redact_string
     from bot.utils.outbound import reply_safe
+    from tests.fake_secrets import fake_telegram_bot_token_aaf_v
 
     flat = re.sub(r"\s+", " ", DOC)
     assert "the shared key=value redactor does not know it" in flat
     assert "`bot/utils/secret_shapes.py`" in flat, "the paragraph names the one table"
-    tok = "bot1234567890:AAFvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    tok = "bot" + fake_telegram_bot_token_aaf_v()
     assert "1234567890:AAF" not in _redact_string(tok), "one vocabulary: the old scrub reads it too"
     assert "1234567890:AAF" not in reply_safe(tok)
     assert "1234567890:AAF" not in _safe_exc_text(RuntimeError(tok))

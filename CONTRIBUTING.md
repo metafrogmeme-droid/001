@@ -11,7 +11,7 @@ Thank you for your interest in contributing to RUNECLAW.
    ```bash
    python -m pytest tests/ -v
    ```
-5. **Commit** with a clear, descriptive message.
+5. **Commit** with a clear, descriptive message. Test secrets must be built at runtime with `tests/fake_secrets.py` or `app/test/fake_secrets.js`; never commit a contiguous token-shaped literal. See `docs/SECRET_LITERALS.md`. If a real-looking secret does land in the tree, rotate it first.
 6. **Open a Pull Request** against the `main` branch.
 
 ## Code Style

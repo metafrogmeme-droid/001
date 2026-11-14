@@ -35,6 +35,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from tests.fake_secrets import join_secret
+
 # ── Frozen, written by cryptography 48.0.1 ────────────────────────────────
 WRITTEN_BY = "48.0.1"
 
@@ -54,7 +56,7 @@ AESGCM_AAD = "cnVuZWNsYXctY3JlZGVudGlhbC1wdWxs"
 AESGCM_CT = "QiIRkHdfjCtSX5r5/28d98Lb6qBmIBED7MBpgRkTeIX7gpGFexY="
 AESGCM_PLAIN = "credential-payload-xyz"
 
-ED25519_PRIV_PEM = """-----BEGIN PRIVATE KEY-----
+ED25519_PRIV_PEM = join_secret('-----BEGIN', ' PRIVATE KEY-----') + """
 MC4CAQAwBQYDK2VwBCIEIH/t4AUX6/hCYFnzhQJ+rAL2xklUIYhqmyoSQ+ZhWejX
 -----END PRIVATE KEY-----"""
 ED25519_PUB_RAW = "674IMR+eNuSlB3MeNSPIiU0rh/9w1Avz9eh7xXtTdtY="

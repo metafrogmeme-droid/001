@@ -28,6 +28,7 @@ from types import SimpleNamespace
 import pytest
 
 from bot.web import telemetry_stream as ts
+from tests.fake_secrets import fake_telegram_bot_token
 
 os.environ.setdefault("JWT_SECRET", secrets.token_hex(32))
 
@@ -73,7 +74,7 @@ def test_a_non_finite_number_is_dropped_not_zeroed():
 
 
 def test_encode_frame_scrubs_a_credential_and_a_chat_id_in_a_string_field():
-    token = "123456789:AAHfjdkslfjdkslfjdkslfjdkslfjdksl"
+    token = fake_telegram_bot_token()
     frame = ts.encode_frame({"type": "risk", "note": f"send failed chat_id=987654321 token {token}"})
     assert frame is not None
     assert "987654321" not in frame and token not in frame

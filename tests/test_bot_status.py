@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.fake_secrets import fake_telegram_bot_token
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "bot_status.py"
 
@@ -196,7 +198,7 @@ def test_every_secret_shape_in_a_log_is_scrubbed_before_it_is_printed(tmp_path):
 
 
 def test_journal_lines_are_scrubbed_too(tmp_path):
-    token = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw0"
+    token = fake_telegram_bot_token()
     box = Box(journal={"runeclaw-bot": f"telegram error https://api.telegram.org/bot{token}/getUpdates\n"})
     _, text, _ = report(tmp_path, box=box)
     assert token not in text and "journal runeclaw-bot" in text
