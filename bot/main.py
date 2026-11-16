@@ -20,6 +20,7 @@ import signal
 import sys
 
 from bot.config import CONFIG
+from bot.core.bitget_account_mode import is_classic_refusal
 from bot.core.engine import RuneClawEngine
 from bot.core.live_readiness import mode_label
 from bot.skills.skill_registry import build_default_registry
@@ -107,9 +108,35 @@ def _is_auth_rejection(err: str) -> bool:
     So: an explicit auth marker halts. Anything else is treated as
     reachability. AMBIGUITY STILL HALTS -- see the caller, which only takes
     the non-halting path when it can positively identify a transport failure.
+
+    An account-mode refusal (`_is_account_mode_refusal`) is not one: it names
+    the account's mode and says nothing against the key. Asked first, because
+    the reply's ``requestTime`` is thirteen digits that can spell a marker.
     """
+    if _is_account_mode_refusal(err):
+        return False
     low = (err or "").lower()
     return any(m in low for m in _AUTH_REJECTION_MARKERS)
+
+
+def _is_account_mode_refusal(err: str) -> bool:
+    """True when the venue refused the API FAMILY, not the credentials.
+
+    Bitget answers a unified-account call from an account in Classic mode
+    with code 40084. Nothing here recognised it, so it fell to the
+    fail-closed default below and was reported as "the venue rejected
+    authentication": entries halted, and the operator was sent to check a
+    passphrase, over an answer that says nothing about the key. The same key
+    read the classic API.
+
+    It does not PROVE the key either. The balance read asks the classic API
+    on this answer (`LiveExecutor._switch_to_classic`), and a bad key is
+    refused there as one. So the caller neither halts on it nor marks auth up.
+
+    Positive identification only, by the reply's ``code`` field. Every other
+    error, the unrecognised ones included, is classified as before.
+    """
+    return is_classic_refusal(err)
 
 
 #: Substrings that positively identify a TRANSPORT/reachability failure. Kept
@@ -131,7 +158,7 @@ def _is_transport_failure(err: str) -> bool:
     transport -- it keeps the old fail-closed behaviour.
     """
     low = (err or "").lower()
-    if _is_auth_rejection(low):
+    if _is_auth_rejection(low) or _is_account_mode_refusal(low):
         return False
     return any(m in low for m in _TRANSPORT_MARKERS)
 
@@ -220,7 +247,23 @@ async def _credential_preflight(engine, bot) -> None:
                 elif "passphrase" in _e.lower() or "40012" in _e:
                     _hint = ("\n<b>Passphrase mismatch.</b> BITGET_PASSPHRASE "
                              "must match the one set when the key was created.")
-                if _is_transport_failure(_e):
+                if _is_account_mode_refusal(_e):
+                    # The venue refused the API FAMILY: the account is in
+                    # Classic mode. The balance read switches to the classic
+                    # API on this answer by itself, so reaching here means
+                    # that read could not be made either. Still not a
+                    # credential verdict, and nothing is latched on it.
+                    _msg = ("⚠️ <b>STARTUP: the venue refused the "
+                            "unified-account API</b>\nThe account is in Classic "
+                            "mode (Bitget code 40084). This is an account-mode "
+                            "answer, not a credential rejection — the key "
+                            "was not judged. New entries are NOT halted by this "
+                            "check; the balance was not read.")
+                    audit(system_log,
+                          "Credential preflight: account-mode refusal (Bitget "
+                          "40084, Classic account), not auth",
+                          action="cred_preflight", result="ACCOUNT_MODE")
+                elif _is_transport_failure(_e):
                     # The venue could not be REACHED. That says nothing about
                     # the credentials, and halting entries on it is a false
                     # negative that costs trades while the account is healthy.
@@ -378,6 +421,7 @@ async def _per_user_credential_preflight(engine, bot) -> None:
         failures = []
         unreachable: list = []
         undecryptable: list = []
+        classic_mode: list = []
         for uid in ids:
             # THE USERS THIS PROBE EXISTS FOR WERE THE ONES IT SKIPPED. The
             # docstring above names a key that was "revoked/regenerated" as the
@@ -413,7 +457,12 @@ async def _per_user_credential_preflight(engine, bot) -> None:
                 # for an hour, in the same file. Fixing a surface is not
                 # finishing a defect; the question is always which OTHER
                 # surface makes the same claim.
-                if _is_transport_failure(str(_err)):
+                if _is_account_mode_refusal(str(_err)):
+                    # The venue answered with the account's mode (Classic),
+                    # not a verdict on the key. Nobody is marked down or told
+                    # to re-enter a key over it, and nobody is marked up.
+                    classic_mode.append(str(uid))
+                elif _is_transport_failure(str(_err)):
                     engine.set_live_auth_status(True, user_id=uid)
                     unreachable.append((uid, str(_err)[:100]))
                 else:
@@ -480,6 +529,15 @@ async def _per_user_credential_preflight(engine, bot) -> None:
                                            parse_mode="HTML")
                 except Exception:
                     continue
+        if classic_mode:
+            # Reported to the log and not as a failure: the venue answered
+            # with the account's mode. Their balance was not read.
+            audit(system_log,
+                  f"Per-user preflight: {len(classic_mode)} account(s) refused "
+                  f"the unified-account API (Bitget 40084, Classic account), "
+                  f"not auth: {', '.join(classic_mode)}",
+                  action="cred_preflight_users", result="ACCOUNT_MODE",
+                  level=logging.WARNING)
         if unreachable:
             # Reported, not silenced -- a repeated blip is worth knowing about
             # -- but nobody is told to touch a key and no entries are halted.

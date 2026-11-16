@@ -53,6 +53,7 @@ from typing import Any, Optional
 
 import ccxt.async_support as ccxt
 
+from bot.core.bitget_account_mode import uta_option
 from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
@@ -359,7 +360,9 @@ class BitgetVenue(Venue):
             "enableRateLimit": True,
             "options": {
                 "defaultType": "swap" if is_futures else "spot",
-                "uta": True,  # Support Bitget Unified Trading Account
+                # Unified Trading Account, until Bitget has answered this
+                # key's account with 40084 (Classic mode): then classic v2.
+                "uta": uta_option(api_key),
             },
         })
         # Explicit demo-trading activation (PAPTRADING header). The previous

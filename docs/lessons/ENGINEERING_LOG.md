@@ -30275,3 +30275,45 @@ tenths of a basis point on average.
 Guarded by `tests/test_limit_scanner_funding_is_priced_or_said_unpriced.py`,
 both arms of each rule, the real shadow book, the loader on files, and the
 scoring script; ten mutations each killed by a named test.
+
+## A BITGET ACCOUNT IN CLASSIC MODE WAS ASKED THE UNIFIED API ON EVERY CALL, AND THE REFUSAL WAS REPORTED AS A REJECTED KEY
+
+16 November 2026. Every Bitget client was built with `options["uta"] = True`.
+The operator's account is in Classic mode, and Bitget refuses each unified
+call from it with code 40084. The startup credential check said "exchange
+auth FAILED" and halted entries, though the same key read the classic API.
+The position sync failed on every pass, and reconcile's read raised at DEBUG,
+so a row the venue no longer held stayed in the book.
+
+**The account type was read and never reached the thing that routes.**
+`LiveExecutor._is_uta` already held the probe's answer and the executor
+already had classic branches. The client's option decides where every ccxt
+call goes, and nothing wrote the reading there.
+
+**The venue's statement is the trigger, and nothing else is.**
+`bot/core/bitget_account_mode.py` recognises 40084 from the reply's `code`
+field and remembers the account under a digest of the refused client's key.
+`LiveExecutor._switch_to_classic` flips the client and says so once. An
+account that never answers 40084 is asked what it was asked before, and the
+probe's `_is_uta = False` alone moves no channel.
+
+**Unrecognised is not rejected.** The preflight's fail-closed default is
+right, and it also meant an answer nobody had named was reported as the
+worst one. The account-mode test runs first, because the reply's
+`requestTime` is thirteen digits that can spell an auth marker or a transport
+one. A real rejection and an unknown error still halt. 40084 does not prove
+the key either: the classic read that follows it does, and a bad key is
+refused there as one.
+
+**The existing classic branch read a shape ccxt does not return.** On a
+classic client ccxt hands back the account rows as `info`, not the envelope,
+so the equity loop read nothing and labelled marked equity `wallet_total`.
+The stand-in in the older test planted the envelope. The new tests drive
+ccxt's real client over a replaced transport.
+
+The decision and its known limits are in
+`docs/adr/0011-bitget-classic-account-fallback.md`.
+
+Guarded by `tests/test_a_classic_bitget_account_is_read_through_v2.py`, both
+arms of each rule on ccxt 4.5.56 with no venue reached; 33 mutations each
+killed by a named test.

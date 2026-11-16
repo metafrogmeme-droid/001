@@ -165,6 +165,8 @@ def _fetch_live_exchange_data() -> Optional[dict]:
         pass
     try:
         import ccxt as ccxt_sync
+
+        from bot.core.bitget_account_mode import note_classic_refusal, uta_option
         # Use the SAME credentials the live executor uses (CONFIG.exchange, which
         # _env_secret-strips surrounding quotes/whitespace) rather than raw
         # os.getenv. A quoted/whitespaced .env value authenticates fine for
@@ -180,7 +182,9 @@ def _fetch_live_exchange_data() -> Optional[dict]:
             "enableRateLimit": True,
             "options": {
                 "defaultType": "swap",
-                "uta": True,  # Unified Trading Account mode
+                # Unified Trading Account mode, until Bitget has said the
+                # operator's account is Classic (40084): then classic v2.
+                "uta": uta_option(CONFIG.exchange.api_key),
             },
         })
         try:
@@ -192,7 +196,10 @@ def _fetch_live_exchange_data() -> Optional[dict]:
         # Fetch balance (try multiple approaches for UTA compatibility)
         try:
             bal = exchange.fetch_balance({"type": "swap", "productType": "USDT-FUTURES"})
-        except Exception:
+        except Exception as _bal_exc:
+            # A Classic account's refusal of the unified API switches this
+            # client to the classic family, which the retry below then asks.
+            note_classic_refusal(exchange, _bal_exc)
             try:
                 bal = exchange.fetch_balance({"type": "swap"})
             except Exception:
