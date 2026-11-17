@@ -578,6 +578,10 @@ class ProactiveMonitor:
         # BECOMING ready alerts exactly once (not every tick it stays ready).
         self._readiness_states: dict[str, str] = {}
         self._readiness_next_check: float = 0.0
+        # The assessment in flight on a worker thread, and the one it handed
+        # back for the next pass to read (see `_check_learning_readiness`).
+        self._readiness_job: Optional[asyncio.Task] = None
+        self._readiness_result: Optional[dict] = None
         # Idle-cash nudge: when free margin sits stakeable for hours, propose
         # /stake with a confirm button (once per cooldown, re-arms on spend).
         self._idle_since: float = 0.0        # monotonic ts idle threshold first met
@@ -1566,20 +1570,62 @@ class ProactiveMonitor:
         """Alert when a learner BECOMES validated-and-ready — the moment the
         operator can act on the learning loop instead of remembering to poll
         /readiness. Assessment reads the decision store, so it runs on a slow
-        cadence (hourly), not every 30s tick."""
-        alerts: list[Alert] = []
+        cadence (hourly), not every 30s tick.
+
+        OFF THE EVENT LOOP. The assessment parses the whole decision log more
+        than once and then resamples it, and it ran here, inline, on the
+        monitor's FIRST pass: its pacing stamp starts at zero, so every boot
+        paid for it right after Telegram started, and again every hour. That
+        cost is linear in a file that only grows (measured 2026-11-17 on a
+        synthetic log: about 0.14 s per 1,000 rows, 8.5 s at 60,000), and
+        while it runs inline nothing else on the loop does: the gateway's
+        health port, the price feed's handshake and every read in flight
+        wait behind it. Two boots that day hung for about 78 s in exactly
+        that window; whether this call accounts for all of it was not
+        measured, because the production log was not available.
+
+        On the loop the assessment now runs in a worker thread, and the pass
+        that finds it finished reads it: the same alerts, one pass later. A
+        caller with no running loop has nothing to block and assesses inline,
+        as before.
+        """
         if not CONFIG.analyzer.learning_readiness_alert_enabled:
-            return alerts
+            return []
+        alerts: list[Alert] = []
+        ready, self._readiness_result = self._readiness_result, None
+        if ready is not None:
+            alerts = self._readiness_alerts(ready)
         now = time.time()
-        if now < self._readiness_next_check:
+        job = self._readiness_job
+        if now < self._readiness_next_check or (job is not None and not job.done()):
             return alerts
         self._readiness_next_check = now + 3600.0
         try:
-            from bot.learning.readiness import assess_readiness, render_report
-            assessment = assess_readiness()
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            assessment = self._assess_readiness()
+            return alerts if assessment is None else self._readiness_alerts(assessment)
+        self._readiness_job = loop.create_task(self._assess_readiness_off_loop())
+        return alerts
+
+    @staticmethod
+    def _assess_readiness() -> Optional[dict]:
+        """One assessment, or None when it could not be made."""
+        try:
+            from bot.learning.readiness import assess_readiness
+            return assess_readiness()
         except Exception as exc:
             logger.debug("readiness check failed: %s", exc)
-            return alerts
+            return None
+
+    async def _assess_readiness_off_loop(self) -> None:
+        """Assess on a worker thread and leave the result for the next pass."""
+        self._readiness_result = await asyncio.to_thread(self._assess_readiness)
+
+    def _readiness_alerts(self, assessment: dict) -> list[Alert]:
+        """The alerts one assessment raises against the last known states."""
+        from bot.learning.readiness import render_report
+        alerts: list[Alert] = []
         for name, comp in assessment.get("components", {}).items():
             state = comp.get("state", "?")
             prev = self._readiness_states.get(name)

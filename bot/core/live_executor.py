@@ -44,7 +44,7 @@ from bot.utils.close_reason import stop_exit_label
 from bot.formatters.price_text import fmt_price
 from bot.core.equity_basis import MARKED_EQUITY_FIELDS, WALLET_BALANCE
 from bot.core.bitget_account_mode import (
-    is_classic, is_classic_refusal, note_classic_refusal)
+    is_classic, is_classic_refusal, note_classic_refusal, speak_classic)
 from bot.core.order_rules import (
     is_market_open, is_weekend_queued, adjust_sl_for_gap_risk,
     adjust_size_for_weekend, should_defer_tp_sl,
@@ -85,7 +85,8 @@ from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis
 from bot.core.position_telemetry import confidence_on_entry, entered_at, price_on_record
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, SIZE_REFUSALS,
-    STOP_REFUSED_FOR_SIZE, amount_to_send, first_reading, flash_close_applied, flatten_outcome, held_on_side,
+    STOP_REFUSED_FOR_SIZE, amount_to_send, classic_flash_close_reply, first_reading,
+    flash_close_applied, flatten_outcome, held_on_side,
     order_status, pending_cancel_verdict,
     position_presence, read_amount, refusal_text, rows_for_side, stop_attached, venue_code,
 )
@@ -1007,6 +1008,13 @@ ENTRY_UNREAD = "+entry_unread"
 #: fault, so it is spaced, and only the first failure of a streak counts.
 HOLD_MODE_RETRY_S = 300.0
 
+#: How long the first use of a Bitget client waits for the venue to say which
+#: API family the account answers (`LiveExecutor._learn_account_family`), and
+#: how long the market reload after a switch may take. Both are bounded so a
+#: venue that does not answer delays the first call by this much and no more.
+ACCOUNT_FAMILY_READ_S = 5.0
+MARKET_RELOAD_S = 15.0
+
 ENTRY_ESTIMATED = "pre_order_ticker"
 
 #: Appended to a close's ``fill_source`` when its P&L was computed LOCALLY
@@ -1036,6 +1044,22 @@ def entry_estimated_state(pos: Any) -> Optional[bool]:
     if not src:
         return None
     return str(src) == ENTRY_ESTIMATED
+
+
+def _balance_error_text(exc: BaseException) -> str:
+    """The text a failed balance read reports: the error's own, or its class
+    name when it has none, with the class named in front for the driver's
+    network-class errors (``RequestTimeout: bitget GET <url>``).
+
+    A clock or signature error (`InvalidNonce`) is a `NetworkError` in the
+    driver's tree and is NOT treated as one here: every signed call fails on
+    it, the stops included, so its text stays as it was and still halts.
+    """
+    text = str(exc) or type(exc).__name__
+    if (isinstance(exc, ccxt.NetworkError) and not isinstance(exc, ccxt.InvalidNonce)
+            and not text.startswith(type(exc).__name__)):
+        return f"{type(exc).__name__}: {text}"
+    return text
 
 
 def venue_avg_price(row: dict) -> Optional[float]:
@@ -2541,6 +2565,9 @@ class LiveExecutor:
         self._order_history: list[LiveOrder] = []
         self._hedge_mode: Optional[bool] = None  # None=unknown, True=hedge, False=one-way
         self._is_uta: Optional[bool] = None  # None=unknown, cached after first detection
+        #: The one account-family read a freshly built client makes, shared by
+        #: every caller that asks for the client while it is in flight.
+        self._family_read: Optional[asyncio.Future] = None
         self._actual_margin_mode: Optional[str] = None  # Actual margin mode reported by exchange
         #: Symbols whose margin-mode read came back empty, warned once each.
         self._margin_mode_unread_warned: set = set()
@@ -2732,7 +2759,27 @@ class LiveExecutor:
         self._api_error_count = 0
 
     async def _get_exchange(self) -> ccxt.Exchange:
-        """Get the authenticated exchange instance for this executor's venue."""
+        """Get the authenticated exchange instance for this executor's venue.
+
+        THE CLIENT SPEAKS THE ACCOUNT'S API FAMILY BEFORE ANYONE USES IT.
+        A Bitget client is built unified unless the venue has already said
+        the account is Classic. On the first production boot of the Classic
+        fallback the position sync ran on an account already marked Classic
+        (the mode is remembered per account, and any client with the same
+        key can mark it) while this executor's client had not been switched,
+        and audited "Position sync FAILED ... venue code 40084" three seconds
+        before the executor heard the refusal itself. Two things here close
+        that:
+
+          * A freshly built client asks the venue once, with a time limit
+            (`_learn_account_family`), and every caller that arrives while
+            that read is in flight waits for it. No balance, position or sync
+            call goes out first.
+          * On every hand-out, a client that is still unified for an account
+            the venue has said is Classic is switched. The account's mode is
+            remembered per account and each client was only switched by its
+            own refusal, so the two could disagree.
+        """
         if self._exchange is None:
             cfg = CONFIG.exchange
             # Per-user executors authenticate with the user's OWN linked keys
@@ -2744,7 +2791,39 @@ class LiveExecutor:
             if cfg.trade_mode == "futures":
                 logger.info("Futures mode (%s): leverage=%dx, margin=%s",
                             self._venue.id, cfg.default_leverage, cfg.margin_mode)
-        return self._exchange
+            self._family_read = asyncio.ensure_future(
+                self._learn_account_family(self._exchange))
+        exchange = self._exchange
+        pending = getattr(self, "_family_read", None)
+        if pending is not None and not pending.done():
+            await asyncio.shield(pending)
+        if client_is_uta(exchange) and self._account_is_classic() and speak_classic(exchange):
+            await self._after_classic_switch(exchange, was_uta=True)
+        return exchange
+
+    async def _learn_account_family(self, exchange: Any) -> None:
+        """Ask the venue, once, which API family this account answers.
+
+        The read the balance makes (`_read_uta_account_assets`): a Classic
+        account refuses it with 40084 and the client is switched there; a
+        unified account answers it and nothing changes. Anything else, a
+        timeout included, leaves the family UNKNOWN and records nothing: an
+        answer nobody got says nothing about the account, and the first read
+        that does get one decides. Never raises, and never waits longer than
+        `ACCOUNT_FAMILY_READ_S`.
+        """
+        if self._venue.id != "bitget" or not client_is_uta(exchange):
+            return
+        try:
+            await asyncio.wait_for(self._read_uta_account_assets(exchange),
+                                   ACCOUNT_FAMILY_READ_S)
+        except Exception as exc:
+            # Still unified means nothing was learned. A client the refusal
+            # already switched has its answer, whatever ended the wait.
+            if client_is_uta(exchange):
+                logger.info("Bitget account family not learned at first use (%s): "
+                            "the client stays unified until a read says otherwise",
+                            type(exc).__name__)
 
     def _leverage_standards(self) -> LeveragePair:
         """The two standards (`order_standards`): the `/leverage` override or
@@ -10347,7 +10426,16 @@ class LiveExecutor:
             positions = await exchange.fetch_positions(
                 params=self._venue.futures_params())
         except Exception as exc:
-            raise RuntimeError(refusal_text(exc)) from exc
+            # A 40084 here is the venue naming the family, on a client that
+            # was still unified when it was asked. It is not a failed sync:
+            # the client is switched and the classic API is asked once.
+            if not await self._switch_to_classic(exchange, exc):
+                raise RuntimeError(refusal_text(exc)) from exc
+            try:
+                positions = await exchange.fetch_positions(
+                    params=self._venue.futures_params())
+            except Exception as again:
+                raise RuntimeError(refusal_text(again)) from again
         rows: list[dict] = []
         for item in (positions if isinstance(positions, list) else [None]):
             info = item.get("info") if isinstance(item, dict) else None
@@ -10399,6 +10487,15 @@ class LiveExecutor:
         # A Classic account is refused by the v3 channel (40084), which failed
         # this sync on every pass and fed the warning-rate breaker each time.
         # Once the venue has said so, the rows come from the classic API.
+        #
+        # The client is asked for FIRST, so the family has been read
+        # (`_get_exchange`) before a channel is chosen. An executor that
+        # cannot build one (no credentials) reads as it did.
+        try:
+            await self._get_exchange()
+        except Exception as _client_exc:
+            logger.debug("Position sync: no client to learn the account family "
+                         "from (%s)", type(_client_exc).__name__)
         _classic = self._account_is_classic()
         _family = "classic v2" if _classic else "v3"
         try:
@@ -16403,14 +16500,28 @@ class LiveExecutor:
 
         return close_msg
 
-    # ── v3 Flash Close (UTA endpoint, no marginMode needed) ──
+    # ── Flash Close (no size, no marginMode: closes what the venue holds) ──
 
     async def _flash_close_position(self, pos: LivePosition) -> dict | None:
-        """Close a position using Bitget v3 UTA Close All Positions endpoint.
+        """Close a position with the venue's flash close, in the account's
+        own API family.
 
-        POST /api/v3/trade/close-positions
-        Uses `category` + `symbol` + `posSide`. No marginMode required.
-        Rate limit: 5 req/sec/UID.
+        Unified account: ``POST /api/v3/trade/close-positions`` with
+        `category` + `symbol` + `posSide`. Rate limit: 5 req/sec/UID.
+
+        Classic account (the venue has answered this account with 40084,
+        `_account_is_classic`): ``POST /api/v2/mix/order/close-positions``
+        with `productType` + `symbol` + `holdSide`, the same close in the
+        classic family. A Classic account refuses the unified endpoint, so
+        the emergency close failed on it and the position stayed open. The
+        classic reply is spelled as the unified one at the boundary
+        (`classic_flash_close_reply`), so `flash_close_applied` stays the one
+        reader of "applied".
+
+        Neither request names a size, a price or an order side: it closes
+        what the venue holds on that symbol and side and can open nothing.
+        The symbol is always sent, and so is the side, so a hedge account's
+        opposite position is never the one closed.
 
         Returns the exchange response dict on success, None on failure.
         """
@@ -16424,12 +16535,19 @@ class LiveExecutor:
         bitget_symbol = pos.symbol.replace("/USDT", "USDT").replace(":USDT", "")
         pos_side = "long" if pos.direction == "LONG" else "short"
 
-        path = "/api/v3/trade/close-positions"
-        body_dict = {
-            "category": "USDT-FUTURES",
-            "symbol": bitget_symbol,
-            "posSide": pos_side,
-        }
+        classic = self._account_is_classic()
+        channel = "v2" if classic else "v3"
+        if classic:
+            path = "/api/v2/mix/order/close-positions"
+            body_dict = self._venue.futures_params(
+                symbol=bitget_symbol, holdSide=pos_side)
+        else:
+            path = "/api/v3/trade/close-positions"
+            body_dict = {
+                "category": "USDT-FUTURES",
+                "symbol": bitget_symbol,
+                "posSide": pos_side,
+            }
 
         try:
             # Signing/transport via BitgetV3Client (offloaded to a thread; raises
@@ -16454,6 +16572,9 @@ class LiveExecutor:
                 logger.warning("Flash close failed for %s: %s", pos.symbol, e)
                 return None
 
+        if classic:
+            result = classic_flash_close_reply(result)
+
         if result.get("code") == "00000":
             data = result.get("data", {})
             close_list = data.get("list", [])
@@ -16461,8 +16582,8 @@ class LiveExecutor:
             success = [item for item in close_list if not item.get("code") or item.get("code") == "00000"]
             failed = [item for item in close_list if item.get("code") and item.get("code") != "00000"]
             audit(trade_log,
-                  f"v3 flash close for {pos.symbol}: {len(success)} success, {len(failed)} fail",
-                  action="flash_close_v3", result="OK",
+                  f"{channel} flash close for {pos.symbol}: {len(success)} success, {len(failed)} fail",
+                  action=f"flash_close_{channel}", result="OK",
                   data={"symbol": bitget_symbol, "posSide": pos_side,
                         "close_list": close_list})
             return cast(Optional[dict], result)
@@ -16470,8 +16591,8 @@ class LiveExecutor:
             error_code = result.get("code", "")
             error_msg = result.get("msg", str(result))
             audit(trade_log,
-                  f"v3 flash close failed for {pos.symbol}: {error_code} — {error_msg}",
-                  action="flash_close_v3", result="FAIL",
+                  f"{channel} flash close failed for {pos.symbol}: {error_code} — {error_msg}",
+                  action=f"flash_close_{channel}", result="FAIL",
                   data={"symbol": bitget_symbol, "response": str(result)[:300]})
             return None
 
@@ -16572,34 +16693,45 @@ class LiveExecutor:
         refused. The executor's own classic branches (`_is_uta is False`)
         were waiting behind a client that never asked the classic API.
 
-        Said once, when the client flips. A market set loaded while the
-        client was unified is reloaded then: the unified instruments carry no
-        classic tick fields, which the stop placer reads. A reload that fails
-        leaves the set in hand and is tried by nothing else, so it is said.
+        Said once, when the client flips (`_after_classic_switch`).
         """
         if self._venue.id != "bitget" or not is_classic_refusal(exc):
             return False
         was_uta = client_is_uta(exchange)
         if not note_classic_refusal(exchange, exc):
             return False
-        self._is_uta = False
-        if was_uta:
-            audit(system_log,
-                  "Bitget account is in Classic mode (code 40084): the "
-                  "unified-account API was refused, so this account is read "
-                  "and traded through the classic v2 API from here on",
-                  action="account_mode", result="CLASSIC", level=logging.WARNING,
-                  data={"venue": self._venue.id,
-                        "user_id": str(getattr(self, "user_id", "") or "operator")})
-            if getattr(exchange, "markets", None):
-                try:
-                    await exchange.load_markets(True)
-                except Exception as reload_exc:
-                    logger.warning(
-                        "Classic market set could not be reloaded after the "
-                        "account-mode switch (%s): the unified set stays in hand",
-                        type(reload_exc).__name__)
+        await self._after_classic_switch(exchange, was_uta=was_uta)
         return True
+
+    async def _after_classic_switch(self, exchange: Any, *, was_uta: bool) -> None:
+        """What follows a client being switched to the classic family, whether
+        by its own refusal or because the account was already known Classic.
+
+        The account type is recorded, and when this client really flipped it
+        is said once and a market set loaded while it was unified is
+        reloaded: the unified instruments carry no classic tick fields, which
+        the stop placer reads. The reload has a time limit, because the first
+        use of the client waits on it. One that fails or runs out of time
+        leaves the set in hand and is tried by nothing else, so it is said.
+        """
+        self._is_uta = False
+        if not was_uta:
+            return
+        audit(system_log,
+              "Bitget account is in Classic mode (code 40084): the "
+              "unified-account API was refused, so this account is read "
+              "and traded through the classic v2 API from here on",
+              action="account_mode", result="CLASSIC", level=logging.WARNING,
+              data={"venue": self._venue.id,
+                    "user_id": str(getattr(self, "user_id", "") or "operator")})
+        if getattr(exchange, "markets", None):
+            try:
+                await asyncio.wait_for(exchange.load_markets(True), MARKET_RELOAD_S)
+            except Exception as reload_exc:
+                logger.warning(
+                    "Classic market set could not be reloaded after the "
+                    "account-mode switch (%s): the unified set stays in hand",
+                    type(reload_exc).__name__)
 
     async def _read_uta_account_assets(self, exchange: Any) -> Any:
         """The UTA assets ENVELOPE (``GET /api/v3/account/assets``) as the
@@ -16806,7 +16938,13 @@ class LiveExecutor:
             # reader of this payload tests the error by truthiness, so a
             # bare exception read as a successful authenticated balance and
             # cleared a venue-auth latch a confirmed 40012 had set.
-            return {"error": str(exc) or type(exc).__name__, "free": 0, "used": 0,
+            #
+            # A NETWORK-CLASS ERROR NAMES ITS CLASS. The driver's text for a
+            # timeout or a lost connection is only "bitget GET <url>": no
+            # code and no word a reader could place, so the startup check
+            # read a timed-out balance as "exchange auth FAILED" and halted
+            # entries (`_balance_error_text`).
+            return {"error": _balance_error_text(exc), "free": 0, "used": 0,
                     "total": 0, "holdings": [], "unrealized_pnl": None}
 
     @property

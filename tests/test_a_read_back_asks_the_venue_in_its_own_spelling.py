@@ -38,6 +38,7 @@ import json
 import textwrap
 from collections import Counter
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import ccxt.async_support as ca
 import pytest
@@ -707,6 +708,11 @@ async def test_a_per_user_bitget_sync_under_a_hyperliquid_operator_reads_its_boo
     exr = _executor(tmp_path, "bitget", {"api_key": "k", "api_secret": "s", "passphrase": "p"})
     # A classic account, said so: the position row is its leverage reading.
     exr._is_uta = False
+    # The sync asks for the ccxt client first, to learn the account's API
+    # family before it picks a channel. This harness stubs the v3 wire and has
+    # no ccxt client to give, so the ask is answered the way a client that
+    # cannot be built answers it, and the sync reads the v3 rows as before.
+    exr._get_exchange = AsyncMock(side_effect=RuntimeError("no ccxt client in this harness"))
     pos = _pos(symbol="BTC/USDT", quantity=0.5, leverage=5, sl_order_id=None, tp_order_id=None)
     exr._positions["T1"] = pos
     await exr.sync_positions_from_exchange()

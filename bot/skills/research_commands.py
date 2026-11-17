@@ -14,6 +14,7 @@ Both follow the class's MRO now, so a dispatch that moves here stays gated.
 """
 from __future__ import annotations
 
+import asyncio
 import html
 from typing import TYPE_CHECKING
 
@@ -167,7 +168,10 @@ class ResearchCommands:
             return
         try:
             from bot.learning.readiness import assess_readiness, render_report
-            await self._send(update, render_report(assess_readiness()))
+            # On a worker thread: the assessment parses the whole decision
+            # log, and inline it held the event loop for as long as it ran.
+            await self._send(update, render_report(
+                await asyncio.to_thread(assess_readiness)))
         except Exception as exc:
             await self._send(update, f"⚠️ Readiness assessment failed: {_safe_exc_text(exc, limit=160)}")
 

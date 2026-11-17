@@ -58,6 +58,16 @@ def uta_option(api_key: Any) -> bool:
     return not is_classic(api_key)
 
 
+def speak_classic(client: Any) -> bool:
+    """Make ``client`` route its calls to the classic family. True when it
+    was written; a stand-in whose options are not a dict is left alone."""
+    opts = getattr(client, "options", None)
+    if not isinstance(opts, dict):
+        return False
+    opts["uta"] = False
+    return True
+
+
 def note_classic_refusal(client: Any, err: Any) -> bool:
     """Record a 40084 against ``client``'s account and make that client speak
     the classic family. True when ``err`` was that refusal and the client was
@@ -70,12 +80,10 @@ def note_classic_refusal(client: Any, err: Any) -> bool:
     """
     if not is_classic_refusal(err):
         return False
-    opts = getattr(client, "options", None)
     slot = _slot(getattr(client, "apiKey", None))
-    if not isinstance(opts, dict) or slot is None:
+    if slot is None or not speak_classic(client):
         return False
     _classic_accounts.add(slot)
-    opts["uta"] = False
     return True
 
 
