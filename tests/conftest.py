@@ -1542,6 +1542,27 @@ def _contain_the_shared_balance_reads():
 
 
 @pytest.fixture(autouse=True)
+def _contain_the_bitget_account_modes():
+    """Remember no Bitget account's mode across tests.
+
+    `bot/core/bitget_account_mode.py` records, per API key and for the life
+    of the process, that the venue said an account is in Classic mode, and
+    every Bitget client built afterwards for that key is a classic one. Tests
+    share a handful of stand-in keys ("k"), so one test's Classic account
+    would build the next test's unified client classic. Emptied before and
+    after, not asserted, for the reason the fixtures above give.
+    """
+    import sys as _sys
+    am = _sys.modules.get("bot.core.bitget_account_mode")
+    if am is not None:
+        am._reset()
+    yield
+    am = _sys.modules.get("bot.core.bitget_account_mode")
+    if am is not None:
+        am._reset()
+
+
+@pytest.fixture(autouse=True)
 def _contain_the_shared_market_sweep():
     """Hold no market sweep across tests.
 

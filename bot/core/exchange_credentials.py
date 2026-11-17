@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from bot.core.bitget_account_mode import balance_in_account_family, uta_option
 from bot.core.margin_clamp import read_money_field
 from bot.utils.atomic_write import atomic_write_json
 
@@ -811,7 +812,8 @@ async def _bitget_balance_probe(api_key: str, api_secret: str,
             "enableRateLimit": True,
             "options": {
                 "defaultType": "swap",
-                "uta": True,  # Support Bitget Unified Trading Account
+                # Unified, until Bitget has said this key's account is Classic.
+                "uta": uta_option(api_key),
             },
         })
         # Explicit and version-stable: for bitget this toggles the demo-trading
@@ -821,7 +823,10 @@ async def _bitget_balance_probe(api_key: str, api_secret: str,
         except Exception:
             if sandbox:
                 raise
-        bal = await client.fetch_balance({"type": "swap"})
+        # A Classic account refuses the unified API (40084), which is not a
+        # verdict on the key: asked once more on the classic family, where a
+        # bad key is still refused as one.
+        bal = await balance_in_account_family(client, {"type": "swap"})
         return True, _free_detail(bal, "USDT")
     except Exception as exc:
         return False, _safe_venue_detail(exc)
@@ -1653,7 +1658,8 @@ async def balance_snapshot(venue: str, fields: dict,
                 "apiKey": fields["api_key"], "secret": fields["api_secret"],
                 "password": fields["passphrase"], "timeout": 15000,
                 "enableRateLimit": True,
-                "options": {"defaultType": "swap", "uta": True},
+                "options": {"defaultType": "swap",
+                            "uta": uta_option(fields["api_key"])},
             })
         elif venue in ("hyperliquid", "paradex"):
             factory = getattr(ccxt, venue, None)
@@ -1688,8 +1694,10 @@ async def balance_snapshot(venue: str, fields: dict,
         except Exception:
             if sandbox:
                 raise
-        params = {"type": "swap"} if venue == "bitget" else {}
-        bal = await client.fetch_balance(params)
+        if venue == "bitget":
+            bal = await balance_in_account_family(client, {"type": "swap"})
+        else:
+            bal = await client.fetch_balance({})
         equity = (_bybit_total_equity(bal) if venue == "bybiteu"
                   else _balance_total(bal, currency))
         if equity is None:

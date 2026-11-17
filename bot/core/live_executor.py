@@ -43,6 +43,8 @@ from bot.utils.trailing import make_trailing_state, update_trailing_stop
 from bot.utils.close_reason import stop_exit_label
 from bot.formatters.price_text import fmt_price
 from bot.core.equity_basis import MARKED_EQUITY_FIELDS, WALLET_BALANCE
+from bot.core.bitget_account_mode import (
+    is_classic, is_classic_refusal, note_classic_refusal)
 from bot.core.order_rules import (
     is_market_open, is_weekend_queued, adjust_sl_for_gap_risk,
     adjust_size_for_weekend, should_defer_tp_sl,
@@ -10326,6 +10328,34 @@ class LiveExecutor:
                     return mm
         return None
 
+    async def _classic_position_rows(self) -> list[dict]:
+        """The venue's open-position rows for the sync on a Classic account:
+        ``GET /api/v2/mix/position/all-position``, asked through the ccxt
+        client (whose `fetch_positions` the switched client routes there) and
+        handed back as the venue wrote each row. The sync reads ``symbol``,
+        ``leverage``, ``total`` and the average entry off a row, and the
+        classic row spells the first three as the v3 one does
+        (`venue_avg_price` reads both spellings of the fourth).
+
+        Raises on a failed read, with the error's class and the venue's code
+        and never its text. A row that came back without the venue's own
+        document is a failed read too, not a shorter book: an empty list here
+        is audited as "the exchange reports NO positions".
+        """
+        exchange = await self._get_exchange()
+        try:
+            positions = await exchange.fetch_positions(
+                params=self._venue.futures_params())
+        except Exception as exc:
+            raise RuntimeError(refusal_text(exc)) from exc
+        rows: list[dict] = []
+        for item in (positions if isinstance(positions, list) else [None]):
+            info = item.get("info") if isinstance(item, dict) else None
+            if not isinstance(info, dict):
+                raise RuntimeError("classic position row without the venue's document")
+            rows.append(info)
+        return rows
+
     async def sync_positions_from_exchange(self) -> None:
         """Sync tracked position LEVERAGE with the exchange (fail-loud).
 
@@ -10366,14 +10396,22 @@ class LiveExecutor:
         if self._venue.id != "bitget":
             return
 
+        # A Classic account is refused by the v3 channel (40084), which failed
+        # this sync on every pass and fed the warning-rate breaker each time.
+        # Once the venue has said so, the rows come from the classic API.
+        _classic = self._account_is_classic()
+        _family = "classic v2" if _classic else "v3"
         try:
-            v3_positions = await _aio_sync.get_event_loop().run_in_executor(
-                None, LiveExecutor._fetch_v3_positions_raw, self._credentials,
-                self._venue.id,
-            )
+            if _classic:
+                v3_positions: Optional[list[dict]] = await self._classic_position_rows()
+            else:
+                v3_positions = await _aio_sync.get_event_loop().run_in_executor(
+                    None, LiveExecutor._fetch_v3_positions_raw, self._credentials,
+                    self._venue.id,
+                )
         except Exception as exc:
             audit(trade_log,
-                  f"Position sync FAILED: v3 fetch raised with {len(open_pos)} open "
+                  f"Position sync FAILED: {_family} fetch raised with {len(open_pos)} open "
                   f"positions — leverage/margin may be stale ({exc})",
                   action="position_sync", result="ERROR",
                   level=logging.ERROR,
@@ -16513,6 +16551,56 @@ class LiveExecutor:
 
     # ── Account info ─────────────────────────────────────────────
 
+    def _account_is_classic(self) -> bool:
+        """Whether Bitget has said this executor's account is in Classic mode
+        (`bitget_account_mode`), which is the venue's 40084 and nothing a
+        probe inferred. Asked of the client in hand: an executor that has
+        built no client has heard no refusal, and none is built to ask."""
+        if self._venue.id != "bitget":
+            return False
+        return is_classic(getattr(getattr(self, "_exchange", None), "apiKey", None))
+
+    async def _switch_to_classic(self, exchange: Any, exc: BaseException) -> bool:
+        """Bitget refused a unified-account call with 40084: the account is in
+        Classic mode. Remember it, make this client speak the classic family
+        (`options["uta"]`, the fact that routes every ccxt call it makes) and
+        answer True so the caller can ask again. Any other error answers
+        False and changes nothing.
+
+        Every Bitget client was built unified, so on a Classic account the
+        balance read, the position reads and the reconcile sweep were all
+        refused. The executor's own classic branches (`_is_uta is False`)
+        were waiting behind a client that never asked the classic API.
+
+        Said once, when the client flips. A market set loaded while the
+        client was unified is reloaded then: the unified instruments carry no
+        classic tick fields, which the stop placer reads. A reload that fails
+        leaves the set in hand and is tried by nothing else, so it is said.
+        """
+        if self._venue.id != "bitget" or not is_classic_refusal(exc):
+            return False
+        was_uta = client_is_uta(exchange)
+        if not note_classic_refusal(exchange, exc):
+            return False
+        self._is_uta = False
+        if was_uta:
+            audit(system_log,
+                  "Bitget account is in Classic mode (code 40084): the "
+                  "unified-account API was refused, so this account is read "
+                  "and traded through the classic v2 API from here on",
+                  action="account_mode", result="CLASSIC", level=logging.WARNING,
+                  data={"venue": self._venue.id,
+                        "user_id": str(getattr(self, "user_id", "") or "operator")})
+            if getattr(exchange, "markets", None):
+                try:
+                    await exchange.load_markets(True)
+                except Exception as reload_exc:
+                    logger.warning(
+                        "Classic market set could not be reloaded after the "
+                        "account-mode switch (%s): the unified set stays in hand",
+                        type(reload_exc).__name__)
+        return True
+
     async def _read_uta_account_assets(self, exchange: Any) -> Any:
         """The UTA assets ENVELOPE (``GET /api/v3/account/assets``) as the
         venue answered it, or None when this client does not speak it.
@@ -16532,13 +16620,23 @@ class LiveExecutor:
         Asked through ccxt's own implicit method, so there is one transport
         and one signature. A client without it (a classic venue, a test
         stand-in) answers None and the classic path reads as before.
+
+        A Classic ACCOUNT behind a unified client is refused here with 40084.
+        That is the venue saying which family to ask, not an unread answer:
+        the client is switched (`_switch_to_classic`) and None sends this
+        read down the classic path. Every other failure is raised as before.
         """
         if not client_is_uta(exchange):
             return None
         fn = getattr(exchange, "privateUtaGetV3AccountAssets", None)
         if not callable(fn):
             return None
-        return await fn({})
+        try:
+            return await fn({})
+        except Exception as exc:
+            if not await self._switch_to_classic(exchange, exc):
+                raise
+            return None
 
     def _balance_from_uta_envelope(self, exchange: Any, envelope: Any) -> dict:
         """The balance dict from the UTA envelope: ``total`` is the account's
@@ -16635,6 +16733,14 @@ class LiveExecutor:
             unrealized: Optional[float] = None
             raw_info = balance.get("info", {})
             raw_data = raw_info.get("data", []) if isinstance(raw_info, dict) else []
+            if (isinstance(raw_info, list) and self._venue.id == "bitget"
+                    and not client_is_uta(exchange)):
+                # ccxt's CLASSIC Bitget parse hands back the account rows as
+                # `info`, not the envelope around them. Read as "no data",
+                # the marked equity they carry was labelled a wallet balance.
+                # A unified client's list is per-COIN rows, whose `equity` is
+                # the coin's and stays unread here, as it was.
+                raw_data = raw_info
             if isinstance(raw_data, dict):
                 raw_data = [raw_data]
             for item in (raw_data if isinstance(raw_data, list) else []):
@@ -17662,6 +17768,21 @@ class LiveExecutor:
                                              pos.symbol, pos.status)
                                 continue
 
+                            # SAID, ONCE PER ROW: the record is about to leave
+                            # the book on the venue's word alone. Every branch
+                            # below clears it without sending an order, and
+                            # each audits its own outcome after this line.
+                            if not getattr(pos, "_venue_flat_said", False):
+                                setattr(pos, "_venue_flat_said", True)
+                                audit(trade_log,
+                                      f"Reconcile: {pos.symbol} (trade {pos.trade_id}) is "
+                                      f"tracked locally but the venue reports no position "
+                                      f"— reconcile clears the record, and no order is "
+                                      f"placed to do it",
+                                      action="reconcile_flat", result="VENUE_FLAT",
+                                      data={"trade_id": pos.trade_id,
+                                            "symbol": pos.symbol})
+
                             # ── Double-counting guard ──
                             # If this trade_id is already in closed_trades (e.g., from a
                             # previous bot instance that closed it), skip re-reconciling.
@@ -18012,7 +18133,12 @@ class LiveExecutor:
                             break
 
                 except Exception as exc:
-                    logger.debug("Reconciliation error for %s: %s", pos.trade_id, exc)
+                    # A Classic account refused the unified read (40084). At
+                    # DEBUG that kept a row the venue no longer held for good,
+                    # with no trace. The client is switched and says so; the
+                    # row is kept and the next pass reads the classic API.
+                    if not await self._switch_to_classic(exchange, exc):
+                        logger.debug("Reconciliation error for %s: %s", pos.trade_id, exc)
 
         except Exception as exc:
             logger.debug("Reconciliation error: %s", exc)

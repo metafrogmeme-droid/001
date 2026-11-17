@@ -21,6 +21,7 @@ them, and the others are decided after it has been run.
 | [0008](0008-per-user-live-envelope.md) | Per-user live trading and the Authority Envelope | D12 | Proposed |
 | [0009](0009-marketplace-presets.md) | Marketplace presets whose profit factor is below 1 | F7 | Proposed |
 | [0010](0010-fixture-capture-cost-budget.md) | Venue fixture-capture cost budget | D4, D14 | Proposed |
+| [0011](0011-bitget-classic-account-fallback.md) | Bitget Classic-account fallback | - | Accepted 2026-11-16 |
 
 ## Writing one
 
