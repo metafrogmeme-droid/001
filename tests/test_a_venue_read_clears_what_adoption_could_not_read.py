@@ -38,6 +38,11 @@ def _executor(tmp_path) -> LiveExecutor:
     # leverage. On a unified account that row is the sticky figure and the
     # sync reads the symbol row (tests/test_the_sync_reads_the_row_the_guard_reads.py).
     ex._is_uta = False
+    # The sync asks for the ccxt client first, to learn the account's API
+    # family before it picks a channel. This harness stubs the v3 wire and has
+    # no ccxt client to give, so the ask is answered the way a client that
+    # cannot be built answers it, and the sync reads the v3 rows as before.
+    ex._get_exchange = AsyncMock(side_effect=RuntimeError("no ccxt client in this harness"))
     return ex
 
 

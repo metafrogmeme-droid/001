@@ -425,6 +425,41 @@ def flash_close_applied(result) -> bool:
         for item in items if isinstance(item, dict)))
 
 
+def classic_flash_close_reply(result):
+    """A classic (v2) flash-close reply spelled as the unified (v3) one, which
+    is the shape `flash_close_applied` reads.
+
+    The classic endpoint names what closed in ``data.successList`` and what
+    did not in ``data.failureList``; the unified one answers a single
+    ``data.list`` whose failed items carry a ``code``. Converted at the
+    boundary so there is one reader of "applied", not one per family.
+
+    A failed item is marked failed whatever it states: with the venue's
+    ``errorCode`` when it gives one, else ``unstated``, because an item
+    without a code reads as applied. A success item this cannot read as a
+    record is left out, so a reply nobody could read does not claim a close.
+    A reply that is not an accepted envelope is handed back as it came.
+    """
+    if not isinstance(result, dict) or result.get("code") != "00000":
+        return result
+    data = result.get("data")
+    data = data if isinstance(data, dict) else {}
+    closed = data.get("successList")
+    refused = data.get("failureList")
+    items: list = []
+    for item in (closed if isinstance(closed, list) else []):
+        if isinstance(item, dict):
+            items.append({**item, "code": "00000"})
+    for item in (refused if isinstance(refused, list) else []):
+        row = dict(item) if isinstance(item, dict) else {}
+        stated = str(row.get("errorCode") or "").strip()
+        row["code"] = stated if stated and stated != "00000" else "unstated"
+        if "msg" not in row and row.get("errorMsg") is not None:
+            row["msg"] = row["errorMsg"]
+        items.append(row)
+    return {**result, "data": {**data, "list": items}}
+
+
 #: Bitget refusals a person acts on, in words. Read by `refusal_text`.
 _VENUE_REFUSAL_WORDS: dict[str, str] = {
     "25231": "the close asked for more than the position the venue holds",

@@ -310,6 +310,11 @@ def _synced(tmp_path, monkeypatch, rows, *, source, entry=TICKER):
     # A classic account, said so: an unprobed one is probed by the sync, and
     # this harness stubs the v3 wire, not the ccxt client the probe asks.
     ex._is_uta = False
+    # The sync asks for the ccxt client first, to learn the account's API
+    # family before it picks a channel. This harness stubs the v3 wire and has
+    # no ccxt client to give, so the ask is answered the way a client that
+    # cannot be built answers it, and the sync reads the v3 rows as before.
+    ex._get_exchange = AsyncMock(side_effect=RuntimeError("no ccxt client in this harness"))
     pos = LivePosition(trade_id="T1", symbol="ETH/USDT", direction="LONG",
                        entry_price=entry, quantity=0.05, cost_usd=entry * 0.05 / 5,
                        stop_loss=entry * 0.98, take_profit=entry * 1.06, leverage=5,

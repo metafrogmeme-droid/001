@@ -148,6 +148,13 @@ _TRANSPORT_MARKERS = (
     "bad gateway", "gateway timeout", "dns", "ssl", "certificate",
     "/market/instruments", "load_markets", "loadmarkets",
     "502", "503", "504", "429", "too many requests",
+    # The driver's own network-class errors. Its text for a timeout or a lost
+    # connection is only "bitget GET <url>", so the balance read names the
+    # class in front of it (`LiveExecutor.fetch_balance`); "RequestTimeout"
+    # and "NetworkError" already match the words above, and these four carry
+    # none of them. A clock or signature error (InvalidNonce) is not here:
+    # every signed call fails on it, stops included, and it still halts.
+    "exchangenotavailable", "ddosprotection", "ratelimitexceeded", "onmaintenance",
 )
 
 
