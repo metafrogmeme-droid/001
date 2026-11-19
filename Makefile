@@ -2,7 +2,7 @@
 # RUNECLAW Makefile v2 -- Developer convenience targets
 # =============================================================================
 
-.PHONY: install lint format run-cli run-telegram run-scan run-api \
+.PHONY: install lock lock-check lint format run-cli run-telegram run-scan run-api \
         test test-core test-security test-cov deploy health logs \
         logs-api logs-bot cert db-init db-users db-shell clean help
 
@@ -23,10 +23,23 @@ help: ## Show all available targets
 	@echo ""
 
 # -- Setup -------------------------------------------------------------------
-install: ## Install all Python deps from requirements.lock (bot + api_bridge)
+# Two installs and no third. The pip wheel carries its own hash. Everything
+# else comes from requirements.lock under --require-hashes: pip checks every
+# file against the hashes in the lock and refuses a package the lock does not
+# name. A third line used to name fastapi and uvicorn[standard] here, with no
+# hash, and brought in the extra's four packages from wherever pip found them;
+# the lock pins all of that now (requirements.in).
+install: ## Install all Python deps from the hashed requirements.lock (bot + api_bridge)
 	$(PYTHON) -m pip install "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
-	$(PYTHON) -m pip install -r requirements.lock
-	$(PYTHON) -m pip install "fastapi==0.141.1" "uvicorn[standard]==0.52.3"
+	$(PYTHON) -m pip install --require-hashes -r requirements.lock
+
+# Both need pip-tools at the pinned version; requirements-piptools.in says how
+# to build that environment. Run them with its python: make lock PYTHON=...
+lock: ## Regenerate every hashed lock from its *.in file
+	$(PYTHON) scripts/compile_locks.py
+
+lock-check: ## Compile again and compare with the committed locks (what CI runs)
+	$(PYTHON) scripts/compile_locks.py --check
 
 # -- Code quality ------------------------------------------------------------
 lint: ## ruff + mypy

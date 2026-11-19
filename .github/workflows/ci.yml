@@ -438,6 +438,32 @@ jobs:
           "$RUNNER_TEMP/lockenv/bin/python" -m pip check
           "$RUNNER_TEMP/lockenv/bin/python" scripts/compile_locks.py --installed requirements.lock
 
+  # THE IMAGE IS BUILT HERE BECAUSE NOTHING ELSE BUILDS IT BEFORE A RELEASE.
+  # image.yml runs on a pushed v* tag or by hand, so a Dockerfile that cannot
+  # install its lock was found on release day. This builds the same target and
+  # asks two questions of the result: do the installed packages agree with
+  # each other (`pip check`), and is every pin in requirements.lock installed
+  # at that version, once (`--installed`). The second is the one a
+  # prefix-copied image gets wrong: the base image bundles its own pip and
+  # setuptools, and a copy on top of them leaves two versions of each.
+  #
+  # Nothing is pushed and no registry is logged in to. The image is run only
+  # to read its own site-packages; the bridge is never started.
+  image:
+    name: Image (docker build from the hashed lock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Build — the production target
+        run: docker build --target production -t runeclaw:ci .
+
+      - name: The image holds what the lock pins
+        run: |
+          docker run --rm runeclaw:ci python -m pip check
+          docker run --rm runeclaw:ci python scripts/compile_locks.py --installed requirements.lock
+
   staking:
     name: Staking program (cargo)
     runs-on: ubuntu-latest

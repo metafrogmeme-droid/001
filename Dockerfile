@@ -32,13 +32,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m pip install --no-cache-dir \
     "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
 
-COPY bot/requirements.txt ./requirements.txt
+COPY requirements.lock ./requirements.lock
 # The same wheel again, into the prefix the production stage copies, so the
-# image that runs is not left on the base image's pip.
-RUN python -m pip install --no-cache-dir --prefix=/install \
-    "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70" \
-    -r requirements.txt \
-    fastapi==0.141.1 "uvicorn[standard]==0.52.3"
+# image that runs is not left on the base image's pip. --ignore-installed is
+# what makes that true: the line above has just put this exact pip into the
+# builder, and without the flag this one answers "already satisfied" and
+# copies nothing into the prefix.
+RUN python -m pip install --no-cache-dir --ignore-installed --prefix=/install \
+    "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+
+# Everything else, from the hashed lock and from nowhere else. Under
+# --require-hashes pip checks each file against the hashes in the lock and
+# refuses a package the lock does not name, so nothing can be added to this
+# line: fastapi and uvicorn[standard] used to be named on it with no hash,
+# and the extra's packages shipped in an image no audit had read. The lock is
+# the file pip-audit reads, so what ships is what is audited.
+# --ignore-installed again: whatever the base image bundles (setuptools, on
+# Python 3.11) must not count as already present, or it stays out of the
+# prefix and the production stage runs the bundled copy.
+RUN python -m pip install --no-cache-dir --ignore-installed --prefix=/install \
+    --require-hashes -r requirements.lock
 
 # ── Stage 2: production image ───────────────────────────────────────────
 FROM python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377 AS production
@@ -48,6 +61,13 @@ FROM python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78a
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && dpkg --compare-versions "$(dpkg-query -W -f '$${Version}' ca-certificates)" ge "20250419+deb13u1" \
     && rm -rf /var/lib/apt/lists/*
+
+# The base image bundles its own pip and setuptools. Copying /install over
+# them leaves two versions of each in one site-packages: both sets of
+# metadata, and every file the older version has that the newer one dropped.
+# Remove the bundled ones first, so the image holds the pip the wheel line
+# pins and the setuptools the lock pins, once each.
+RUN python -m pip uninstall -y pip setuptools
 
 COPY --from=builder /install /usr/local
 
