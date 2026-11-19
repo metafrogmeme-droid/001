@@ -15,6 +15,7 @@ parallel shadow is not the required gate.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -68,10 +69,19 @@ def test_the_parallel_shadow_is_the_same_gate_and_does_not_block():
     assert job.get("continue-on-error") is True
     runs = [str(step.get("run") or "") for step in job["steps"]]
     assert any("python3 scripts/ci_test_gate.py --parallel" in run for run in runs)
-    assert any("pytest-xdist==3.8.0" in run for run in runs)
+    # xdist arrives from a hashed file of its own since 2026-11-19, so the
+    # pin is read where it lives rather than from the run text. Both halves:
+    # the shadow installs that file under --require-hashes, and the file
+    # pins 3.8.0.
+    assert any("pip install --require-hashes -r requirements-xdist.txt" in run for run in runs)
+    xdist = (ROOT / "requirements-xdist.txt").read_text(encoding="utf-8")
+    assert re.search(r"^pytest-xdist==3\.8\.0 ", xdist, re.M), "requirements-xdist.txt must pin 3.8.0"
     # The serial environment is the one the baseline was recorded against.
     serial_runs = " ".join(str(step.get("run") or "") for step in _job(_SERIAL)["steps"])
     assert "pytest-xdist" not in serial_runs
+    assert "requirements-xdist" not in serial_runs
+    assert not re.search(r"^pytest-xdist==", (ROOT / "requirements-ci.txt").read_text(encoding="utf-8"), re.M), (
+        "requirements-ci.txt is the serial environment and must not install xdist")
     # The required gate is not wrapped. A hang-stop belongs only to the shadow.
     serial_test = [
         str(step.get("run") or "")
