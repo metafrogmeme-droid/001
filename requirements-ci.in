@@ -1,0 +1,75 @@
+# The INPUT of requirements-ci.txt, the CI test environment
+# (.github/workflows/ci.yml). Edit this file, never the generated one.
+#
+#   python3 scripts/compile_locks.py            regenerate every hashed lock
+#   python3 scripts/compile_locks.py --check    what CI runs
+#
+# This mirrors the environment the known-failures baseline
+# (tests/known_failures.txt) was generated in, so the baseline-diff gate is
+# reproducible.
+#
+# IT MUST COVER EVERY MODULE requirements.lock PINS. That is enforced by
+# tests/test_ci_env_matches_lock.py, and it is why the first line below
+# includes the lock's own input instead of repeating it.
+#
+# It used to end: "Optional, heavy, or import-guarded extras (anthropic,
+# mplfinance/matplotlib/pandas) are intentionally omitted — their absence is
+# part of the baseline." Every clause was true and the conclusion was backwards.
+# `requirements.lock` says a module is GUARANTEED PRESENT in production; a CI
+# environment that omits it tests a system nobody runs, and the omission is
+# invisible because the tests that need it skip. Twenty chart tests skipped here
+# on every green run for months while /chart quietly sent text.
+#
+# "Import-guarded" was the specific trap. Pillow is guarded at eleven sites and
+# is not optional at all — a guarded import means the code SURVIVES the absence,
+# not that the feature is expendable. Being heavy is a reason to cache the
+# install, not to stop testing the feature.
+#
+# Every line is an exact pin, the transitives included, for the reason
+# requirements.in gives. Until 2026-11-19 the generated file carried no
+# hashes: it named 29 packages and pip installs about a hundred for them, and
+# pip refuses a hashed file that leaves one out.
+-r requirements.in
+
+PyJWT==2.15.1
+# Dev / test tooling
+pytest==9.0.3
+pytest-asyncio==1.3.0
+pytest-timeout==2.4.0
+hypothesis==6.155.7
+ruff==0.11.13
+mypy==1.15.0
+# CI quality gates (coverage, dependency audit, SAST)
+pytest-cov==6.1.1
+pip-audit==2.9.0
+bandit==1.8.3
+
+# ── Transitives of the tools above ──────────────────────────────────────────
+# Frozen on 2026-11-19, on the same basis as the list in requirements.in.
+boolean-py==5.0
+cachecontrol==0.15.0
+coverage==7.17.3
+cyclonedx-python-lib==9.1.0
+defusedxml==0.7.1
+filelock==4.2.12
+iniconfig==2.3.1
+license-expression==30.4.4
+markdown-it-py==4.3.0
+mdurl==0.1.2
+msgpack==1.2.4
+mypy-extensions==1.2.0
+packageurl-python==0.17.6
+pip-api==0.0.35
+pip-requirements-parser==32.0.1
+# pip-audit reaches pip through pip-api. This is the wheel every install in
+# this repository starts from (ci.yml, Makefile, Dockerfile), so the pin moves
+# nothing. tests/test_the_lock_is_hash_pinned.py holds the two together.
+pip==26.2.2
+platformdirs==4.14.7
+pluggy==1.7.0
+py-serializable==2.2.0
+pygments==2.21.0
+rich==15.0.0
+sortedcontainers==2.4.0
+stevedore==5.10.0
+toml==0.10.2

@@ -1,0 +1,26 @@
+# The INPUT of requirements-piptools.txt: pip-tools, the compiler of every
+# hashed lock in this repository, itself included.
+#
+#   python3 scripts/compile_locks.py            regenerate every hashed lock
+#
+# Installed by the "Dependency lock (pip-compile)" job in ci.yml and by
+# whoever regenerates a lock, into an environment of its own:
+#
+#   python3.11 -m venv ~/.venvs/runeclaw-locks
+#   ~/.venvs/runeclaw-locks/bin/pip install --require-hashes -r requirements-piptools.txt
+#   ~/.venvs/runeclaw-locks/bin/python scripts/compile_locks.py
+#
+# scripts/compile_locks.py refuses to compile under any other pip-tools or
+# pip than the two pinned here: a different resolver is a different file.
+pip-tools==7.7.0
+
+# ── Transitives ─────────────────────────────────────────────────────────────
+build==1.6.1
+click==8.5.1
+packaging==26.3
+pyproject-hooks==1.3.3
+wheel==0.48.0
+# The wheel every install in this repository starts from. pip-tools 7.7.0
+# requires pip>=26.2.2.
+pip==26.2.2
+setuptools==84.2.1

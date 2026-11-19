@@ -31,9 +31,11 @@ import json
 import pathlib
 import re
 
-import pytest
+from tests.dep_policy import require
 
-yaml = pytest.importorskip("yaml", reason="PyYAML parses the workflow")
+# Pinned in requirements.lock since 2026-11-19 (uvicorn[standard] brings it),
+# so a missing PyYAML is a broken environment, not a reason to skip.
+yaml = require("yaml", "PyYAML parses the workflow")
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 CI = REPO / ".github" / "workflows" / "ci.yml"

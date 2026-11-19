@@ -1,0 +1,151 @@
+# The INPUT of requirements.lock. Edit this file, never the lock.
+#
+#   python3 scripts/compile_locks.py            regenerate every hashed lock
+#   python3 scripts/compile_locks.py --check    what CI runs
+#
+# EVERY LINE IS AN EXACT PIN, the transitives included. pip-compile resolves
+# from what is written here, so a newer release upstream cannot move a
+# version: a compile can only add or change hashes. A package the compile
+# needs and this file does not pin is refused, and the refusal prints the
+# line to add.
+#
+# `requirements.lock` is what `make install`, the README, the deploy docs and
+# the Dockerfile install, and it is the SUBJECT OF THE SCA GATE: `pip-audit`
+# reads it (.github/workflows/ci.yml, the "SCA" step). Every package that
+# ships is named there with its hashes, or that package ships and is never
+# audited. `tests/test_ci_executes_nothing_it_did_not_pin.py` pins that
+# containment for the image.
+#
+# NOT COVERED, stated rather than implied: the dev/test packages in
+# `requirements-ci.in` that are not here (pytest and friends, ruff, mypy,
+# bandit, hypothesis, pip-audit, pyjwt) are installed in CI only. They do not
+# ship. The nightly workflow audits them; the pull-request gate does not.
+
+# ── What bot/ and api_bridge import, or ship, by name ───────────────────────
+python-dotenv==1.2.2
+pydantic==2.13.3
+ccxt==4.5.56
+python-telegram-bot==22.7
+openai==2.38.0
+anthropic==0.104.1
+numpy==2.3.5
+aiohttp==3.14.4
+# Not imported by name. ccxt, httpx, openai and anthropic pull it in, and
+# the lock is the only file the pull-request audit reads, so an unpinned
+# certifi was shipped and never scanned. 2026.10.19 drops the withdrawn
+# emSign roots (PYSEC-2026-4320).
+certifi==2026.10.19
+websockets==16.0
+cryptography==50.0.0
+# ── Added 2026-08-17, after cards stopped rendering on a fresh venv ─────────
+# The lock had ten pins and bot/ imports twenty modules. A venv built from it
+# was missing Pillow, so `bot/formatters/signal_card.py` took its
+# `except ImportError` branch, returned b"", and the caller's `if png:` sent
+# text instead — no card, no error, one log line. The bot looked healthy.
+# `tests/test_requirements_cover_imports.py` now refuses that gap.
+#
+# Union of two independent fixes for the same incident: `uvicorn` came from
+# main (fastapi needs a server to be worth pinning), `redis` from this branch
+# (bot/api/token_store.py imports it bare). Neither list was wrong; each was
+# missing what the other found, which is its own argument for the guard.
+Pillow==13.0.0
+fastapi==0.141.1
+# The `standard` extra, since 2026-11-19. The lock said plain `uvicorn` while
+# the Makefile, the Dockerfile, pyproject.toml and the CI set all installed
+# `uvicorn[standard]`, on an install line of their own that no lock and no
+# audit covered. Same uvicorn; the four packages the extra adds (httptools,
+# uvloop, watchfiles, pyyaml) are pinned with the transitives below.
+uvicorn[standard]==0.52.3
+redis==8.1.0
+# ── Added 2026-08-17, same incident, one layer down ─────────────────────────
+# Cards came back and charts did not. `bot/skills/chart_renderer.py` guards
+# its imports the same way signal_card.py guards Pillow, and returns None on
+# the missing-libs path, so /chart sent text and logged one line.
+#
+# These three were listed in tests/optional_imports.json with the note "not
+# installed in any environment today, so the chart path has never run. Pin it
+# or delete the module — but that is a product decision, not a lockfile one."
+# The decision has now been made: charts are a shipped feature. All 20 tests
+# in tests/test_chart_renderer.py pass against these versions — they had never
+# executed before, because the whole file was skipif'd on the libs it needed.
+matplotlib==3.11.1
+mplfinance==0.12.10b0
+pandas==3.0.5
+# mplfinance/_utils.py does `from six.moves import zip`. python-dateutil
+# 4.0.0, the transitive pandas resolves, no longer depends on six, so a fresh
+# install of the three pins above could not import mplfinance (CI,
+# 2026-11-05).
+six==1.17.0
+
+# ── Transitives ─────────────────────────────────────────────────────────────
+# Frozen on 2026-11-19 at what a fresh Python 3.11 install of the pins above
+# resolved that day, which is what CI was installing. Until then none of
+# these was pinned anywhere: each install took whatever was newest. The
+# production venv was not read when this list was written.
+#
+# A pin here that nothing requires any more is refused by
+# tests/test_the_lock_is_hash_pinned.py, except the ones named there with a
+# reason.
+aiodns==4.0.4
+aiohappyeyeballs==2.7.1
+aiosignal==1.4.0
+annotated-doc==0.0.7
+annotated-types==0.8.0
+anyio==4.16.0
+# redis 8.1.0 requires this below Python 3.11.3 and not above it. The lock is
+# compiled on a newer 3.11, where the compile never sees the requirement, and
+# `--require-hashes` then refuses the install on 3.11.0 to 3.11.2 (Debian 12
+# ships 3.11.2). Named unconditionally so one lock serves every 3.11.
+async-timeout==5.0.1
+attrs==26.1.0
+cffi==2.1.1
+charset-normalizer==3.5.2
+click==8.5.1
+coincurve==21.0.0
+# Windows only: tqdm requires it there, and the quick start documents a
+# Windows install. Unused on Linux. Named for the same reason as
+# async-timeout.
+colorama==0.4.6
+contourpy==1.3.3
+cycler==0.12.1
+distro==1.9.0
+docstring-parser==0.18.0
+fonttools==4.68.0
+frozenlist==1.8.0
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.9.0
+httpx==0.28.1
+idna==3.20
+jiter==0.19.0
+kiwisolver==1.5.1
+multidict==6.9.1
+packaging==26.3
+propcache==0.5.4
+pycares==5.2.1
+pycparser==3.12
+pydantic-core==2.46.3
+pyparsing==3.3.3
+python-dateutil==4.0.0
+pyyaml==6.0.3
+requests==2.34.2
+# ccxt 4.5.56 requires setuptools, so a hashed lock has to name it. Before
+# this file every environment used the copy bundled with its Python 3.11
+# (79.0.1 on 3.11.18), unpinned and unaudited. pip-audit reports two
+# vulnerabilities for that copy (PYSEC-2026-3447, also filed as
+# GHSA-h35f-9h28-mq5c, and GHSA-xmj3-9gf7-h52w). 84.2.1 is the release a
+# fresh resolve selected on 2026-11-19 and has none.
+setuptools==84.2.1
+sniffio==1.3.1
+starlette==1.10.0
+tqdm==4.70.1
+typing-extensions==4.16.0
+typing-inspection==0.4.5
+tzdata==2026.6
+urllib3==2.8.0
+# The marker is uvicorn's own, copied from its `standard` extra. uvloop
+# publishes no Windows wheel; without the marker the lock cannot install
+# there.
+uvloop==0.23.0 ; sys_platform != "win32" and sys_platform != "cygwin" and platform_python_implementation != "PyPy"
+watchfiles==1.3.0
+yarl==1.25.1

@@ -27,8 +27,12 @@ which already exists and already ratchets both ways:
                                     Fail. A green run here would hide exactly
                                     the defect that took out cards and charts.
     declared optional            →  missing is expected and deliberate. Skip.
-    neither                      →  a test-only tool (PyYAML). Skip, and say
-                                    which bucket it landed in.
+    neither                      →  a test-only tool (pytest-xdist). Skip, and
+                                    say which bucket it landed in.
+
+PyYAML was this file's example of the third bucket until 2026-11-19. The lock
+now names every package an install brings, and `uvicorn[standard]` brings
+PyYAML, so `yaml` is pinned and a test that needs it fails rather than skips.
 
 `tests/test_web3_signer.py` skipping on `eth_account` is the honest case and
 stays a skip — the signer is declared optional on purpose. The chart tests
@@ -46,28 +50,44 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "requirements.lock"
 _OPTIONAL_JSON = ROOT / "tests" / "optional_imports.json"
 
-#: Distribution name → the module name it installs under. Kept in step with
-#: the identical table in test_requirements_cover_imports.py, which pins it.
+#: Distribution name → the module name it installs under, for the ones where
+#: the two differ. THE ONE TABLE: test_requirements_cover_imports.py reads it
+#: from here. Keys are canonical names (lowercase, `-`), because that is how
+#: pip-compile writes them: the lock said `Pillow` while it was written by
+#: hand and says `pillow` now, and a table keyed on the old spelling stopped
+#: finding `PIL` without any test noticing which line had gone quiet.
 DIST_TO_MODULE = {
     "python-dotenv": "dotenv",
     "python-telegram-bot": "telegram",
-    "Pillow": "PIL",
+    "pillow": "PIL",
+    "pyyaml": "yaml",
     "eth-account": "eth_account",
     "eth-utils": "eth_utils",
     "py-solc-x": "solcx",
 }
 
 
+def canonical(dist: str) -> str:
+    """PEP 503: `Typing_Extensions` and `typing-extensions` are one name."""
+    return re.sub(r"[-_.]+", "-", dist).lower()
+
+
 def pinned_modules() -> set:
-    """Lowercased module names that requirements.lock guarantees are present."""
+    """Lowercased module names that requirements.lock guarantees are present.
+
+    The lock is a pip-compile file: a requirement, then `--hash=` lines, then
+    a `# via` note. Only the first is a package. A line that starts with `-`
+    is an option, and reading one as a distribution called `--hash` would put
+    a module nobody can import on the pinned side of every comparison.
+    """
     mods = set()
     for line in LOCK.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith(("#", "-")):
             continue
-        dist = re.split(r"[=<>!~\[]", line)[0].strip()
+        dist = canonical(re.split(r"[=<>!~\[;\s]", line)[0])
         mods.add(DIST_TO_MODULE.get(dist, dist).lower())
-        mods.add(dist.replace("-", "_").lower())
+        mods.add(dist.replace("-", "_"))
     return mods
 
 

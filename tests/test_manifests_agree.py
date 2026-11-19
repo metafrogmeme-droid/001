@@ -34,10 +34,21 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 MANIFESTS = [
-    "bot/requirements.txt",     # what the Dockerfile installs
-    "requirements-ci.txt",      # what CI installs to run the suite
-    "requirements.lock",        # what pip-audit reads
-    "pyproject.toml",           # published metadata; not installed anywhere
+    "bot/requirements.txt",       # the image's manifest until 2026-11-19; installed by nothing now
+    "requirements-ci.txt",        # what CI installs to run the suite
+    "requirements.lock",          # what the image, `make install` and the deploy docs install; what pip-audit reads
+    "pyproject.toml",             # published metadata; not installed anywhere
+    # The inputs the two files above are compiled from, and the two smaller
+    # hashed sets. scripts/compile_locks.py makes each output agree with its
+    # own input; nothing but this test makes the inputs agree with each other
+    # (requirements-xdist.in repeats pytest's pins, requirements-piptools.in
+    # repeats pip and setuptools).
+    "requirements.in",
+    "requirements-ci.in",
+    "requirements-xdist.in",
+    "requirements-xdist.txt",     # what the parallel shadow job adds
+    "requirements-piptools.in",
+    "requirements-piptools.txt",  # what the lock job installs
 ]
 
 #: package -> why its versions are allowed to differ. Empty today, and it
@@ -46,14 +57,22 @@ MANIFESTS = [
 #: and if that returns it belongs here WITH that sentence, not as a quiet skip.
 ALLOWED_DIVERGENCE: dict[str, str] = {}
 
-_PIN = re.compile(r'^\s*"?([A-Za-z0-9_.\-]+)==([0-9][^"\s,;]*)', re.M)
+#: `name==1.2.3`, and `name[extra]==1.2.3`. The extra was not matched before,
+#: so `uvicorn[standard]==…` in pyproject.toml and the CI file was a pin this
+#: test never compared with the plain `uvicorn==…` the lock carried.
+_PIN = re.compile(r'^\s*"?([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?==([0-9][^"\s,;\\]*)', re.M)
+
+
+def _canonical(name: str) -> str:
+    """PEP 503. pip-compile writes `typing-extensions`; a hand may write `typing_extensions`."""
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def _pins(rel: str) -> dict[str, str]:
     path = ROOT / rel
     if not path.exists():
         return {}
-    return {m.group(1).lower(): m.group(2)
+    return {_canonical(m.group(1)): m.group(2)
             for m in _PIN.finditer(path.read_text(encoding="utf-8"))}
 
 
@@ -64,6 +83,15 @@ def test_the_manifests_are_all_present_and_parseable():
     """A silently-empty manifest would make every check below vacuous."""
     for rel in MANIFESTS:
         assert ALL[rel], f"{rel} parsed to zero pins — did its format change?"
+
+
+def test_a_pin_with_an_extra_is_still_a_pin():
+    """`uvicorn[standard]==…` is how pyproject.toml and requirements.in ask
+    for uvicorn, and the lock answers `uvicorn==…`. A reader that skips the
+    first form compares nothing for the one package asked for both ways."""
+    for rel in ("pyproject.toml", "requirements.in", "requirements.lock", "requirements-ci.txt"):
+        assert "uvicorn" in ALL[rel], f"{rel}: the uvicorn pin was not read"
+    assert "bandit" in ALL["pyproject.toml"], "pyproject.toml pins bandit[toml]"
 
 
 def test_shared_pins_agree_across_manifests():
@@ -87,7 +115,7 @@ def test_the_dockerfile_installs_a_manifest_this_test_covers():
     starts installing something else, this check silently stops protecting the
     image — so the link is asserted rather than assumed."""
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    installed = re.findall(r"COPY\s+(\S*requirements[\w.-]*\.txt)", dockerfile)
+    installed = re.findall(r"COPY\s+(\S*requirements[\w.-]*\.(?:txt|lock))", dockerfile)
     assert installed, "no requirements file COPYed in the Dockerfile"
     for src in installed:
         assert src in MANIFESTS, (
@@ -105,7 +133,19 @@ def test_pip_audit_reads_a_manifest_this_test_covers():
             f"pip-audit reads {target}, which no manifest check covers")
 
 
-@pytest.mark.parametrize("rel", MANIFESTS)
+#: The manifests that pin aiohttp themselves. The inputs that reach it through
+#: a `-r` line, and the two small hashed sets, do not, and a parametrised case
+#: that can only skip is a check that reports nothing as nothing wrong.
+_PIN_AIOHTTP = [rel for rel in MANIFESTS if "aiohttp" in ALL[rel]]
+
+
+def test_the_files_that_ship_aiohttp_are_among_the_ones_checked():
+    for rel in ("requirements.lock", "requirements-ci.txt", "requirements.in",
+                "bot/requirements.txt", "pyproject.toml"):
+        assert rel in _PIN_AIOHTTP, f"{rel} no longer pins aiohttp by name"
+
+
+@pytest.mark.parametrize("rel", _PIN_AIOHTTP)
 def test_aiohttp_carries_the_advisory_fix(rel):
     """The specific regression: PYSEC-2026-3545/3546/3547 were fixed in 3.14.3
     and the deployed manifest kept 3.14.1. Named explicitly because a general
@@ -114,8 +154,6 @@ def test_aiohttp_carries_the_advisory_fix(rel):
     CVE-2026-111064 and GHSA-2g87-pp6c-29x5 (published against 3.14.3,
     fixed in 3.14.4) turned CI's pip-audit red on 2026-10-19."""
     pins = ALL[rel]
-    if "aiohttp" not in pins:
-        pytest.skip(f"{rel} does not pin aiohttp")
     parts = tuple(int(x) for x in re.findall(r"\d+", pins["aiohttp"])[:3])
     assert parts >= (3, 14, 4), (
         f"{rel} pins aiohttp {pins['aiohttp']}; 3.14.4 carries the "
