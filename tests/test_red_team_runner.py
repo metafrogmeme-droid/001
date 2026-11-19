@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
+from tests.dep_policy import require
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "red_team.py"
@@ -131,7 +131,7 @@ def test_ci_gates_on_it_in_the_python_job():
     """It needs pydantic and the risk engine, so it must sit in the job that
     installs them — not the cargo job, where an earlier draft of this put it
     and where it would have failed on import."""
-    yaml = pytest.importorskip("yaml")
+    yaml = require("yaml", "PyYAML parses the workflow")   # pinned: absent ⇒ fail, not skip
     wf = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     owner = None
     for job in wf["jobs"].values():

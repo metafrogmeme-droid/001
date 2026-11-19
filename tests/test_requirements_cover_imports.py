@@ -34,35 +34,17 @@ import re
 import sys
 from pathlib import Path
 
+# ONE TABLE, ONE PARSER. This file used to carry its own copy of both, "kept
+# in step" with tests/dep_policy.py by a comment. They were in step, and both
+# were wrong together the day pip-compile wrote `pillow` where the hand-written
+# lock said `Pillow`: the table was keyed on the old spelling, so the one
+# module this whole file exists for came back unaccounted. Everything is
+# lowercased on the way in and compared lowercased on the way out.
+from tests.dep_policy import pinned_modules
+
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "requirements.lock"
 OPTIONAL = json.loads((ROOT / "tests" / "optional_imports.json").read_text(encoding="utf-8"))
-
-#: Distribution name → the module name it installs under.
-DIST_TO_MODULE = {
-    "python-dotenv": "dotenv",
-    "python-telegram-bot": "telegram",
-    "Pillow": "PIL",
-    "eth-account": "eth_account",
-    "eth-utils": "eth_utils",
-    "py-solc-x": "solcx",
-}
-
-
-def pinned_modules():
-    mods = set()
-    for line in LOCK.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        dist = re.split(r"[=<>!~\[]", line)[0].strip()
-        # Everything lowercased on the way in, and compared lowercased on the
-        # way out. The first version stored `PIL` from the mapping table and
-        # compared `pil`, so the one module this whole file exists for came
-        # back unaccounted — a guard that fails on its own subject.
-        mods.add(DIST_TO_MODULE.get(dist, dist).lower())
-        mods.add(dist.replace("-", "_").lower())
-    return mods
 
 
 def bot_imports():
@@ -106,12 +88,33 @@ def test_pillow_is_pinned_because_cards_are_not_optional():
     It is guarded at every site, which is what made it look expendable. If it
     leaves the lock again, cards go back to rendering as nothing at all.
     """
-    assert "pil" in pinned_modules() or "pillow" in pinned_modules(), (
-        "Pillow left requirements.lock — signal cards will silently stop "
-        "rendering, exactly as they did on 2026-08-17")
+    # `pil`, the name bot/ imports, and not `pillow`, the name on the wheel.
+    # Accepting either let the mapping table stop working unnoticed: the
+    # distribution was still listed, so this passed, while the import check
+    # above reported PIL unaccounted for a reason nobody had changed.
+    assert "pil" in pinned_modules(), (
+        "Pillow left requirements.lock, or DIST_TO_MODULE no longer maps it "
+        "to PIL — signal cards will silently stop rendering, exactly as they "
+        "did on 2026-08-17")
     assert "PIL" not in OPTIONAL["optional"], (
         "Pillow is guarded at every import site, but a guarded import means "
         "the code SURVIVES the absence, not that the feature is optional")
+
+
+def test_yaml_is_pinned_because_the_lock_names_what_the_uvicorn_extra_brings():
+    """`pyyaml` is the name on the wheel and `yaml` is what a test imports.
+    Without the row that joins them, `require("yaml")` on a box where PyYAML
+    is missing would skip as "a test-only tool" and the suite would be green
+    over an install the lock says cannot happen."""
+    assert "yaml" in pinned_modules()
+
+
+def test_the_lock_reader_returns_modules_and_nothing_else():
+    """The lock is a pip-compile file: most of its lines are `--hash=`
+    options and `# via` notes. One read as a requirement would be a "module"
+    no code can import, sitting on the pinned side of every comparison."""
+    odd = sorted(m for m in pinned_modules() if not re.fullmatch(r"[a-z0-9_]+(?:-[a-z0-9_]+)*", m))
+    assert odd == [], odd
 
 
 def test_a_declared_optional_module_that_got_pinned_must_leave_the_list():

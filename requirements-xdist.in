@@ -1,0 +1,24 @@
+# The INPUT of requirements-xdist.txt: pytest-xdist, for the parallel shadow
+# job only (.github/workflows/ci.yml, "Tests (parallel shadow, non-blocking)").
+#
+#   python3 scripts/compile_locks.py            regenerate every hashed lock
+#
+# It is installed AFTER requirements-ci.txt, into the same environment. xdist
+# is deliberately not in requirements-ci.in: the serial gate must keep the
+# environment the known-failures baseline was recorded against.
+# tests/test_main_keeps_a_ci_verdict.py holds both halves.
+#
+# 3.8.0 requires pytest>=7 and Python>=3.9; CI pins pytest 9.0.3 on 3.11.
+pytest-xdist==3.8.0
+
+# ── Transitives ─────────────────────────────────────────────────────────────
+execnet==2.1.2
+# pytest and what it requires, repeated from requirements-ci.in at the same
+# versions (tests/test_manifests_agree.py compares them). pip-compile writes
+# the whole tree under pytest-xdist into the output, and every package in an
+# output has to be pinned in its input.
+pytest==9.0.3
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+pygments==2.21.0

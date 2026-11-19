@@ -30317,3 +30317,58 @@ The decision and its known limits are in
 Guarded by `tests/test_a_classic_bitget_account_is_read_through_v2.py`, both
 arms of each rule on ccxt 4.5.56 with no venue reached; 33 mutations each
 killed by a named test.
+
+## THE LOCK PINNED TWENTY PACKAGES AND AN INSTALL BROUGHT SIXTY-SIX: THE REST HAD NO VERSION, NO HASH AND NO AUDIT
+
+19 November 2026. `requirements.lock` named twenty top-level packages. An
+install brought about forty-five more under them, each at whatever version
+was newest that day, none with a hash. `pip-audit` read the twenty. The header
+said to regenerate the file with `pip freeze`. The pip wheel and the Docker
+base image were pinned by hash and by digest, and everything they then
+installed was not.
+
+**The reason the file had no hashes was true, and it described the defect.**
+The CI set's header said a hash on one line makes pip require one on every
+line and refuse a transitive the file does not name. That is the property a
+lock is for. The file named 29 packages for an install of about a hundred.
+
+**Every version is in the input, so the compile has nothing to choose.**
+`scripts/compile_locks.py` runs pip-compile with hashes from a `*.in` file
+that pins every package, transitives included. A release published later
+cannot move a pin. `--check` compiles into an empty directory: on top of an
+existing output pip-compile keeps that file's pins and copies its hashes, and
+agrees with it whatever the index says. It exits 0, 1 with the kind of
+staleness named, or 2 when it could not check.
+
+**One Python minor is not one set of requirements.** redis 8.1.0 requires
+`async-timeout` below 3.11.3 and tqdm requires `colorama` on Windows. A
+compile on Linux and a current 3.11 never sees either, and a hashed install
+then refuses on the other target. They were found by evaluating every
+declared requirement's marker for the other targets, and are pinned
+unconditionally. `setuptools` was the same class one step earlier: ccxt
+requires it, every environment used the copy bundled with its interpreter,
+and that copy was reported with two vulnerabilities the first time a file
+named it.
+
+**An install line beside the lock is outside the lock.** `make install` ran
+the lock and then `uvicorn[standard]` on a line of its own, and the
+Dockerfile named it inline. The extra's four packages shipped and no file
+listed them. Both now install the lock under `--require-hashes` and nothing
+else, and the lock carries the extra.
+
+**A prefix copied over a base image holds two of whatever the base bundles.**
+The image's builder installed into a prefix and the production stage copied
+it over the base. The base's own pip and setuptools stayed beside the new
+ones, metadata and files. `compile_locks.py --installed` reports a
+distribution present in two versions, and the image job in CI runs it.
+
+**A test of a refusal must not rely on the refusal.** The first test of the
+script's "refuse to write an unpinned package" ran on the real tree. With
+the refusal mutated away it wrote a planted package into the lock. The test
+now works in a copy.
+
+Guarded by `tests/test_the_lock_is_hash_pinned.py`, with no index reached;
+33 mutations each killed by a named test. `tests/pip_installs.py` is the one
+classifier of an install line, and `tests/dep_policy.py` the one reader of
+the lock's module names. The Dockerfile's two lines are held only by the
+image job, which is the first place the image is built before a release.

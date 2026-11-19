@@ -114,6 +114,14 @@ should name what its sentence names, which the check cannot judge. The generated
 `.env.example` is regenerated with `scripts/safety_flag_inventory.py
 --section`, and `docs/lessons/INDEX.md` with `scripts/lessons_index.py`.
 
+The four hashed locks (`requirements.lock`, `requirements-ci.txt`,
+`requirements-xdist.txt`, `requirements-piptools.txt`) are compiled from the
+`*.in` beside each by `scripts/compile_locks.py`, which needs the pip-tools
+environment `requirements-piptools.in` describes. Every `*.in` line is an
+exact pin, transitives included. Never edit a lock or `pip freeze` into one,
+and install with `pip install --require-hashes -r`. CI recompiles and fails
+on a difference; `--check` exiting 2 means it could not check.
+
 ## The rule behind most of the tests: unreadable is never zero
 
 **Unreadable is never zero, and absent is never a measurement.** A failed read

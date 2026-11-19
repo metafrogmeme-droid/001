@@ -56,13 +56,21 @@ CI_EXEMPT: dict[str, str] = {}
 
 
 def _dists(path: Path) -> set:
-    """Distribution names in a requirements file, lowercased, extras stripped."""
+    """Distribution names in a requirements file, canonical, extras stripped.
+
+    Both files are pip-compile output since 2026-11-19: a requirement, then
+    `--hash=` lines, then a `# via` note. A line that starts with `-` is an
+    option. Read as a requirement it becomes a distribution called `--hash`
+    in BOTH sets, which cancels in the subtraction below and so hid nothing
+    by luck; an option present in only one file would not have cancelled.
+    """
     out = set()
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith(("#", "-")):
             continue
-        out.add(re.split(r"[=<>!~\[]", line)[0].strip().lower())
+        name = re.split(r"[=<>!~\[;\s]", line)[0]
+        out.add(re.sub(r"[-_.]+", "-", name).lower())
     return out
 
 
@@ -124,6 +132,10 @@ def test_the_parse_actually_finds_something():
     assert len(ci) >= 20, f"only {len(ci)} dists parsed from requirements-ci.txt"
     for known in ("ccxt", "pillow", "numpy"):
         assert known in lock and known in ci, f"{known} should be in both"
+    # ...and nothing that is not a package. Both files carry `--hash=` lines
+    # now; one read as a requirement is a distribution named `--hash`.
+    for name in sorted(lock | ci):
+        assert re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name), f"{name!r} is not a distribution name"
 
 
 def test_ci_workflow_still_installs_the_file_this_test_checks():
