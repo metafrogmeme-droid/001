@@ -259,8 +259,8 @@ version. The second prints what pip would install. Run both with the venv's
 `python3`. The first time a venv built before 2026-11-19 meets the hashed
 lock, expect differences: until then the lock pinned twenty packages and pip
 chose the rest, so that venv holds whatever was newest on the day it was
-built. The lock was frozen from what CI resolved on 2026-11-19, not from a
-production venv. Two differences are deliberate: `setuptools` becomes 84.2.1
+built. The lock was frozen at what a fresh Python 3.11 install resolved on
+2026-11-19, not from a production venv. Two differences are deliberate: `setuptools` becomes 84.2.1
 (the copy bundled with Python 3.11 has open advisories), and the
 `uvicorn[standard]` extra's packages (httptools, uvloop, watchfiles, PyYAML)
 arrive if they are not there. uvicorn uses uvloop and httptools as soon as

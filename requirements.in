@@ -79,9 +79,15 @@ six==1.17.0
 
 # ── Transitives ─────────────────────────────────────────────────────────────
 # Frozen on 2026-11-19 at what a fresh Python 3.11 install of the pins above
-# resolved that day, which is what CI was installing. Until then none of
-# these was pinned anywhere: each install took whatever was newest. The
-# production venv was not read when this list was written.
+# resolved that day. Until then none of these was pinned anywhere: each
+# install took whatever was newest.
+#
+# Against the install log of the last green CI run on main (2026-11-17) that
+# is the same version for every package but three, each a patch release
+# published in between: annotated-doc here (0.0.6 then, 0.0.7 now), and
+# filelock (4.2.10, 4.2.12) and platformdirs (4.14.5, 4.14.7) in
+# requirements-ci.in. The production venv was not read when this list was
+# written.
 #
 # A pin here that nothing requires any more is refused by
 # tests/test_the_lock_is_hash_pinned.py, except the ones named there with a
