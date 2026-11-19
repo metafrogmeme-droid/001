@@ -48,7 +48,7 @@ RUNECLAW operates as a 9-state FSM: **SCAN** detects volume anomalies across all
 
 ```bash
 git clone https://github.com/Humanoid-Traders/RUNECLAW.git
-cd RUNECLAW && pip install -r requirements.lock
+cd RUNECLAW && pip install --require-hashes -r requirements.lock
 cp .env.example .env  # Add your keys (or set LLM_PROVIDER=gemini for zero-cost)
 python -m bot.main --mode telegram
 ```

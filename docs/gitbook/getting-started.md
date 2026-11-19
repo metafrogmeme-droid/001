@@ -22,7 +22,7 @@ source .venv/bin/activate   # Linux/macOS
 .venv\Scripts\activate      # Windows
 
 # Install dependencies
-pip install -r requirements.lock
+pip install --require-hashes -r requirements.lock
 ```
 
 ## Configuration

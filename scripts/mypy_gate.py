@@ -68,7 +68,7 @@ reports MORE.
 So::
 
     python3 -m venv /tmp/cienv
-    /tmp/cienv/bin/pip install -r requirements-ci.txt
+    /tmp/cienv/bin/pip install --require-hashes -r requirements-ci.txt
     PATH=/tmp/cienv/bin:$PATH python3 scripts/mypy_gate.py --update
 
 ``check_version`` below catches the version half and refuses to render a

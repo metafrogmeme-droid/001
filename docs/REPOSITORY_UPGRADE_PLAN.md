@@ -90,7 +90,7 @@ When a ratchet count goes down, the baseline is re-recorded in the same commit. 
 | `pyproject.toml` optional cryptography | `>=50.0.0` |
 | Dockerfile pip floors | fastapi `>=0.115`, uvicorn[standard] `>=0.30` |
 
-`requirements.lock` is the file `pip-audit` reads. `make install`, the README, and the deploy docs install it. The Dockerfile still installs `bot/requirements.txt` and names fastapi and uvicorn on that install line. CI installs `requirements-ci.txt`. The lock stays a superset of what the image installs. Dev packages in `requirements-ci.txt` (pytest and friends, ruff, mypy, bandit, hypothesis, pip-audit, PyJWT) are installed in CI and are not in the lock.
+`requirements.lock` is the file `pip-audit` reads. `make install`, the README, the deploy docs and, since 2026-11-19, the Dockerfile install it, with `--require-hashes`. CI installs `requirements-ci.txt` the same way. The lock stays a superset of what the image installs. Dev packages in `requirements-ci.txt` (pytest and friends, ruff, mypy, bandit, hypothesis, pip-audit, PyJWT) are installed in CI and are not in the lock.
 
 Exact lock pins that differ from the floors above:
 
@@ -102,7 +102,7 @@ Exact lock pins that differ from the floors above:
 | Pillow | 12.3.0 | `>=10.3` |
 | redis | 8.1.0 | `>=5` |
 
-The regenerate command recorded in the lock header is `pip install --upgrade -r bot/requirements.txt && pip freeze > requirements.lock`. A later phase that changes a shipping pin uses that command and re-runs `pip-audit` against the new lock.
+The regenerate command recorded in the lock header is `python3 scripts/compile_locks.py`: the lock is compiled, with hashes, from `requirements.in` (it was a `pip freeze` recipe until 2026-11-19). A later phase that changes a shipping pin edits `requirements.in`, runs that command, and re-runs `pip-audit` against the new lock.
 
 **REGISTRY-VERIFIED.** [PEP 664](https://peps.python.org/pep-0664/) schedules Python 3.11 as security-only until approximately October 2027. The 3.11 release series lists 3.11.15 (2026-03-03). python.org describes 3.11 as security fixes only, source-only, with no binary installers after 3.11.9. endoflife.date lists security support through 31 Oct 2027.
 

@@ -506,7 +506,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 # 3. Install dependencies
-pip install -r requirements.lock
+pip install --require-hashes -r requirements.lock
 
 # 4. Configure environment
 cp .env.example .env
@@ -1068,7 +1068,7 @@ We believe the best hackathon projects are built on strong foundations. RUNECLAW
 # Get started in 60 seconds
 git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW && cp .env.example .env
-pip install -r requirements.lock
+pip install --require-hashes -r requirements.lock
 python -m bot.main --mode scan
 ```
 

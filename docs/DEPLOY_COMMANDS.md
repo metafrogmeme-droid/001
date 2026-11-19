@@ -38,7 +38,10 @@ optional, and is done in BotFather, not here.
    chain a probe onto a restart; verify afterward.
 5. Publish `app/` using `~/runeclaw-persist/web.env`, not the bot `.env`.
    There is no install step unless a dependency manifest changed. When it
-   did, on Python 3.11: `python3 -m pip install -r requirements.lock`.
+   did, on Python 3.11:
+   `python3 -m pip install --require-hashes -r requirements.lock`.
+   [Dependencies](#4-dependencies--on-python-311) has the two read-only
+   commands that show what that install would change before it runs.
 6. Run `scripts/verify_deploy.sh` in a separate invocation.
 7. Once Memeclaw has its own domain, run the Memeclaw checks in
    [Two websites, one web container](#two-websites-one-web-container), also
@@ -233,8 +236,35 @@ quotes, Bitget returned 40006, and a live AMD position sat unprotected.
 
 ```bash
 python3 -V                       # must be 3.11.x
-pip install -r requirements.lock
+pip install --require-hashes -r requirements.lock
 ```
+
+`requirements.lock` names every package the install brings, transitives
+included, each with the sha256 of every file published for that version. Under
+`--require-hashes` pip checks each download against those and refuses a
+package the lock does not name. The file is generated: to change a pin, edit
+`requirements.in` and run `python3 scripts/compile_locks.py` (its header and
+`requirements-piptools.in` say how). Do not edit the lock, and do not
+regenerate it with `pip freeze`.
+
+**Look before installing.** Neither command installs or changes anything:
+
+```bash
+python3 scripts/compile_locks.py --installed requirements.lock
+python3 -m pip install --dry-run --require-hashes -r requirements.lock
+```
+
+The first lists every pin this environment does not hold at the pinned
+version. The second prints what pip would install. Run both with the venv's
+`python3`. The first time a venv built before 2026-11-19 meets the hashed
+lock, expect differences: until then the lock pinned twenty packages and pip
+chose the rest, so that venv holds whatever was newest on the day it was
+built. The lock was frozen from what CI resolved on 2026-11-19, not from a
+production venv. Two differences are deliberate: `setuptools` becomes 84.2.1
+(the copy bundled with Python 3.11 has open advisories), and the
+`uvicorn[standard]` extra's packages (httptools, uvloop, watchfiles, PyYAML)
+arrive if they are not there. uvicorn uses uvloop and httptools as soon as
+they are importable, so the API bridge runs on them after the next restart.
 
 On an older interpreter, `numpy 2.3.x` declares `requires-python >=3.11` and pip
 cannot *see* those releases. It then reports the newest version visible to that
@@ -330,7 +360,7 @@ git pull --ff-only https://github.com/metafrogmeme-droid/001 main \
   || { echo "FAST-FORWARD FAILED — stop and ask"; exit 1; }
 scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
 ./deploy.sh
-python3 -m pip install -r requirements.lock
+python3 -m pip install --require-hashes -r requirements.lock
 test -x "$HOME/launch_all.sh" || { echo "STOP — copy scripts/launch_all.sh.template to ~/launch_all.sh and ask before starting"; exit 1; }
 "$HOME/launch_all.sh"
 ```
