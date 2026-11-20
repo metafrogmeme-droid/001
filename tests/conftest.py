@@ -1740,6 +1740,27 @@ def _live_universe_gate_off_unless_a_test_asks():
 
 
 @pytest.fixture(autouse=True)
+def _live_scan_orders_risk_sized_unless_a_test_asks():
+    """LIVE_SCAN_SIZE ships as "venue_min": a live order the scan produced is
+    shrunk to the venue's minimum before the minimum gate and the caps read
+    it. Ten suites drive `execute` with a scan idea to measure SOMETHING ELSE
+    at the risk-sized amount (a limit sized at the price it rests at, the
+    leverage set against the leverage sized, the slippage gate, the per-trade
+    clamp); shrunk to the minimum, every one of them would read the same
+    0.01 ETH for a reason it is not testing. "risk_sized" here, restored
+    after. `test_the_live_scan_trades_the_venue_minimum.py` turns it back to
+    the shipped value, reads the shipped default from a fresh process, and is
+    the one place the shrink is measured."""
+    from bot.config import CONFIG
+    prev = CONFIG.execution.live_scan_size
+    object.__setattr__(CONFIG.execution, "live_scan_size", "risk_sized")
+    try:
+        yield
+    finally:
+        object.__setattr__(CONFIG.execution, "live_scan_size", prev)
+
+
+@pytest.fixture(autouse=True)
 def _kelly_on_risk_off_unless_a_test_asks():
     """KELLY_ON_RISK_ENABLED ships on. On an empty or short tracker the floor
     (0.25% of equity at the stop) replaces the fixed-fractional budget, so
