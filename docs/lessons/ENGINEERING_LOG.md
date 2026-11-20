@@ -30372,3 +30372,14 @@ Guarded by `tests/test_the_lock_is_hash_pinned.py`, with no index reached;
 classifier of an install line, and `tests/dep_policy.py` the one reader of
 the lock's module names. The Dockerfile's two lines are held only by the
 image job, which is the first place the image is built before a release.
+
+**What a base image bundles is part of what ships.** 20 November 2026. The
+image job's first run listed one distribution in the built image that no lock
+named: `wheel`, which the base bundles beside pip and setuptools. The lock
+pins it at the base's version, and the Dockerfile removes the base's three
+before the copy, so each comes back from a source that checks a hash. The
+same change closed the three installs the guard test had excused by name: the
+nightly scan's `pip-audit`, and two lines of the GitLab pipeline, one of
+which installed a root `requirements.txt` that has never existed in this
+repository's history. All three install the CI lock under `--require-hashes`
+and the exception table is empty.

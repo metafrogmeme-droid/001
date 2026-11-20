@@ -34,8 +34,12 @@ workflow:
   image: python:3.11
   before_script:
     - pip install -q "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
-    - pip install -q -r requirements.txt
-    - pip install -q ruff mypy bandit pip-audit pytest pytest-asyncio pytest-cov
+    # The file the GitHub job installs, and the way it installs it. This
+    # used to name a root requirements.txt, which has never existed here, and
+    # then seven tools at whatever version the index had that day.
+    # requirements-ci.txt pins all seven, with hashes, beside everything the
+    # suite imports.
+    - pip install -q --require-hashes -r requirements-ci.txt
   cache:
     key: py-$CI_COMMIT_REF_SLUG
     paths: [.cache/pip]
@@ -109,7 +113,7 @@ sca:pip-audit:
   extends: .python
   stage: security
   script:
-    - pip-audit -r requirements.lock
+    - pip-audit -r requirements.lock --disable-pip --require-hashes
 
 # Replaces the gitleaks job. GitLab's own scanner covers the same ground and
 # needs no third-party action — it is the one check that came back for free.
