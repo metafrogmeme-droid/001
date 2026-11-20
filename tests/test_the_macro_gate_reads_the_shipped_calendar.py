@@ -57,10 +57,10 @@ def _isolated(kind: str) -> dict:
 
 def test_every_seed_event_is_classified_as_the_seed_declares_it(provider):
     """The seed carries its own `severity`; the provider's one reading must agree
-    with it for every event. All three kinds are present, so a map that agrees on
+    with it for every event. All four kinds are present, so a map that agrees on
     one kind and not another is caught."""
     kinds = {e["type"] for e in _events()}
-    assert kinds == {"FOMC_DECISION", "CPI_RELEASE", "NFP_RELEASE"}
+    assert kinds == {"FOMC_DECISION", "CPI_RELEASE", "NFP_RELEASE", "CORE_PCE"}
     loaded = provider._events
     assert len(loaded) == len(_events())
     for ev in loaded:
@@ -95,10 +95,22 @@ HIGH = [
     (45, "REDUCE", 0.5),
     (46, "CLEAR", 1.0),
 ]
+# A MEDIUM event has no half-size ring before it.
+MEDIUM = [
+    (-120, "CLEAR", 1.0),
+    (-16, "CLEAR", 1.0),
+    (-15, "BLOCK_NEW_ENTRIES", 0.0),
+    (0, "BLOCK_NEW_ENTRIES", 0.0),
+    (10, "BLOCK_NEW_ENTRIES", 0.0),
+    (11, "REDUCE", 0.5),
+    (40, "REDUCE", 0.5),
+    (41, "CLEAR", 1.0),
+]
 
 
 @pytest.mark.parametrize("kind,table", [
-    ("FOMC_DECISION", FOMC), ("CPI_RELEASE", HIGH), ("NFP_RELEASE", HIGH)])
+    ("FOMC_DECISION", FOMC), ("CPI_RELEASE", HIGH), ("NFP_RELEASE", HIGH),
+    ("CORE_PCE", MEDIUM)])
 def test_each_kind_keeps_its_window(provider, kind, table):
     at = _at(_isolated(kind))
     got = []

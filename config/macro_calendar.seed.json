@@ -1,6 +1,6 @@
 {
   "version": "2026-10-29-refresh",
-  "generated_utc": "2026-10-29T00:00:00Z",
+  "generated_utc": "2026-11-20T11:28:31Z",
   "max_stale_hours": 720,
   "events": [
     {
@@ -205,6 +205,13 @@
       "scheduled_utc": "2026-11-10T13:30:00Z",
       "severity": "HIGH",
       "date_confidence": "confirmed"
+    },
+    {
+      "type": "CORE_PCE",
+      "label": "Core PCE - November 2026",
+      "scheduled_utc": "2026-11-25T13:30:00Z",
+      "severity": "MEDIUM",
+      "date_confidence": "estimated"
     },
     {
       "type": "NFP_RELEASE",
