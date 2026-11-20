@@ -199,6 +199,8 @@ The risk gate's macro check reads `MacroEventProvider` (`bot/core/macro_events.p
 | Medium | Core PCE, ISM PMI, PPI, GDP, retail sales | Blocked from 15 minutes before to 10 minutes after; size halved for 30 minutes after that |
 | Low | Jobless claims, Fed speeches | No window |
 
-The shipped seed lists FOMC decisions through December 2027 and CPI and NFP releases through December 2026. An extreme funding rate on the traded symbol also blocks new entries. If the calendar is missing, unreadable or stale when the bot loads it (older than 72 hours with no event beyond the next 72 hours), new entries are blocked unless `MACRO_FAILSAFE=false`. An evaluation error also blocks.
+The shipped seed lists FOMC decisions through December 2027 and CPI and NFP releases through December 2026. An extreme funding rate on the traded symbol also blocks new entries. If the calendar is missing, unreadable or stale when the bot loads it (older than its limit with no event beyond the next 72 hours), new entries are blocked unless `MACRO_FAILSAFE=false`. An evaluation error also blocks.
+
+The limit is the seed's own `max_stale_hours` when that is a number from 1 to 720; the shipped seed says 720 hours. A seed that names none, or a value outside that range, is held to 72 hours, and the bot logs a warning saying which. The 72-hour look-ahead does not follow the file. A limit passed in code wins over the file's, and the engine passes none.
 
 `/macro` shows the event calendar (`bot/macro/calendar.py`), which reports one of five states: NORMAL, PRE_EVENT_CAUTION, EVENT_LOCKDOWN, POST_EVENT_VOLATILITY or BLACKOUT. `/macro brief` shows the gate's own posture: its risk state, the size multiplier on new entries, and whether the calendar is stale or missing.

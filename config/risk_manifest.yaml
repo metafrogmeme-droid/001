@@ -408,9 +408,13 @@ checks:
       for 30 more minutes. A LOW event (any other kind) blocks only at its
       scheduled instant. A funding rate on the symbol of +0.10% per 8 h or
       more blocks as a synthetic CRITICAL event. A calendar that could not be
-      loaded (blind), or a seed file that, when loaded, is older than 72 h and
-      has no event beyond the next 72 h (stale), blocks new entries unless
-      MACRO_FAILSAFE=false; a
+      loaded (blind), or a seed file that, when loaded, is older than its
+      limit and has no event beyond the next calendar_look_ahead_hours
+      (stale), blocks new entries unless MACRO_FAILSAFE=false. The limit is
+      the seed file's own max_stale_hours when that is a number from 1 to 720
+      (the shipped seed says 720), and calendar_stale_default_hours when the
+      file names none or one that cannot be used. The look-ahead does not
+      follow the file; a
       provider that raises blocks too. An engine built with no provider (the
       backtest's) skips the check and passes; the v1 MacroCalendar
       (EVENT_LOCKDOWN and BLACKOUT reject) is consulted only by an engine
@@ -428,7 +432,9 @@ checks:
       post_event_reduce_min: 30
       reduce_size_multiplier: 0.5
       funding_block_rate_per_8h: 0.001
-      calendar_stale_after_hours: 72
+      calendar_stale_after_hours: 720
+      calendar_stale_default_hours: 72
+      calendar_look_ahead_hours: 72
     env_var: MACRO_FAILSAFE
     trips_circuit_breaker: false
     notes: >

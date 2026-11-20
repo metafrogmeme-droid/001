@@ -237,8 +237,10 @@ The gate reads `MacroEventProvider` (`bot/core/macro_events.py`):
 
 The shipped calendar (`config/macro_calendar.seed.json`) schedules FOMC decisions through
 December 2027, and CPI and NFP releases through December 2026. The gate fails closed: with no
-calendar, or with one that no longer covers the next 72 hours when the bot loads it, it blocks new
-entries unless `MACRO_FAILSAFE=false`, and an error while reading it rejects the trade. It also blocks new
+calendar, or with one that is older than its limit and lists no event beyond the next 72 hours
+when the bot loads it, it blocks new entries unless `MACRO_FAILSAFE=false`, and an error while
+reading it rejects the trade. The limit is the seed's own `max_stale_hours` when that is a number
+from 1 to 720 (the shipped seed says 720 hours), and 72 hours otherwise. It also blocks new
 entries on a symbol whose funding rate reads 0.10% per 8 h or more.
 
 ### Further checks

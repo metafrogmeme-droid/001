@@ -66,6 +66,53 @@ _EVENT_TYPE_ALIASES: dict[str, str] = {
     "NFP_RELEASE": "NFP",
 }
 
+#: How old a seed calendar may grow before its reach is checked, in hours,
+#: when neither the caller nor the file names a limit.
+DEFAULT_MAX_STALE_HOURS = 72
+
+#: How far ahead a seed older than its limit must still list an event to be
+#: trusted, in hours. It does not follow the file's `max_stale_hours`: the file
+#: says how old it may grow, not how far ahead it must reach. Were it the same
+#: number, a file that says 720 would turn stale thirty days before its last
+#: event instead of three.
+SEED_LOOK_AHEAD_HOURS = 72
+
+#: The range a seed file's own `max_stale_hours` is accepted in, in hours. A
+#: value outside it is not pulled to the nearer bound: it is read as no usable
+#: value, said so, and the default applies.
+SEED_MAX_STALE_HOURS_RANGE = (1, 720)
+
+
+def seed_max_stale_hours(data: dict) -> float:
+    """The limit a seed file states for itself, or the default when it states none.
+
+    `config/macro_calendar.seed.json` carries `max_stale_hours`, and the
+    provider never read it: the file said 720 and was held to the constructor's
+    72. The same shape as the seed's `severity`: two readings of one quantity,
+    one of them consulted.
+
+    Three states, three sentences. A number in range is the limit. A missing
+    key and a value that cannot be used each fall back to the default, and say
+    which of the two happened.
+    """
+    low, high = SEED_MAX_STALE_HOURS_RANGE
+    if "max_stale_hours" not in data:
+        logger.warning(
+            "Seed calendar names no max_stale_hours — using the default of %d h",
+            DEFAULT_MAX_STALE_HOURS)
+        return DEFAULT_MAX_STALE_HOURS
+    raw = data["max_stale_hours"]
+    # `true` is an int to Python and is not a number of hours. NaN fails the
+    # range comparison, so it is refused with the rest.
+    if (isinstance(raw, (int, float)) and not isinstance(raw, bool)
+            and low <= raw <= high):
+        return raw
+    logger.warning(
+        "Seed calendar's max_stale_hours is %s, not a number from %d to %d "
+        "— using the default of %d h",
+        repr(raw)[:60], low, high, DEFAULT_MAX_STALE_HOURS)
+    return DEFAULT_MAX_STALE_HOURS
+
 # ---------------------------------------------------------------------------
 # Blackout window definitions (seconds relative to event time)
 # ---------------------------------------------------------------------------
@@ -146,6 +193,7 @@ class MacroEventProvider:
 
             {
                 "generated_utc": "2026-05-30T12:00:00+00:00",
+                "max_stale_hours": 720,
                 "events": [ { "event_type": "CPI", "scheduled_utc": "...", "label": "..." }, ... ]
             }
 
@@ -159,8 +207,14 @@ class MacroEventProvider:
         funding rate as a fraction per 8 h (e.g. 0.001 = 0.10 %).
 
     max_stale_hours:
-        If the seed calendar's ``generated_utc`` is older than this many
-        hours, treat it as stale and fail closed.  Default 72.
+        How old a seed calendar may grow, in hours. A seed whose
+        ``generated_utc`` is older than this, and which lists no event beyond
+        the look-ahead, is stale and fails closed. Left unset, the limit is the
+        seed file's own ``max_stale_hours`` when that is a number from 1 to
+        720, and 72 otherwise (`seed_max_stale_hours`), and the look-ahead is
+        72 hours whatever the file says. A value passed here wins over the
+        file's and is the look-ahead too, as it always was. A calendar from the
+        live feed is never stale and reads none of this.
     """
 
     FUNDING_CRITICAL_THRESHOLD = 0.001  # 0.10 % per 8 h
@@ -170,13 +224,20 @@ class MacroEventProvider:
         seed_path: Optional[Path] = None,
         live_feed: Optional[Callable[[], list[dict]]] = None,
         funding_provider: Optional[Callable[[str], float]] = None,
-        max_stale_hours: int = 72,
+        max_stale_hours: Optional[float] = None,
         failsafe: Optional[bool] = None,
     ) -> None:
         self._seed_path = Path(seed_path) if seed_path is not None else None
         self._live_feed = live_feed
         self._funding_provider = funding_provider
-        self._max_stale_hours = max_stale_hours
+        # What the caller asked for. None is "not set": the seed's own limit
+        # applies, and a value given here wins over it.
+        self._explicit_max_stale_hours = max_stale_hours
+        self._max_stale_hours: float = self._limit_before_a_seed_is_read()
+        # The look-ahead never reads the file: the caller's value when one was
+        # passed (the one number it has always been), else 72 hours.
+        self._look_ahead_hours: float = (
+            max_stale_hours if max_stale_hours is not None else SEED_LOOK_AHEAD_HOURS)
 
         # MACRO_FAILSAFE: when False, blind/stale calendar does NOT block trades.
         # Default True (fail-closed) unless explicitly disabled via env or param.
@@ -200,8 +261,17 @@ class MacroEventProvider:
     # Calendar loading
     # ------------------------------------------------------------------
 
+    def _limit_before_a_seed_is_read(self) -> float:
+        """The caller's limit, else the default. A seed file may replace the
+        default with its own; nothing replaces the caller's."""
+        if self._explicit_max_stale_hours is not None:
+            return self._explicit_max_stale_hours
+        return DEFAULT_MAX_STALE_HOURS
+
     def _load_calendar(self) -> None:
         """Load events from live feed or seed file.  Sets blind/stale flags."""
+        # A reload must not keep the limit of the seed it read last time.
+        self._max_stale_hours = self._limit_before_a_seed_is_read()
         # Try live feed first
         if self._live_feed is not None:
             try:
@@ -230,6 +300,10 @@ class MacroEventProvider:
                     self._generated_utc = datetime.fromisoformat(gen_str.replace("Z", "+00:00"))
                     if self._generated_utc.tzinfo is None:
                         self._generated_utc = self._generated_utc.replace(tzinfo=UTC)
+                    # The file's own limit, unless the caller set one. It is
+                    # how old the seed may grow; the look-ahead below is not it.
+                    if self._explicit_max_stale_hours is None:
+                        self._max_stale_hours = seed_max_stale_hours(data)
                     age = datetime.now(UTC) - self._generated_utc
                     if age > timedelta(hours=self._max_stale_hours):
                         # A seed calendar of SCHEDULED events (FOMC/CPI dates
@@ -242,21 +316,21 @@ class MacroEventProvider:
                         # aged-but-still-covering seed is trusted, with a warning
                         # to refresh.
                         _now = datetime.now(UTC)
-                        _horizon = _now + timedelta(hours=self._max_stale_hours)
+                        _horizon = _now + timedelta(hours=self._look_ahead_hours)
                         _has_forward_coverage = any(
                             ev.get("scheduled_utc") and ev["scheduled_utc"] >= _horizon
                             for ev in self._events)
                         if not _has_forward_coverage:
                             logger.warning(
                                 "Seed calendar is %.1f h old AND lacks events past "
-                                "the %d h horizon — marking stale (fail-closed)",
-                                age.total_seconds() / 3600, self._max_stale_hours)
+                                "the %g h horizon — marking stale (fail-closed)",
+                                age.total_seconds() / 3600, self._look_ahead_hours)
                             self._calendar_stale = True
                             self._calendar_blind = False
                             self._calendar_loaded = True
                             return
                         logger.warning(
-                            "Seed calendar is %.1f h old (max %d h) but still covers "
+                            "Seed calendar is %.1f h old (max %g h) but still covers "
                             "the forward horizon — trusting it; refresh recommended",
                             age.total_seconds() / 3600, self._max_stale_hours)
 
@@ -387,7 +461,7 @@ class MacroEventProvider:
                     size_multiplier=0.0,
                     explanation=(
                         f"Macro calendar is stale (generated {self._generated_utc.isoformat() if self._generated_utc else '?'}, "
-                        f"max age {self._max_stale_hours}h) — blocking new entries."
+                        f"max age {self._max_stale_hours:g}h) — blocking new entries."
                     ),
                     is_stale=True,
                 )

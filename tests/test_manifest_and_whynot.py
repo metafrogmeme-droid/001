@@ -571,11 +571,11 @@ def _derived_thresholds():
     """(check, key) -> (where the code holds it, verifier), for every threshold
     key that is NOT a config field. A verifier returns None when the code
     agrees with the manifest's figure, else the disagreement in words."""
-    import inspect
-
     from bot.config import RiskLimits, RuntimeState, StrategyTypeConfig
+    from bot.core import macro_events
     from bot.core.macro_events import MacroEventProvider
     from bot.risk.risk_engine import RiskEngine
+    from bot.utils.paths import repo_path
 
     win = "bot/core/macro_events.py::_BLACKOUT"
     return {
@@ -637,10 +637,20 @@ def _derived_thresholds():
             "bot/core/macro_events.py::MacroEventProvider.FUNDING_CRITICAL_THRESHOLD",
             _reads(lambda: MacroEventProvider.FUNDING_CRITICAL_THRESHOLD)),
         ("MACRO_EVENT", "calendar_stale_after_hours"): (
-            "bot/core/macro_events.py::MacroEventProvider.__init__ (max_stale_hours "
-            "default; the engine passes none)",
-            _reads(lambda: inspect.signature(MacroEventProvider.__init__)
-                   .parameters["max_stale_hours"].default)),
+            "bot/core/macro_events.py::MacroEventProvider loaded on "
+            "config/macro_calendar.seed.json (the seed's own max_stale_hours; "
+            "the engine passes none), driven",
+            _reads(lambda: MacroEventProvider(
+                seed_path=repo_path("config/macro_calendar.seed.json"))._max_stale_hours)),
+        ("MACRO_EVENT", "calendar_stale_default_hours"): (
+            "bot/core/macro_events.py::DEFAULT_MAX_STALE_HOURS",
+            _reads(lambda: macro_events.DEFAULT_MAX_STALE_HOURS)),
+        ("MACRO_EVENT", "calendar_look_ahead_hours"): (
+            "bot/core/macro_events.py::MacroEventProvider loaded on "
+            "config/macro_calendar.seed.json (SEED_LOOK_AHEAD_HOURS; the file "
+            "does not move it), driven",
+            _reads(lambda: MacroEventProvider(
+                seed_path=repo_path("config/macro_calendar.seed.json"))._look_ahead_hours)),
         ("MTF_ALIGNMENT", "legacy_min_mtf_tags"): (
             "bot/risk/risk_engine.py::RiskEngine._check_mtf_alignment "
             "(`len(mtf_trends) >= 2`), driven",
