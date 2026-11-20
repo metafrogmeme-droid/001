@@ -128,6 +128,53 @@ MICRO_MAX_OPEN_POSITIONS=5
 ```
 Raise these **after** Stage 1, not before — the risk tightening should be on first.
 
+### The scan's live orders go out at the venue's minimum (`LIVE_SCAN_SIZE`)
+
+Owner decision, 2026-11-20. The hourly scan's live record measured a negative
+edge (249 strategy exits, mean result per trade below zero with its 95%
+interval below zero; README, read 2026-10-17). It keeps placing live orders
+at the smallest size a market takes.
+
+```bash
+LIVE_SCAN_SIZE=venue_min        # the code default; risk_sized restores the old sizing
+```
+
+What `venue_min` does, in `LiveExecutor._scan_order_at_venue_minimum`:
+
+- A live mainnet order the scan produced is shrunk to that market's minimum
+  order (the larger of its minimum amount and its minimum notional), read
+  from the venue when the order is built. The audit row is
+  `SHRUNK_TO_VENUE_MIN` and the size trace records the step.
+- It only shrinks. An order already at or under the minimum is rounded up or
+  refused by the minimum gate, as before. The caps above still apply.
+- A market whose minimum cannot be read is refused (`VENUE_MIN_UNREAD`). It is
+  not placed at the risk-sized amount.
+- Not shrunk: an order you type (`/trade`, source `manual`), a venue testnet,
+  and every paper fill. The paper book, the equal-sizing study's paper
+  readings and the daily-trend paper forward test are sized as before.
+
+What it does not do:
+
+- It does not arm or disarm live trading. `/golive`, `LIVE_TRADING_ENABLED`
+  and the other switches decide whether an order is placed at all.
+- It takes effect when a process starts on this code. Nothing changes on a
+  running bot, and a `.env` that sets `LIVE_SCAN_SIZE=risk_sized` keeps the
+  old sizing.
+
+What to expect at the minimum:
+
+- The partial take-profit ladder banks nothing. A slice of a minimum-size
+  position is below the venue's minimum, so each stage is recorded as
+  unplaceable and the position rides to its stop or its target whole (the
+  engineering log's chapter "THE ORDINARY CASE IS AN ACCOUNT TRADING AT THE
+  VENUE'S MINIMUM" records that behaviour and its test).
+- Dollar results per trade shrink with the size. Compare percent or R across
+  the change, not dollars.
+- The equal-sizing forward study compares "as sized" with equal notional on
+  live closes. After this change "as sized" on a live scan close is that
+  market's minimum, not the risk gate's size; read those closes with that in
+  mind.
+
 ---
 
 ## Quick reference — recommended end state

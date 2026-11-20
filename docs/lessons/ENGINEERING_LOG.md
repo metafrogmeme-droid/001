@@ -30383,3 +30383,39 @@ nightly scan's `pip-audit`, and two lines of the GitLab pipeline, one of
 which installed a root `requirements.txt` that has never existed in this
 repository's history. All three install the CI lock under `--require-hashes`
 and the exception table is empty.
+
+## THE SCAN'S LIVE ORDERS GO OUT AT THE VENUE'S MINIMUM: A SIZE DECISION THAT ARMS NOTHING
+
+20 November 2026. The hourly scan's live record measured a negative edge, and
+the owner's call was to keep it placing orders at the smallest size a market
+takes. There was no such size to set. The only minimum in the system was each
+market's own, read from the venue while an order is built, and the only thing
+done with it was to round a small order UP.
+
+**The smallest size is a reading, not a constant.** `LIVE_SCAN_SIZE=venue_min`
+shrinks a scan order to `venue_minimum_quantity`, the figure the round-up
+already computed, so an order the step shrinks is never one the gate then
+rounds. A per-trade dollar cap low enough to mean "minimum" would have been
+under most markets' minimum, and every order would have been refused.
+
+**It only shrinks, and an unread minimum refuses.** An order at or under the
+minimum goes to the round-up gate as before. A market that states no minimum,
+or was not returned, is refused: placing the risk-sized amount there would be
+the outcome the setting exists to prevent, reported as an ordinary order.
+
+**The step sits before the minimum gate and the caps.** They read the order
+that is sent, and the margin moves with the quantity, so the position record
+and the committed exposure describe the placed order.
+
+**A typed ticket is not the scan.** The scan does not stamp its ideas, so the
+rule is the one the engine already uses: everything but `source == "manual"`.
+A venue testnet is left alone, and paper fills never reach the executor.
+
+**A new default moved 26 tests that were about something else.** Ten suites
+drive `execute` with a scan idea to measure a limit's price, the leverage, the
+slippage gate. The harness sets `risk_sized` for them, the way it already
+does for two other settings that ship on, and one file measures the shrink
+under the shipped value and reads the default from a fresh process.
+
+Guarded by `tests/test_the_live_scan_trades_the_venue_minimum.py`, through the
+real `execute` against a planted venue.
