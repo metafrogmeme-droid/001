@@ -77,6 +77,15 @@ pandas==3.0.5
 # 2026-11-05).
 six==1.17.0
 
+# ── What the image's base ships, and nothing here imports ───────────────────
+# python:3.11-slim bundles wheel beside pip and setuptools. The image job
+# found it on 2026-11-19 as the one distribution in the built image that no
+# lock named: installed, shipped, and read by no audit. Pinned at the version
+# the base carries, so the lock names it and the image takes it from the lock
+# (the Dockerfile removes the base's copy first). Every other install of the
+# lock gets it too; nothing imports it at runtime.
+wheel==0.46.3
+
 # ── Transitives ─────────────────────────────────────────────────────────────
 # Frozen on 2026-11-19 at what a fresh Python 3.11 install of the pins above
 # resolved that day. Until then none of these was pinned anywhere: each

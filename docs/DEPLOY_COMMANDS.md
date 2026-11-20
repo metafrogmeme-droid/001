@@ -260,11 +260,14 @@ version. The second prints what pip would install. Run both with the venv's
 lock, expect differences: until then the lock pinned twenty packages and pip
 chose the rest, so that venv holds whatever was newest on the day it was
 built. The lock was frozen at what a fresh Python 3.11 install resolved on
-2026-11-19, not from a production venv. Two differences are deliberate: `setuptools` becomes 84.2.1
-(the copy bundled with Python 3.11 has open advisories), and the
-`uvicorn[standard]` extra's packages (httptools, uvloop, watchfiles, PyYAML)
-arrive if they are not there. uvicorn uses uvloop and httptools as soon as
-they are importable, so the API bridge runs on them after the next restart.
+2026-11-19, not from a production venv. Three differences are deliberate:
+`setuptools` becomes 84.2.1 (the copy bundled with Python 3.11 has open
+advisories); the `uvicorn[standard]` extra's packages (httptools, uvloop,
+watchfiles, PyYAML) arrive if they are not there; and `wheel` 0.46.3 arrives,
+because the image's base ships it and the lock names everything that ships.
+Nothing imports wheel at runtime. uvicorn uses uvloop and httptools as soon
+as they are importable, so the API bridge runs on them after the next
+restart.
 
 On an older interpreter, `numpy 2.3.x` declares `requires-python >=3.11` and pip
 cannot *see* those releases. It then reports the newest version visible to that

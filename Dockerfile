@@ -62,12 +62,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && dpkg --compare-versions "$(dpkg-query -W -f '$${Version}' ca-certificates)" ge "20250419+deb13u1" \
     && rm -rf /var/lib/apt/lists/*
 
-# The base image bundles its own pip and setuptools. Copying /install over
-# them leaves two versions of each in one site-packages: both sets of
+# The base image bundles its own pip, setuptools and wheel. Copying /install
+# over them leaves two versions of each in one site-packages: both sets of
 # metadata, and every file the older version has that the newer one dropped.
 # Remove the bundled ones first, so the image holds the pip the wheel line
-# pins and the setuptools the lock pins, once each.
-RUN python -m pip uninstall -y pip setuptools
+# pins and the setuptools and wheel the lock pins, once each, and each one
+# checked against a hash on its way in.
+RUN python -m pip uninstall -y pip setuptools wheel
 
 COPY --from=builder /install /usr/local
 
