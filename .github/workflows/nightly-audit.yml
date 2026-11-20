@@ -30,9 +30,19 @@ jobs:
       - name: pip-audit
         continue-on-error: true
         run: |
-          python -m pip install --no-cache-dir "pip-audit==2.9.0"
-          pip-audit -r requirements.lock
-          pip-audit -r requirements-ci.txt
+          # The auditor is installed the way everything else is: the pinned
+          # pip wheel, then a hashed lock. requirements-ci.txt pins pip-audit
+          # with its hashes; this step used to take it from the index by
+          # version alone, the one install in the workflows that checked
+          # nothing it downloaded.
+          python -m pip install --no-cache-dir "pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+          pip install --require-hashes -r requirements-ci.txt
+          # Each pin as written, the same mode ci.yml uses. Left to resolve a
+          # lock itself, pip-audit reports only what pip would install into a
+          # scratch environment, and a pin that environment already holds
+          # (pip, setuptools) is not installed and so is not audited.
+          pip-audit -r requirements.lock --disable-pip --require-hashes
+          pip-audit -r requirements-ci.txt --disable-pip --require-hashes
 
       - name: npm audit
         continue-on-error: true

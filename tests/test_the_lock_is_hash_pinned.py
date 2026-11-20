@@ -153,16 +153,15 @@ def test_a_section_reader_that_finds_nothing_is_caught():
 # ── 2. every install asks ─────────────────────────────────────────────────
 
 #: Installs that do not check hashes, each with a reason. Two-way.
-UNHASHED = {
-    (".github/workflows/nightly-audit.yml", '--no-cache-dir "pip-audit==2.9.0"'):
-        "The advisory-only nightly scan. It never gates a pull request and builds nothing that "
-        "ships. Installing the hashed CI set there instead is a follow-up.",
-    (".gitlab-ci.yml", "-q -r requirements.txt"):
-        "This pipeline installs a root requirements.txt that does not exist, so the job cannot "
-        "pass as written. Deleting or generating the file is a follow-up (IMPROVEMENT_PLAN G6).",
-    (".gitlab-ci.yml", "-q ruff mypy bandit pip-audit pytest pytest-asyncio pytest-cov"):
-        "Same pipeline, same follow-up: unpinned tools in a job that fails one line earlier.",
-}
+#:
+#: Empty since 2026-11-20, and it should stay that way. It held three for a
+#: day: the nightly scan's `pip-audit==2.9.0`, and two lines of the GitLab
+#: pipeline (a root requirements.txt that has never existed in this
+#: repository's history, then seven tools by name alone). All three now
+#: install requirements-ci.txt under --require-hashes. An entry here is a
+#: claim that some install may take whatever the index serves; write down who
+#: decided and why.
+UNHASHED: dict = {}
 
 
 def _unhashed() -> set:
@@ -191,6 +190,11 @@ def test_the_scan_finds_the_installs_it_is_about():
     assert kinds["Dockerfile"] == ["wheel", "wheel", "locked"]
     assert kinds[".github/workflows/ci.yml"].count("locked") >= 5
     assert kinds[".github/workflows/ci.yml"].count("wheel") >= 4
+    # The two that were excused by name until 2026-11-20. Asserted here, and
+    # not left to the empty exception table: a scan that stopped reading one
+    # of these files would find nothing unhashed in it either.
+    assert kinds[".github/workflows/nightly-audit.yml"] == ["wheel", "locked"]
+    assert kinds[".gitlab-ci.yml"] == ["wheel", "locked"]
 
 
 @pytest.mark.parametrize("arguments,kind", [
@@ -339,6 +343,71 @@ def test_the_audit_reads_the_pins_as_written():
               if "pip-audit" in str(step.get("run") or "")]
     assert audits == ["pip-audit -r requirements.lock --disable-pip --require-hashes"], audits
     assert "setuptools" in _lock("requirements.lock"), "the pin that mode exists to reach"
+
+
+_AUDIT = re.compile(r"pip-audit\s+-r\s+(\S+)(.*)")
+
+
+def _audit_commands(rel: str) -> list[tuple[str, str]]:
+    """(file audited, the rest of the command) for every `pip-audit -r` in a file, comments dropped."""
+    lines = [line for line in (ROOT / rel).read_text(encoding="utf-8").splitlines()
+             if not line.lstrip().startswith("#")]
+    return [(found.group(1), found.group(2).strip()) for found in map(_AUDIT.search, lines) if found]
+
+
+def test_every_audit_of_a_lock_reads_it_the_same_way():
+    """The pull-request gate, the nightly scan and the GitLab pipeline audit
+    the same files. One of them resolving while the others read would be two
+    answers to "is this lock clean" from one lock."""
+    wanted = {
+        ".github/workflows/ci.yml": ["requirements.lock"],
+        ".github/workflows/nightly-audit.yml": ["requirements.lock", "requirements-ci.txt"],
+        ".gitlab-ci.yml": ["requirements.lock"],
+    }
+    for rel, files in wanted.items():
+        found = _audit_commands(rel)
+        assert [name for name, _ in found] == files, f"{rel} audits {found}"
+        for name, rest in found:
+            assert rest == "--disable-pip --require-hashes", f"{rel}: pip-audit -r {name} {rest}"
+            assert name in pip_installs.HASHED, f"{rel} audits {name}, which is not a generated lock"
+
+
+def test_the_auditor_is_installed_from_the_lock_that_pins_it():
+    """pip-audit was the last thing in the workflows installed by version
+    alone. The nightly scan now takes it from requirements-ci.txt, so the pin
+    it runs is the pin the pull-request gate runs."""
+    assert _lock("requirements-ci.txt")["pip-audit"].version == "2.9.0"
+    nightly = pip_installs.installs(".github/workflows/nightly-audit.yml")
+    assert ("--require-hashes -r requirements-ci.txt", "locked") in nightly, nightly
+
+
+def test_what_the_image_base_bundles_comes_from_a_hash_checked_source():
+    """python:3.11-slim ships pip, setuptools and wheel. The production stage
+    copies the builder's prefix over the base, so whatever the base bundles
+    and the Dockerfile does not remove first is in the image twice, or is in
+    the image and in no lock. The image job found `wheel 0.46.3` that way on
+    2026-11-19.
+
+    A scan, because no test can run a Docker build; the image job in ci.yml
+    drives the behaviour (`compile_locks.py --installed` inside the image).
+    """
+    lines = [line.strip() for line in (ROOT / "Dockerfile").read_text(encoding="utf-8").splitlines()
+             if not line.lstrip().startswith("#")]
+    removal = [line for line in lines if "pip uninstall" in line]
+    assert len(removal) == 1, removal
+    removed = set(removal[0].split("pip uninstall", 1)[1].replace("-y", " ").split())
+    assert removed == {"pip", "setuptools", "wheel"}, removed
+    copy = [line for line in lines if line.startswith("COPY --from=builder /install")]
+    assert len(copy) == 1 and lines.index(removal[0]) < lines.index(copy[0]), (
+        "the base's copies must be removed before the prefix is copied over them")
+    # Each one removed comes back from somewhere that checks a hash: pip from
+    # the wheel URL installed into the prefix, the others from the lock.
+    lock = _lock("requirements.lock")
+    assert lock["wheel"].version == "0.46.3"
+    for name in removed - {"pip"}:
+        assert name in lock, f"the Dockerfile removes {name} and requirements.lock does not pin it"
+    kinds = [kind for _, kind in pip_installs.installs("Dockerfile")]
+    assert kinds == ["wheel", "wheel", "locked"], "the second wheel line is the pip that goes into the prefix"
 
 
 # ── 3. the check says what it could not check ─────────────────────────────
