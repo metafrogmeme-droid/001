@@ -712,10 +712,14 @@ class TestEverySizeStepIsOnTheRecord:
         src = (ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8")
         assert _unnoted_size_assignments(src, {"_confirm_trade_inner", "_simulate_paper_fill"}) == []
 
-    def test_the_executors_three(self):
+    def test_the_executors_four(self):
+        """Three until 2026-11-20. The fourth shrinks a scan order to the
+        venue's minimum (`_scan_order_at_venue_minimum`), which moves the
+        margin further than any step before it."""
         src = (ROOT / "bot" / "core" / "live_executor.py").read_text(encoding="utf-8")
         assert _unnoted_size_assignments(
-            src, {"execute", "_apply_order_rules", "_recalculate_limit_entry"}) == []
+            src, {"execute", "_apply_order_rules", "_recalculate_limit_entry",
+                  "_scan_order_at_venue_minimum"}) == []
 
     def test_the_rule_can_fail(self):
         """A rule no input can reach is a claim that there is a check."""

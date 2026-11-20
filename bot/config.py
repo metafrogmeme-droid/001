@@ -2128,6 +2128,30 @@ class ExecutionConfig:
         "HIGH_CONVICTION_MARGIN_USD", 100.0, 1.0, 10_000_000.0)
     max_live_total_exposure_usd: float = _env_float_bounded("MICRO_MAX_TOTAL_EXPOSURE", 500.0, 1.0, 100_000_000.0)
     max_live_open_positions: int = int(_env_float_bounded("MICRO_MAX_OPEN_POSITIONS", 5, 1, 1000))
+    # ── The live size of the scan's orders (owner decision, 2026-11-20) ──
+    #
+    # The hourly scan's live record measured a negative edge: 249 strategy
+    # exits, mean result per trade below zero with its 95% interval below
+    # zero (README, read 2026-10-17). The owner's call is to keep it placing
+    # orders, for the fills, fees and close prices the cost model needs, at
+    # the smallest size a venue takes.
+    #
+    # "venue_min" (the default): a live mainnet order the scan produced is
+    # placed at that market's own minimum order, read from the venue when the
+    # order is built. It only ever SHRINKS an order. One already at or under
+    # the minimum is left to the round-up gate as before, every cap still
+    # applies, and a market whose minimum cannot be read is refused rather
+    # than placed at the risk-sized amount.
+    # "risk_sized": the size the risk gate chose, as before this setting.
+    #
+    # Not shrunk under either value: an order a person typed (source
+    # "manual", whose size they gave), anything on a venue testnet, and every
+    # paper fill, which never reaches the live executor. It arms and disarms
+    # nothing: whether a live order is placed at all is decided elsewhere.
+    live_scan_size: str = _env_choice(
+        "LIVE_SCAN_SIZE", "venue_min", ("venue_min", "risk_sized"),
+        consequence="would place the scan's live orders at the risk-sized amount "
+                    "instead of the venue's minimum")
     # ── Balance-relative live bounds (opt-in, default OFF) ──
     #
     # The three caps above are flat absolute dollars read once at import, so

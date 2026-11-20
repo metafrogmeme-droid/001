@@ -57,3 +57,21 @@ corpus (ADR 0010) all need. Capital rises only through eligibility records
 ## Decision
 
 Decision: pending operator.
+
+**2026-11-20, owner (Patrick): shrink the live hourly scan to its smallest
+size.** Decided in part, and by a different mechanism than (b) describes:
+
+- Size: each live order the scan produces is placed at that market's own
+  venue minimum (`LIVE_SCAN_SIZE=venue_min`, the code default;
+  `LiveExecutor._scan_order_at_venue_minimum`). No target notional N is
+  chosen, so the `MICRO_MAX_POSITION_USD = N / leverage x round-up` recipe
+  above is not used and the caps are left where they are.
+- Not decided here, and not changed: `AUTO_CONFIRM_LIVE_ENABLED`,
+  `PER_USER_LIVE_ENABLED`, `/golive`, and every other switch. Live trading
+  is neither armed nor disarmed by this decision.
+- Not done: the offline run of the minimum gate over the live universe, and
+  the refused-symbol count. With no N there is no cap to refuse against; a
+  market whose minimum cannot be read is refused at order time and audited
+  as `VENUE_MIN_UNREAD`.
+
+The rest of (b), and k, remain pending.

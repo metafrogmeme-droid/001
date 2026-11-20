@@ -277,6 +277,22 @@ def resolve_exchange_min_quantity(
     return None, q_min, mult
 
 
+def venue_minimum_quantity(floor: float, step: float, min_cost: float,
+                           price: float) -> Optional[float]:
+    """The smallest quantity this market takes at ``price``, or None when the
+    market states no minimum at all.
+
+    The same arithmetic the round-up uses (`resolve_exchange_min_quantity`'s
+    ``q_min``): the larger of the amount floor and the minimum notional,
+    snapped up to the step grid. None is "the venue stated nothing", which is
+    not a minimum of zero: a caller that shrinks an order to this figure has
+    nothing to shrink it to.
+    """
+    _, q_min, _ = resolve_exchange_min_quantity(
+        0.0, floor, step, min_cost, price, False, 1.0)
+    return q_min if q_min > 0 else None
+
+
 def recalc_sl_tp_for_shifted_entry(
     entry_price: float,
     stop_loss: float,
@@ -7313,6 +7329,73 @@ class LiveExecutor:
                                 symbol, _pre_slip_exc)
         return None
 
+    def _scan_order_at_venue_minimum(self, idea: TradeIdea, symbol: str, market: Any,
+                                     quantity: float, fill_price: float,
+                                     leverage_mult: int, size_usd: float,
+                                     ) -> tuple[Optional[str], float, float]:
+        """Shrink a live order the scan produced to the venue's minimum.
+
+        Returns ``(block, quantity, size_usd)``. The owner's decision of
+        2026-11-20 (`CONFIG.execution.live_scan_size`, which says why): the
+        hourly scan keeps placing live orders, at the smallest size the market
+        takes. This is the one place that size is applied, after the order's
+        price is settled and before the minimum gate and the caps, which then
+        read the shrunk order.
+
+        TIGHTEN-ONLY. A quantity already at or under the minimum comes back
+        unchanged, and the round-up gate decides it as it always did; nothing
+        here raises an order.
+
+        UNREADABLE IS NOT "NO MINIMUM". With the setting on, an order whose
+        market the venue did not return, or whose market states no minimum,
+        is refused. Placing it at the risk-sized amount would be the one
+        outcome the setting exists to prevent, reported as a normal order.
+
+        Three orders pass through untouched: one a person typed (they gave
+        its size), one on a venue testnet, and any order while the setting is
+        "risk_sized".
+        """
+        if CONFIG.execution.live_scan_size != "venue_min":
+            return None, quantity, size_usd
+        if getattr(idea, "source", "") == "manual":
+            return None, quantity, size_usd
+        if CONFIG.exchange.sandbox or CONFIG.exchange.hyperliquid_testnet:
+            return None, quantity, size_usd
+        _q_min: Optional[float] = None
+        if market:
+            _floor, _step, _min_cost = venue_minimums(market)
+            _q_min = venue_minimum_quantity(_floor, _step, _min_cost, fill_price)
+        if _q_min is None:
+            _what = ("states no minimum order" if market
+                     else "returned no market data, so its minimum order is unread")
+            audit(trade_log,
+                  f"BLOCKED: {symbol} is to be placed at the venue's minimum "
+                  f"(LIVE_SCAN_SIZE=venue_min) and {self._venue.display_name} {_what}",
+                  action="live_execute", result="VENUE_MIN_UNREAD",
+                  data={"asset": symbol, "qty": quantity, "price": fill_price,
+                        "size_usd": round(size_usd, 4), "leverage": leverage_mult,
+                        "market_returned": bool(market)})
+            return ((f"BLOCKED: {symbol} was not placed. The scan's live orders go out at "
+                     f"the venue's minimum size (LIVE_SCAN_SIZE=venue_min), and "
+                     f"{self._venue.display_name} {_what} for {symbol}. Nothing was "
+                     f"placed at the risk-sized amount instead."), quantity, size_usd)
+        if quantity <= _q_min:
+            return None, quantity, size_usd
+        _risk_sized_margin = size_usd
+        size_usd = size_usd * (_q_min / quantity)
+        note_size_step(idea, "venue minimum (LIVE_SCAN_SIZE=venue_min)", size_usd,
+                       before=_risk_sized_margin)
+        audit(trade_log,
+              f"{symbol} placed at the venue minimum: qty {quantity:.8f} -> {_q_min:.8f}, "
+              f"margin ${_risk_sized_margin:.2f} -> ${size_usd:.2f} at {leverage_mult}x "
+              f"(notional ~${_q_min * fill_price:.2f})",
+              action="live_execute", result="SHRUNK_TO_VENUE_MIN",
+              data={"asset": symbol, "risk_sized_qty": quantity, "qty": _q_min,
+                    "risk_sized_margin": round(_risk_sized_margin, 4),
+                    "margin": round(size_usd, 4), "leverage": leverage_mult,
+                    "price": fill_price})
+        return None, _q_min, size_usd
+
     def _exchange_minimum_gate(self, active_exchange: ccxt.Exchange, market: Any,
                                symbol: str, quantity: float, current_price: float,
                                leverage_mult: int, size_usd: float,
@@ -9115,6 +9198,16 @@ class LiveExecutor:
                             "market_price": current_price, "qty_at_market": _q_at_market,
                             "qty": quantity, "size_usd": round(size_usd, 4),
                             "leverage": leverage_mult})
+
+            # ── The scan's live orders at the venue's minimum ── (see _scan_order_at_venue_minimum)
+            # Before the minimum gate and the caps, so both read the order
+            # that will be sent. `_approved_margin` stays what the caps
+            # approved: it is only the basis of the notional ceiling below,
+            # and a shrunk order is under that ceiling by construction.
+            _gate_msg, quantity, size_usd = self._scan_order_at_venue_minimum(
+                idea, symbol, market, quantity, _fill_px, leverage_mult, size_usd)
+            if _gate_msg:
+                return _gate_msg
 
             # ── Pre-flight exchange-minimum check ── (see _exchange_minimum_gate)
             _gate_msg, quantity = self._exchange_minimum_gate(
