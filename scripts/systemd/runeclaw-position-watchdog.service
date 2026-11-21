@@ -1,0 +1,50 @@
+# systemd unit for the read-only position watchdog (python3 -m bot.position_watchdog).
+#
+# A PROPOSAL, NOT INSTALLED. Nothing in this repository installs, enables or
+# starts this unit, and runeclaw-status.sh does not list it. The proposal and
+# the install steps are in docs/POSITION_WATCHDOG_PROPOSAL.md.
+#
+# One pass per start: it reads the operator's open Bitget positions, their
+# resting plan and TP/SL orders and the account equity, checks that every
+# position has a stop-loss and a take-profit and that realized plus open
+# losses are inside the daily stop, and sends one Telegram message for what it
+# finds. It builds no engine and writes none of the bot's files. Its client
+# refuses every request that is not a GET, so it cannot place, amend or cancel
+# an order.
+#
+# OFF BY DEFAULT. Without POSITION_WATCHDOG_ENABLED=true in the bot's .env a
+# pass reads nothing and exits 0. Switched on without the Bitget keys or the
+# alert chat (TELEGRAM_BOT_TOKEN, TELEGRAM_ALERT_CHAT_ID) it exits 78.
+#
+# Started by runeclaw-position-watchdog.timer, which is where the interval
+# is set. It is a oneshot: there is no Restart= here, and the timer starts
+# the next pass.
+#
+# Adjust User=, WorkingDirectory= and the ExecStart path to match the box.
+# ExecStart is <repo>/.venv/bin/python (Python 3.11).
+
+[Unit]
+Description=RUNECLAW position watchdog (read-only; one pass)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=mulerun
+WorkingDirectory=/home/mulerun/runeclaw
+
+# The repo venv. No deploy.sh here: this unit only reads, and a pass must not
+# rewrite anything on the box.
+ExecStart=/home/mulerun/runeclaw/.venv/bin/python -m bot.position_watchdog
+
+# A pass is a handful of reads and one send. One that has not finished in two
+# minutes is stuck, and the next timer tick starts a fresh one.
+TimeoutStartSec=120
+
+#   journalctl -u runeclaw-position-watchdog -n 50
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=runeclaw-position-watchdog
+
+NoNewPrivileges=true
+PrivateTmp=true

@@ -1,0 +1,31 @@
+# systemd timer for the read-only position watchdog.
+#
+# A PROPOSAL, NOT INSTALLED: see runeclaw-position-watchdog.service and
+# docs/POSITION_WATCHDOG_PROPOSAL.md.
+#
+# THE INTERVAL IS SET HERE. OnUnitActiveSec is the time between passes, five
+# minutes as shipped (bot/position_watchdog.py DEFAULT_INTERVAL_MIN is the
+# same figure, and a test holds the two together). To change it on a box,
+# override this one line:
+#
+#   sudo systemctl edit runeclaw-position-watchdog.timer
+#     [Timer]
+#     OnUnitActiveSec=
+#     OnUnitActiveSec=10min
+#
+# How often a finding that has not cleared is repeated is a separate setting,
+# POSITION_WATCHDOG_REALERT_MIN in the bot's .env (60 by default).
+
+[Unit]
+Description=RUNECLAW position watchdog, every five minutes
+
+[Timer]
+# The first pass, two minutes after boot, then one every five minutes after
+# the last one started.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=runeclaw-position-watchdog.service
+
+[Install]
+WantedBy=timers.target
