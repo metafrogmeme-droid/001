@@ -1,0 +1,7 @@
+{
+  "basis": "Measured 2026-11-21 on the full serial gate (scripts/ci_test_gate.py, 28762 passed, 11 skipped) on the tree of commit 847ef86c: bot.core.analyzer 82.63%, bot.core.market_scanner 78.44% (coverage report --format=total --precision=2 --include=<module file>). Each floor is the measurement rounded down to a whole percent. Raise a floor when the gate says it can be raised; lower one only with a reason a reviewer can check.",
+  "floors": {
+    "bot.core.analyzer": 82,
+    "bot.core.market_scanner": 78
+  }
+}
