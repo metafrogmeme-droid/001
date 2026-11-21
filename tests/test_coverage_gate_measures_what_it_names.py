@@ -39,7 +39,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
-from ci_test_gate import COV_FAIL_UNDER, COV_FLAGS, COV_TARGETS  # noqa: E402
+from ci_test_gate import COV_FAIL_UNDER, COV_FLAGS, COV_TARGETS, SIGNAL_COV_TARGETS  # noqa: E402
 
 #: One cheap test per target that is guaranteed to import it. Coverage reports
 #: a module as measured only if it was imported while the tracer was running,
@@ -48,6 +48,7 @@ _TOUCHES = [
     "tests/test_live_executor.py",              # bot.core.live_executor
     "tests/test_check2_position_size_authority.py",   # bot.risk
     "tests/test_exchange_and_compliance.py",    # bot.compliance
+    "tests/test_a_frozen_feed_is_not_fresh.py",  # bot.core.analyzer, bot.core.market_scanner
 ]
 
 
@@ -71,7 +72,7 @@ def test_every_declared_target_is_actually_measured(measured):
     """The assertion the gate needed. `bot/core/live_executor.py` was named
     and produced no rows at all."""
     missing = []
-    for target in COV_TARGETS:
+    for target in COV_TARGETS + SIGNAL_COV_TARGETS:
         as_path = target.replace(".", "/")
         if as_path not in measured:
             missing.append(target)
