@@ -162,7 +162,7 @@ def test_both_engine_gates_check_the_sentinel():
     import ast
     import pathlib
 
-    from tests.source_scan import code_only
+    from tests.source_scan import code_only, segment_reader
     raw = (pathlib.Path(__file__).resolve().parents[1]
            / "bot" / "core" / "engine.py").read_text(encoding="utf-8")
     src = code_only(raw)
@@ -170,7 +170,8 @@ def test_both_engine_gates_check_the_sentinel():
         "the number of gate sites changed; re-check that each one still "
         "consults auto_confirm_is_disabled"
     )
-    fns = {n.name: code_only(ast.get_source_segment(raw, n) or "")
+    seg = segment_reader(raw)
+    fns = {n.name: code_only(seg(n) or "")
            for n in ast.walk(ast.parse(raw))
            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
            and n.name in ("_tick", "_force_scan_locked", "_auto_confirm_batch")}
