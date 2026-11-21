@@ -60,7 +60,7 @@ BASELINE = REPO / "tests" / "confirm_trade_gate_baseline.txt"
 #:   _web_live_decision       the fail-closed web live gate
 #:   _authorize_web_live_trade  the enforce-mode Authority Envelope
 #:   _auto_confirm_batch      the tick path's own gate (`auto_confirm_refusal`)
-#:   _auto_confirm_suppressed the force-scan path's copy of that same reading
+#:   _auto_confirm_suppressed the per-idea reading `_auto_confirm_batch` asks (both doors select through the batch)
 #:
 #: Widening this tuple LOOSENS the rule, so a new entry is a decision: it must
 #: name something that can REFUSE, and `test_every_gate_name_can_refuse` drives

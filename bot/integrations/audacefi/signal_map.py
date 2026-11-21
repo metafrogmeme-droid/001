@@ -20,7 +20,7 @@ from bot.integrations.audacefi.settings import (
     audacefi_signal_ttl_ms,
 )
 from bot.utils.candles import bar_freshness_verdict
-from bot.utils.models import ANALYZER_SOURCE
+from bot.utils.models import ANALYSIS_LIGHTWEIGHT, ANALYZER_SOURCE
 
 #: The one market this adapter publishes.
 AUDACEFI_SYMBOL = "SOL"
@@ -50,8 +50,9 @@ def audacefi_draft_for(idea: Any, now_ms: int) -> tuple[Optional[AudaceDraft], s
 
     Refused unless the idea is the analyzer's own (a typed ticket is a
     person's, not a signal), on SOL, carries a fresh bar reading (the same
-    verdict and threshold the risk gate used), and is a call rather than a
-    re-offer of one already published. LONG is ``long`` at the configured
+    verdict and threshold the risk gate used), is a call rather than a
+    re-offer of one already published, and came from a full analysis rather
+    than the interactive tap's technicals-only read. LONG is ``long`` at the configured
     allocation; SHORT is ``flat`` at 0, because this adapter never shorts.
     """
     if getattr(idea, "source", None) != ANALYZER_SOURCE:
@@ -61,6 +62,8 @@ def audacefi_draft_for(idea: Any, now_ms: int) -> tuple[Optional[AudaceDraft], s
         return None, f"not {AUDACEFI_SYMBOL} ({asset!r})"
     if getattr(idea, "repeat_of", None) is not None:
         return None, "a re-offer of a call already published"
+    if getattr(idea, "analysis_depth", None) == ANALYSIS_LIGHTWEIGHT:
+        return None, "a lightweight analysis (technicals only)"
     ok, line = bar_freshness_verdict(getattr(idea, "bar_age_at_analysis_s", None),
                                      getattr(idea, "timeframe", None) or "",
                                      bar_freshness_max_periods())
