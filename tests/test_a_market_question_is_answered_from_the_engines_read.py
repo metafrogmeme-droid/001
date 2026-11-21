@@ -20,6 +20,7 @@ import math
 import pytest
 
 from bot.core.analyzer import Analyzer
+from bot.core.engine import _ohlcv_cache_key
 from bot.core.why_not import WhyNotLog
 from bot.nlp import chat_market_read
 from bot.nlp.chat_market_read import MarketReadSkill, confluence_words
@@ -117,7 +118,8 @@ def test_a_read_is_the_engines_read_and_says_what_it_is_not():
     state, prose = _tool(eng)
     assert state == "read"
     assert spot.asked == [("SOL/USDT", "1h", 100)], "the analyzer's own leg"
-    assert "SOL/USDT:1h:100" in eng._ohlcv_cache, "the sweep's cache key"
+    assert _ohlcv_cache_key(spot, "SOL/USDT", "1h", 100) in eng._ohlcv_cache, (
+        "the sweep's cache key")
     for part in ("Direction:", "Regime:", "Confluence:", "rule engine (no LLM)",
                  "not a trade idea", "Not read here: RSI"):
         assert part in prose, (part, prose)
