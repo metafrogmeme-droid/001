@@ -57,6 +57,7 @@ STAGE_WORDS: dict[str, str] = {
     "order_flow_veto": "order-flow veto",
     "signal_type": "signal family skipped",
     "levels": "levels collapsed on rounding",
+    "level_below_zero": "a level crossed zero",
     "candle_veto": "candle-pattern veto",
     "cascade_veto": "liquidation-cascade veto",
     "data": "candles unusable",

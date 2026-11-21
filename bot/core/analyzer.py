@@ -2328,11 +2328,25 @@ class Analyzer:
             except Exception as exc:
                 system_log.debug("Level-aware SL/TP skipped: %s", exc)
 
-        # Guard against negative SL/TP from extreme ATR values
-        if direction == Direction.LONG and stop_loss <= 0:
-            stop_loss = entry * 0.01  # floor at 1% of entry
-        elif direction == Direction.SHORT and take_profit <= 0:
-            take_profit = entry * 0.01
+        # A LEVEL AT OR BELOW ZERO IS REFUSED, NOT FLOORED. Extreme ATR (about
+        # 40% of price at the default stop multiple) puts a LONG's stop or a
+        # SHORT's target at or below zero. It used to be moved to 1% of entry:
+        # a stop 99% below the entry, or a target 99% below it -- a level no
+        # analysis chose, on the idea's card and sized at the risk gate as if
+        # it had. There is no honest level to offer, so there is no idea.
+        if ((direction == Direction.LONG and stop_loss <= 0)
+                or (direction == Direction.SHORT and take_profit <= 0)):
+            _leg = "stop" if direction == Direction.LONG else "target"
+            audit(trade_log,
+                  f"Computed {_leg} at or below zero for {signal.symbol} — no idea",
+                  action="analyze", result="SKIP",
+                  data={"symbol": signal.symbol, "direction": direction.value,
+                        "entry": entry, "sl": stop_loss, "tp": take_profit, "atr": atr})
+            self._record_no_trade(signal.symbol, "level_below_zero",
+                                  f"computed {_leg} {stop_loss if _leg == 'stop' else take_profit:.6g} "
+                                  "at or below zero (volatility wider than the price)",
+                                  entry=entry, sl=stop_loss, tp=take_profit)
+            return None
 
         # The stop stays the market's. Leverage is derived from it at the
         # risk gate; `market_stop_levels` tightens only when that flag is off.

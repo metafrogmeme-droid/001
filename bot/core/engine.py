@@ -335,6 +335,25 @@ _FLAT_BOOK: dict = {
 }
 
 
+def _ohlcv_cache_key(exchange, symbol, timeframe, limit) -> str:
+    """``{source}|{symbol}:{timeframe}:{limit}`` -- the series AND who served it.
+
+    The key was ``{symbol}:{timeframe}:{limit}``, so two clients asked for
+    the same symbol shared one entry: the spot and the perp Bitget clients
+    (both ``id == "bitget"``, told apart only by ``defaultType``), and after
+    a `/venue` switch -- which does not clear the cache -- the previous
+    venue's client, whose candles were then served as the new venue's for up
+    to the TTL (six hours on 1d). ``source`` is the client's ccxt id and
+    market type; a client with no id (a test's stand-in) is named by its
+    class, never left blank. The prefix keeps `bot/nlp/chat_draft.py`'s
+    ``rsplit(":", 2)`` reading of the timeframe correct.
+    """
+    venue = getattr(exchange, "id", None) or type(exchange).__name__
+    options = getattr(exchange, "options", None)
+    market = options.get("defaultType") if isinstance(options, dict) else None
+    return f"{venue}/{market or '-'}|{symbol}:{timeframe}:{limit}"
+
+
 def _mtf_ttl(timeframe: str) -> int:
     """How long a CLOSED candle set for ``timeframe`` stays valid.
 
@@ -7433,9 +7452,11 @@ class RuneClawEngine:
 
         The cache key includes ``limit`` (audit): the MTF loop asks for 200
         bars while the primary scan caches 100 — a shared key silently served
-        the shorter series and structure math ran on half its window.
+        the shorter series and structure math ran on half its window. It
+        includes the CLIENT too (`_ohlcv_cache_key`), for the same reason one
+        level up: two venues' candles are two series.
         """
-        key = f"{symbol}:{timeframe}:{limit}"
+        key = _ohlcv_cache_key(exchange, symbol, timeframe, limit)
         now = time.monotonic()
         if key in self._ohlcv_cache:
             cached_time, cached_data, _entry_ttl = self._ohlcv_cache[key]
