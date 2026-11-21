@@ -112,6 +112,11 @@ SOURCE_UNSTATED = "unknown"
 #: The producer word the analyzer's own ideas carry.
 ANALYZER_SOURCE = "analyzer"
 
+#: The depth an idea carries when its analysis skipped order flow, the
+#: higher timeframes, basis and market cap: the Latest Signal tap's
+#: ``force_scan(lightweight=True)``. Its confidence is technicals only.
+ANALYSIS_LIGHTWEIGHT = "lightweight"
+
 #: The risk engine's regime before anything measured one. A row tagged with
 #: it has no regime, and the publishers say so rather than file it.
 REGIME_UNMEASURED = "UNKNOWN"
@@ -205,6 +210,12 @@ class TradeIdea(BaseModel):
     # emptied. None when the analysis read no VWAP, and then that exit is
     # skipped: no VWAP is ever stood in by the entry price.
     entry_vwap: Optional[float] = None
+    # ``ANALYSIS_LIGHTWEIGHT`` when the analysis behind this idea read the
+    # candles alone (the interactive tap's fast path), None for every other.
+    # Its confidence is measured, but over fewer inputs than the bar it is
+    # tested against assumes, so it is a card to tap and never an order to
+    # place unattended (`_auto_confirm_suppressed`), nor a signal to publish.
+    analysis_depth: Optional[str] = None
     # Where a hand-typed ticket came from, beside ``source="manual"``.
     # None on /trade and the web propose route. ``chat_draft`` is a ticket
     # the chat tool computed and the person staged with the button. The

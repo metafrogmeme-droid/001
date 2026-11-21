@@ -199,7 +199,10 @@ async def test_forcescan_keeps_a_ticket_registered_before_it():
     engine._analyze_signals_batched = _batched
     engine.confirm_trade = _confirm
     engine._auto_confirm_notify_callback = None
+    engine.published = []
+    engine._publish_engine_ideas = lambda ideas: engine.published.append(list(ideas))
     engine._force_scan_locked = RuneClawEngine._force_scan_locked.__get__(engine)
+    engine._run_auto_confirm_pairs = RuneClawEngine._run_auto_confirm_pairs.__get__(engine)
 
     summary = await engine._force_scan_locked()
 

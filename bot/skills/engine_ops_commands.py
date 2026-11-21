@@ -330,6 +330,33 @@ def autoconfirm_status_line(engine, threshold: float, *, is_live: bool) -> str:
     return head + "\n" + autoconfirm_placement_line(engine, is_live=is_live)
 
 
+def forcescan_outcome_lines(result: dict) -> list[str]:
+    """What became of the confirms a force scan ran, beyond the ones it placed.
+
+    "Auto-confirmed" counts orders PLACED. A confirm the risk gate refused,
+    one whose outcome the venue left unverified, one that raised, and a scan
+    whose auto-confirm did not run at all are different facts, each said when
+    it happened and left out when it did not.
+    """
+    def _n(key: str) -> int:
+        v = result.get(key)
+        return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
+
+    out: list[str] = []
+    if result.get("auto_confirm_skipped") == "lightweight":
+        out.append("\U0001f6ab Auto-confirm not run: a lightweight scan (technicals "
+                   "only). Each setup is pending; its Confirm button is the door.")
+    if _n("auto_refused"):
+        out.append(f"⛔ Auto-confirm refused: <b>{_n('auto_refused')}</b> (nothing placed)")
+    if _n("auto_unverified"):
+        out.append(f"❓ Auto-confirm outcome unverified: <b>{_n('auto_unverified')}</b> "
+                   "— check /positions")
+    if _n("auto_errored"):
+        out.append(f"⚠️ Auto-confirm errored: <b>{_n('auto_errored')}</b> "
+                   "(nothing counted; see the trade log)")
+    return out
+
+
 def forcescan_withheld_line(result: dict) -> Optional[str]:
     """The ideas a /forcescan held back from auto-confirm, and why.
 
@@ -1223,9 +1250,10 @@ class EngineOpsCommands:
             "",
             f"\U0001f4e1 Signals found: <b>{result.get('signals', 0)}</b>",
             f"\U0001f4a1 Ideas generated: <b>{result.get('ideas', 0)}</b>",
-            f"\U0001f916 Auto-confirmed: <b>{result.get('auto_confirmed', 0)}</b>",
+            f"\U0001f916 Auto-confirmed (placed): <b>{result.get('auto_confirmed', 0)}</b>",
             f"\u23f3 Pending confirmation: <b>{result.get('pending', 0)}</b>",
         ]
+        lines.extend(forcescan_outcome_lines(result))
         if result.get('cleared_pending', 0) > 0:
             lines.append(f"\U0001f9f9 Cleared old pending: <b>{result['cleared_pending']}</b>")
         _withheld = forcescan_withheld_line(result)
