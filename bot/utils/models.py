@@ -85,6 +85,12 @@ class MarketSignal(BaseModel):
     momentum_score: float = Field(default=0.0, ge=-1.0, le=1.0)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     asset_category: str = "Crypto"  # Crypto | Metal | Commodity | ETF | Pre-IPO | Stock
+    #: When the VENUE says its ticker was taken, or None when it did not say.
+    #: ``timestamp`` above is the scan's own clock, so a ticker the venue
+    #: stopped refreshing read as taken this instant. The idea's entry is
+    #: priced from this ticker (``signal.price``), so its age is the second
+    #: staleness quantity beside the candles'. Carried, not gated.
+    ticker_ts: Optional[datetime] = None
 
 
 class StateTransition(BaseModel):
@@ -181,6 +187,16 @@ class TradeIdea(BaseModel):
     # a level away from it, and the drift since the analysis has to be measured
     # from this. None for every producer that does not record it.
     market_at_signal: Optional[float] = None
+    # The close time (epoch ms) of the newest CLOSED bar the analysis read,
+    # and how old that bar was when the analysis ran (seconds; negative when
+    # the newest row's period had not yet ended, as in a replay pinned to the
+    # bar's open). ``timestamp`` is the wall clock at analysis and is re-stamped
+    # at confirm, so it cannot say whether the MARKET data was fresh: a frozen
+    # feed produced ideas "0 s old". These two are facts about the candles and
+    # nothing re-stamps them. The risk gate's BAR_FRESHNESS check reads the
+    # age. None for every producer that read no candles (a typed ticket).
+    newest_bar_close_ms: Optional[float] = None
+    bar_age_at_analysis_s: Optional[float] = None
     # The VWAP the analysis read, for a VWAP-reversion idea. The executor
     # records it on the position the idea opens (and saves it with the row),
     # because the VWAP-reversion exit is measured against the VWAP of THIS

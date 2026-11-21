@@ -32,6 +32,8 @@ from bot.llm.usage import cache_kwargs, cache_pair
 from bot.risk.quality_ladder import confidence_on_record
 from bot.core.cost import thesis_dollar_exhausted
 from bot.core.position_telemetry import price_on_record
+from bot.core.bar_freshness import bar_freshness_max_periods
+from bot.utils.candles import bar_freshness_verdict, newest_closed_bar_age, period_end_ms
 from bot.core.signal_levels import (atr_on_record, record_atr,
                                      record_idea_levels, record_level)
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence
@@ -1244,6 +1246,28 @@ class Analyzer:
             audit(trade_log, f"Invalid candle data: {exc}", action="analyze",
                   result="SKIP", data={"symbol": signal.symbol, "error": str(exc)})
             self._record_no_trade(signal.symbol, "data", f"invalid candle data: {exc}")
+            return None
+
+        # A FROZEN FEED IS NOT A FRESH ONE. Every other freshness stamp on this
+        # path is the wall clock at analysis (the idea's ``timestamp``, the
+        # scanner's), so a venue that stopped printing bars produced ideas that
+        # read "0 s old" at the risk gate. The newest row's own time is the one
+        # reading that belongs to the market. Clock: ``as_of`` when a replay
+        # names its bar time (the repo's "as_of is None means live" idiom, as
+        # the cooldown gate reads it), else the wall clock.
+        _bar_now_ms = (as_of.timestamp() if as_of is not None else time.time()) * 1000.0
+        _bar_close_ms = period_end_ms(float(times[-1]), timeframe)
+        _bar_age_s = newest_closed_bar_age(candles, timeframe, _bar_now_ms)
+        _bar_ok, _bar_line = bar_freshness_verdict(
+            _bar_age_s, timeframe, bar_freshness_max_periods())
+        if not _bar_ok:
+            _tick_at = getattr(signal, "ticker_ts", None)
+            audit(trade_log, f"Stale feed: {_bar_line}", action="analyze", result="SKIP",
+                  data={"symbol": signal.symbol, "timeframe": timeframe,
+                        "bar_age_s": None if _bar_age_s is None else round(_bar_age_s, 1),
+                        "ticker_age_s": (None if _tick_at is None else
+                                         round(_bar_now_ms / 1000.0 - _tick_at.timestamp(), 1))})
+            self._record_no_trade(signal.symbol, "stale_feed", _bar_line)
             return None
 
         indicators = self._compute_indicators(highs, lows, closes, volumes, opens=opens, times=times)
@@ -2486,6 +2510,9 @@ class Analyzer:
             data_bars=indicators.get("data_bars"),
             data_thin=indicators.get("data_thin"),
             market_at_signal=price_on_record(market_at_signal),
+            # The candles' own time, measured above before analysis began.
+            newest_bar_close_ms=_bar_close_ms if _bar_close_ms > 0 else None,
+            bar_age_at_analysis_s=_bar_age_s,
         )
 
         # Phase B: attach the per-voter breakdown so the decision recorder can

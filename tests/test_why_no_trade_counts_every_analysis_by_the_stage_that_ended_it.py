@@ -26,6 +26,7 @@ from bot.core import why_not
 from bot.core.analyzer import Analyzer
 from bot.core.why_not import WhyNotLog
 from bot.utils.models import MarketSignal, RiskCheck, RiskVerdict
+from tests.candle_clock import anchored
 
 
 def _run(coro):
@@ -39,7 +40,8 @@ def _candles(n: int = 150) -> list:
         p = p + 0.15 + 0.4 * math.sin(i / 3.0)
         out.append([1_700_000_000_000 + i * 3_600_000, o, max(o, p) + 0.3,
                     min(o, p) - 0.3, p, 1000.0 + 10 * i])
-    return out
+    # Analysed live, so stamped live: a 2023 series is a frozen feed.
+    return anchored(out, "1h")
 
 
 def _signal(symbol: str = "BTC/USDT") -> MarketSignal:

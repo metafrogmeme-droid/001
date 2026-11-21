@@ -9,6 +9,7 @@ measured vs unmeasurable) and the "unreadable is never zero" rule.
 
 import math
 import random
+from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +18,7 @@ from bot.core import voter_correlation as vc
 from bot.core.analyzer import Analyzer
 from bot.core.ta_utils import Regime
 from bot.utils.models import MarketSignal
+from tests.candle_clock import fresh_start_ms
 
 
 def _noise(seed: int, n: int = 60) -> list[float]:
@@ -381,7 +383,12 @@ class TestConfig:
 
 # ── analyze() records the history it later reads ──────────────────────────
 
-def _candles(n: int, *, drift: float, t0: int = 1_700_000_000_000):
+def _candles(n: int, *, drift: float, t0: Optional[int] = None):
+    # Analysed live, so stamped live (a 2023 series is a frozen feed). One
+    # start for the 120- and 121-bar series alike, so their shared bars keep
+    # the same timestamps: the newest of 121 closed at the last hour boundary.
+    if t0 is None:
+        t0 = fresh_start_ms(121, "1h")
     rng = random.Random(11)
     out, px = [], 100.0
     for i in range(n):

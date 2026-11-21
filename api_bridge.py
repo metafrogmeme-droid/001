@@ -719,8 +719,10 @@ async def analyze(req: AnalyzeRequest, _token: str = Depends(require_dashboard_t
 
     # 4. Run analyzer
     try:
+        # The timeframe that was FETCHED. Left out, a 4h request was analysed,
+        # stamped and freshness-judged as "1h" (the parameter's default).
         idea: Optional[TradeIdea] = await engine.analyzer.analyze(
-            signal, ohlcv, order_flow=of_signal
+            signal, ohlcv, order_flow=of_signal, timeframe=req.timeframe
         )
     except Exception as exc:
         # RC-AUD-013: log full error server-side; return a generic message so
