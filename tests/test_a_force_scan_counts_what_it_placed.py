@@ -201,3 +201,77 @@ async def test_the_runner_never_logs_an_exceptions_text(caplog):
         raise RuntimeError("token=SECRET")
     await _host(results=[_idea()], confirm=confirm)._force_scan_locked()
     assert "SECRET" not in caplog.text
+
+
+# ── the stamp is written where the depth is known: the real _analyze_signal ──
+
+def _fresh_candles(n: int = 150) -> list:
+    import math
+
+    from tests.candle_clock import anchored
+    out, p = [], 100.0
+    for i in range(n):
+        o = p
+        p = p + 0.15 + 0.4 * math.sin(i / 3.0)
+        out.append([i * 3_600_000, o, max(o, p) + 0.3, min(o, p) - 0.3, p, 1000.0 + 10 * i])
+    return anchored(out, "1h")
+
+
+def _real_engine():
+    """The real engine with its venue, sentiment read, thesis and risk verdict
+    planted, as `test_why_no_trade_counts_every_analysis_...` builds it."""
+    from bot.utils.models import MarketSignal, RiskCheck, RiskVerdict
+
+    eng = RuneClawEngine()
+    eng.detach_state_persistence()
+
+    class _Exchange:
+        async def fetch_ohlcv(self, *_a, **_k):
+            return _fresh_candles()
+
+    async def _ex():
+        return _Exchange()
+
+    async def _no_fetch(*_a, **_k):
+        return None
+
+    async def _thesis(*_a, **_k):
+        return {"direction": "LONG", "confidence": 0.95, "reasoning": "planted",
+                "source": "LLM_TEST"}
+
+    async def _unread(*_a, **_k):
+        return None
+
+    async def _no_order_flow(*_a, **_k):
+        return None
+
+    eng.scanner._get_exchange = _ex
+    eng.scanner._get_futures_exchange = _ex
+    # The full path's three context reads, each a network call: unread here.
+    eng.order_flow.analyze = _no_order_flow
+    eng.basis.get_basis = _unread
+    eng.market_cap.get_market_cap = _unread
+    eng.analyzer._sentiment.refresh_fear_greed = _no_fetch
+    eng.analyzer._llm_thesis = _thesis
+    eng.analyzer._regime_hard_gate_reason = lambda *_x: None
+    eng.analyzer._direction_guard_action = lambda *_x: None
+    eng.risk.evaluate = lambda idea, **_kw: RiskCheck(trade_id=idea.id,
+                                                      verdict=RiskVerdict.APPROVED)
+    c = _fresh_candles()
+    sig = MarketSignal(symbol="BTC/USDT", price=c[-1][4], change_pct_24h=1.0,
+                       volume_usd_24h=1e8)
+    return eng, sig
+
+
+async def test_the_taps_fast_path_stamps_its_idea_lightweight():
+    eng, sig = _real_engine()
+    idea = await eng._analyze_signal(sig, lightweight=True)
+    assert idea is not None
+    assert idea.analysis_depth == "lightweight"
+
+
+async def test_a_full_analysis_carries_no_stamp():
+    eng, sig = _real_engine()
+    idea = await eng._analyze_signal(sig, lightweight=False)
+    assert idea is not None
+    assert idea.analysis_depth is None
