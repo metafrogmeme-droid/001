@@ -27,6 +27,7 @@ from bot.compat import UTC
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer, no_thesis_reason
 from bot.utils.models import MarketSignal
+from tests.candle_clock import anchored
 
 
 def _run(coro):
@@ -220,7 +221,8 @@ def _candles(n: int = 150) -> list:
         p = p + 0.15 + 0.4 * math.sin(i / 3.0)
         out.append([1_700_000_000_000 + i * 3_600_000, o, max(o, p) + 0.3,
                     min(o, p) - 0.3, p, 1000.0 + 10 * i])
-    return out
+    # Analysed live, so stamped live: a 2023 series is a frozen feed.
+    return anchored(out, "1h")
 
 
 async def _no_fetch(*_a, **_k):

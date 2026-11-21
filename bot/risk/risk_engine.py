@@ -123,7 +123,7 @@ from bot.risk.quality_ladder import (
 from bot.utils.atomic_write import atomic_write_json
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, risk_log, trade_log
-from bot.utils.models import REGIME_UNMEASURED, RiskCheck, RiskVerdict, TradeIdea
+from bot.utils.models import ANALYZER_SOURCE, REGIME_UNMEASURED, RiskCheck, RiskVerdict, TradeIdea
 from bot.utils.paths import state_path
 
 
@@ -2855,6 +2855,35 @@ class RiskEngine:
                 passed.append(f"STALE_DATA: {data_age:.0f}s old OK")
         except Exception as exc:
             failed.append(f"STALE_DATA: evaluation error ({type(exc).__name__})")
+
+        try:
+            # 12b. Bar freshness: the MARKET's age, not the idea's. STALE_DATA
+            # above measures `idea.timestamp`, which is the wall clock at
+            # analysis and is re-stamped at confirm, so a frozen feed read as
+            # 0 s old there. The analyzer measured the newest closed bar against
+            # its own clock and carried the age; this re-reads that carried
+            # fact with the same verdict (`bar_freshness_verdict`) and the same
+            # threshold. Not re-measured against now: the candles are not
+            # re-fetched at confirm, and STALE_DATA already bounds the time
+            # since the analysis. An analyzer idea with no reading is refused
+            # (its producer always measures, so absence is a fault); a producer
+            # that reads no candles -- a typed ticket -- is said not measured.
+            _bar_age = getattr(idea, "bar_age_at_analysis_s", None)
+            _src = getattr(idea, "source", None)
+            if _bar_age is not None:
+                from bot.core.bar_freshness import bar_freshness_max_periods
+                from bot.utils.candles import bar_freshness_verdict
+                _bar_ok, _bar_line = bar_freshness_verdict(
+                    float(_bar_age), getattr(idea, "timeframe", None) or "",
+                    bar_freshness_max_periods())
+                (passed if _bar_ok else failed).append(f"BAR_FRESHNESS: {_bar_line}")
+            elif _src == ANALYZER_SOURCE:
+                failed.append("BAR_FRESHNESS: analyzer idea carries no bar reading")
+            else:
+                passed.append(f"BAR_FRESHNESS: not measured — a {_src or 'unnamed'} "
+                              "idea carries no bar reading")
+        except Exception as exc:
+            failed.append(f"BAR_FRESHNESS: evaluation error ({type(exc).__name__})")
 
         # RC-AUD-008: cooldown-after-loss also binds for manual trades (anti-revenge).
         # The testnet trial (internal review 2026-10-24) changes the wait by

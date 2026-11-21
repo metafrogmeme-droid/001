@@ -93,6 +93,28 @@ _HL_BUILDER_CLASS: dict[str, str] = {
 }
 
 
+def _ticker_time(tick: dict) -> Optional[datetime]:
+    """When the venue says this ticker was taken, or None when it does not say.
+
+    ccxt's unified ``timestamp`` is epoch milliseconds or None. A bool, a
+    non-number, a non-finite or a non-positive value is not a time, and is
+    None here rather than a guess: absent is not a measurement.
+    """
+    raw = tick.get("timestamp") if isinstance(tick, dict) else None
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        ms = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if ms != ms or ms in (float("inf"), float("-inf")) or ms <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(ms / 1000.0, tz=UTC)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _classify_symbol(symbol: str) -> str:
     """Return the asset category for a given symbol."""
     base = symbol.split("/")[0]
@@ -857,6 +879,8 @@ class MarketScanner:
             momentum_score=round(momentum, 3),
             timestamp=datetime.now(UTC),
             asset_category=category,
+            # The venue's own time for this ticker; the line above is ours.
+            ticker_ts=_ticker_time(tick),
         )
 
     # ── Internal helpers ─────────────────────────────────────────

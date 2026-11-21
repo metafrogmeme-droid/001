@@ -18,6 +18,7 @@ from bot.config import CONFIG
 from bot.core.analyzer import Analyzer, _compute_fibonacci, _detect_candlestick_patterns
 from bot.core.ta_utils import Regime
 from bot.utils.models import MarketSignal
+from tests.candle_clock import anchored
 
 
 def _sig(price=100.0, chg=1.0, spike=False):
@@ -176,7 +177,9 @@ class TestCandleOrderingValidation:
         for i in range(n):
             price += 0.5
             out.append([i * 3600_000, price, price + 1, price - 1, price + 0.5, 1000.0])
-        return out
+        # Analysed live, so stamped live: a 1970 series is a frozen feed, and
+        # its refusal would end the analysis before the ordering is read.
+        return anchored(out, "1h")
 
     @pytest.mark.asyncio
     async def test_out_of_order_candles_are_sorted_not_rejected(self):
@@ -188,6 +191,8 @@ class TestCandleOrderingValidation:
         result = await a.analyze(sig, candles)
         # Must not crash; either an idea or a structured non-data skip.
         reason = a.get_no_trade_reason("BTC/USDT")
+        # The fixture is a live market; a stale refusal would read nothing.
+        assert reason is None or reason["stage"] != "stale_feed", reason
         if result is None and reason is not None:
             assert reason["stage"] != "data" or "invalid" not in reason["reason"]
 
@@ -199,6 +204,7 @@ class TestCandleOrderingValidation:
         candles = candles + [candles[-1]]  # duplicate final bar
         result = await a.analyze(sig, candles)
         reason = a.get_no_trade_reason("BTC/USDT")
+        assert reason is None or reason["stage"] != "stale_feed", reason
         if result is None and reason is not None:
             assert "invalid" not in reason["reason"]
 

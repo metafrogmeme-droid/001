@@ -123,6 +123,78 @@ def bar_is_forming(open_ms, timeframe, now_ms: Optional[float] = None) -> bool:
     return clock < end
 
 
+#: How far into the future a newest bar may END before it reads as a bar from
+#: the future rather than a forming one: the same 30 s skew STALE_DATA allows.
+BAR_CLOCK_SKEW_S = 30.0
+
+
+def newest_closed_bar_age(ohlcv, timeframe, now_ms) -> Optional[float]:
+    """Seconds since the newest row's period ENDED, at ``now_ms``; None if unread.
+
+    A FROZEN FEED READS AS FRESH WITHOUT THIS. Every other freshness stamp on
+    the signal path is the wall clock at the moment of analysis -- the idea's
+    ``timestamp``, the scanner's ``MarketSignal.timestamp`` -- so a venue that
+    stopped printing bars an hour ago produced ideas that were "0 s old". The
+    rows carry the only time that belongs to the MARKET: the open of each bar.
+
+    Measured from the bar's CLOSE (`period_end_ms`, which reads a month on the
+    calendar), because a closed bar is the newest thing the analysis can have
+    seen. The answer is three-valued:
+
+      * ``None``      -- no rows, a timestamp that is not a finite number, or a
+                         timeframe with no period. Unreadable is never zero.
+      * negative      -- the newest row's period has not ended at ``now_ms``:
+                         a forming bar was kept (DROP_UNCLOSED_CANDLE_ENABLED
+                         off), or a replay pinned its clock to the bar's open.
+      * positive      -- how stale the newest closed bar is.
+
+    ``now_ms`` is required. A wall-clock default here would answer about the
+    moment of the call, which on stored rows is the inversion `drop_forming_
+    candle`'s docstring describes; the caller names its clock (a replay passes
+    its bar time).
+    """
+    try:
+        if not ohlcv:
+            return None
+        open_ms = ohlcv[-1][0]
+        if isinstance(open_ms, bool) or isinstance(now_ms, bool):
+            return None
+        end = period_end_ms(float(open_ms), timeframe)
+        now = float(now_ms)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not (end > 0 and math.isfinite(end) and math.isfinite(now)):
+        return None
+    return (now - end) / 1000.0
+
+
+def bar_freshness_verdict(age_s: Optional[float], timeframe, max_periods: float) -> tuple[bool, str]:
+    """Whether a newest-closed-bar age is fresh enough to analyse, and why.
+
+    The one judgement over `newest_closed_bar_age`, for the analyzer that
+    refuses a stale series and the risk gate that re-reads the carried age.
+    Refused when the age is unread, older than ``max_periods`` periods, or the
+    bar ends more than one period plus `BAR_CLOCK_SKEW_S` in the future (a
+    forming bar ends at most one period ahead; further is a clock fault).
+    """
+    period_ms = timeframe_to_ms(timeframe) if isinstance(timeframe, str) and timeframe else 0
+    if age_s is None:
+        return False, "newest bar age unread"
+    if period_ms <= 0:
+        return False, f"timeframe {timeframe!r} has no fixed period to measure against"
+    period_s = period_ms / 1000.0
+    limit_s = float(max_periods) * period_s
+    if age_s < -(period_s + BAR_CLOCK_SKEW_S):
+        return False, f"newest bar ends {-age_s:.0f}s in the future (> one {timeframe} period)"
+    if age_s > limit_s:
+        return False, (f"newest closed {timeframe} bar is {age_s:.0f}s old "
+                       f"> {max_periods:g} periods ({limit_s:.0f}s)")
+    if age_s < 0:
+        return True, (f"newest {timeframe} bar's period ends in {-age_s:.0f}s "
+                      "(forming, or a replay pinned to its open)")
+    return True, f"newest closed {timeframe} bar {age_s:.0f}s old (<= {limit_s:.0f}s)"
+
+
 def resample_ohlcv(candles, source_tf: str, target_tf: str):
     """Aggregate finer-timeframe OHLCV rows into CLOSED target-timeframe
     candles (ccxt row format [ts, o, h, l, c, v], ascending).

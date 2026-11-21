@@ -60,6 +60,7 @@ STAGE_WORDS: dict[str, str] = {
     "candle_veto": "candle-pattern veto",
     "cascade_veto": "liquidation-cascade veto",
     "data": "candles unusable",
+    "stale_feed": "newest bar too old",
     "indicators": "indicators not computable",
     "held": "symbol already held",
     "liquidity": "liquidity gate",

@@ -17,6 +17,7 @@ import pytest
 from bot.config import CONFIG
 from bot.core.multi_timeframe import MTFConfluence, MTFResult, _analyze_structure
 from bot.utils.candles import resample_ohlcv
+from tests.candle_clock import anchored
 
 _H = 3_600_000
 
@@ -126,7 +127,7 @@ class TestAnalyzerWiring:
                         candles_1d=candles_1d)
         analyzer._mtf.analyze = spy
 
-        candles = _rows(200, price=100.0, step=0.05)
+        candles = anchored(_rows(200, price=100.0, step=0.05), "1h")  # analysed live
         mtf = {"1h": candles, "4h": resample_ohlcv(candles, "1h", "4h"),
                "1d": resample_ohlcv(candles, "1h", "1d")}
         sig = MarketSignal(symbol="BTC/USDT", price=float(candles[-1][4]),
@@ -149,7 +150,7 @@ class TestAnalyzerWiring:
             return MTFResult()
         analyzer._mtf.analyze = spy
 
-        candles = _rows(200, price=100.0, step=0.05)
+        candles = anchored(_rows(200, price=100.0, step=0.05), "1h")  # analysed live
         mtf = {"4h": resample_ohlcv(candles, "1h", "4h")}
         sig = MarketSignal(symbol="BTC/USDT", price=float(candles[-1][4]),
                            change_pct_24h=1.0, volume_usd_24h=1e6)
@@ -175,7 +176,7 @@ class TestAnalyzerWiring:
             return MTFResult()
         analyzer._mtf.analyze = spy
 
-        candles = _rows(200, tf_ms=4 * _H, price=100.0, step=0.05)  # 4h primary
+        candles = anchored(_rows(200, tf_ms=4 * _H, price=100.0, step=0.05), "4h")  # 4h primary
         mtf = {"1d": resample_ohlcv(candles, "4h", "1d")}
         sig = MarketSignal(symbol="BTC/USDT", price=float(candles[-1][4]),
                            change_pct_24h=1.0, volume_usd_24h=1e6)
