@@ -30419,3 +30419,35 @@ under the shipped value and reads the default from a fresh process.
 
 Guarded by `tests/test_the_live_scan_trades_the_venue_minimum.py`, through the
 real `execute` against a planted venue.
+
+## A CLOSED TRADE CAME BACK FROM A STALE BACKUP ON EVERY RESTART, AND RECONCILE CLEARED IT EVERY TIME
+
+Read on the box on 21 November 2026. Trade TI-ebd681cd (INJ/USDT) closed in
+October. On every `runeclaw-bot` restart from 20 November on, it was loaded
+again from `live_positions.json.bak` (and the per-user book's `.bak`), both
+last written on 14 October, and cleared again two minutes later: reconcile
+found the venue flat (`VENUE_FLAT`) and the trade already in the closed-trade
+record (`ALREADY_CLOSED`). No order was placed.
+
+**The backup is refreshed only from a non-empty main file.** `_save_positions`
+copies the main file to `.bak` when the file it is about to overwrite holds a
+row. The chapter "A FLAT BOOK CAME BACK FROM THE BACKUP" made a backup row wait
+for reconcile; it did not make reconcile's clear reach the backup. A clear over
+a main file that was already `{}` left the backup as it was, so the next
+restart loaded the row again.
+
+**A backup row the closed-trade record holds is not loaded, and a venue-flat
+clear drops the row from the backup.** Closed trades load after positions, so
+the check runs right after `_load_closed_trades`
+(`LiveExecutor._drop_backup_rows_already_closed`). It touches only rows read
+from the backup and writes nothing, because a process that is not the bot
+builds executors too. Reconcile, which only the bot's loop runs, drops those
+rows from the backup before an empty book returns, and drops a row it clears
+on the venue's word in each of its three branches (`ALREADY_CLOSED`, a booked
+close, a suppressed duplicate), after that branch's save, which may just have
+copied the row in. A booked close leaves the backup alone if the ledger write
+failed: the backup is then the last record of the close. An unreadable backup
+is left as it is.
+
+Guarded by `tests/test_a_restart_does_not_bring_back_a_closed_position.py`,
+for the shared book and a per-user one.
