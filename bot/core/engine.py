@@ -37,6 +37,7 @@ from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
 from bot.core.leverage import LeveragePair, apply_margin_risk_cap, order_standards
 from bot.core.live_book import live_book_open
+from bot.core.signal_path_errors import note_signal_path_error
 from bot.core.live_executor import LiveExecutor, committed_margin, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
@@ -229,8 +230,8 @@ def _stage_enter_guarded(engine, symbol, stage) -> None:
         _fn = getattr(engine, "_stage_enter", None)
         if _fn is not None:
             _fn(symbol, stage)
-    except Exception:
-        pass
+    except Exception as _sp_exc:
+        note_signal_path_error("engine.stage_enter", _sp_exc)
 
 
 #: Where the learned timeframe availability survives a restart.
@@ -420,8 +421,8 @@ def _mtf_note(engine, symbol, timeframe, *, ok: bool) -> None:
             # learning this exists to keep.
             if _ma.record_failure(st, symbol, timeframe):
                 _ma.save(st, MTF_AVAILABILITY_PATH)
-    except Exception:
-        pass
+    except Exception as _sp_exc:
+        note_signal_path_error("engine.mtf_availability_note", _sp_exc)
 
 
 def _stage_profile_record(engine, stage, symbol, seconds) -> None:
@@ -449,8 +450,8 @@ def _stage_profile_record(engine, stage, symbol, seconds) -> None:
         if prof is None:
             prof = profs[key] = _sp.new_profile()
         _sp.record(prof, symbol, seconds)
-    except Exception:
-        pass
+    except Exception as _sp_exc:
+        note_signal_path_error("engine.stage_profile_record", _sp_exc)
 
 def _of_snapshot_path() -> str:
     """The order-flow snapshot file, repo-root anchored (bot/utils/paths.py).
@@ -7842,8 +7843,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["analysed"] = int(_p.get("analysed") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_analysed", _sp_exc)
                     # A COMPLETED analysis clears the strike count. Escalation
                     # is for a symbol that keeps hanging, not for one that hung
                     # once in a bad exchange minute six hours ago — without
@@ -7858,8 +7859,8 @@ class RuneClawEngine:
                         if _st:
                             _st.pop(normalize_symbol(
                                 str(getattr(sig, "symbol", "?"))), None)
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.rest_strikes_reset", _sp_exc)
                     return _out
                 except asyncio.TimeoutError:
                     # Same outcome as any other failed analysis: this signal
@@ -7888,8 +7889,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["gave_up"] = int(_p.get("gave_up") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_gave_up", _sp_exc)
                     # REST IT. Naming a hanging symbol is not the same as
                     # stopping it hanging again: MCD/AMD/HOOD each burned the
                     # full 90s on every sweep, 270s of a 292s analyze phase,
@@ -7949,12 +7950,12 @@ class RuneClawEngine:
                                   f"Symbol resting after analysis timeout: "
                                   f"{_sym} for {int(_rest)}s (strike {_n})",
                                   action="analysis_rest", result="ARMED")
-                    except Exception:
+                    except Exception as _sp_exc:
                         # Instrumentation-grade guard, same posture as the rest
                         # of this coroutine: several suites drive the batch with
                         # SimpleNamespace stubs, and resting a symbol must never
                         # be the reason an analysis batch cannot finish.
-                        pass
+                        note_signal_path_error("batch.rest_arm", _sp_exc)
                     return None
                 except asyncio.CancelledError:
                     # THE PHASE CAP KILLED THE GATHER WHILE THIS WAS RUNNING.
@@ -7972,8 +7973,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["cancelled"] = int(_p.get("cancelled") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_cancelled", _sp_exc)
                     raise
                 except Exception as exc:
                     logger.debug("Signal analysis error for %s: %s",
@@ -7987,8 +7988,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["errored"] = int(_p.get("errored") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_errored", _sp_exc)
                     return None
                 finally:
                     # Counts finished work of ANY outcome — an idea, no idea,
@@ -7998,8 +7999,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["done"] += 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_done", _sp_exc)
                     # Clear the in-flight stage marker AFTER the timeout
                     # handler above has read it. A stale mark would attribute
                     # this batch's hang to the previous batch's stage.
@@ -8014,8 +8015,8 @@ class RuneClawEngine:
                         _sx = getattr(self, "_stage_exit", None)
                         if _sx is not None:
                             _sx(str(getattr(sig, "symbol", "?")))
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.stage_exit", _sp_exc)
 
         if not signals:
             return []
@@ -8035,8 +8036,8 @@ class RuneClawEngine:
                         time.monotonic() - float(_p.get("started") or 0.0),
                         gave_up=_p.get("gave_up"),
                         analysed=_p.get("analysed"))
-        except Exception:
-            pass
+        except Exception as _sp_exc:
+            note_signal_path_error("batch.throughput_record", _sp_exc)
         # Where the work went. Reported on a batch that FINISHED, so the
         # healthy shape is on record too — a breakdown you only ever see
         # during an incident has nothing to be compared against.
@@ -8094,8 +8095,8 @@ class RuneClawEngine:
                 if _t is None:
                     _t = self._analysis_timeout_tally = _att.new_tally()
                 _att.record(_t, _timed_out_pairs)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("batch.timeout_tally", _sp_exc)
             audit(scan_log,
                   f"Analysis timed out for "
                   f"{len(_timed_out)} of {len(signals)} signals "
@@ -8211,8 +8212,8 @@ class RuneClawEngine:
                         if _p is not None:
                             _p["skipped_resting"] = int(
                                 _p.get("skipped_resting") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("analyze_signal.progress_skipped_resting", _sp_exc)
                 return None
             # Cooldown expired → clear it, and the rest provenance with it, so
             # a later risk cooldown on the same symbol is never mistaken for a
@@ -8222,8 +8223,8 @@ class RuneClawEngine:
                 _ru = getattr(self, "_analysis_rest_until", None)
                 if _ru is not None:
                     _ru.pop(symbol_key, None)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("analyze_signal.rest_provenance_clear", _sp_exc)
 
         try:
             # Use futures exchange for non-Crypto categories (metals,
@@ -8334,8 +8335,8 @@ class RuneClawEngine:
             try:
                 for _cn, _cv in (getattr(of_signal, "call_seconds", None) or {}).items():
                     _stage_profile_record(self, f"fetch:{_cn}", signal.symbol, _cv)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("analyze_signal.fetch_attribution", _sp_exc)
 
             # Seed the exchange-flow cache with the funding rate this pass just
             # fetched — funding_rate_provider (the macro LIQUIDATION_RISK
@@ -8344,8 +8345,8 @@ class RuneClawEngine:
                     and getattr(of_signal, "funding_rate", None) is not None:
                 try:
                     self.exchange_flow.seed_funding_rate(signal.symbol, of_signal.funding_rate)
-                except Exception:
-                    pass
+                except Exception as _sp_exc:
+                    note_signal_path_error("analyze_signal.funding_seed", _sp_exc)
 
             # #17: shadow-record the live order-flow snapshot so the backtest can
             # replay the same microstructure path (gated OF_RECORD_SNAPSHOTS, now
@@ -8359,8 +8360,8 @@ class RuneClawEngine:
                         _of_snapshot_path(),
                         of_signal,
                     )
-                except Exception:
-                    pass
+                except Exception as _sp_exc:
+                    note_signal_path_error("analyze_signal.order_flow_snapshot_record", _sp_exc)
             if isinstance(_r_ohlcv, BaseException):
                 audit(
                     system_log,
@@ -8607,8 +8608,8 @@ class RuneClawEngine:
             if ca_conf_adj != 0:
                 # Store for risk engine
                 pass
-        except Exception:
-            pass
+        except Exception as _sp_exc:
+            note_signal_path_error("analyze_signal.cross_asset_adjustment", _sp_exc)
 
         # Check #17: liquidity guard from order flow (fail-open if no data)
         if of_signal is not None:
