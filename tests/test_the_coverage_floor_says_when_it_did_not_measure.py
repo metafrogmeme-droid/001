@@ -62,9 +62,10 @@ def _healthy_suite(monkeypatch, cov_rc: int | None, *, raise_launch: bool = Fals
     """Drive `main()` over a suite that passes, varying only what the coverage
     reader answers.
 
-    `main()` shells out TWICE through the same `subprocess.run` — once for
-    pytest and once for `coverage report` — so the stand-in dispatches on the
-    command rather than answering both the same way. A stub that answered one
+    `main()` shells out through the same `subprocess.run` for pytest, for the
+    money `coverage report`, and for one `coverage report --format=total` per
+    signal-engine module, so the stand-in dispatches on the command rather
+    than answering them all the same way. A stub that answered one
     code for both would hand pytest the coverage verdict, and the first draft of
     this helper did exactly that: it patched a `_run_pytest` seam that does not
     exist, with `raising=False`, so it silently patched nothing at all. A
@@ -80,6 +81,12 @@ def _healthy_suite(monkeypatch, cov_rc: int | None, *, raise_launch: bool = Fals
         if is_coverage:
             if raise_launch:
                 raise OSError("coverage binary is not executable")
+            if "--format=total" in cmd:
+                # The per-module signal-engine report prints a bare total. It
+                # answers with the money report's code and a total no floor
+                # can exceed, so a clean run is clean on both reports and a
+                # failed read is a failed read on both.
+                return _Done(cov_rc, stdout="100.00\n")
             return _Done(cov_rc, stdout="TOTAL 82%\n")
         # the pytest leg: ran to completion, nothing failed
         return _Done(0, stdout="1 passed in 0.01s\n")
