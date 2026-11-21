@@ -2678,10 +2678,16 @@ class LiveExecutor:
         self._foreign_position_rows: dict[str, dict] = {}
         self._unstamped_positions_loaded = False
         self._unstamped_closed_loaded = False
+        # Trade ids `_load_positions` read from the `.bak` (the main file said
+        # the book was empty), and those of them the closed-trade record
+        # already holds, which reconcile drops from the `.bak`.
+        self._read_from_backup: set[str] = set()
+        self._backup_rows_to_forget: set[str] = set()
         # F-07 FIX: Load persisted positions on startup
         self._load_positions()
         # F-14 FIX: Load persisted closed trades on startup
         self._load_closed_trades()
+        self._drop_backup_rows_already_closed()
         # Entry submissions the venue never confirmed either way, reconciled
         # by client id on every positions pass (`_reconcile_unverified_
         # submissions`). Loaded last: a file this build cannot read refuses new
@@ -17622,6 +17628,7 @@ class LiveExecutor:
                     if source == bak_path:
                         _deferred = sorted(self._positions)
                         self._recovered_from_closing.update(_deferred)
+                        self._read_from_backup = set(_deferred)
                         audit(trade_log,
                               f"{len(_deferred)} position(s) read from the backup "
                               f"wait for reconcile before anything acts on them: "
@@ -17647,6 +17654,86 @@ class LiveExecutor:
                 audit(trade_log, f"Failed to load positions from {source}: {exc}",
                       action="load_positions", result="ERROR")
                 continue
+
+    def _drop_backup_rows_already_closed(self) -> None:
+        """Keep out of the book a row read from the ``.bak`` that is already closed.
+
+        The ``.bak`` is the last NON-EMPTY positions file, so after the book
+        goes flat it still holds the last position that closed, and the loader
+        reads it whenever the main file is ``{}``. A row the closed-trade
+        record already holds came back as an open position on every restart,
+        until reconcile asked the venue and cleared it again (TI-ebd681cd,
+        20-21 November 2026).
+
+        Runs after `_load_closed_trades`, which loads after the positions.
+        Rows from the main file are left alone: reconcile asks the venue about
+        them. Nothing is written here, because a reader process must not write
+        the bot's files; reconcile drops the rows from the ``.bak``
+        (`_forget_in_backup`).
+        """
+        closed = {ct.trade_id for ct in self._closed_trades}
+        stale = sorted(tid for tid in getattr(self, "_read_from_backup", ())
+                       if tid in self._positions and self._positions[tid].trade_id in closed)
+        if not stale:
+            return
+        for tid in stale:
+            self._positions.pop(tid, None)
+            self._recovered_from_closing.discard(tid)
+        self._backup_rows_to_forget.update(stale)
+        audit(trade_log,
+              f"{len(stale)} position(s) read from the backup are already in the "
+              f"closed-trade record: not loaded into the open book",
+              action="load_positions", result="BACKUP_ALREADY_CLOSED",
+              data={"trade_ids": stale})
+
+    def _forget_in_backup(self, trade_ids) -> None:
+        """Drop ``trade_ids`` from this book's ``.bak`` once reconcile cleared them.
+
+        `_save_positions` refreshes the ``.bak`` only from a non-empty main
+        file, so a clear over a book already ``{}`` on disk never reached it,
+        and the cleared row came back on the next restart. Called after the
+        clearing save, which may itself have just copied the row in.
+
+        Other rows are kept as they are. A ``.bak`` that will not read is left
+        alone and said (`update_json_store`). Never raises: a backup that
+        could not be tidied must not stop a reconcile.
+        """
+        path = getattr(self, "_positions_file", None)
+        ids = {str(tid) for tid in trade_ids or ()}
+        if not path or not ids:
+            return
+        bak = Path(str(path) + ".bak")
+        if not bak.exists():
+            return
+        dropped: list[str] = []
+
+        def _drop(data: dict) -> Any:
+            dropped.extend(sorted(tid for tid in ids if tid in data))
+            if not dropped:
+                return False
+            for tid in dropped:
+                data.pop(tid, None)
+            return None
+
+        try:
+            update_json_store(bak, _drop, indent=2, default=str)
+        except StoreUnreadable as exc:
+            why, result = f"could not be read ({exc.detail})", "BACKUP_UNREADABLE"
+        except Exception as exc:
+            why, result = f"could not be written ({type(exc).__name__})", "BACKUP_UNWRITTEN"
+        else:
+            if dropped:
+                audit(trade_log,
+                      f"Dropped {', '.join(dropped)} from {bak.name}: cleared, so "
+                      f"a restart does not load it again",
+                      action="reconcile_flat", result="BACKUP_CLEARED",
+                      data={"trade_ids": dropped})
+            return
+        audit(trade_log,
+              f"{bak.name} {why}: {', '.join(sorted(ids))} left in it, and a "
+              f"restart may load it again",
+              action="reconcile_flat", result=result, level=logging.WARNING,
+              data={"trade_ids": sorted(ids)})
 
     # ── F-14 FIX: Closed trades persistence ───────────────────────
 
@@ -17902,6 +17989,13 @@ class LiveExecutor:
         didn't process (e.g., during downtime or missed webhook).
         Returns list of reconciliation messages.
         """
+        # Backup rows already closed were kept out of the book at load
+        # (`_drop_backup_rows_already_closed`). This is the bot's own loop, so
+        # the `.bak` forgets them here, before an empty book returns.
+        _queued = getattr(self, "_backup_rows_to_forget", None)
+        if _queued:
+            self._forget_in_backup(sorted(_queued))
+            _queued.clear()
         open_pos = self.open_positions
         if not open_pos:
             return []
@@ -18028,6 +18122,7 @@ class LiveExecutor:
                                 # Remove from open positions — it's already tracked as closed
                                 pos.status = "closed"
                                 self._save_positions()
+                                self._forget_in_backup([pos.trade_id])
                                 continue
 
                             # ── Cross-record duplicate guard ──
@@ -18038,6 +18133,7 @@ class LiveExecutor:
                             # by entry price) and double-counts everything.
                             if self._is_duplicate_close_booking(pos):
                                 self._suppress_duplicate_record(pos)
+                                self._forget_in_backup([pos.trade_id])
                                 continue
 
                             # Position no longer on exchange — get real close data from Bitget
@@ -18186,7 +18282,11 @@ class LiveExecutor:
                             pos.closed_at = datetime.now(UTC)
 
                             self._save_positions()
-                            self._append_closed_trade(pos)
+                            # The `.bak` forgets it only once the ledger holds
+                            # it: if that write failed, the `.bak` is the last
+                            # record of the position.
+                            if self._append_closed_trade(pos):
+                                self._forget_in_backup([pos.trade_id])
                             # Invalidate balance cache on reconciled close
                             self._fire_position_closed(pos)
 
