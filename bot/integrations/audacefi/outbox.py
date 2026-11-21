@@ -47,6 +47,11 @@ EXPIRED_UNSENT = "expired_unsent"
 class AudaceOutboxUnreadable(RuntimeError):
     """The outbox file has a line that is not the torn tail of a crash."""
 
+    # A body that survives `code_only` (which blanks docstrings), so a scan
+    # that parses `code_only` output (tests/test_one_signal_one_confidence.py
+    # counts the bot/ files it breaks) still parses this one.
+    pass
+
 
 @dataclass(frozen=True)
 class OutboxEntry:
