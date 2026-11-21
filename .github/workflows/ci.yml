@@ -376,7 +376,35 @@ jobs:
         # for the runner to sweep after a cancelled job. 40m is above a
         # finished shadow (run 2056: the pytest pass was 892s) and below the
         # job cap. A finish returns pytest's own status.
+        #
+        # ONE FILE IS KEPT OFF THE WORKERS. Run 44768167620 (5de013a) ended
+        # with pytest exit 3: worker gw0 crashed while reporting a test in
+        # tests/test_no_new_unreachable_functions.py, and the gate could only
+        # say the suite had not run to completion. That file walks the whole
+        # tree, several times. Alone, under the gate's flags, its two slowest
+        # tests take 29 s and 36 s of the 60 s limit (measured 2026-11-20 on a
+        # 4-core box), so beside the other workers the limit is in reach. The
+        # timeout is a signal, raised wherever the test happens to be, and
+        # pytest 9.0.3 cannot format a traceback entry that has no line
+        # number, so a timeout that lands on one takes the worker down
+        # instead of failing the test. Driven the same day: a 1 s signal
+        # timeout inside that test exits 3 with the same TypeError. The run's
+        # log does not name a timeout; it is the one cause found that
+        # produces this crash.
+        # PYTEST_ADDOPTS reaches the pytest the gate starts. The file runs in
+        # the next step, by itself.
+        env:
+          PYTEST_ADDOPTS: "--ignore=tests/test_no_new_unreachable_functions.py"
         run: timeout --kill-after=30s 40m python3 scripts/ci_test_gate.py --parallel
+
+      - name: Tests — the tree-walk file, alone
+        # The file the step above leaves out, with the gate's own pytest
+        # flags (scripts/ci_test_gate.py PYTEST_CMD) and nothing running
+        # beside it. It runs whether or not the parallel pass was green: a
+        # red shadow is the run somebody reads, and it should not be missing
+        # a file.
+        if: ${{ !cancelled() }}
+        run: timeout --kill-after=30s 15m python3 -m pytest -p no:cacheprovider --timeout=60 --timeout-method=signal -rfE -q --no-header tests/test_no_new_unreachable_functions.py
 
   # THE LOCKS ARE GENERATED, AND THIS JOB IS WHAT SAYS THEY STILL ARE.
   #
