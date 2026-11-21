@@ -37,6 +37,34 @@ def test_the_money_report_is_restricted_to_the_money_modules():
     assert gate._cov_include(["bot.core.analyzer"]) == "bot/core/analyzer.py"
 
 
+class _Ran:
+    def __init__(self, stdout: str):
+        self.returncode, self.stdout, self.stderr = 0, stdout, ""
+
+
+def test_each_report_is_run_over_exactly_its_own_modules(monkeypatch):
+    # The helper above being right says nothing about whether the reports
+    # pass it: dropping --include from the money call left every other test
+    # here green. So record the commands the two verdicts actually run.
+    ran: list[list[str]] = []
+
+    def fake_run(cmd, **_kw):
+        ran.append(list(cmd))
+        return _Ran("100.00\n" if "--format=total" in cmd else "TOTAL 90%\n")
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate, "_load_signal_floors",
+                        lambda: {t: 50 for t in gate.SIGNAL_COV_TARGETS})
+
+    assert gate._money_coverage_verdict() == gate.COV_OK
+    assert gate._signal_coverage_verdict() == gate.COV_OK
+    money, *signal = ran
+    assert f"--include={gate._cov_include(gate.COV_TARGETS)}" in money
+    assert f"--fail-under={gate.COV_FAIL_UNDER}" in money
+    assert [[a for a in c if a.startswith("--include=")] for c in signal] == \
+        [[f"--include={gate._cov_include([t])}"] for t in gate.SIGNAL_COV_TARGETS]
+    assert all("--format=total" in c for c in signal)
+
+
 def test_the_recorded_floor_names_each_signal_module_once_with_a_whole_number():
     floors = gate._load_signal_floors()
     assert floors is not None, f"{gate.SIGNAL_COV_FLOOR} did not load"
