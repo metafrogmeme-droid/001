@@ -72,6 +72,13 @@ class AnomalyAlert(BaseModel):
 # ---------------------------------------------------------------------------
 
 _MAX_HISTORY = 100
+# Newest active alerts kept. `update()` appends one row per DETECTION and
+# nothing removed them (`clear_alerts()` has no caller), so a condition that
+# stood for a week was a week of rows, copied whole on every monitor pass.
+# Two full worst-case scans: five checks x the default 200-mover universe x 2.
+# The monitor de-duplicates by symbol and type, so a condition still standing
+# is still in the newest rows.
+_MAX_ACTIVE_ALERTS = 2000
 _CORRELATION_WINDOW = 20
 _CORRELATION_THRESHOLD = 0.3
 # A "breakdown" needs something to break: the pair must have been genuinely
@@ -304,8 +311,8 @@ class BlackSwanDetector:
                 # would leave the other paging on a shut market.
                 new_alerts.append(attenuate_off_hours(alert))
 
-        # 3. Merge into active alerts
-        self._active_alerts.extend(new_alerts)
+        # 3. Merge into active alerts, newest kept (see _MAX_ACTIVE_ALERTS)
+        self._merge_alerts(new_alerts)
 
         # 4. Escalate to halt if any alert is severe enough
         if any(a.severity >= _HALT_SEVERITY for a in new_alerts):
@@ -332,10 +339,18 @@ class BlackSwanDetector:
                 if alert is not None:
                     new_alerts.append(attenuate_off_hours(alert))
 
-        self._active_alerts.extend(new_alerts)
+        self._merge_alerts(new_alerts)
         if any(a.severity >= _HALT_SEVERITY for a in new_alerts):
             self._halt_recommended = True
         return new_alerts
+
+    def _merge_alerts(self, new_alerts: list[AnomalyAlert]) -> None:
+        """Append ``new_alerts`` and keep the newest ``_MAX_ACTIVE_ALERTS``.
+        The halt recommendation is decided by the caller from ``new_alerts``
+        and is not touched by what is dropped here."""
+        self._active_alerts.extend(new_alerts)
+        if len(self._active_alerts) > _MAX_ACTIVE_ALERTS:
+            del self._active_alerts[:-_MAX_ACTIVE_ALERTS]
 
     def clear_alerts(self) -> None:
         """Reset all active alerts and lift halt recommendation.

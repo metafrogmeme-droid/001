@@ -73,6 +73,8 @@ class _Engine:
         self._last_state_change = time.time()
         self._cooldown_until = None
         self._pending_ideas = {}
+        self._pending_atr = {}
+        self._pending_pyramid = {}
         self._engine_idea_ids = set()
         self._scan_lock = asyncio.Lock()
         self._last_scan_signals = []
@@ -128,6 +130,9 @@ class _Engine:
     _remember_gateway_scan = RuneClawEngine._remember_gateway_scan
     _expire_pending_ideas = RuneClawEngine._expire_pending_ideas
     _drop_pending_idea = RuneClawEngine._drop_pending_idea
+    # ...and the bound the expiry now ends with (the per-idea ATR and
+    # pyramid maps), for the same reason.
+    _bound_idea_side_maps = RuneClawEngine._bound_idea_side_maps
     # The REAL auto-confirm selection, for the reason the monitor above is
     # real: `_tick` calls `_auto_confirm_batch` unconditionally (it used to
     # inline the comprehension, which never ran with an empty pending dict),

@@ -36,6 +36,11 @@ logger = logging.getLogger(__name__)
 
 _MAX_HISTORY = 100
 _LOOKBACK = 20  # number of data points for rolling calculations
+# Symbols kept, least recently updated evicted first. Each symbol held up to
+# _MAX_HISTORY snapshots (tens of KB) and no symbol was ever dropped, so the
+# three per-symbol dicts grew with every listing the scan ever touched. Twice
+# the default 200-mover universe.
+_MAX_SYMBOLS = 400
 
 # Fear & Greed component weights
 _FG_MOMENTUM_W = 0.40
@@ -262,6 +267,7 @@ class SentimentEngine:
             The freshly computed sentiment reading.
         """
         # --- accumulate rolling data ---
+        self._touch(symbol)
         self._price_returns.setdefault(symbol, []).append(price_change_pct)
         self._volume_history.setdefault(symbol, []).append(volume)
 
@@ -316,6 +322,21 @@ class SentimentEngine:
             self._history[symbol] = self._history[symbol][-_MAX_HISTORY:]
 
         return snapshot
+
+    def _touch(self, symbol: str) -> None:
+        """Move ``symbol`` to the newest end of the per-symbol dicts and drop
+        the least recently updated symbols past ``_MAX_SYMBOLS`` from all
+        three together. The symbol being updated is never the one dropped, so
+        its vote and `latest` read as before."""
+        from bot.utils.bounded import evict_oldest, touch
+        touch(self._history, symbol)
+        touch(self._price_returns, symbol)
+        touch(self._volume_history, symbol)
+        if symbol not in self._history:
+            self._history[symbol] = []
+        for gone, _rows in evict_oldest(self._history, _MAX_SYMBOLS):
+            self._price_returns.pop(gone, None)
+            self._volume_history.pop(gone, None)
 
     def get_confluence_vote(self, symbol: str = "") -> float:
         """

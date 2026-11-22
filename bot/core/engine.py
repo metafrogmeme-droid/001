@@ -90,6 +90,16 @@ from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
+#: Most entries `RuneClawEngine._pending_atr` and `_pending_pyramid` may each
+#: hold. They are written for every analysed idea (and by `/analyze` and the
+#: scan cards), and only an idea that reaches `_pending_ideas` is removed by a
+#: door that knows them, so every idea dropped before it was queued (the
+#: confidence floor, a filter, a timeout) stayed for the life of the process.
+#: The bound (`_bound_idea_side_maps`) evicts oldest first and never a key
+#: whose idea is still pending, so a pending idea's ATR re-check at confirm is
+#: the same.
+_IDEA_SIDE_MAP_CAP = 1000
+
 # Exception BASE-CLASS names that mean "we could not reach the exchange", as
 # opposed to "the exchange answered and said no". Matched against the whole MRO
 # so ccxt's own tree (RequestTimeout, ExchangeNotAvailable and DDoSProtection
@@ -3085,6 +3095,8 @@ class RuneClawEngine:
         if not creds:
             return fallback
         key = str(user_id)
+        from bot.utils.bounded import touch
+        touch(self._balance_view_executors, key)   # most recently viewed last (LRU)
         ex = self._balance_view_executors.get(key)
         # Rebuild if absent or the user's credentials changed (venue-agnostic
         # full-dict compare — Hyperliquid records have no api_key).
@@ -3096,13 +3108,64 @@ class RuneClawEngine:
                 _state_dir = executor_state_dir(venue)
             except ValueError:
                 return fallback
+            replaced = ex
             ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue,
                               state_dir=_state_dir)
             # Share the operator WS feed (market data is not per-user). No
             # on_position_closed / risk wiring: this executor never trades.
             ex._ws_feed = self.ws_feed
-            self._balance_view_executors[key] = ex
+            self._keep_balance_view(key, ex, replaced)
         return ex
+
+    #: Most view-only executors kept. Each is a full LiveExecutor with its
+    #: own exchange client and market table, built for anyone with linked
+    #: keys who opens a balance, and the dict had no bound: one per such user
+    #: for the life of the process. Sixteen is a choice, not a measurement:
+    #: a view evicted is rebuilt on its owner's next look, at the cost of one
+    #: more client and market load.
+    _BALANCE_VIEW_CAP = 16
+    #: Seconds an evicted or replaced view waits before its client is closed,
+    #: so a read already holding it finishes on an open client.
+    _BALANCE_VIEW_CLOSE_GRACE_S = 120.0
+
+    def _keep_balance_view(self, key: str, ex, replaced=None) -> None:
+        """Store ``ex`` as ``key``'s view, hold the views to
+        `_BALANCE_VIEW_CAP` (least recently viewed first), and close every
+        executor that leaves: the one ``ex`` replaced after a credential
+        change, which used to be dropped with its client still open, and any
+        the cap evicts."""
+        from bot.utils.bounded import evict_oldest
+        views = self._balance_view_executors
+        views[key] = ex
+        leaving = [replaced] if replaced is not None and replaced is not ex else []
+        leaving += [old for _k, old in evict_oldest(views, self._BALANCE_VIEW_CAP)]
+        for old in leaving:
+            self._close_view_later(old)
+
+    def _close_view_later(self, ex) -> None:
+        """Close a view executor's client after the grace, off this call.
+        With no running loop there is nothing to schedule on; the executor
+        is released with its last reference."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        grace = self._BALANCE_VIEW_CLOSE_GRACE_S
+
+        async def _close() -> None:
+            await asyncio.sleep(grace)
+            try:
+                await ex.close()
+            except Exception as exc:
+                logger.debug("balance view close failed: %s", type(exc).__name__)
+
+        closers: Optional[set] = getattr(self, "_view_closers", None)
+        if closers is None:
+            closers = set()
+            self._view_closers = closers
+        task = loop.create_task(_close())
+        closers.add(task)
+        task.add_done_callback(closers.discard)
 
     def set_live_auth_status(self, ok: bool, detail: str = "",
                              user_id: str = "") -> None:
@@ -10382,9 +10445,20 @@ class RuneClawEngine:
             else "live execution failed")
         return result + seal_note
 
+    def _bound_idea_side_maps(self) -> None:
+        """Hold `_pending_atr` and `_pending_pyramid` to `_IDEA_SIDE_MAP_CAP`,
+        oldest first, never a key whose idea is still pending. An idea still
+        being analysed is the newest entry, so it is the last one this would
+        reach."""
+        from bot.utils.bounded import evict_oldest
+        pending = self._pending_ideas
+        evict_oldest(self._pending_atr, _IDEA_SIDE_MAP_CAP, keep=pending.__contains__)
+        evict_oldest(self._pending_pyramid, _IDEA_SIDE_MAP_CAP, keep=pending.__contains__)
+
     def _expire_pending_ideas(self, now: Optional[datetime] = None) -> list:
         """Drop every pending idea older than ``CONFIG.pending_idea_ttl``, with
-        its ATR, pyramid flag and manual margin. The tick calls this every
+        its ATR, pyramid flag and manual margin, then bound the ATR and
+        pyramid maps (`_bound_idea_side_maps`). The tick calls this every
         pass; it is a method so a test can drive the expiry without standing
         up a tick. Returns the expired ids."""
         now = now or datetime.now(UTC)
@@ -10406,6 +10480,7 @@ class RuneClawEngine:
                     result="EXPIRED",
                     data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
                 )
+        self._bound_idea_side_maps()
         return expired_ids
 
     def _same_symbol_verdict(self, idea, symbol_key: str) -> str:
