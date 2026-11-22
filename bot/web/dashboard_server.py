@@ -708,6 +708,44 @@ def _gate_rejection_rows(engine) -> "list[tuple[str, int]]":
     return rows[:_MAX_GATE_LABELS]
 
 
+def _signal_outcome_series(engine) -> "list[tuple[str, float, str, str]]":
+    """The published-signal outcome walk, from what its last pass recorded
+    (`RuneClawEngine._note_signal_outcome_pass`). Counts only.
+
+    Nothing before a first pass: an engine that has not walked has no backlog
+    reading, and a gauge at 0 would say the backlog is empty. A figure the last
+    pass could not read (its ledger write did not land) is left out alone."""
+    stats = getattr(engine, "_signal_outcome_stats", None)
+    if not isinstance(stats, dict) or not isinstance(stats.get("last"), dict):
+        return []
+    out: list[tuple[str, float, str, str]] = []
+    for key, help_text, mtype in (
+            ("passes_total", "Signal outcome passes run since boot.", "counter"),
+            ("landed_total", "Signal outcome re-sends that reached the website since boot.",
+             "counter"),
+            ("fetch_errors_total", "Candle reads the outcome walk could not make since boot.",
+             "counter")):
+        value = _measured(stats.get(key))
+        if value is not None:
+            out.append((f"runeclaw_signal_outcome_{key}", value, help_text, mtype))
+    last = stats["last"]
+    for key, help_text in (
+            ("pending", "Published calls still pending in the outcome ledger after the last pass."),
+            ("ledger_rows", "Rows in the outcome ledger after the last pass."),
+            ("due", "Pending calls that were due for a walk on the last pass."),
+            ("deferred", "Due calls the last pass left for a later one (market bound or backoff)."),
+            ("fetch_errors", "Candle reads the last pass could not make.")):
+        value = _measured(last.get(key))
+        if value is not None:
+            out.append((f"runeclaw_signal_outcome_{key}", value, help_text, "gauge"))
+    stamp = _measured(stats.get("last_pass_unix"))
+    if stamp is not None:
+        out.append(("runeclaw_signal_outcome_last_pass_age_seconds",
+                    max(0.0, time.time() - stamp),
+                    "Seconds since the outcome walk last ran a pass.", "gauge"))
+    return out
+
+
 def _swarm_series(engine) -> "list[tuple[str, float, str, str]]":
     """The swarm's worker count and halt latch, or nothing when no swarm is
     attached: SWARM_ENABLED is off by default, and an engine with no swarm has
@@ -811,6 +849,11 @@ def _render_prometheus(engine) -> str:
         pass
     try:
         for name, value, help_text, mtype in _swarm_series(engine):
+            metric(name, repr(round(value, 6)), help_text, mtype)
+    except Exception:
+        pass
+    try:
+        for name, value, help_text, mtype in _signal_outcome_series(engine):
             metric(name, repr(round(value, 6)), help_text, mtype)
     except Exception:
         pass

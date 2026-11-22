@@ -7396,18 +7396,33 @@ class RuneClawEngine:
 
     #: How often the published signals are walked against their candles.
     _SIGNAL_OUTCOME_EVERY_S = 900.0
+    #: Wall time one pass may spend STARTING candle reads. The walk's answers
+    #: are written before the website re-send, and both run under the
+    #: maintenance cap (120 s by default); stopping new reads here keeps the
+    #: write well inside it. Markets not reached wait for the next pass.
+    _SIGNAL_OUTCOME_WALK_BUDGET_S = 60.0
+    #: How long a market whose candles did not read is passed over, so a
+    #: market that keeps failing cannot hold one of a pass's slots every pass.
+    _SIGNAL_OUTCOME_BACKOFF_S = 3600.0
 
     async def _resolve_signal_outcomes(self, now_ms: Optional[int] = None) -> int:
-        """Walk the published signals that are still pending and say what each
-        did (`bot.core.signal_outcomes`); re-send each one whose word changed.
+        """Walk the published signals that are due and say what each did
+        (`bot.core.signal_outcomes`); re-send every row whose word the website
+        does not have.
 
         Both signal producers pushed ``status: NEW`` and nothing ever pushed a
         second row, so every signal stayed NEW and the stats panel's promise
         that outcomes appear "once signals hit target or stop" had no path.
-        Throttled to one pass per ``_SIGNAL_OUTCOME_EVERY_S`` and bounded to the
-        ledger's oldest-checked rows, reading candles through `_cached_ohlcv`,
-        the engine's one hygiened read. A row whose re-send did not land stays
-        unsynced and is sent again on the next pass. Returns how many landed.
+        Throttled to one pass per ``_SIGNAL_OUTCOME_EVERY_S``. A row is walked
+        once a bar it has not read can have closed, oldest-due first, grouped
+        by market so ONE `_cached_ohlcv` read (the engine's one hygiened read)
+        answers every due row on that market, and a pass is bounded by
+        distinct markets (``MAX_MARKETS_PER_PASS``), not rows. The pass makes
+        two ledger writes whatever its size: the answers (with rows past their
+        deadline closed UNSCORED), then the sync marks. The answers go first so
+        a re-send cut off by the maintenance cap loses nothing; an unsynced row
+        is sent again on the next pass, in batches of ``RESEND_BATCH``.
+        Returns how many rows' re-sends landed.
         """
         from bot.core import signal_outcomes as so
         from bot.utils.website_sync import sync_signals
@@ -7417,44 +7432,95 @@ class RuneClawEngine:
         if last is not None and mono - last < self._SIGNAL_OUTCOME_EVERY_S:
             return 0
         self._signal_outcome_pass_at = mono
-        items = await asyncio.to_thread(so.rows_due)
-        if items is None:
+        now = now_ms if now_ms is not None else int(time.time() * 1000)
+        window = getattr(CONFIG.limit_orders, "expire_seconds", None)
+        backoff = self.__dict__.setdefault("_signal_outcome_backoff", {})
+        for market in [m for m, until in backoff.items() if until <= mono]:
+            del backoff[market]
+        plan = await asyncio.to_thread(so.plan_outcome_pass, now, skip=frozenset(backoff))
+        if plan is None:
             logger.warning("Signal outcomes: the ledger could not be read; nothing walked")
             return 0
-        landed = 0
-        for key, entry in items:
-            if entry.get("status") in so.PENDING:
-                row = entry.get("row") or {}
-                market = so.market_for(row.get("symbol"))
-                if market is None:
-                    res = so.Resolution(so.UNSCORED, "the symbol names no market")
-                else:
-                    try:
-                        ex = await (self.scanner._get_futures_exchange() if ":" in market
-                                    else self.scanner._get_exchange())
-                        bars = await self._cached_ohlcv(
-                            ex, market, so.TIMEFRAME, limit=so.FETCH_LIMIT, ttl=600)
-                    except Exception as exc:  # noqa: BLE001 -- asked again next pass
-                        logger.debug("Signal outcome candles for %s not read: %s",
-                                     market, type(exc).__name__)
-                        continue
-                    res = so.resolve(row, bars or [],
-                                     now_ms if now_ms is not None else int(time.time() * 1000),
-                                     getattr(CONFIG.limit_orders, "expire_seconds", None))
-                changed = await asyncio.to_thread(
-                    so.apply, key, res,
-                    now_ms if now_ms is not None else int(time.time() * 1000))
-                if changed is None:
-                    continue
-                entry = changed
+        results: list = []
+        fetch_errors = 0
+        markets_read = 0
+        began = time.monotonic()
+        for market, rows in plan.markets.items():
+            if time.monotonic() - began >= self._SIGNAL_OUTCOME_WALK_BUDGET_S:
+                break
+            if market is None:
+                results.extend((key, so.Resolution(so.UNSCORED, "the symbol names no market"))
+                               for key, _entry in rows)
+                continue
             try:
-                ok = await asyncio.to_thread(sync_signals, [so.outcome_row(entry)])
-            except Exception as exc:  # noqa: BLE001 -- sent again next pass
-                logger.debug("Signal outcome re-send failed: %s", type(exc).__name__)
-                ok = False
-            if ok and await asyncio.to_thread(so.mark_synced, key):
-                landed += 1
+                ex = await (self.scanner._get_futures_exchange() if ":" in market
+                            else self.scanner._get_exchange())
+                bars = await self._cached_ohlcv(
+                    ex, market, so.TIMEFRAME, limit=so.FETCH_LIMIT, ttl=600)
+            except Exception as exc:  # noqa: BLE001 -- asked again after the backoff
+                fetch_errors += 1
+                backoff[market] = time.monotonic() + self._SIGNAL_OUTCOME_BACKOFF_S
+                logger.debug("Signal outcome candles for %s not read: %s",
+                             market, type(exc).__name__)
+                continue
+            markets_read += 1
+            for key, entry in rows:
+                row = entry.get("row")
+                results.append((key, so.resolve(row if isinstance(row, dict) else {},
+                                                bars or [], now, window)))
+        wrote = await asyncio.to_thread(so.apply_outcomes, results, now, window_s=window)
+        landed = 0
+        if wrote is not None:
+            sent: dict = {}
+            unsent = wrote.unsent
+            for i in range(0, len(unsent), so.RESEND_BATCH):
+                batch = unsent[i:i + so.RESEND_BATCH]
+                try:
+                    ok = await asyncio.to_thread(
+                        sync_signals, [so.outcome_row(entry) for _key, entry in batch])
+                except Exception as exc:  # noqa: BLE001 -- sent again next pass
+                    logger.debug("Signal outcome re-send failed: %s", type(exc).__name__)
+                    ok = False
+                if not ok:
+                    break      # the website is not taking them; the rest wait a pass
+                sent.update((key, entry.get("status")) for key, entry in batch)
+            if sent:
+                landed = await asyncio.to_thread(so.mark_outcomes_synced, sent)
+        self._note_signal_outcome_pass(plan, wrote, walked=len(results),
+                                       markets=markets_read, fetch_errors=fetch_errors,
+                                       landed=landed)
         return landed
+
+    def _note_signal_outcome_pass(self, plan, wrote, *, walked: int, markets: int,
+                                  fetch_errors: int, landed: int) -> None:
+        """One INFO line per pass, and the counters `/metrics` publishes.
+
+        ``ledger_rows`` and ``pending`` are the state the pass's write left;
+        when that write did not land they are not known, and the line says so
+        rather than printing the plan's stale figures as the ledger's."""
+        stats = self.__dict__.setdefault("_signal_outcome_stats", {
+            "passes_total": 0, "landed_total": 0, "fetch_errors_total": 0})
+        last = {"due": plan.due, "walked": walked, "markets": markets,
+                "deferred": plan.deferred, "fetch_errors": fetch_errors, "landed": landed,
+                "changed": wrote.changed if wrote is not None else None,
+                "closed": wrote.closed if wrote is not None else None,
+                "ledger_rows": wrote.ledger_rows if wrote is not None else None,
+                "pending": wrote.pending if wrote is not None else None}
+        stats["passes_total"] += 1
+        stats["landed_total"] += landed
+        stats["fetch_errors_total"] += fetch_errors
+        stats["last"] = last
+        stats["last_pass_unix"] = time.time()
+        if wrote is None:
+            logger.info("Signal outcomes pass: due=%d walked=%d markets=%d deferred=%d "
+                        "fetch_errors=%d; the walk's answers were NOT recorded (the ledger "
+                        "could not be written), nothing re-sent",
+                        plan.due, walked, markets, plan.deferred, fetch_errors)
+            return
+        logger.info("Signal outcomes pass: due=%d walked=%d markets=%d deferred=%d changed=%d "
+                    "closed_unscored=%d landed=%d fetch_errors=%d ledger_rows=%d pending=%d",
+                    plan.due, walked, markets, plan.deferred, wrote.changed, wrote.closed,
+                    landed, fetch_errors, wrote.ledger_rows, wrote.pending)
 
     async def _cached_ohlcv(self, exchange, symbol, timeframe, limit=100, ttl=120):
         """Fetch OHLCV with a simple TTL cache to avoid refetching within `ttl` seconds.

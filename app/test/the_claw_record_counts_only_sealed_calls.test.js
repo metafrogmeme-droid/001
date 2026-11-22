@@ -142,10 +142,11 @@ test('the route serves the record with each day\'s root, and a dead database is 
   // A window that reaches the read cap says its counts are partial.
   const route = require('../routes/claw_record');
   route._resetCache();
-  route._limits.maxRows = 1;
+  const cap = route._limits.maxGroups;
+  route._limits.maxGroups = 1;
   try {
     r = await get('/api/public/claw-record?days=30');
-  } finally { route._limits.maxRows = 20000; route._resetCache(); }
+  } finally { route._limits.maxGroups = cap; route._resetCache(); }
   assert.strictEqual(r.body.partial, true);
 
   const real = pool.execute;

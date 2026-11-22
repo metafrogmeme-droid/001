@@ -30451,3 +30451,86 @@ is left as it is.
 
 Guarded by `tests/test_a_restart_does_not_bring_back_a_closed_position.py`,
 for the shared book and a per-user one.
+
+## EVERY CALL GOT ONE LOOK BEFORE ITS FIRST BAR CLOSED, AND THE CAP EVICTED IT STILL PENDING
+
+22 November 2026. The Claw Record counted most of the agent's calls as live
+for good, and its 30-, 90- and 365-day windows were partial counts.
+
+**The walk starved by construction.** `rows_due(limit=12)` took the twelve
+rows checked longest ago every fifteen minutes, and a row never checked sorted
+first (`checked_ms or 0`). At about 727 calls a day each call got one walk a
+few minutes after it was published, before any bar after it had closed, so the
+walk answered "nothing yet" and stamped the check. From then on every newer,
+never-checked call sorted ahead of it. The ledger cap (2000 rows) then evicted
+it while still pending, and dropped final rows the website had not received as
+well. Either way the website row was never sent a second word.
+
+**A row is walked once a bar it has not read can have closed, and a pass is
+bounded by markets.** `outcome_due_ms` puts the first walk at the close of the
+first bar after publication and each later one at the close of the bar the last
+check fell in. That is the bar-aligned form of "an hour after creation or the
+last check": it skips the walk that can read nothing, and does not wait an
+extra hour after a check made late in a bar. `plan_outcome_pass` takes due rows
+oldest-due first, groups them by the market their candles come from, and
+bounds the pass at 40 markets, so one `_cached_ohlcv` read answers every due
+row on its market. A market whose read fails is passed over for an hour, so a
+dead market cannot hold a slot every pass. A pass is two writes whatever its
+size: `apply_outcomes` records the answers, then `mark_outcomes_synced` records
+which re-sends landed. The answers go first so that a re-send cut off by the
+120-second maintenance cap loses nothing. Re-sends go in batches of 500, the
+most the website's ingest takes in one request (it drops the rest of a longer
+batch and still answers ok).
+
+**No pending row leaves silently.** A call no walk could answer by the end of
+its entry window, its week and the tail grace is closed UNSCORED and sent. The
+cap is now 10,000 rows. It deletes only final rows that have synced, keyed on
+their resolution, else their last check, else their publication: an UNSCORED
+row carries no resolution time and was never pruned by age. If the cap still
+binds, the oldest pending calls are closed UNSCORED and sent. **The first
+draft of that cascaded.** A closed call keeps the ledger over the cap until it
+syncs, so every later prune closed one more pending call, which during a
+website outage is all of them. Only pending rows beyond the cap are closed now;
+rows waiting to sync are already on their way out.
+
+**The website keeps a final word.** `POST /api/bot/sync/signals` wrote status,
+pnl and resolved_at unconditionally. A stored final word now keeps all three
+against a non-final one, and a final word still corrects a final word. The
+in-memory database used to apply every upsert as "overwrite the three
+fields". It now evaluates the `ON DUPLICATE KEY UPDATE` clause left to right,
+as MySQL does, and refuses a shape it does not implement.
+
+**The record counts in SQL.** The route read only `?days=`, and it read the
+window's newest 20,000 rows and counted them in JS. It reads `window` (then
+`days`), and the counts are one grouped query (day, eligibility, outcome,
+word). That query is folded by the same fold `computeClawRecord` runs on rows,
+so the SQL path and the pure path cannot count differently.
+`ELIGIBILITY_SQL` sits beside `eligibility()` in `app/lib/claw_record.js`. The
+resolved list is a page: 50 by default, up to 200, with a cursor of resolution
+time and key. Many calls resolve on the same bar close, and a time-only cursor
+skips the rows tied with a page's last one. **The mutation round found the
+double answering a clause the query did not carry:** the recent-page branch
+filtered out live calls whether or not the SQL said `pnl IS NOT NULL`, so
+dropping that clause survived. The Claw Record branches now apply only the
+clauses a statement carries and refuse an eligibility or outcome expression
+they do not implement. 23 mutants, all killed.
+
+**The calls already stuck are answered by the operator.**
+`scripts/signal_outcomes_backfill.py` reads the website's sealed NEW/OPEN rows
+(`GET /api/bot/sync/signals/pending`, bot-secret), walks public hourly candles
+through the bot's own `resolve`, and prints counts only. It writes nothing
+without `--apply`, which posts final answers alone, each with the answering
+bar's close as its `resolved_at`. `--apply` is refused when
+`RUNECLAW_SERVER=1`.
+
+**A test clock is not the module's clock.** The first run of the starvation
+simulation lost calls from the ledger. `record_published` prunes on the wall
+clock, the simulation ran on 1-3 October, and its final, synced rows read as
+older than the 14-day keep period. The simulation now runs the module's clock
+on its own time.
+
+Guarded by `tests/test_signal_outcomes_keep_up.py`,
+`tests/test_a_published_signal_is_resolved.py`,
+`tests/test_signal_outcomes_backfill.py`,
+`app/test/sync_signals_terminal_guard.test.js` and
+`app/test/the_claw_record_is_exact_over_any_window.test.js`.

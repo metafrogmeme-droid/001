@@ -52,6 +52,26 @@ The R is GROSS: a signal has no size, so no fee can be charged to it, and the
 panel says so. And the walk is over HOURLY bars, so a bar that spans both
 levels is more common than it would be at a finer grain; that is the price of
 reading a week in one fetch, and it is why AMBIGUOUS is its own word.
+
+A ROW IS WALKED WHEN A BAR IT HAS NOT READ CAN HAVE CLOSED, and the walk goes
+by market. The first walk used to take the twelve rows checked longest ago,
+and a row never checked sorted first. At ~700 calls a day every call got one
+look a few minutes after it was published, before any bar after it had closed,
+and never a second: the newer never-checked rows always sorted ahead of it. The
+ledger cap then evicted it, still pending. Now a pending row is due at the
+close of the first bar after its publication, and again at the close of the
+first bar after its last check (``outcome_due_ms``). The due rows are taken
+oldest-due first and grouped by market, so one candle fetch answers every due
+row on that market, and a pass is bounded by distinct markets rather than rows
+(``plan_outcome_pass``). The answers of a whole pass are one write
+(``apply_outcomes``), and so are its sync marks (``mark_outcomes_synced``).
+
+NO PENDING ROW IS DROPPED SILENTLY. A row nobody could walk to a verdict by the
+end of its entry window, its week and the tail grace is closed ``UNSCORED`` and
+sent like any other outcome. The cap evicts final, synced rows first. If it
+still binds, the oldest pending rows are closed ``UNSCORED`` and sent, and they
+leave only once that outcome has synced. A row whose outcome has not reached
+the website is never pruned.
 """
 from __future__ import annotations
 
@@ -100,8 +120,25 @@ FETCH_LIMIT = 200
 TAIL_GRACE_S = 3 * 24 * 3600
 #: A resolved row is kept this long after it was synced, then pruned.
 KEEP_RESOLVED_S = 14 * 24 * 3600
-#: The ledger never holds more than this many rows (oldest resolved go first).
-MAX_ROWS = 2000
+#: The ledger is pruned to this many rows. Final, synced rows go first; a row
+#: whose outcome has not reached the website is never pruned, so the ledger can
+#: run over this while the website is unreachable. About two weeks of calls at
+#: ~700 a day: the keep period above, not the cap, normally decides.
+MAX_ROWS = 10_000
+#: Distinct markets one pass reads candles for. A pass is bounded by fetches,
+#: not rows: one fetch answers every due row on its market.
+MAX_MARKETS_PER_PASS = 40
+#: Rows per re-send: the website's ingest takes at most 500 rows a request and
+#: drops the rest of a longer batch while still answering ok.
+RESEND_BATCH = 500
+#: The most rows one pass re-sends, oldest first; the rest wait a pass.
+RESEND_MAX = 1000
+
+#: Why a row closed without a walk saying so: the two ways a pending row ends
+#: other than through `resolve`.
+AGED_OUT_WHY = ("no walk reached a verdict before the entry window, the week "
+                "after it and the tail grace ran out")
+CAP_WHY = "the ledger reached its row cap before this call resolved"
 
 def ledger_path():
     return state_path("data/learning/signal_outcomes.json")
@@ -422,8 +459,8 @@ def record_published(rows: Sequence[dict], path=None, *,
             if cm is not None:
                 live[cm] = k
             added += 1
-        _prune(sigs)
-        return added > 0
+        deleted, closed = _prune(sigs)
+        return added > 0 or deleted > 0 or closed > 0
 
     try:
         update_json_store(p, change, check=_check, separators=(",", ":"))
@@ -437,33 +474,205 @@ def record_published(rows: Sequence[dict], path=None, *,
     return Recorded(added, dict(reoffers))
 
 
-def _prune(sigs: dict, now_ms: Optional[int] = None) -> None:
+def _stamp(value: object) -> Optional[int]:
+    """An epoch-ms stamp the ledger recorded, or None. A bool is not one."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _created_ms(entry: dict) -> Optional[int]:
+    row = entry.get("row")
+    return parse_time_ms(row.get("created_at")) if isinstance(row, dict) else None
+
+
+def _close_after(ms: int) -> int:
+    """The close of the bar ``ms`` falls in: the next bar boundary after it."""
+    return (ms // BAR_MS + 1) * BAR_MS
+
+
+def outcome_due_ms(entry: dict) -> int:
+    """When a pending row is next worth walking.
+
+    A walk reads closed bars that OPENED at or after the publication (see
+    ``resolve``), so the first one that can answer closes an hour after the
+    first bar boundary at or after ``created_at``; asking earlier reads
+    nothing. After a walk, the next question is worth asking once the bar the
+    walk could not read yet has closed: the close of the bar its check fell
+    in. So the row is due at whichever is later. A row whose publication time
+    does not read is due at once, and ``resolve`` answers it UNSCORED.
+    """
+    created = _created_ms(entry)
+    if created is None:
+        return 0
+    first_open = -(-created // BAR_MS) * BAR_MS
+    due = first_open + BAR_MS
+    checked = _stamp(entry.get("checked_ms"))
+    if checked is not None:
+        due = max(due, _close_after(checked))
+    return due
+
+
+def _deadline_ms(entry: dict, window_s: object) -> Optional[int]:
+    """When a still-pending row is closed UNSCORED without a walk: the end of
+    its entry window, the week after it, and the tail grace. Every verdict
+    ``resolve`` can reach lies before it (an entry reached inside the window
+    has its week end inside it too), so a row still pending here is one no
+    walk could read: its market's candles kept failing, or it was never
+    reached. None when the publication time does not read (``resolve`` closes
+    that one on its first walk)."""
+    created = _created_ms(entry)
+    if created is None:
+        return None
+    return created + (entry_window_s(window_s) + HORIZON_S + TAIL_GRACE_S) * 1000
+
+
+def _close_unscored(v: dict, why: str) -> None:
+    v["status"] = UNSCORED
+    v["r"] = None
+    v["resolved_ms"] = None
+    v["why"] = why
+    v["synced"] = False
+
+
+def _age_out(sigs: dict, now_ms: int, window_s: object) -> int:
+    """Close every pending row past its deadline UNSCORED, to be sent. How many."""
+    closed = 0
+    for v in sigs.values():
+        if not isinstance(v, dict) or v.get("status") not in PENDING:
+            continue
+        deadline = _deadline_ms(v, window_s)
+        if deadline is not None and now_ms >= deadline:
+            _close_unscored(v, AGED_OUT_WHY)
+            closed += 1
+    return closed
+
+
+def _final_since_ms(v: dict) -> Optional[int]:
+    """When a final row's keep clock started: its resolution, else its last
+    check, else its publication. An UNSCORED row carries no resolution time,
+    and keyed on that alone it was never pruned by age at all."""
+    for stamp in (_stamp(v.get("resolved_ms")), _stamp(v.get("checked_ms"))):
+        if stamp is not None:
+            return stamp
+    return _created_ms(v)
+
+
+def _oldest_first(ms: Optional[int]) -> int:
+    """A sort key that puts a row with no stamp first among the old."""
+    return -1 if ms is None else ms
+
+
+def _final_synced(v: object) -> bool:
+    """A final row whose outcome has reached the website: the only kind pruned."""
+    return isinstance(v, dict) and v.get("status") in TERMINAL and bool(v.get("synced"))
+
+
+def _prune(sigs: dict, now_ms: Optional[int] = None) -> tuple[int, int]:
+    """Prune the ledger. Returns ``(deleted, closed)``.
+
+    Only a FINAL row whose outcome has SYNCED is ever deleted. A pending row,
+    or a final one the website has not received, is the only record of what
+    that call did, and deleting it is how a call stayed NEW on the website for
+    good. Over the cap, final synced rows go first, oldest first. A final row
+    still waiting to sync leaves by that same door once it lands, so it is not
+    a reason to close anything; only when the PENDING rows alone exceed the
+    cap are the oldest of them closed UNSCORED and left unsynced, to be sent
+    like any outcome and deleted by a later prune once they have landed.
+    (Counting the rows waiting to sync would close one more pending call on
+    every prune until they landed, which during a website outage is all of
+    them.) Unsynced rows can hold the ledger over the cap while the website is
+    unreachable; that is logged, never resolved by loss.
+    """
     now = now_ms if now_ms is not None else int(time.time() * 1000)
-    for k in [k for k, v in sigs.items()
-              if v.get("status") in TERMINAL and v.get("synced")
-              and (v.get("resolved_ms") or now) < now - KEEP_RESOLVED_S * 1000]:
+    cutoff = now - KEEP_RESOLVED_S * 1000
+    old = []
+    for k, v in sigs.items():
+        if _final_synced(v):
+            since = _final_since_ms(v)
+            if since is not None and since < cutoff:
+                old.append(k)
+    for k in old:
         del sigs[k]
+    deleted = len(old)
+    if len(sigs) <= MAX_ROWS:
+        return deleted, 0
+    evictable = sorted((k for k, v in sigs.items() if _final_synced(v)),
+                       key=lambda k: (_oldest_first(_final_since_ms(sigs[k])), str(k)))
+    for k in evictable[:len(sigs) - MAX_ROWS]:
+        del sigs[k]
+        deleted += 1
+    closed = 0
     if len(sigs) > MAX_ROWS:
-        order = sorted(sigs, key=lambda k: (sigs[k].get("status") not in TERMINAL,
-                                            sigs[k].get("resolved_ms") or 0))
-        for k in order[:len(sigs) - MAX_ROWS]:
-            del sigs[k]
+        pending = sorted((k for k, v in sigs.items()
+                          if isinstance(v, dict) and v.get("status") in PENDING),
+                         key=lambda k: (_oldest_first(_created_ms(sigs[k])), str(k)))
+        for k in pending[:max(0, len(pending) - MAX_ROWS)]:
+            _close_unscored(sigs[k], CAP_WHY)
+            closed += 1
+        logger.warning("signal outcome ledger: %d row(s) over its cap of %d are waiting "
+                       "for their outcome to reach the website (%d pending call(s) "
+                       "closed UNSCORED to make room); none is pruned before it syncs",
+                       len(sigs) - MAX_ROWS, MAX_ROWS, closed)
+    return deleted, closed
 
 
-def rows_due(path=None, *, limit: int = 12) -> Optional[list[tuple[str, dict]]]:
-    """The rows to walk now: pending ones, then resolved ones not yet synced.
+class OutcomePlan(NamedTuple):
+    """The rows one pass walks, and the counts its summary line reports."""
 
-    Oldest check first, so a burst of new signals cannot starve an old one.
-    None when the ledger could not be read (never an empty list).
+    #: ``{market: [(key, entry), ...]}``, oldest-due first, at most the bound
+    #: of distinct markets. ``None`` holds rows whose symbol names no market.
+    markets: dict
+    #: Pending rows due now.
+    due: int
+    #: Due rows left for a later pass: past the market bound, or on a market
+    #: whose candles did not read on a recent pass.
+    deferred: int
+
+
+def plan_outcome_pass(now_ms: int, *, max_markets: int = MAX_MARKETS_PER_PASS,
+                      skip: frozenset = frozenset(),
+                      path=None) -> Optional[OutcomePlan]:
+    """The pending rows to walk now, grouped by the market their candles come from.
+
+    A row is due once a bar it has not read can have closed
+    (``outcome_due_ms``); one that is not due is not asked. Due rows are taken
+    oldest-due first, so the longest-waiting row is never behind a burst of new
+    ones, and grouped by ``market_for`` (the exact fetch string: a ``:`` market
+    is a swap, read from the other exchange, and is never merged with spot).
+    A pass takes at most ``max_markets`` distinct markets; a market in ``skip``
+    is passed over without using a slot. None when the ledger could not be
+    read (never an empty plan).
     """
     got = read_json_store(path or ledger_path(), check=_check)
     if got.state == "unreadable":
         return None
-    sigs = (got.data or {}).get("signals", {})
-    items = [(k, v) for k, v in sigs.items()
-             if isinstance(v, dict) and (v.get("status") in PENDING or not v.get("synced"))]
-    items.sort(key=lambda kv: kv[1].get("checked_ms") or 0)
-    return items[:limit]
+    sigs = (got.data or {}).get("signals", {}) or {}
+    due_rows: list[tuple[int, int, int, str, dict]] = []
+    for k, v in sigs.items():
+        if isinstance(v, dict) and v.get("status") in PENDING:
+            due = outcome_due_ms(v)
+            if due <= now_ms:
+                due_rows.append((due, _oldest_first(_stamp(v.get("checked_ms"))),
+                                 _oldest_first(_created_ms(v)), str(k), v))
+    # Oldest due, then longest unchecked, then oldest published; the key only
+    # breaks an exact tie.
+    due_rows.sort(key=lambda t: t[:4])
+    markets: dict = {}
+    deferred = 0
+    for _due, _checked, _created, k, v in due_rows:
+        row = v.get("row")
+        market = market_for(row.get("symbol") if isinstance(row, dict) else None)
+        if market is not None and market in skip:
+            deferred += 1
+            continue
+        if market not in markets:
+            if len(markets) >= max_markets:
+                deferred += 1
+                continue
+            markets[market] = []
+        markets[market].append((k, v))
+    return OutcomePlan(markets, len(due_rows), deferred)
 
 
 def outcome_row(entry: dict) -> dict:
@@ -478,54 +687,115 @@ def outcome_row(entry: dict) -> dict:
     return row
 
 
-def apply(key: str, res: Resolution, now_ms: int, path=None) -> Optional[dict]:
-    """Record a walk's answer. Returns the ledger entry when it CHANGED the
-    signal's word (so it must be re-sent), None otherwise."""
-    changed: dict = {}
+def _apply_one(v: dict, res: Resolution, now_ms: int) -> bool:
+    """Record one walk's answer on its entry. True when it CHANGED the word,
+    so the row must be re-sent."""
+    v["checked_ms"] = now_ms
+    if v.get("status") in TERMINAL or res.retry:
+        return False
+    # A signal that reached its entry does not un-reach it: a shorter or
+    # later fetch that no longer holds the bar is not evidence against it.
+    if v.get("status") == OPEN and res.status == NEW:
+        return False
+    if res.status == v.get("status"):
+        return False
+    v["status"] = res.status
+    v["r"] = res.r
+    v["resolved_ms"] = res.resolved_ms
+    v["why"] = res.why
+    v["synced"] = False
+    return True
+
+
+class OutcomeWrite(NamedTuple):
+    """What one pass's write did, and what it left to send."""
+
+    #: Rows whose word a walk answer changed.
+    changed: int
+    #: Pending rows closed UNSCORED without a walk (past the deadline, or the cap).
+    closed: int
+    #: ``[(key, entry copy)]``: every row whose current word the website has
+    #: not received, oldest publication first, at most ``RESEND_MAX``.
+    unsent: list
+    #: The ledger's size and its pending rows, after the write.
+    ledger_rows: int
+    pending: int
+
+
+def apply_outcomes(results: Sequence[tuple[str, Resolution]], now_ms: int, *,
+                   window_s: object = None, path=None) -> Optional[OutcomeWrite]:
+    """Record a whole pass's walk answers in ONE write.
+
+    Each answer is recorded as a single walk always was (a final word is
+    final, a retry records only the check, an entry reached is not un-reached,
+    the same word again is no change). In the same write every pending row
+    past its deadline is closed UNSCORED (``_deadline_ms``) and the ledger is
+    pruned. The answer also names every row still to be sent, read from the
+    state this write left, so a row whose earlier re-send did not land is sent
+    again whether or not this pass walked it. None when the ledger could not
+    be read or written: nothing was recorded, and nothing is known to send.
+    """
+    out: dict = {}
 
     def change(data):
         sigs = data.setdefault("signals", {})
-        v = sigs.get(key)
-        if not isinstance(v, dict):
-            return False
-        v["checked_ms"] = now_ms
-        if v.get("status") in TERMINAL or res.retry:
-            return True
-        # A signal that reached its entry does not un-reach it: a shorter or
-        # later fetch that no longer holds the bar is not evidence against it.
-        if v.get("status") == OPEN and res.status == NEW:
-            return True
-        if res.status != v.get("status"):
-            v["status"] = res.status
-            v["r"] = res.r
-            v["resolved_ms"] = res.resolved_ms
-            v["why"] = res.why
-            v["synced"] = False
-            changed.update(v)
-        return True
+        touched = False
+        changed = 0
+        for key, res in results:
+            v = sigs.get(key)
+            if not isinstance(v, dict):
+                continue
+            touched = True
+            if _apply_one(v, res, now_ms):
+                changed += 1
+        closed = _age_out(sigs, now_ms, window_s)
+        deleted, capped = _prune(sigs, now_ms)
+        closed += capped
+        unsent = sorted(((str(k), dict(v)) for k, v in sigs.items()
+                         if isinstance(v, dict) and not v.get("synced")),
+                        key=lambda kv: (_oldest_first(_created_ms(kv[1])), kv[0]))
+        out["write"] = OutcomeWrite(
+            changed, closed, unsent[:RESEND_MAX], len(sigs),
+            sum(1 for v in sigs.values() if isinstance(v, dict) and v.get("status") in PENDING))
+        return touched or closed > 0 or deleted > 0
 
     try:
         update_json_store(path or ledger_path(), change, check=_check, separators=(",", ":"))
     except (StoreUnreadable, OSError) as exc:
-        logger.warning("signal outcome not recorded for %s (%s)", key, type(exc).__name__)
+        logger.warning("signal outcomes: %d walk answer(s) not recorded (%s)",
+                       len(results), type(exc).__name__)
         return None
-    return changed or None
+    return out.get("write")
 
 
-def mark_synced(key: str, path=None) -> bool:
+def mark_outcomes_synced(sent: dict, path=None) -> int:
+    """Mark the rows whose re-send landed, in one write. Returns how many.
+
+    ``sent`` maps each key to the word that was SENT. A row whose word changed
+    after it was sent (the cap closed it, say) is left unsynced, so the word
+    the website does not have yet is sent on the next pass.
+    """
+    if not sent:
+        return 0
+    marked = 0
+
     def change(data):
-        v = data.setdefault("signals", {}).get(key)
-        if not isinstance(v, dict) or v.get("synced"):
-            return False
-        v["synced"] = True
-        return True
+        nonlocal marked
+        sigs = data.setdefault("signals", {})
+        for key, word in sent.items():
+            v = sigs.get(key)
+            if isinstance(v, dict) and not v.get("synced") and v.get("status") == word:
+                v["synced"] = True
+                marked += 1
+        return marked > 0
+
     try:
-        _, written = update_json_store(path or ledger_path(), change, check=_check, separators=(",", ":"))
+        update_json_store(path or ledger_path(), change, check=_check, separators=(",", ":"))
     except (StoreUnreadable, OSError) as exc:
-        logger.warning("signal outcome sync mark not recorded for %s (%s)",
-                       key, type(exc).__name__)
-        return False
-    return bool(written)
+        logger.warning("signal outcomes: %d sync mark(s) not recorded (%s)",
+                       len(sent), type(exc).__name__)
+        return 0
+    return marked
 
 
 #: The per-pair counts a summary carries, in the order a card prints them.

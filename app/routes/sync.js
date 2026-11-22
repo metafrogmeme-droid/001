@@ -1283,6 +1283,37 @@ function feeLosing(v) {
   return null;
 }
 
+// A CALL'S OUTCOME ONLY MOVES FORWARD. The re-sync used to write status, pnl
+// and resolved_at unconditionally, so a late NEW or OPEN for a call already
+// TARGET (the publish push landing after the outcome, or a walk retried from
+// an older ledger) put the row back to pending and erased its R. A stored
+// final word now keeps all three against a non-final one; final over final
+// (a correction) still writes. The words are the one reading the pages use
+// (public/js/signal-status-model.js, parity-tested against the bot's tuple).
+//
+// STATUS IS ASSIGNED LAST. MySQL evaluates ON DUPLICATE KEY UPDATE
+// assignments left to right, and a column named after it has been assigned
+// reads its NEW value. With this condition the order happens not to change the
+// answer (where it holds, status is left as it was; where it fails, the new
+// status keeps it failing), but the column every condition reads goes last so
+// that a later edit to the condition cannot quietly start reading the incoming
+// word. The seal, its payload, sealed_at and every decision value are never in
+// this clause.
+const SignalWords = require('../public/js/signal-status-model.js');
+const sqlWordList = (words) => {
+  for (const w of words) {
+    if (!/^[A-Z_]+$/.test(w)) throw new Error('a signal status word is not a bare word');
+  }
+  return words.map((w) => `'${w}'`).join(', ');
+};
+const FINAL_WORDS_SQL = sqlWordList(SignalWords.TERMINAL);
+const PENDING_WORDS_SQL = sqlWordList(SignalWords.PENDING);
+const KEEPS_FINAL = `status IN (${FINAL_WORDS_SQL}) AND VALUES(status) NOT IN (${FINAL_WORDS_SQL})`;
+const OUTCOME_ASSIGNMENTS = `
+           pnl = IF(${KEEPS_FINAL}, pnl, VALUES(pnl)),
+           resolved_at = IF(${KEEPS_FINAL}, resolved_at, VALUES(resolved_at)),
+           status = IF(${KEEPS_FINAL}, status, VALUES(status))`;
+
 router.post('/signals', async (req, res) => {
   try {
     const list = Array.isArray(req.body && req.body.signals) ? req.body.signals : [];
@@ -1358,9 +1389,7 @@ router.post('/signals', async (req, res) => {
             created_at, resolved_at, seal, seal_payload, sealed_at, expires_at,
             signal_type, timeframe, source, net_rr, rr_fee_losing)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           status = VALUES(status), pnl = VALUES(pnl),
-           resolved_at = VALUES(resolved_at)`,
+         ON DUPLICATE KEY UPDATE ${OUTCOME_ASSIGNMENTS}`,
           values
         );
       } catch (err) {
@@ -1376,9 +1405,7 @@ router.post('/signals', async (req, res) => {
               entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
               created_at, resolved_at, seal, seal_payload, sealed_at, expires_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             status = VALUES(status), pnl = VALUES(pnl),
-             resolved_at = VALUES(resolved_at)`,
+           ON DUPLICATE KEY UPDATE ${OUTCOME_ASSIGNMENTS}`,
           values.slice(0, 20)
         );
       }
@@ -1390,6 +1417,78 @@ router.post('/signals', async (req, res) => {
     console.error('Signals sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Signals sync failed' });
   }
+});
+
+/** An integer query value inside [lo, hi]; absent or unreadable is `dflt`. */
+function boundedInt(raw, lo, hi, dflt) {
+  if (raw === undefined || raw === null || raw === '') return dflt;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(hi, Math.max(lo, Math.floor(n)));
+}
+
+/** A DECIMAL column as a number, or null when it does not read. */
+function decimalOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * GET /api/bot/sync/signals/pending?after_id=&limit=&older_than_s=
+ *
+ * The sealed calls this server still holds as pending (NEW or OPEN), oldest
+ * id first, for the operator's backfill (scripts/signal_outcomes_backfill.py)
+ * to walk on public candles. Calls the bot's outcome ledger evicted while
+ * pending were never re-sent, so their rows stayed NEW here for good; the
+ * backfill answers them through the same POST /signals the bot uses.
+ *
+ * Bot-secret authed (botAuth above). Keyset paging on `id`; `limit` is 1-500
+ * and inlined as an integer (a bound LIMIT is refused by MySQL's prepared
+ * path). `older_than_s` (default an hour) leaves out calls too young for a
+ * closed bar after them. Only sealed rows: an unsealed call is not counted by
+ * the Claw Record whatever its outcome. A database that does not answer is a
+ * 503 naming the exception class, never an empty page.
+ */
+router.get('/signals/pending', async (req, res) => {
+  const afterId = boundedInt(req.query.after_id, 0, Number.MAX_SAFE_INTEGER, 0);
+  const limit = boundedInt(req.query.limit, 1, 500, 500);
+  const olderThanS = boundedInt(req.query.older_than_s, 0, 365 * 86400, 3600);
+  const before = new Date(Date.now() - olderThanS * 1000);
+  let rows;
+  try {
+    [rows] = await pool.execute(
+      `SELECT id, signal_key, symbol, direction, entry_price, stop_loss, take_profit,
+              status, created_at, sealed_at
+       FROM signals
+       WHERE status IN (${PENDING_WORDS_SQL}) AND seal IS NOT NULL AND sealed_at IS NOT NULL
+         AND created_at < ? AND id > ?
+       ORDER BY id ASC LIMIT ${limit}`,
+      [before, afterId]);
+  } catch (err) {
+    console.error('Pending signals read failed:', err.name || 'Error');
+    return res.status(503).json({ error: 'The pending calls could not be read',
+                                  exception: err.name || 'Error' });
+  }
+  const iso = (v) => {
+    const t = v == null ? NaN : new Date(v).getTime();
+    return Number.isFinite(t) ? new Date(t).toISOString() : null;
+  };
+  const signals = (rows || []).map((r) => ({
+    id: Number(r.id),
+    signal_key: String(r.signal_key),
+    symbol: String(r.symbol || ''),
+    direction: String(r.direction || ''),
+    entry_price: decimalOrNull(r.entry_price),
+    stop_loss: decimalOrNull(r.stop_loss),
+    take_profit: decimalOrNull(r.take_profit),
+    status: String(r.status || ''),
+    created_at: iso(r.created_at),
+    sealed_at: iso(r.sealed_at),
+  }));
+  const full = signals.length === limit;
+  res.json({ ok: true, signals,
+             next_after_id: full ? signals[signals.length - 1].id : null });
 });
 
 /**
