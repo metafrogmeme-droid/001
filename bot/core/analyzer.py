@@ -33,6 +33,7 @@ from bot.risk.quality_ladder import confidence_on_record
 from bot.core.cost import thesis_dollar_exhausted
 from bot.core.position_telemetry import price_on_record
 from bot.core.bar_freshness import bar_freshness_max_periods
+from bot.core.signal_path_errors import note_signal_path_error
 from bot.utils.candles import bar_freshness_verdict, newest_closed_bar_age, period_end_ms
 from bot.core.signal_levels import (atr_on_record, record_atr,
                                      record_idea_levels, record_level)
@@ -331,7 +332,8 @@ def _apply_mtf_elliott_alignment(indicators: dict, mtf_candles: dict) -> None:
             scratch: dict = {}
             _run_elliott_detectors(scratch, highs, lows, closes, swings)
             patterns_by_tf[tf] = scratch.get("elliott_pattern")
-        except Exception:  # noqa: BLE001 — one bad series never voids the map
+        except Exception as _sp_exc:  # noqa: BLE001 — one bad series never voids the map
+            note_signal_path_error("analyzer.mtf_elliott_series", _sp_exc)
             continue
     ew_map = mtf_wave_map(patterns_by_tf)
     if ew_map.get("n_timeframes", 0) >= 2:
@@ -939,8 +941,8 @@ class Analyzer:
             self._last_rejection_diag = {**entry, "at": time.time()}
             if self.why_not is not None:
                 self.why_not.analysed(symbol, stage, reason)
-        except Exception:
-            pass
+        except Exception as _sp_exc:
+            note_signal_path_error("analyzer.record_no_trade", _sp_exc)
 
     def get_no_trade_reason(self, symbol: str) -> Optional[dict]:
         """Structured reason why the last analysis of `symbol` produced no
@@ -2010,8 +2012,8 @@ class Analyzer:
             if session.confidence_adjustment != 0:
                 blended_confidence = round(
                     max(min_floor, blended_confidence + session.confidence_adjustment), 2)
-        except Exception:
-            pass  # fail-open: session check must never block analysis
+        except Exception as _sp_exc:
+            note_signal_path_error("analyzer.session_adjustment", _sp_exc)
 
         # Definitive final clamp. The line-761 clamp is undone by later additive
         # adjustments — notably the session boost above (+confidence_adjustment),
@@ -2293,8 +2295,8 @@ class Analyzer:
                         for _tk in ("tp1", "tp2"):
                             if _t.get(_tk):
                                 _extras.append((float(_t[_tk]), "ew_target"))
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("analyzer.elliott_tp_extras", _sp_exc)
                 # Pattern price objectives (dark flag — tuning audit): the
                 # fib-extension ladder, harmonic D PRZ and Wyckoff phase
                 # extremes were computed and DISCARDED. ON feeds these
@@ -2328,11 +2330,25 @@ class Analyzer:
             except Exception as exc:
                 system_log.debug("Level-aware SL/TP skipped: %s", exc)
 
-        # Guard against negative SL/TP from extreme ATR values
-        if direction == Direction.LONG and stop_loss <= 0:
-            stop_loss = entry * 0.01  # floor at 1% of entry
-        elif direction == Direction.SHORT and take_profit <= 0:
-            take_profit = entry * 0.01
+        # A LEVEL AT OR BELOW ZERO IS REFUSED, NOT FLOORED. Extreme ATR (about
+        # 40% of price at the default stop multiple) puts a LONG's stop or a
+        # SHORT's target at or below zero. It used to be moved to 1% of entry:
+        # a stop 99% below the entry, or a target 99% below it -- a level no
+        # analysis chose, on the idea's card and sized at the risk gate as if
+        # it had. There is no honest level to offer, so there is no idea.
+        if ((direction == Direction.LONG and stop_loss <= 0)
+                or (direction == Direction.SHORT and take_profit <= 0)):
+            _leg = "stop" if direction == Direction.LONG else "target"
+            audit(trade_log,
+                  f"Computed {_leg} at or below zero for {signal.symbol} — no idea",
+                  action="analyze", result="SKIP",
+                  data={"symbol": signal.symbol, "direction": direction.value,
+                        "entry": entry, "sl": stop_loss, "tp": take_profit, "atr": atr})
+            self._record_no_trade(signal.symbol, "level_below_zero",
+                                  f"computed {_leg} {stop_loss if _leg == 'stop' else take_profit:.6g} "
+                                  "at or below zero (volatility wider than the price)",
+                                  entry=entry, sl=stop_loss, tp=take_profit)
+            return None
 
         # The stop stays the market's. Leverage is derived from it at the
         # risk gate; `market_stop_levels` tightens only when that flag is off.
@@ -2519,8 +2535,8 @@ class Analyzer:
         # persist it (joined to outcome for voter-weight learning later).
         try:
             idea._confluence_votes = _confluence_votes
-        except Exception:
-            pass
+        except Exception as _sp_exc:
+            note_signal_path_error("analyzer.confluence_votes_attach", _sp_exc)
 
         # The VWAP this analysis read, for the reversion exit. On the idea's
         # own field, so the executor records it on the position it opens.
@@ -2560,10 +2576,10 @@ class Analyzer:
             # persist it as provenance. Best-effort — never blocks the idea.
             try:
                 idea._explain_report = explain_report.model_dump(mode="json")
-            except Exception:
-                pass
-        except Exception:
-            pass  # explainability is non-critical
+            except Exception as _sp_exc:
+                note_signal_path_error("analyzer.explain_report_attach", _sp_exc)
+        except Exception as _sp_exc:
+            note_signal_path_error("analyzer.explain_labels", _sp_exc)
 
         audit(trade_log, f"Trade idea: {idea.direction.value} {idea.asset}",
               action="analyze", result="IDEA",
@@ -2571,8 +2587,8 @@ class Analyzer:
         if self.why_not is not None:
             try:
                 self.why_not.analysed(signal.symbol, "idea", ref=idea.id)
-            except Exception:
-                pass  # the record is a reading; it never costs the idea
+            except Exception as _sp_exc:
+                note_signal_path_error("analyzer.why_not_idea_row", _sp_exc)
         return idea
 
     # -- Strategy Type Classification --
@@ -2915,8 +2931,8 @@ class Analyzer:
                     sp = vwap_slope_pct(vwap_series, lookback=10)
                     if sp is not None:
                         results["vwap_slope_pct"] = round(sp, 6)
-                except Exception:
-                    pass
+                except Exception as _sp_exc:
+                    note_signal_path_error("analyzer.vwap_slope", _sp_exc)
 
             # Anchored VWAP (gated): reset at the most recent structural ZigZag
             # pivot — the institutional "average price since the swing" level.
@@ -2926,8 +2942,8 @@ class Analyzer:
                     av = anchored_vwap_from_last_pivot(highs, lows, closes, volumes)
                     if av is not None and av > 0:
                         results["vwap_anchored"] = record_level(float(av))
-                except Exception:
-                    pass
+                except Exception as _sp_exc:
+                    note_signal_path_error("analyzer.anchored_vwap", _sp_exc)
 
         # ── OBV (On-Balance Volume) ──
         if volumes is not None and len(volumes) > 1:
@@ -4821,8 +4837,8 @@ class Analyzer:
                     from bot.llm.shadow_eval import SHADOW
                     SHADOW.maybe_spawn(self, prompt, _prompt_hash,
                                        signal.symbol, result)
-                except Exception:
-                    pass
+                except Exception as _sp_exc:
+                    note_signal_path_error("analyzer.llm_shadow_eval", _sp_exc)
             return result
         except Exception as exc:
             audit(trade_log, f"LLM error on primary provider, trying fallback: {exc}",
@@ -4864,8 +4880,8 @@ class Analyzer:
                         and getattr(active_cfg, "api_key", "")):
                     _kh.mark_invalid(active_cfg.api_key, str(exc),
                                      source="runtime-call")
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("analyzer.llm_key_health", _sp_exc)
             return self._rule_thesis(signal, indicators, "RULE_ENGINE_FALLBACK", why)
 
     def _rule_thesis(self, signal: MarketSignal, indicators: dict, source: str,
@@ -5591,8 +5607,8 @@ class Analyzer:
                         sum(_CANDLE_STRENGTH.get(k, 1.0) for k in bull), 2)
                     indicators["candle_bearish_strength"] = round(
                         sum(_CANDLE_STRENGTH.get(k, 1.0) for k in bear), 2)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("analyzer.scan_read_candle_patterns", _sp_exc)
             try:
                 gp = scan_all_chart_patterns(
                     opens, highs, lows, closes, volumes=volumes,
@@ -5603,8 +5619,8 @@ class Analyzer:
                     # as in analyze() — storing only the raw list silenced
                     # every one of them here.
                     Analyzer._extract_pattern_indicators(indicators, gp)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("analyzer.scan_read_chart_patterns", _sp_exc)
 
             # Regime: snapshot + restore the smoothing state so the scanner
             # never perturbs the live analyzer's per-symbol regime history.
@@ -6106,7 +6122,8 @@ def mtf_candle_map(mtf_candles: dict) -> dict:
                         _v = candle_entry_veto(pats, _dir)
                         if _v:
                             htf_veto[_dir] = f"{tf}: {_v}"
-        except Exception:  # noqa: BLE001 — one bad series never voids the map
+        except Exception as _sp_exc:  # noqa: BLE001 — one bad series never voids the map
+            note_signal_path_error("analyzer.mtf_candle_map_series", _sp_exc)
             continue
     alignment = max(-1.0, min(1.0, (num / den) if den > 0 else 0.0))
     return {"by_tf": by_tf, "alignment": round(alignment, 4),

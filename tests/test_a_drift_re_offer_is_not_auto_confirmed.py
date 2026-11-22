@@ -418,8 +418,12 @@ async def test_a_re_offer_registered_mid_scan_is_not_auto_confirmed():
     engine._auto_confirm_notify_callback = None
     engine.analyzer = None
     engine._engine_idea_ids = set()
+    # The force scan publishes what it registered (recorded, not sent).
+    engine.published = []
+    engine._publish_engine_ideas = lambda ideas: engine.published.append(list(ideas))
     for name in ("_force_scan_locked", "_auto_confirm_gate_value",
-                 "_auto_confirm_suppressed", "_engine_pending_ids",
+                 "_auto_confirm_suppressed", "_auto_confirm_batch",
+                 "_run_auto_confirm_pairs", "_engine_pending_ids",
                  "_register_engine_idea"):
         setattr(engine, name, getattr(RuneClawEngine, name).__get__(engine))
 

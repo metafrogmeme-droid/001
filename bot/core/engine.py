@@ -37,6 +37,7 @@ from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
 from bot.core.leverage import LeveragePair, apply_margin_risk_cap, order_standards
 from bot.core.live_book import live_book_open
+from bot.core.signal_path_errors import note_signal_path_error
 from bot.core.live_executor import LiveExecutor, committed_margin, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
@@ -76,6 +77,7 @@ from bot.utils.logger import audit, system_log, trade_log, scan_log
 #: has now broken two suites for reasons unrelated to what they test.
 ANALYSIS_STAGES = ("fetch", "mtf", "analyze", "refine")
 from bot.utils.models import (
+    ANALYSIS_LIGHTWEIGHT,
     AgentState,
     MarketSignal,
     RiskVerdict,
@@ -87,6 +89,16 @@ from bot.core.smart_exits import TimeOfDayEdge, AdaptiveLimitDistance
 from bot.utils.atomic_write import atomic_write_json
 
 logger = logging.getLogger(__name__)
+
+#: Most entries `RuneClawEngine._pending_atr` and `_pending_pyramid` may each
+#: hold. They are written for every analysed idea (and by `/analyze` and the
+#: scan cards), and only an idea that reaches `_pending_ideas` is removed by a
+#: door that knows them, so every idea dropped before it was queued (the
+#: confidence floor, a filter, a timeout) stayed for the life of the process.
+#: The bound (`_bound_idea_side_maps`) evicts oldest first and never a key
+#: whose idea is still pending, so a pending idea's ATR re-check at confirm is
+#: the same.
+_IDEA_SIDE_MAP_CAP = 1000
 
 # Exception BASE-CLASS names that mean "we could not reach the exchange", as
 # opposed to "the exchange answered and said no". Matched against the whole MRO
@@ -228,8 +240,8 @@ def _stage_enter_guarded(engine, symbol, stage) -> None:
         _fn = getattr(engine, "_stage_enter", None)
         if _fn is not None:
             _fn(symbol, stage)
-    except Exception:
-        pass
+    except Exception as _sp_exc:
+        note_signal_path_error("engine.stage_enter", _sp_exc)
 
 
 #: Where the learned timeframe availability survives a restart.
@@ -334,6 +346,25 @@ _FLAT_BOOK: dict = {
 }
 
 
+def _ohlcv_cache_key(exchange, symbol, timeframe, limit) -> str:
+    """``{source}|{symbol}:{timeframe}:{limit}`` -- the series AND who served it.
+
+    The key was ``{symbol}:{timeframe}:{limit}``, so two clients asked for
+    the same symbol shared one entry: the spot and the perp Bitget clients
+    (both ``id == "bitget"``, told apart only by ``defaultType``), and after
+    a `/venue` switch -- which does not clear the cache -- the previous
+    venue's client, whose candles were then served as the new venue's for up
+    to the TTL (six hours on 1d). ``source`` is the client's ccxt id and
+    market type; a client with no id (a test's stand-in) is named by its
+    class, never left blank. The prefix keeps `bot/nlp/chat_draft.py`'s
+    ``rsplit(":", 2)`` reading of the timeframe correct.
+    """
+    venue = getattr(exchange, "id", None) or type(exchange).__name__
+    options = getattr(exchange, "options", None)
+    market = options.get("defaultType") if isinstance(options, dict) else None
+    return f"{venue}/{market or '-'}|{symbol}:{timeframe}:{limit}"
+
+
 def _mtf_ttl(timeframe: str) -> int:
     """How long a CLOSED candle set for ``timeframe`` stays valid.
 
@@ -400,8 +431,8 @@ def _mtf_note(engine, symbol, timeframe, *, ok: bool) -> None:
             # learning this exists to keep.
             if _ma.record_failure(st, symbol, timeframe):
                 _ma.save(st, MTF_AVAILABILITY_PATH)
-    except Exception:
-        pass
+    except Exception as _sp_exc:
+        note_signal_path_error("engine.mtf_availability_note", _sp_exc)
 
 
 def _stage_profile_record(engine, stage, symbol, seconds) -> None:
@@ -429,8 +460,8 @@ def _stage_profile_record(engine, stage, symbol, seconds) -> None:
         if prof is None:
             prof = profs[key] = _sp.new_profile()
         _sp.record(prof, symbol, seconds)
-    except Exception:
-        pass
+    except Exception as _sp_exc:
+        note_signal_path_error("engine.stage_profile_record", _sp_exc)
 
 def _of_snapshot_path() -> str:
     """The order-flow snapshot file, repo-root anchored (bot/utils/paths.py).
@@ -3064,6 +3095,8 @@ class RuneClawEngine:
         if not creds:
             return fallback
         key = str(user_id)
+        from bot.utils.bounded import touch
+        touch(self._balance_view_executors, key)   # most recently viewed last (LRU)
         ex = self._balance_view_executors.get(key)
         # Rebuild if absent or the user's credentials changed (venue-agnostic
         # full-dict compare — Hyperliquid records have no api_key).
@@ -3075,13 +3108,64 @@ class RuneClawEngine:
                 _state_dir = executor_state_dir(venue)
             except ValueError:
                 return fallback
+            replaced = ex
             ex = LiveExecutor(user_id=user_id, credentials=creds, venue=venue,
                               state_dir=_state_dir)
             # Share the operator WS feed (market data is not per-user). No
             # on_position_closed / risk wiring: this executor never trades.
             ex._ws_feed = self.ws_feed
-            self._balance_view_executors[key] = ex
+            self._keep_balance_view(key, ex, replaced)
         return ex
+
+    #: Most view-only executors kept. Each is a full LiveExecutor with its
+    #: own exchange client and market table, built for anyone with linked
+    #: keys who opens a balance, and the dict had no bound: one per such user
+    #: for the life of the process. Sixteen is a choice, not a measurement:
+    #: a view evicted is rebuilt on its owner's next look, at the cost of one
+    #: more client and market load.
+    _BALANCE_VIEW_CAP = 16
+    #: Seconds an evicted or replaced view waits before its client is closed,
+    #: so a read already holding it finishes on an open client.
+    _BALANCE_VIEW_CLOSE_GRACE_S = 120.0
+
+    def _keep_balance_view(self, key: str, ex, replaced=None) -> None:
+        """Store ``ex`` as ``key``'s view, hold the views to
+        `_BALANCE_VIEW_CAP` (least recently viewed first), and close every
+        executor that leaves: the one ``ex`` replaced after a credential
+        change, which used to be dropped with its client still open, and any
+        the cap evicts."""
+        from bot.utils.bounded import evict_oldest
+        views = self._balance_view_executors
+        views[key] = ex
+        leaving = [replaced] if replaced is not None and replaced is not ex else []
+        leaving += [old for _k, old in evict_oldest(views, self._BALANCE_VIEW_CAP)]
+        for old in leaving:
+            self._close_view_later(old)
+
+    def _close_view_later(self, ex) -> None:
+        """Close a view executor's client after the grace, off this call.
+        With no running loop there is nothing to schedule on; the executor
+        is released with its last reference."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        grace = self._BALANCE_VIEW_CLOSE_GRACE_S
+
+        async def _close() -> None:
+            await asyncio.sleep(grace)
+            try:
+                await ex.close()
+            except Exception as exc:
+                logger.debug("balance view close failed: %s", type(exc).__name__)
+
+        closers: Optional[set] = getattr(self, "_view_closers", None)
+        if closers is None:
+            closers = set()
+            self._view_closers = closers
+        task = loop.create_task(_close())
+        closers.add(task)
+        task.add_done_callback(closers.discard)
 
     def set_live_auth_status(self, ok: bool, detail: str = "",
                              user_id: str = "") -> None:
@@ -7299,41 +7383,12 @@ class RuneClawEngine:
                 self._suppress_autonomous_live(auto_ideas, _auto_refusal,
                                                auto_threshold)
                 auto_ideas = []
-        for tid, tidea in auto_ideas:
-            # Entry-timing gate (auto path only): DEFER an autonomous entry whose
-            # sub-degree hasn't confirmed the turn yet (scoped to
-            # ENTRY_TIMING_REGIMES). The idea lapses via its pending-TTL and is
-            # re-checked on a later scan. Fail-open: a missing/True verdict runs.
-            _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
-            if not _et_ok:
-                audit(trade_log,
-                      f"Auto-entry DEFERRED for {tidea.asset} — awaiting wave-degree "
-                      f"confirmation ({_et_why})",
-                      action="entry_timing", result="DEFERRED",
-                      data={"trade_id": tid, "reason": _et_why})
-                continue
-            audit(trade_log,
-                  f"Auto-confirming {tidea.asset} (conf={tidea.confidence:.2f} >= {auto_threshold})",
-                  action="auto_confirm", result="TRIGGERING",
-                  data={"trade_id": tid, "confidence": tidea.confidence,
-                        "threshold": auto_threshold})
-            try:
-                result = await self.confirm_trade(tid, user_id="auto")
-                audit(trade_log,
-                      f"Auto-confirm result for {tidea.asset}: {result[:120]}",
-                      action="auto_confirm", result="DONE",
-                      data={"trade_id": tid, "result_preview": result[:200]})
-                # Notify via Telegram if callback is set
-                if self._auto_confirm_notify_callback:
-                    try:
-                        await self._auto_confirm_notify_callback(tidea, result)
-                    except Exception:
-                        pass
-            except Exception as exc:
-                audit(trade_log,
-                      f"Auto-confirm failed for {tidea.asset}: {exc}",
-                      action="auto_confirm", result="ERROR",
-                      data={"trade_id": tid, "error": str(exc)})
+        # The one loop both doors run (`_run_auto_confirm_pairs`). The confirm
+        # itself is written HERE, after this door's own readings, and handed
+        # in: the door that chose the pair is the door that places it.
+        await self._run_auto_confirm_pairs(
+            auto_ideas, door="tick", auto_threshold=auto_threshold,
+            confirm=lambda tid: self.confirm_trade(tid, user_id="auto"))
 
         self._transition(AgentState.MONITORING, "checking open positions")
         # The safety-critical one: the SL/TP monitor on the full path. A hang
@@ -7527,9 +7582,11 @@ class RuneClawEngine:
 
         The cache key includes ``limit`` (audit): the MTF loop asks for 200
         bars while the primary scan caches 100 — a shared key silently served
-        the shorter series and structure math ran on half its window.
+        the shorter series and structure math ran on half its window. It
+        includes the CLIENT too (`_ohlcv_cache_key`), for the same reason one
+        level up: two venues' candles are two series.
         """
-        key = f"{symbol}:{timeframe}:{limit}"
+        key = _ohlcv_cache_key(exchange, symbol, timeframe, limit)
         now = time.monotonic()
         if key in self._ohlcv_cache:
             cached_time, cached_data, _entry_ttl = self._ohlcv_cache[key]
@@ -7915,8 +7972,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["analysed"] = int(_p.get("analysed") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_analysed", _sp_exc)
                     # A COMPLETED analysis clears the strike count. Escalation
                     # is for a symbol that keeps hanging, not for one that hung
                     # once in a bad exchange minute six hours ago — without
@@ -7931,8 +7988,8 @@ class RuneClawEngine:
                         if _st:
                             _st.pop(normalize_symbol(
                                 str(getattr(sig, "symbol", "?"))), None)
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.rest_strikes_reset", _sp_exc)
                     return _out
                 except asyncio.TimeoutError:
                     # Same outcome as any other failed analysis: this signal
@@ -7961,8 +8018,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["gave_up"] = int(_p.get("gave_up") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_gave_up", _sp_exc)
                     # REST IT. Naming a hanging symbol is not the same as
                     # stopping it hanging again: MCD/AMD/HOOD each burned the
                     # full 90s on every sweep, 270s of a 292s analyze phase,
@@ -8022,12 +8079,12 @@ class RuneClawEngine:
                                   f"Symbol resting after analysis timeout: "
                                   f"{_sym} for {int(_rest)}s (strike {_n})",
                                   action="analysis_rest", result="ARMED")
-                    except Exception:
+                    except Exception as _sp_exc:
                         # Instrumentation-grade guard, same posture as the rest
                         # of this coroutine: several suites drive the batch with
                         # SimpleNamespace stubs, and resting a symbol must never
                         # be the reason an analysis batch cannot finish.
-                        pass
+                        note_signal_path_error("batch.rest_arm", _sp_exc)
                     return None
                 except asyncio.CancelledError:
                     # THE PHASE CAP KILLED THE GATHER WHILE THIS WAS RUNNING.
@@ -8045,8 +8102,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["cancelled"] = int(_p.get("cancelled") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_cancelled", _sp_exc)
                     raise
                 except Exception as exc:
                     logger.debug("Signal analysis error for %s: %s",
@@ -8060,8 +8117,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["errored"] = int(_p.get("errored") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_errored", _sp_exc)
                     return None
                 finally:
                     # Counts finished work of ANY outcome — an idea, no idea,
@@ -8071,8 +8128,8 @@ class RuneClawEngine:
                         _p = self._analyze_progress
                         if _p is not None and _p.get("seq") == _seq:
                             _p["done"] += 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.progress_done", _sp_exc)
                     # Clear the in-flight stage marker AFTER the timeout
                     # handler above has read it. A stale mark would attribute
                     # this batch's hang to the previous batch's stage.
@@ -8087,8 +8144,8 @@ class RuneClawEngine:
                         _sx = getattr(self, "_stage_exit", None)
                         if _sx is not None:
                             _sx(str(getattr(sig, "symbol", "?")))
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("batch.stage_exit", _sp_exc)
 
         if not signals:
             return []
@@ -8108,8 +8165,8 @@ class RuneClawEngine:
                         time.monotonic() - float(_p.get("started") or 0.0),
                         gave_up=_p.get("gave_up"),
                         analysed=_p.get("analysed"))
-        except Exception:
-            pass
+        except Exception as _sp_exc:
+            note_signal_path_error("batch.throughput_record", _sp_exc)
         # Where the work went. Reported on a batch that FINISHED, so the
         # healthy shape is on record too — a breakdown you only ever see
         # during an incident has nothing to be compared against.
@@ -8167,8 +8224,8 @@ class RuneClawEngine:
                 if _t is None:
                     _t = self._analysis_timeout_tally = _att.new_tally()
                 _att.record(_t, _timed_out_pairs)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("batch.timeout_tally", _sp_exc)
             audit(scan_log,
                   f"Analysis timed out for "
                   f"{len(_timed_out)} of {len(signals)} signals "
@@ -8284,8 +8341,8 @@ class RuneClawEngine:
                         if _p is not None:
                             _p["skipped_resting"] = int(
                                 _p.get("skipped_resting") or 0) + 1
-                    except Exception:
-                        pass
+                    except Exception as _sp_exc:
+                        note_signal_path_error("analyze_signal.progress_skipped_resting", _sp_exc)
                 return None
             # Cooldown expired → clear it, and the rest provenance with it, so
             # a later risk cooldown on the same symbol is never mistaken for a
@@ -8295,8 +8352,8 @@ class RuneClawEngine:
                 _ru = getattr(self, "_analysis_rest_until", None)
                 if _ru is not None:
                     _ru.pop(symbol_key, None)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("analyze_signal.rest_provenance_clear", _sp_exc)
 
         try:
             # Use futures exchange for non-Crypto categories (metals,
@@ -8407,8 +8464,8 @@ class RuneClawEngine:
             try:
                 for _cn, _cv in (getattr(of_signal, "call_seconds", None) or {}).items():
                     _stage_profile_record(self, f"fetch:{_cn}", signal.symbol, _cv)
-            except Exception:
-                pass
+            except Exception as _sp_exc:
+                note_signal_path_error("analyze_signal.fetch_attribution", _sp_exc)
 
             # Seed the exchange-flow cache with the funding rate this pass just
             # fetched — funding_rate_provider (the macro LIQUIDATION_RISK
@@ -8417,8 +8474,8 @@ class RuneClawEngine:
                     and getattr(of_signal, "funding_rate", None) is not None:
                 try:
                     self.exchange_flow.seed_funding_rate(signal.symbol, of_signal.funding_rate)
-                except Exception:
-                    pass
+                except Exception as _sp_exc:
+                    note_signal_path_error("analyze_signal.funding_seed", _sp_exc)
 
             # #17: shadow-record the live order-flow snapshot so the backtest can
             # replay the same microstructure path (gated OF_RECORD_SNAPSHOTS, now
@@ -8432,8 +8489,8 @@ class RuneClawEngine:
                         _of_snapshot_path(),
                         of_signal,
                     )
-                except Exception:
-                    pass
+                except Exception as _sp_exc:
+                    note_signal_path_error("analyze_signal.order_flow_snapshot_record", _sp_exc)
             if isinstance(_r_ohlcv, BaseException):
                 audit(
                     system_log,
@@ -8532,6 +8589,10 @@ class RuneClawEngine:
                   action="analyze_signal", result="NO_IDEA",
                   data={"symbol": signal.symbol, "timeframe": timeframe})
             return None
+        if lightweight:
+            # Read on the idea, where every door that later sweeps the
+            # pending book can see it: this argument dies with this call.
+            idea.analysis_depth = ANALYSIS_LIGHTWEIGHT
 
         # Log trade idea generation
         audit(scan_log, f"Trade idea generated: {idea.direction.value} {idea.asset}",
@@ -8676,8 +8737,8 @@ class RuneClawEngine:
             if ca_conf_adj != 0:
                 # Store for risk engine
                 pass
-        except Exception:
-            pass
+        except Exception as _sp_exc:
+            note_signal_path_error("analyze_signal.cross_asset_adjustment", _sp_exc)
 
         # Check #17: liquidity guard from order flow (fail-open if no data)
         if of_signal is not None:
@@ -10450,9 +10511,20 @@ class RuneClawEngine:
             else "live execution failed")
         return result + seal_note
 
+    def _bound_idea_side_maps(self) -> None:
+        """Hold `_pending_atr` and `_pending_pyramid` to `_IDEA_SIDE_MAP_CAP`,
+        oldest first, never a key whose idea is still pending. An idea still
+        being analysed is the newest entry, so it is the last one this would
+        reach."""
+        from bot.utils.bounded import evict_oldest
+        pending = self._pending_ideas
+        evict_oldest(self._pending_atr, _IDEA_SIDE_MAP_CAP, keep=pending.__contains__)
+        evict_oldest(self._pending_pyramid, _IDEA_SIDE_MAP_CAP, keep=pending.__contains__)
+
     def _expire_pending_ideas(self, now: Optional[datetime] = None) -> list:
         """Drop every pending idea older than ``CONFIG.pending_idea_ttl``, with
-        its ATR, pyramid flag and manual margin. The tick calls this every
+        its ATR, pyramid flag and manual margin, then bound the ATR and
+        pyramid maps (`_bound_idea_side_maps`). The tick calls this every
         pass; it is a method so a test can drive the expiry without standing
         up a tick. Returns the expired ids."""
         now = now or datetime.now(UTC)
@@ -10474,6 +10546,7 @@ class RuneClawEngine:
                     result="EXPIRED",
                     data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
                 )
+        self._bound_idea_side_maps()
         return expired_ids
 
     def _same_symbol_verdict(self, idea, symbol_key: str) -> str:
@@ -10779,80 +10852,83 @@ class RuneClawEngine:
             if _hb is not None and _hb_stop is not None:
                 await self._end_scan_batch(_hb_stop, _hb)
 
-        ideas_found = 0
+        registered: list = []
         for idea in results:
             if idea and clears_confidence_floor(idea):
                 self._register_engine_idea(idea)
-                ideas_found += 1
+                registered.append(idea)
+        ideas_found = len(registered)
 
-        # Auto-confirm high-confidence ideas (same as normal tick)
+        # PUBLISHED AS THE TICK PUBLISHES, OR SAID WHY NOT. A force scan's ideas
+        # were registered and never published: the proactive monitor alerted
+        # them, while the outcome ledger and the website stream -- which the
+        # tick feeds through `_publish_engine_ideas` -- never heard of them. A
+        # lightweight scan's ideas are a card for the person who tapped, read
+        # from the candles alone, and are not published as the engine's calls.
+        unpublished_why = None
+        if lightweight:
+            unpublished_why = "lightweight analysis (technicals only)"
+            if registered:
+                audit(scan_log,
+                      f"Force scan: {len(registered)} idea(s) not published — {unpublished_why}",
+                      action="force_scan_publish", result="NOT_PUBLISHED",
+                      data={"ideas": [i.id for i in registered], "why": unpublished_why})
+        elif registered:
+            self._publish_engine_ideas(registered)
+
+        # Auto-confirm through the tick's own selection and the tick's own loop.
+        # The inline copy that stood here had already drifted from the tick's:
+        # it counted any answer `confirm_trade` gave as a confirm and swallowed
+        # a raise with no record.
         from bot.config import RUNTIME
         auto_threshold = RUNTIME.auto_confirm_threshold
-        auto_confirmed = 0
-        _disabled = auto_confirm_is_disabled(auto_threshold)
-        _force_engine_ids = self._engine_pending_ids()
-        # The same refusal the tick reads, asked before the loop so a live
-        # /forcescan with no eligibility record runs no confirm pipeline. The
-        # Lock-5 mint refuses these confirms on its own; this only saves the
-        # work and records why.
-        _force_refusal = (self._autonomous_live_refusal()
-                          if CONFIG.is_live() and not _disabled else None)
+        _force_refusal = None
         _force_suppressed: list = []
-        _pending_batch = list(self._pending_ideas.items())
-        try:
-            from bot.core.equity_bucket import slot_order
-            _pending_batch = slot_order(_pending_batch)
-        except Exception:
-            pass
-        for tid, tidea in _pending_batch:
-            # The engine's own ideas only, as on the tick path.
-            if tid not in _force_engine_ids:
-                continue
-            # Same sentinel as the tick path. Two gates, one meaning.
-            if not _disabled and self._auto_confirm_gate_value(tidea) >= auto_threshold:
-                # ...and the same reading, for the same reason: a stamp is not
-                # a measurement on whichever door swept the ticket up. This
-                # loop is reached by `/forcescan`, so without it the button an
-                # operator presses to LOOK would execute a caller's untapped
-                # ticket on the operator's own account.
-                if self._auto_confirm_suppressed(tid, tidea):
-                    continue
+        auto_skipped = None
+        if lightweight:
+            # Nothing a technicals-only read produced is placed unattended. The
+            # stamp on each idea makes the tick's batch refuse them too.
+            auto_skipped = ANALYSIS_LIGHTWEIGHT
+            _pairs: list = []
+            audit(trade_log, "Force scan: auto-confirm not run — lightweight analysis",
+                  action="auto_confirm", result="SKIPPED_LIGHTWEIGHT",
+                  data={"ideas": ideas_found})
+        else:
+            _pairs = self._auto_confirm_batch(auto_threshold)
+            # The same refusal the tick reads, asked before the loop so a live
+            # /forcescan with no eligibility record runs no confirm pipeline.
+            # The Lock-5 mint refuses these confirms on its own; this only
+            # saves the work and records why.
+            if _pairs and CONFIG.is_live():
+                _force_refusal = self._autonomous_live_refusal()
                 if _force_refusal is not None:
-                    _force_suppressed.append((tid, tidea))
-                    continue
-                _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
-                if not _et_ok:
-                    audit(trade_log,
-                          f"Auto-entry DEFERRED for {tidea.asset} — awaiting wave-degree "
-                          f"confirmation ({_et_why})",
-                          action="entry_timing", result="DEFERRED",
-                          data={"trade_id": tid, "reason": _et_why})
-                    continue
-                try:
-                    result = await self.confirm_trade(tid, user_id="auto")
-                    auto_confirmed += 1
-                    if self._auto_confirm_notify_callback:
-                        try:
-                            await self._auto_confirm_notify_callback(tidea, result)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-        if _force_suppressed and _force_refusal is not None:
-            self._suppress_autonomous_live(_force_suppressed, _force_refusal,
-                                           auto_threshold)
+                    _force_suppressed = _pairs
+                    self._suppress_autonomous_live(_pairs, _force_refusal, auto_threshold)
+                    _pairs = []
+        tally = await self._run_auto_confirm_pairs(
+            _pairs, door="force_scan", auto_threshold=auto_threshold,
+            confirm=lambda tid: self.confirm_trade(tid, user_id="auto"))
 
         self._transition(AgentState.IDLE, "force scan complete")
 
         summary = {
             "signals": len(signals),
             "ideas": ideas_found,
-            "auto_confirmed": auto_confirmed,
+            # Orders PLACED (filled, or a limit resting): the confirms that
+            # opened something. A refusal is not a confirm.
+            "auto_confirmed": tally["placed"] + tally["resting"],
+            "auto_resting": tally["resting"],
+            "auto_refused": tally["refused"],
+            "auto_unverified": tally["unverified"],
+            "auto_errored": tally["errored"],
+            "auto_deferred": tally["deferred"],
+            "auto_confirm_skipped": auto_skipped,
             # Ideas that cleared the bar and were NOT confirmed because a live
             # order with no human tap is refused, and the sentence saying why:
             # "Auto-confirmed: 0" alone reads as "nothing cleared the bar".
             "auto_withheld": len(_force_suppressed),
             "auto_withheld_why": _force_refusal if _force_suppressed else None,
+            "unpublished_why": unpublished_why if registered else None,
             "pending": len(self._pending_ideas),
             "cleared_pending": old_pending,
         }
@@ -11323,6 +11399,87 @@ class RuneClawEngine:
         except Exception:
             return pairs
 
+    async def _run_auto_confirm_pairs(self, pairs, *, door: str, auto_threshold: float,
+                                      confirm) -> dict:
+        """Confirm each ``(trade_id, idea)`` a door selected; count what happened.
+
+        ONE LOOP, TWO DOORS. The tick and the force scan each ran a copy, and
+        the copies drifted: the tick audited a DONE with whatever
+        `confirm_trade` answered and printed an exception's TEXT on its ERROR
+        row; the force scan counted every answer as a confirm -- "Trade
+        REJECTED by risk" included -- and swallowed a raise with no record at
+        all. Both run this now.
+
+        ``confirm`` is the door's own call, written in the door after its
+        gate readings (`_auto_confirm_batch`, `_autonomous_live_refusal`), so
+        the function that chose the pair is the function that places it.
+
+        The answer is read by the one reading of a confirm's answer
+        (`bot/core/confirm_result.py`), unverified first, as its docstring
+        asks of every door. Returns ``{placed, resting, refused, unverified,
+        errored, deferred}``.
+        """
+        from bot.core.confirm_result import left_resting, outcome_unverified, placed_nothing
+        tally = {"placed": 0, "resting": 0, "refused": 0, "unverified": 0,
+                 "errored": 0, "deferred": 0}
+        for tid, tidea in pairs:
+            # Entry-timing gate (auto path only): DEFER an autonomous entry whose
+            # sub-degree hasn't confirmed the turn yet (scoped to
+            # ENTRY_TIMING_REGIMES). The idea lapses via its pending-TTL and is
+            # re-checked on a later scan. Fail-open: a missing/True verdict runs.
+            _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
+            if not _et_ok:
+                tally["deferred"] += 1
+                audit(trade_log,
+                      f"Auto-entry DEFERRED for {tidea.asset} — awaiting wave-degree "
+                      f"confirmation ({_et_why})",
+                      action="entry_timing", result="DEFERRED",
+                      data={"trade_id": tid, "reason": _et_why, "door": door})
+                continue
+            audit(trade_log,
+                  f"Auto-confirming {tidea.asset} (conf={tidea.confidence:.2f} >= {auto_threshold})",
+                  action="auto_confirm", result="TRIGGERING",
+                  data={"trade_id": tid, "confidence": tidea.confidence,
+                        "threshold": auto_threshold, "door": door})
+            try:
+                result = await confirm(tid)
+            except Exception as exc:
+                # The class, never the text: a venue's rejection echoes the
+                # request, and this row reaches the audit chain.
+                tally["errored"] += 1
+                audit(trade_log,
+                      f"Auto-confirm failed for {tidea.asset} ({type(exc).__name__})",
+                      action="auto_confirm", result="ERROR",
+                      data={"trade_id": tid, "error": type(exc).__name__, "door": door})
+                continue
+            if outcome_unverified(result):
+                outcome = "unverified"
+            elif placed_nothing(result):
+                outcome = "refused"
+            elif left_resting(result):
+                outcome = "resting"
+            else:
+                outcome = "placed"
+            tally[outcome] += 1
+            preview = str(result)
+            audit(trade_log,
+                  f"Auto-confirm result for {tidea.asset} ({outcome}): {preview[:120]}",
+                  action="auto_confirm", result="DONE",
+                  data={"trade_id": tid, "outcome": outcome,
+                        "result_preview": preview[:200], "door": door})
+            # The notice says what happened; a notice that failed is said too.
+            if self._auto_confirm_notify_callback:
+                try:
+                    await self._auto_confirm_notify_callback(tidea, result)
+                except Exception as exc:
+                    audit(trade_log,
+                          f"Auto-confirm notice failed for {tidea.asset} ({type(exc).__name__})",
+                          action="auto_confirm_notify", result="ERROR",
+                          data={"trade_id": tid, "error": type(exc).__name__, "door": door})
+                    logger.warning("Auto-confirm notice failed for %s (%s)",
+                                   tidea.asset, type(exc).__name__)
+        return tally
+
     def _auto_confirm_suppressed(self, trade_id: str, idea) -> bool:
         """True when `idea` may not be auto-confirmed, audited by name.
 
@@ -11347,6 +11504,12 @@ class RuneClawEngine:
             from bot.core.stock_trading import autonomous_class_refusal
             why = autonomous_class_refusal(getattr(idea, "asset", ""))
             result = "SUPPRESSED_CLASS"
+        if why is None and getattr(idea, "analysis_depth", None) == ANALYSIS_LIGHTWEIGHT:
+            # The tap's fast path read the candles alone. Its card is shown
+            # with a Confirm button; the threshold it would clear assumes the
+            # order flow and the higher timeframes it never read.
+            why = "a lightweight analysis (technicals only, no order flow or MTF)"
+            result = "SUPPRESSED_LIGHTWEIGHT"
         if why is None:
             return False
         audit(trade_log,

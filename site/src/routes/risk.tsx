@@ -21,7 +21,7 @@
  * categorical
  * "there is no path" was the older copy here, and it was FALSE — the engine
  * records a skip into the passed list for an advisory check whose data source
- * is absent, and for seven whose own evaluation raises.
+ * is absent, and for six whose own evaluation raises.
  *
  * That is still the one thing about a risk gate a reader cannot verify by
  * watching it work — a gate that silently passes on error looks identical to
@@ -109,7 +109,7 @@ function Risk() {
           <strong>Advisory checks skip rather than reject.</strong> When a data
           source is absent — no macro calendar configured, no order-flow
           analyzer, not enough trade history for a VaR estimate — the check
-          records a skip, and a skip is counted with the passes. Seven of them
+          records a skip, and a skip is counted with the passes. Six of them
           do the same when their own evaluation raises. That is a real
           fail-open path, not an error boundary, and it is why the sentence
           above no longer says &ldquo;no path&rdquo;.

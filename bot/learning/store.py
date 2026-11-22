@@ -12,8 +12,9 @@ import logging
 import os
 import sys
 import threading
+from collections import deque
 from pathlib import Path
-from typing import NamedTuple, Optional, Type, TypeVar
+from typing import Callable, Iterator, NamedTuple, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
@@ -72,6 +73,14 @@ class _DecisionIndex:
     #: How much of the file's start is kept to recognise a rewrite in place.
     HEAD_BYTES = 256
 
+    #: Keys kept per symbol, and overall, once a list passes twice this. A
+    #: question reads the last ``window`` keys and no more, and the file is
+    #: never rotated, so every key older than that was held for the life of
+    #: the process and never read. The one caller asks for 500
+    #: (`ExperienceStore`); a wider window is refused rather than answered
+    #: from a list that no longer reaches back that far.
+    KEEP = 1000
+
     def __init__(self, path: Path):
         self._path = path
         self._lock = threading.Lock()
@@ -98,12 +107,21 @@ class _DecisionIndex:
         return _DecisionKey(offset, length, sys.intern(str(rec.direction)),
                             sys.intern(str(rec.market_regime)), rec.pnl_result is not None)
 
+    def _trim(self, keys: list) -> None:
+        """Hold ``keys`` to the newest `KEEP` once it passes twice that."""
+        if len(keys) > 2 * self.KEEP:
+            del keys[:-self.KEEP]
+
     def similar(self, symbol: str, market_regime: str, direction: str,
                 window: int, limit: int) -> list[DecisionMemory]:
         """The last ``limit`` completed rows matching ``market_regime`` and
         ``direction`` (empty = any) among the last ``window`` rows of
         ``symbol`` (empty = every symbol): `get_decisions(symbol, window)`
-        filtered, without parsing the file each time."""
+        filtered, without parsing the file each time. A ``window`` above
+        `KEEP` raises ValueError: the index keeps no older keys, and a short
+        answer would read as the whole one."""
+        if window > self.KEEP:
+            raise ValueError(f"window {window} exceeds the {self.KEEP} keys the index keeps")
         with self._lock:
             try:
                 with open(self._path, "rb") as f:
@@ -131,7 +149,10 @@ class _DecisionIndex:
                             continue
                         key = self._key(rec, at, len(raw))
                         self._all.append(key)
-                        self._by_symbol.setdefault(rec.symbol, []).append(key)
+                        by_sym = self._by_symbol.setdefault(rec.symbol, [])
+                        by_sym.append(key)
+                        self._trim(by_sym)
+                    self._trim(self._all)
                     self._offset = pos
                     keys = list(self._by_symbol.get(symbol, []) if symbol else self._all)
                     tail_rec = self._parse(tail, None) if tail else None
@@ -203,18 +224,18 @@ class LearningStore:
         except Exception as e:
             logger.error("Failed to append to %s: %s", path, e)
 
-    def _read_jsonl(self, key: str, model_cls: Type[T], *,
-                    strict: bool = False) -> list[T]:
-        """Read all records from a JSONL file.
+    def _iter_jsonl(self, key: str, model_cls: Type[T], *,
+                    strict: bool = False) -> Iterator[T]:
+        """Each readable record of a JSONL file, one line at a time.
 
-        A file that is there and will not read answers what was read before
+        A file that is there and will not read yields what was read before
         the failure, which a caller cannot tell from a short file. ``strict``
         raises instead, for a reader that prints what it read: an unreadable
-        log is not a log with no closes in it."""
+        log is not a log with no closes in it. A corrupt line is skipped with
+        a warning either way."""
         path = self._files[key]
         if not path.exists():
-            return []
-        records: list[T] = []
+            return
         try:
             with open(path, "r", encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
@@ -222,14 +243,41 @@ class LearningStore:
                     if not line:
                         continue
                     try:
-                        records.append(model_cls.model_validate_json(line))
+                        rec = model_cls.model_validate_json(line)
                     except Exception as e:
                         logger.warning("Skipping corrupt line %d in %s: %s", line_num, path, e)
+                        continue
+                    yield rec
         except Exception as e:
             logger.error("Failed to read %s: %s", path, e)
             if strict:
                 raise
-        return records
+
+    def _read_jsonl(self, key: str, model_cls: Type[T], *,
+                    strict: bool = False) -> list[T]:
+        """Read all records from a JSONL file (`_iter_jsonl`)."""
+        return list(self._iter_jsonl(key, model_cls, strict=strict))
+
+    def _last(self, key: str, model_cls: Type[T], limit: int, *, strict: bool = False,
+              where: Optional[Callable[[T], bool]] = None) -> list[T]:
+        """``[r for r in records if where(r)][-limit:]``, holding at most
+        ``limit`` parsed records while it reads.
+
+        The decision file is never rotated, and every reader asked for the
+        whole of it parsed into memory and then kept the tail: the parse grew
+        with the file for the life of the deployment. The answer is the same
+        list; only the peak is bounded by ``limit`` instead of by the file.
+        A ``limit`` of zero or below keeps the slice's own meaning."""
+        rows: Iterator[T] = self._iter_jsonl(key, model_cls, strict=strict)
+        if where is not None:
+            rows = (r for r in rows if where(r))
+        if limit > 0:
+            return list(deque(rows, maxlen=limit))
+        return list(rows)[-limit:]
+
+    def _count_jsonl(self, key: str, model_cls: Type[T], *, strict: bool = False) -> int:
+        """How many records `_read_jsonl` would return, without holding them."""
+        return sum(1 for _ in self._iter_jsonl(key, model_cls, strict=strict))
 
     # ── Overwrite (JSON) ───────────────────────────────────────────
     #
@@ -275,10 +323,8 @@ class LearningStore:
 
     def get_decisions(self, symbol: Optional[str] = None, limit: int = 100, *,
                       strict: bool = False) -> list[DecisionMemory]:
-        records = self._read_jsonl("decision", DecisionMemory, strict=strict)
-        if symbol:
-            records = [r for r in records if r.symbol == symbol]
-        return records[-limit:]
+        where = (lambda r: r.symbol == symbol) if symbol else None
+        return self._last("decision", DecisionMemory, limit, strict=strict, where=where)
 
     def similar_decisions(self, symbol: str, market_regime: str, direction: str,
                           window: int = 500, limit: int = 10) -> list[DecisionMemory]:
@@ -294,7 +340,7 @@ class LearningStore:
         logger.info("Reflection recorded: %s", reflection.audit_id)
 
     def get_reflections(self, limit: int = 50) -> list[ReflectionMemory]:
-        return self._read_jsonl("reflection", ReflectionMemory)[-limit:]
+        return self._last("reflection", ReflectionMemory, limit)
 
     # ── Public API: Strategy Scorecard ─────────────────────────────
 
@@ -357,7 +403,7 @@ class LearningStore:
         self._append_jsonl("comparison", comparison)
 
     def get_comparisons(self, limit: int = 50) -> list[ModelComparison]:
-        return self._read_jsonl("comparison", ModelComparison)[-limit:]
+        return self._last("comparison", ModelComparison, limit)
 
     # ── Public API: Human Feedback ─────────────────────────────────
 
@@ -366,7 +412,7 @@ class LearningStore:
         logger.info("Feedback recorded: %s type=%s", feedback.audit_id, feedback.feedback_type)
 
     def get_feedback(self, limit: int = 50) -> list[HumanFeedback]:
-        return self._read_jsonl("feedback", HumanFeedback)[-limit:]
+        return self._last("feedback", HumanFeedback, limit)
 
     # ── Public API: closed trades kept for scoring ────────────────
 
@@ -434,13 +480,13 @@ class LearningStore:
     def stats(self) -> dict[str, int]:
         """Return record counts per store."""
         return {
-            "decisions": len(self._read_jsonl("decision", DecisionMemory)),
-            "reflections": len(self._read_jsonl("reflection", ReflectionMemory)),
+            "decisions": self._count_jsonl("decision", DecisionMemory),
+            "reflections": self._count_jsonl("reflection", ReflectionMemory),
             "scorecards": len(self.get_scorecards()),
-            "macro_events": len(self._read_jsonl("macro", MacroEventMemory)),
+            "macro_events": self._count_jsonl("macro", MacroEventMemory),
             "prompt_versions": len(self.get_prompt_versions()),
-            "comparisons": len(self._read_jsonl("comparison", ModelComparison)),
-            "feedback": len(self._read_jsonl("feedback", HumanFeedback)),
-            "trade_outcomes": len(self._read_jsonl("trade_outcome", TradeOutcome)),
+            "comparisons": self._count_jsonl("comparison", ModelComparison),
+            "feedback": self._count_jsonl("feedback", HumanFeedback),
+            "trade_outcomes": self._count_jsonl("trade_outcome", TradeOutcome),
             "proposals": len(self.get_proposals()),
         }

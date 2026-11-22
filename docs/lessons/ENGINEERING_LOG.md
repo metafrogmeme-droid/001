@@ -30452,6 +30452,61 @@ is left as it is.
 Guarded by `tests/test_a_restart_does_not_bring_back_a_closed_position.py`,
 for the shared book and a per-user one.
 
+## THE BOT'S MEMORY CLIMBED FOR DAYS, AND NOTHING COULD SAY WHICH LINE WAS GROWING
+
+On 22 November 2026, `runeclaw-bot` sat at about 4.4-4.7 GB resident, under a
+unit capped at `MemoryHigh=5G` / `MemoryMax=5500M`. A climb like that names no
+line, and no test run is long enough to show it: each structure below is
+correct for an hour and wrong for a week.
+
+**An allocation trace, off unless the process asks.** `bot/utils/mem_trace.py`
+starts tracemalloc (one frame) when `RUNECLAW_TRACEMALLOC` is set in the
+PROCESS environment. It reads the copy of `os.environ` that `bot/config.py`
+takes before `.env` is loaded, so a line in `.env` cannot turn it on. Every
+30 minutes it logs the 25 lines whose live allocations grew most since the
+last look: `path:line` and byte counts only, never an object. Off starts
+nothing and creates no task. On, its own tables grow with the heap, so it is
+for a fresh process, not one already near the cap. It sees the Python
+allocators only: a native pool (an SDK client's SSL context) is invisible
+to it.
+
+**Ten containers lived as long as the process and only ever grew.** Each now
+has a bound, and the bound never drops what the code still reads:
+- `BlackSwanDetector._active_alerts`: one row per detection per scan, and
+  `clear_alerts()` has no caller. Now the newest 2000 rows.
+- `_pending_atr` / `_pending_pyramid`: entries for ideas that were never
+  queued. Now 1000, never a pending idea's key.
+- `_balance_view_executors`: a full executor per user who opened a balance,
+  never closed. Now an LRU of 16, and a view that leaves (or is replaced
+  after a credential change) has its client closed after a grace.
+- Sentiment's three per-symbol dicts: now an LRU of 400 symbols.
+- The squeeze detector's prune had no caller: it is called now.
+- `LearningStore.get_decisions` parsed the whole never-rotated decision file
+  on every ask and kept the tail. It now holds at most `limit` rows while it
+  reads, for the same answer. `stats()` counts without holding.
+- The decision index: now the last 1000 keys per symbol, and a wider window
+  is refused rather than answered short.
+- The monitor's black-swan repeat map: entries past the longer repeat
+  window are dropped, which read as "send" already.
+- The arb day set: keys from earlier days are dropped.
+- `ENV_UNREAD`: a tuple per runtime read of a junk knob, now recorded once.
+
+**Not capped, on purpose.** These are named in the PR so the trace can
+confirm or clear them:
+- Deferred:
+  - The WS feed's subscription set, which never unsubscribes and which sizes
+    the per-tick price map (so the risk gate's correlation history and every
+    paper book's marks too).
+  - A new LLM SDK client built on every chat turn.
+- Never evicted, because evicting would lose state: a user's risk engine
+  (its breakers), their executor, their book, their conversation memory
+  (compacted from RAM to disk, so eviction would delete it).
+
+Guarded by:
+- `tests/test_the_memory_trace_is_off_by_default.py`
+- `tests/test_the_memory_trace_names_the_top_growers.py`
+- `tests/test_unbounded_containers_are_capped.py`
+
 ## EVERY CALL GOT ONE LOOK BEFORE ITS FIRST BAR CLOSED, AND THE CAP EVICTED IT STILL PENDING
 
 22 November 2026. The Claw Record counted most of the agent's calls as live

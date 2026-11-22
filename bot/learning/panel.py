@@ -485,7 +485,7 @@ def _human_feedback(store) -> Optional[int]:
         return None
     try:
         from .models import HumanFeedback
-        return len(store._read_jsonl("feedback", HumanFeedback, strict=True))
+        return int(store._count_jsonl("feedback", HumanFeedback, strict=True))
     except Exception:  # noqa: BLE001
         return None
 

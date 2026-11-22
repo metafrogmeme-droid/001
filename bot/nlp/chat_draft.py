@@ -143,8 +143,18 @@ def _atr(rows: list) -> Optional[float]:
 ANALYZER_TIMEFRAME = "1h"
 
 
+def _leg_symbol(key) -> str:
+    """The symbol part of an `_ohlcv_cache` key.
+
+    The engine's key is ``{source}|{symbol}:{tf}:{limit}`` (`_ohlcv_cache_key`
+    names the client that served the rows); a key with no ``|`` is the older
+    ``{symbol}:{tf}:{limit}`` shape and is read the same way.
+    """
+    return str(key).split("|", 1)[-1]
+
+
 def _leg_timeframe(key) -> Optional[str]:
-    """The timeframe in an `_ohlcv_cache` key (``{symbol}:{tf}:{limit}``)."""
+    """The timeframe in an `_ohlcv_cache` key (``[{source}|]{symbol}:{tf}:{limit}``)."""
     parts = str(key).rsplit(":", 2)
     return parts[1] if len(parts) == 3 else None
 
@@ -173,7 +183,7 @@ def market_for(engine, symbol: str) -> dict:
     best_rows = None
     best_t = -1.0
     for key, val in cache.items():
-        if not str(key).startswith(needle):
+        if not _leg_symbol(key).startswith(needle):
             continue
         if _leg_timeframe(key) != ANALYZER_TIMEFRAME:
             continue
