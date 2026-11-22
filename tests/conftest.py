@@ -1482,6 +1482,25 @@ def _contain_logging_disable():
 
 
 @pytest.fixture(autouse=True)
+def _contain_tracemalloc():
+    """Stop an allocation trace a test started and left running.
+
+    `bot/utils/mem_trace.py` starts tracemalloc for the whole process, which
+    is the point in the bot and a hazard here: one test that turns it on and
+    fails before its own cleanup would leave every later test in the run
+    recording every allocation, slower and larger, with nothing in any single
+    test's verdict to say why. A trace that was already on before the test
+    (PYTHONTRACEMALLOC, a profiler) is left alone. Restored, not asserted, for
+    the reason the fixtures above give.
+    """
+    import tracemalloc as _tm
+    was_tracing = _tm.is_tracing()
+    yield
+    if not was_tracing and _tm.is_tracing():
+        _tm.stop()
+
+
+@pytest.fixture(autouse=True)
 def _contain_the_strategy_hash_start():
     """Hand the eligibility module's start-time verdict back after every test.
 

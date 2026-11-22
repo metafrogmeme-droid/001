@@ -307,7 +307,12 @@ def _note_env_unread(key: str, reason: str, default: Optional[float]) -> None:
             "Env var %s is %s — using default %r (the boot preflight will say so)",
             key, reason, default,
         )
-    ENV_UNREAD.append((key, reason, default))
+    # Once per (key, reason, default). A knob read at runtime (the bar
+    # freshness bound is asked per analysis and per risk check) appended the
+    # same tuple on every read, for the life of the process.
+    entry = (key, reason, default)
+    if entry not in ENV_UNREAD:
+        ENV_UNREAD.append(entry)
 
 
 def _env_float(key: str, default: float = 0.0) -> float:

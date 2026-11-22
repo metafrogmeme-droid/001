@@ -332,6 +332,9 @@ class SmartMoneyEngine:
         score.narrative = self._build_narrative(score)
 
         self.whales.prune()
+        # The squeeze detector's per-symbol funding history had the same
+        # prune and no caller, so it kept one entry per perp ever analysed.
+        self.squeeze.prune()
         return score
 
     @staticmethod

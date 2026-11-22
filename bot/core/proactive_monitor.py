@@ -1165,9 +1165,9 @@ class ProactiveMonitor:
                     for s in snaps:
                         spread = float(s.get("spread_apr", 0) or 0)
                         key = f"arb_{s.get('base')}_{today}"
-                        if spread < threshold or key in self._arb_alerted:
+                        if spread < threshold or not self._remember_arb(
+                                self._arb_alerted, key, today):
                             continue
-                        self._arb_alerted.add(key)
                         alert = Alert(
                             alert_type="FUNDING_ARB", severity="INFO",
                             title="Wide funding spread",
@@ -3760,11 +3760,43 @@ class ProactiveMonitor:
             now = time.time()
             if prev is None or tier > prev[1] or (now - prev[0]) >= window:
                 seen[alert.dedup_key] = (now, tier)
+                self._forget_expired_bs(seen, now)
                 return True
             return False
         except Exception as exc:
             logger.debug("anomaly repeat filter failed open: %s", exc)
             return True
+
+    #: `_bs_last` entries past which expired ones are dropped. It kept one
+    #: entry per (anomaly kind, symbol) ever paged, for the life of the
+    #: process.
+    _BS_LAST_PRUNE_AT = 1000
+
+    def _forget_expired_bs(self, seen: dict, now: float) -> None:
+        """Drop `_bs_last` entries older than the longer repeat window once
+        there are more than `_BS_LAST_PRUNE_AT`. An entry that old already
+        reads as "send": `_bs_is_news` sends when ``now - prev[0]`` reaches
+        the window, whatever the tier, exactly as it does for a key it has
+        never seen. So no page changes; only the dead entries go."""
+        if len(seen) <= self._BS_LAST_PRUNE_AT:
+            return
+        horizon = max(self.BLACK_SWAN_REPEAT, self.BLACK_SWAN_SEVERE_REPEAT)
+        for key in [k for k, v in seen.items() if now - v[0] >= horizon]:
+            seen.pop(key, None)
+
+    @staticmethod
+    def _remember_arb(seen: set, key: str, today: str) -> bool:
+        """Record a funding-arb alert ``key`` for ``today``; False when it was
+        already sent today. Keys carry their day (``arb_{base}_{date}``) and
+        were never dropped, so the set grew by a key per base per day for the
+        life of the process. A key from an earlier day can never match again
+        and is dropped here."""
+        if key in seen:
+            return False
+        for old in [k for k in seen if not k.endswith(f"_{today}")]:
+            seen.discard(old)
+        seen.add(key)
+        return True
 
     def _last_transition_into(self, state: str) -> tuple[Optional[str], str, Optional[float]]:
         """``(from_state, reason, epoch seconds)`` of the engine's latest

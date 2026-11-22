@@ -632,6 +632,14 @@ def run_telegram() -> None:
     import atexit
     atexit.register(_cleanup_pid)
 
+    # The allocation trace, before anything else is built so the engine's
+    # own growth is traced from its first allocation. Off unless the PROCESS
+    # environment sets RUNECLAW_TRACEMALLOC: the mapping handed in is the copy
+    # of os.environ taken before .env was loaded (`bot/utils/mem_trace.py`).
+    from bot.config import _PRE_DOTENV_ENV
+    from bot.utils import mem_trace
+    _trace_on = mem_trace.start_if_enabled(_PRE_DOTENV_ENV)
+
     # The operator's saved settings (the admin page, /leverage, /autoconfirm,
     # /mode, the stance), applied before the engine reads any of them. The
     # live drawdown cap is not here: it is restored with the risk state.
@@ -659,6 +667,11 @@ def run_telegram() -> None:
 
     async def _run_all() -> None:
         engine_task = asyncio.create_task(engine.run())
+        # Every 30 minutes, the lines whose allocations grew most. None when
+        # the trace is off: no task, no snapshot.
+        trace_task = (asyncio.create_task(
+            mem_trace.run_periodically(mem_trace.GrowthTrace()))
+            if _trace_on else None)
 
         # Start live dashboard web server
         dashboard_runner = None
@@ -819,6 +832,12 @@ def run_telegram() -> None:
             except NameError:
                 pass  # boot failed before the watchdog was created
             await handler.stop_monitor()
+            if trace_task is not None:
+                trace_task.cancel()
+                try:
+                    await trace_task
+                except asyncio.CancelledError:
+                    pass
             # --- Claw Watch HL begin ---
             _hl_task = locals().get("_hl_watch_task")
             if _hl_task is not None:
