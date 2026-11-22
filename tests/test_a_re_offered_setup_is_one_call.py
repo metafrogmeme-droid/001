@@ -97,15 +97,15 @@ class TestOneLiveCall:
 
     def test_an_open_call_is_still_pending(self, ledger):
         so.record_published([_row("A")], producer=so.ENGINE)
-        so.apply("A", so.Resolution(so.OPEN, "o", triggered_ms=1), 1)
+        so.apply_outcomes([("A", so.Resolution(so.OPEN, "o", triggered_ms=1))], 1)
         got = so.record_published([_row("B")], producer=so.ENGINE)
         assert got.reoffers == {"B": "A"}
 
     @pytest.mark.parametrize("word", list(so.TERMINAL))
     def test_once_the_call_has_resolved_the_setup_is_a_new_call(self, ledger, word):
         so.record_published([_row("A")], producer=so.ENGINE)
-        so.apply("A", so.Resolution(word, "done", r=1.0 if word == so.TARGET else None,
-                                    resolved_ms=1), 1)
+        so.apply_outcomes([("A", so.Resolution(word, "done", r=1.0 if word == so.TARGET else None,
+                                                resolved_ms=1))], 1)
         got = so.record_published([_row("B")], producer=so.ENGINE)
         assert got.reoffers == {} and got.added == 1
 
