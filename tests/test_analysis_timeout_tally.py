@@ -28,7 +28,14 @@ now make.
 """
 from __future__ import annotations
 
+import re
+
 from bot.core import analysis_timeout_tally as att
+
+#: A guard whether or not the handler binds the exception: the signal-path
+#: triage counts what it catches (`except Exception as _sp_exc:` then
+#: note_signal_path_error), and it is still caught. Removing the guard fails this.
+_GUARDED = re.compile(r"except Exception(?: as \w+)?:")
 
 
 def _tally(*events):
@@ -162,7 +169,7 @@ class TestItIsWiredIntoTheEngine:
         i = src.index("_att.record(_t, _timed_out_pairs)")
         window = src[i - 500:i + 200]
         assert "getattr(self, \"_analysis_timeout_tally\", None)" in window
-        assert "except Exception:" in window
+        assert _GUARDED.search(window)
 
     def test_the_operator_hint_shows_the_distribution(self):
         # The hint is `_scan_timeout_hint`, which lives in the scan-hints

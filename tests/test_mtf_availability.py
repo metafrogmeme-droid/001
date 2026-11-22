@@ -33,10 +33,17 @@ any success. When in doubt, fetch.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from bot.core import mtf_availability as ma
 from tests.source_scan import code_only
+
+#: A guard whether or not the handler binds the exception: the signal-path
+#: triage counts what it catches (`except Exception as _sp_exc:` then
+#: note_signal_path_error), and it is still caught. Removing the guard fails this.
+_GUARDED = re.compile(r"except Exception(?: as \w+)?:")
 
 SPECS = (("15m", 200), ("1h", 200), ("4h", 200), ("1d", 200))
 SYM = "RNVDA/USDT"
@@ -341,7 +348,7 @@ class TestTheEngineUsesIt:
         src = self._src()
         for fn in ("def _mtf_filter_specs(", "def _mtf_note("):
             i = src.index(fn)
-            assert "except Exception:" in src[i:i + 1400], fn
+            assert _GUARDED.search(src[i:i + 1400]), fn
 
     def test_the_suppression_actually_reaches_a_surface(self):
         """render() existed, was tested, and NOTHING called it.
