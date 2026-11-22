@@ -52,8 +52,9 @@ updated: "2026-10-15"
 #     PASS when they cannot evaluate (RC-AUD-011): the order-flow gates
 #     TAKER_3BAR and BID_DOMINANCE (no order-flow analyzer, or no fresh signal
 #     for the symbol), FUNDING_CLOCK (no funding data for the symbol, or an
-#     error), and the opt-in FEE_AWARE, REENTRY_COOLDOWN, INTENT_POLICY,
-#     VALIDATION and AUTHORITY hooks (an error leaves the trade untouched).
+#     error), and the opt-in REENTRY_COOLDOWN, INTENT_POLICY, VALIDATION and
+#     AUTHORITY hooks (an error leaves the trade untouched). The opt-in
+#     FEE_AWARE gate is not among them: it REJECTS when it cannot evaluate.
 # Fail behavior, for the checks listed here:
 #   "closed" = if the check cannot be evaluated, the trade is REJECTED.
 #   "open"   = if the check cannot be evaluated, the trade is allowed through.

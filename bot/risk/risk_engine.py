@@ -9,11 +9,15 @@ authoritative per-check statement: 17 closed, 1 open, 3 skip.
 RC-2026-022. That qualifier is load-bearing and this docstring used to omit
 it, which is where the public /risk page got the categorical sentence "there
 is no path where a check that could not be evaluated is treated as a check
-that passed". There are sixteen such paths. An advisory check whose data
-source is absent appends a SKIP to the *passed* list -- no macro calendar, no
-order-flow analyzer, not enough history for a VaR estimate -- and seven do the
-same when their own evaluation raises (USER_RISK_PREF, FEE_AWARE,
+that passed". There are fourteen such paths (counted 2026-11-21 by the AST
+walk `tests/test_risk_page_does_not_overclaim_fail_closed.py::_skip_to_passed`
+reads: eight on an absent source, six on an error). An advisory check whose
+data source is absent appends a SKIP to the *passed* list -- no macro
+calendar, no order-flow analyzer, not enough history for a VaR estimate -- and
+six do the same when their own evaluation raises (USER_RISK_PREF,
 REENTRY_COOLDOWN, FUNDING_CLOCK, INTENT_POLICY, VALIDATION, AUTHORITY).
+FEE_AWARE was a seventh until it was made to fail closed: an opted-in fee
+check that cannot be evaluated now rejects the trade.
 
 A skip is never silent: each names itself and its reason on the decision
 record, so `checks_passed` can be read against what was actually evaluated.
@@ -2515,12 +2519,24 @@ class RiskEngine:
         # Fee-aware entry gate (opt-in, default OFF). min-RR is a ratio and can
         # pass a tight-stop trade whose absolute TP distance barely clears fees.
         # Reject unless reward-to-TP >= fee_aware_min_multiple × round-trip cost
-        # (entry+exit fees + entry+exit slippage). Skips manual trades. Fail-open.
+        # (entry+exit fees + entry+exit slippage). Skips manual trades.
+        # FAIL-CLOSED, as the gate's other money checks are. It used to pass an
+        # idea whose evaluation raised ("skipped (eval error <text>)", the
+        # exception's TEXT on the line) and to append nothing at all for an
+        # entry or target that was not a positive number -- a SHORT with a
+        # target at or below zero passes the model's validator -- so an opted-in
+        # fee check could be silently absent from a decision that reads as if
+        # it ran. Both now refuse, and say why.
         if CONFIG.risk.fee_aware_entry_gate_enabled and not is_manual:
             try:
                 entry_px = float(idea.entry_price)
                 tp_px = float(idea.take_profit)
-                if entry_px > 0 and tp_px > 0:
+                if not (math.isfinite(entry_px) and math.isfinite(tp_px)
+                        and entry_px > 0 and tp_px > 0):
+                    failed.append(
+                        f"FEE_AWARE: entry or TP not on record as a positive price "
+                        f"(entry={entry_px}, tp={tp_px}) — fee edge cannot be measured")
+                else:
                     reward_pct = abs(tp_px - entry_px) / entry_px
                     # The FEE half through the one rule: this charged two
                     # TAKER legs, and an idea that rests as a limit pays the
@@ -2546,7 +2562,7 @@ class RiskEngine:
                             f"FEE_AWARE: TP {reward_pct*100:.2f}% clears {k:.1f}x cost "
                             f"{round_trip*100:.2f}% OK")
             except Exception as exc:
-                passed.append(f"FEE_AWARE: skipped (eval error {exc})")
+                failed.append(f"FEE_AWARE: evaluation error ({type(exc).__name__})")
 
         try:
             # 6b. Leverage-aware margin risk cap

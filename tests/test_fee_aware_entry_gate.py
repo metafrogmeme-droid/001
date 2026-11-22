@@ -67,3 +67,51 @@ def test_gate_skips_manual_trades():
     with _gate(True):
         check = _engine().evaluate(_idea(tp=100.30, source="manual"), atr=2.0)
     assert not _has_fee_reject(check)
+
+
+# ── fail-closed: an opted-in fee check that cannot be measured refuses ───────
+
+def _fee_lines(check):
+    return [c for c in check.checks_passed + check.checks_failed if c.startswith("FEE_AWARE")]
+
+
+def test_an_evaluation_that_raises_refuses_and_names_only_the_class(monkeypatch):
+    # It passed "skipped (eval error <text>)": an opted-in check silently
+    # absent, with the exception's text on the decision record.
+    import bot.core.trade_costs as tc
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("apiKey=SECRET")
+    monkeypatch.setattr(tc, "round_trip_pct", _boom)
+    with _gate(True):
+        check = _engine().evaluate(_idea(tp=105.0, sl=97.5), atr=2.0)
+    assert _fee_lines(check) == ["FEE_AWARE: evaluation error (RuntimeError)"]
+    assert "FEE_AWARE: evaluation error (RuntimeError)" in check.checks_failed
+    assert check.verdict == RiskVerdict.REJECTED
+    assert "SECRET" not in " ".join(check.checks_passed + check.checks_failed)
+
+
+def test_a_short_whose_target_is_at_or_below_zero_refuses_rather_than_vanishing():
+    # The model validator lets a SHORT's target sit at or below zero, and the
+    # gate used to append NOTHING for it: no pass, no fail, no skip.
+    short = TradeIdea(asset="BTC/USDT", direction=Direction.SHORT, entry_price=100.0,
+                      stop_loss=103.0, take_profit=-5.0, confidence=0.9,
+                      reasoning="fee gate test", source="scan",
+                      timestamp=datetime.now(UTC))
+    with _gate(True):
+        check = _engine().evaluate(short, atr=2.0)
+    lines = _fee_lines(check)
+    assert len(lines) == 1 and lines[0] in check.checks_failed
+    assert "not on record as a positive price" in lines[0]
+
+
+def test_a_measurable_short_still_reaches_the_comparison():
+    # The other arm: a normal SHORT is measured, not refused for being short.
+    short = TradeIdea(asset="BTC/USDT", direction=Direction.SHORT, entry_price=100.0,
+                      stop_loss=102.5, take_profit=95.0, confidence=0.9,
+                      reasoning="fee gate test", source="scan",
+                      timestamp=datetime.now(UTC))
+    with _gate(True):
+        check = _engine().evaluate(short, atr=2.0)
+    lines = _fee_lines(check)
+    assert len(lines) == 1 and lines[0] in check.checks_passed and "clears" in lines[0]
