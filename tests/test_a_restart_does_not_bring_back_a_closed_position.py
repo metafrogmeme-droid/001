@@ -20,6 +20,14 @@ Three defects on one file, all driven here:
 
 Every row whose true state is unknown now waits for reconcile, which asks the
 venue, and says so on disk so a second restart cannot forget it.
+
+* **And a closed trade came back from a stale backup on every restart.** The
+  backup is refreshed only from a non-empty main file, so once reconcile had
+  cleared a backup row over a main file already ``{}``, the backup still held
+  it and the next restart loaded it again (TI-ebd681cd, 20-21 November 2026).
+  A backup row the closed-trade record already holds is no longer loaded, and
+  every venue-flat clear drops the row from the backup. Driven below for the
+  shared book and for a per-user one.
 """
 from __future__ import annotations
 
@@ -27,7 +35,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -307,3 +315,171 @@ class TestOneBadRowCostsOneRow:
         assert not ex._closed_trades_read_failed
         self._new_close(ex)
         assert list(state.glob("*.unreadable-*")) == []
+
+
+# ── a stale backup over an empty book ──────────────────────────────────────
+
+T = "TI-ebd681cd"
+
+
+def _book_row(tid, status="open", venue="bitget"):
+    """A row as the positions file holds it, dated like the stale backup."""
+    return {"trade_id": tid, "symbol": "INJ/USDT:USDT", "direction": "LONG",
+            "entry_price": 10.0, "quantity": 0.7, "cost_usd": 1.4,
+            "stop_loss": 9.5, "take_profit": 11.0, "leverage": 5,
+            "status": status, "opened_at": "2026-10-14T08:00:00+00:00",
+            "venue": venue}
+
+
+def _write(path, data):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(data, indent=2))
+
+
+def _read(path):
+    return json.loads(Path(path).read_text())
+
+
+@pytest.fixture(params=["shared", "per-user"])
+def book(request, state, monkeypatch):
+    """The shared book (``live_positions.json``) or a per-user one
+    (``live_positions_<id>.json``): the same loader and saver, two files."""
+    if request.param == "shared":
+        main, ledger = state / "live_positions.json", state / "closed_trades.json"
+        monkeypatch.setattr(le, "_POSITIONS_FILE", str(main))
+        monkeypatch.setattr(le, "_CLOSED_TRADES_FILE", str(ledger))
+
+        def make():
+            return LiveExecutor(venue="bitget")
+    else:
+        main = state / f"live_positions_{UID}.json"
+        ledger = state / f"closed_trades_{UID}.json"
+        make = _ex
+    return SimpleNamespace(make=make, main=main, bak=Path(f"{main}.bak"), ledger=ledger)
+
+
+def _stale_backup(book, *, status="open", in_ledger=True, others=None):
+    """The reported state: the main file says the book is empty, the backup
+    still holds the trade, and (by default) the ledger holds its close."""
+    _write(book.main, {})
+    _write(book.bak, {T: _book_row(T, status), **(others or {})})
+    _write(book.ledger, [{**_closed_row(T), "symbol": "INJ/USDT:USDT"}] if in_ledger else [])
+
+
+def _flat(ex):
+    """The venue holds nothing; anything else asked of it fails the test."""
+    ex._exchange = AsyncMock()
+    ex._exchange.fetch_positions = AsyncMock(return_value=[])
+    return ex._exchange
+
+
+class TestAStaleBackupDoesNotReopenAClosedTrade:
+
+    @pytest.mark.parametrize("status", ["open", "closing"])
+    def test_a_backup_row_the_ledger_holds_is_not_loaded(self, book, status, monkeypatch):
+        _stale_backup(book, status=status)
+        before = book.bak.read_text()
+        seen = []
+        monkeypatch.setattr(le, "audit", lambda log, msg, **kw: seen.append(
+            (kw.get("result"), (kw.get("data") or {}).get("trade_ids"))))
+        ex = book.make()
+        assert Path(ex._positions_file) == book.main
+        assert T not in ex._positions
+        assert not ex.awaiting_reconcile(T)
+        assert any(t.trade_id == T for t in ex._closed_trades), "the ledger row is kept"
+        assert ("BACKUP_ALREADY_CLOSED", [T]) in seen
+        # Building an executor writes nothing: a reader process may build one.
+        assert book.bak.read_text() == before
+
+    @pytest.mark.asyncio
+    async def test_the_first_reconcile_drops_it_from_the_backup(self, book):
+        other = {"TI-other": _book_row("TI-other", venue="bybit")}
+        _stale_backup(book, others=other)
+        ex = book.make()
+        venue = _flat(ex)
+        assert await ex.reconcile_positions() == []
+        assert venue.fetch_positions.await_count == 0, "an empty book asks the venue nothing"
+        assert _read(book.bak) == other, "the other rows are kept as they were"
+        assert any(t.trade_id == T for t in ex._closed_trades)
+        assert T not in book.make()._positions
+        # Asked once: the second pass has nothing left to drop.
+        book.bak.write_text(json.dumps({T: _book_row(T)}))
+        await ex.reconcile_positions()
+        assert T in _read(book.bak)
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_backup_is_left_as_it_was(self, book):
+        _stale_backup(book)
+        ex = book.make()
+        book.bak.write_text("{not json")
+        _flat(ex)
+        await ex.reconcile_positions()
+        assert book.bak.read_text() == "{not json"
+
+    def test_a_backup_row_the_ledger_does_not_hold_still_waits_for_reconcile(self, book):
+        _stale_backup(book, in_ledger=False)
+        ex = book.make()
+        assert T in ex._positions
+        assert ex.awaiting_reconcile(T)
+
+    def test_a_main_file_row_the_ledger_holds_is_still_loaded(self, book):
+        """Only a backup row is dropped at load. A row the main file holds is
+        asked about by reconcile, as before."""
+        _stale_backup(book)
+        _write(book.main, {T: _book_row(T)})
+        ex = book.make()
+        assert T in ex._positions
+
+
+class TestAVenueFlatClearReachesTheBackup:
+
+    @pytest.mark.asyncio
+    async def test_an_already_closed_clear(self, book):
+        """The main file holds the row, so the clearing save copies it into
+        the backup; the backup must still lose it."""
+        _stale_backup(book)
+        _write(book.main, {T: _book_row(T)})
+        ex = book.make()
+        _flat(ex)
+        await ex.reconcile_positions()
+        assert _read(book.main) == {}
+        assert T not in _read(book.bak)
+        assert T not in book.make()._positions
+
+    def _booking(self, book):
+        _stale_backup(book, in_ledger=False)
+        _write(book.main, {T: _book_row(T)})
+        ex = book.make()
+        _flat(ex)
+        ex._fetch_bitget_close_data = AsyncMock(return_value={
+            "close_price": 9.5, "pnl": -0.35, "fees": 0.01, "reason": "SL HIT",
+            "source": "bitget_position_history", "pnl_is_net": True})
+        return ex
+
+    @pytest.mark.asyncio
+    async def test_a_booked_close(self, book):
+        ex = self._booking(book)
+        await ex.reconcile_positions()
+        assert [t["trade_id"] for t in _read(book.ledger)] == [T]
+        assert T not in _read(book.bak)
+        assert T not in book.make()._positions
+
+    @pytest.mark.asyncio
+    async def test_a_close_the_ledger_did_not_take_stays_in_the_backup(self, book):
+        ex = self._booking(book)
+        ex._save_closed_trades = lambda: False
+        await ex.reconcile_positions()
+        assert T in _read(book.bak), (
+            "the ledger write failed and the backup was the last record of the close")
+
+    @pytest.mark.asyncio
+    async def test_a_suppressed_duplicate(self, book):
+        _stale_backup(book, in_ledger=False)
+        _write(book.main, {T: _book_row(T)})
+        ex = book.make()
+        _flat(ex)
+        ex._is_duplicate_close_booking = lambda pos: True
+        await ex.reconcile_positions()
+        assert _read(book.main) == {}
+        assert T not in _read(book.bak)
+        assert book.ledger.read_text().strip() in ("[]", ""), "a duplicate is not booked"
