@@ -79,7 +79,30 @@ PYTEST_CMD = [
 # repo spends most of its guard tests preventing, and it was in the gate.
 COV_TARGETS = ["bot.risk", "bot.core.live_executor", "bot.compliance"]
 COV_FAIL_UNDER = 60
-COV_FLAGS = [f"--cov={t}" for t in COV_TARGETS] + ["--cov-report="]
+
+# THE SIGNAL ENGINE HAS A FLOOR OF ITS OWN. The analyzer and the market scanner
+# decide what the bot proposes, and no gate measured how much of either the
+# suite runs. They are NOT added to COV_TARGETS: that list is the MONEY path
+# (`honesty_gate.MONEY_PREFIXES` is derived from it and fingerprinted, and
+# `tests/test_honesty_gate.py` pins the two together), and folding 8,000
+# signal lines into the 60% total would change what that figure means. So
+# they are measured on the same first run and judged apart, per module,
+# against a recorded floor (`tests/signal_coverage_floor.json`). The money
+# report is restricted to its own modules (`--include`) for the same reason.
+SIGNAL_COV_TARGETS = ["bot.core.analyzer", "bot.core.market_scanner"]
+SIGNAL_COV_FLOOR = ROOT / "tests" / "signal_coverage_floor.json"
+COV_FLAGS = ([f"--cov={t}" for t in COV_TARGETS + SIGNAL_COV_TARGETS]
+             + ["--cov-report="])
+
+
+def _cov_include(targets: list[str]) -> str:
+    """``--include`` globs for dotted coverage targets: a package's files, or
+    one module's file. Derived from the targets, never hand-written beside them."""
+    globs = []
+    for t in targets:
+        path = t.replace(".", "/")
+        globs.append(f"{path}/*" if (ROOT / path).is_dir() else f"{path}.py")
+    return ",".join(globs)
 
 
 def _load_baseline() -> set[str]:
@@ -212,9 +235,21 @@ def _coverage_verdict() -> str:
     read — which is the absence of a measurement rather than a measurement of
     adequacy.
     """
+    money = _money_coverage_verdict()
+    signal = _signal_coverage_verdict()
+    if COV_BELOW in (money, signal):
+        return COV_BELOW
+    if COV_UNMEASURED in (money, signal):
+        return COV_UNMEASURED
+    return COV_OK
+
+
+def _money_coverage_verdict() -> str:
+    """The money-path floor: COV_TARGETS' total against COV_FAIL_UNDER."""
     try:
         r = subprocess.run(
-            [sys.executable, "-m", "coverage", "report", f"--fail-under={COV_FAIL_UNDER}"],
+            [sys.executable, "-m", "coverage", "report",
+             f"--include={_cov_include(COV_TARGETS)}", f"--fail-under={COV_FAIL_UNDER}"],
             cwd=ROOT, capture_output=True, text=True,
         )
     except Exception as exc:  # could not even launch the reader
@@ -233,6 +268,73 @@ def _coverage_verdict() -> str:
           f"not a pass: the {COV_FAIL_UNDER}% floor this step is named for went "
           f"unenforced on this run.", file=sys.stderr)
     return COV_UNMEASURED
+
+
+def _load_signal_floors() -> dict | None:
+    """``{target: floor}`` from SIGNAL_COV_FLOOR, or None when it cannot be read
+    or does not name exactly SIGNAL_COV_TARGETS with positive whole numbers."""
+    try:
+        floors = json.loads(SIGNAL_COV_FLOOR.read_text(encoding="utf-8"))["floors"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(floors, dict) or sorted(floors) != sorted(SIGNAL_COV_TARGETS):
+        return None
+    if not all(isinstance(v, int) and not isinstance(v, bool) and 0 < v <= 100
+               for v in floors.values()):
+        return None
+    return floors
+
+
+def signal_floor_verdict(measured: dict, floors: dict | None) -> tuple[str, list[str]]:
+    """Judge each signal module's measured percentage against its floor.
+
+    ``measured`` maps a target to its percentage, or to None when coverage had
+    no data for it. Three-valued like the money floor: BELOW if any measured
+    module is under its floor, UNMEASURED if the floors could not be read or
+    any module was not measured (never read as zero), OK otherwise.
+    """
+    lines: list[str] = []
+    if floors is None:
+        return COV_UNMEASURED, [f"[gate] CANNOT CHECK — {SIGNAL_COV_FLOOR.name} is "
+                                "missing or malformed, so the signal-engine floor "
+                                "went unenforced on this run."]
+    verdict = COV_OK
+    for target in SIGNAL_COV_TARGETS:
+        pct = measured.get(target)
+        floor = floors[target]
+        if pct is None:
+            lines.append(f"[gate] CANNOT CHECK — {target}: no coverage data (not imported "
+                         f"while traced?), so its {floor}% floor was not enforced.")
+            if verdict == COV_OK:
+                verdict = COV_UNMEASURED
+        elif pct < floor:
+            lines.append(f"[gate] FAIL — {target} coverage {pct:.2f}% is below its "
+                         f"{floor}% floor.")
+            verdict = COV_BELOW
+        else:
+            note = (f" (the floor can be raised to {int(pct)} in "
+                    f"{SIGNAL_COV_FLOOR.name})" if int(pct) > floor else "")
+            lines.append(f"[gate] {target} coverage {pct:.2f}% >= {floor}% floor{note}")
+    return verdict, lines
+
+
+def _signal_coverage_verdict() -> str:
+    """Each signal module's own total, read from the same coverage data."""
+    measured: dict = {}
+    for target in SIGNAL_COV_TARGETS:
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "coverage", "report", "--format=total",
+                 "--precision=2", f"--include={_cov_include([target])}"],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            measured[target] = float(r.stdout.strip()) if r.returncode == 0 else None
+        except (OSError, ValueError):
+            measured[target] = None
+    verdict, lines = signal_floor_verdict(measured, _load_signal_floors())
+    for line in lines:
+        print(line, file=sys.stderr if "CANNOT CHECK" in line else sys.stdout)
+    return verdict
 
 
 def _tree_fingerprint() -> str:
