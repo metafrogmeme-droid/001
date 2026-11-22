@@ -11056,6 +11056,16 @@ class RuneClawEngine:
                 FEED.emit("thesis", **thesis_event(_fi))
         except Exception as _feed_exc:
             logger.debug("Agent feed thesis events skipped: %s", type(_feed_exc).__name__)
+        # AudaceFi dry run (bot/integrations/audacefi): the same fresh calls,
+        # never a re-offer. OFF unless AUDACEFI_DRY_RUN_ENABLED is set, and
+        # then it maps the SOL calls, saves them, and sends to the loopback
+        # gateway on a thread of its own -- this method runs in the loop. It
+        # places nothing; its package cannot import this module.
+        try:
+            from bot.integrations.audacefi.publisher import schedule_audacefi_dry_run
+            schedule_audacefi_dry_run(calls)
+        except Exception as _audace_exc:
+            logger.warning("AudaceFi dry-run publish skipped (%s)", type(_audace_exc).__name__)
 
     def _register_engine_idea(self, idea: TradeIdea) -> None:
         """Put one of the ENGINE's own scan ideas into the pending book.
