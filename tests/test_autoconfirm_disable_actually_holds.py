@@ -151,16 +151,33 @@ def test_both_engine_gates_check_the_sentinel():
 
     Two independent call sites read `RUNTIME.auto_confirm_threshold`; one of
     them honouring the sentinel is how the other keeps executing.
+
+    The force scan used to carry its own copy of the selection, so the
+    sentinel was checked in two places and this counted two calls. Both
+    doors now select through `_auto_confirm_batch`, which checks it first,
+    so the pin is that each door asks the batch and the batch asks the
+    sentinel (and `test_a_force_scan_counts_what_it_placed.py` drives a
+    disabled threshold through the force scan).
     """
+    import ast
     import pathlib
 
-    from tests.source_scan import code_only
-    src = code_only((pathlib.Path(__file__).resolve().parents[1]
-                     / "bot" / "core" / "engine.py").read_text(encoding="utf-8"))
+    from tests.source_scan import code_only, segment_reader
+    raw = (pathlib.Path(__file__).resolve().parents[1]
+           / "bot" / "core" / "engine.py").read_text(encoding="utf-8")
+    src = code_only(raw)
     assert src.count("auto_threshold = RUNTIME.auto_confirm_threshold") == 2, (
         "the number of gate sites changed; re-check that each one still "
         "consults auto_confirm_is_disabled"
     )
-    assert src.count("auto_confirm_is_disabled(") >= 2, (
+    seg = segment_reader(raw)
+    fns = {n.name: code_only(seg(n) or "")
+           for n in ast.walk(ast.parse(raw))
+           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+           and n.name in ("_tick", "_force_scan_locked", "_auto_confirm_batch")}
+    for door in ("_tick", "_force_scan_locked"):
+        assert "self._auto_confirm_batch(auto_threshold)" in fns[door], (
+            f"{door} selects without the batch reading that checks the sentinel")
+    assert "if auto_confirm_is_disabled(auto_threshold):" in fns["_auto_confirm_batch"], (
         "a gate reads the threshold without checking whether it means OFF"
     )

@@ -84,7 +84,7 @@ def test_an_exception_can_still_reach_the_passed_list():
     _, on_error = _skip_to_passed()
     assert len(on_error) >= 5, (
         f"only {len(on_error)} except-to-passed paths found; the copy says "
-        "'seven of them', so the number in the page needs re-checking"
+        "'six of them', so the number in the page needs re-checking"
     )
 
 

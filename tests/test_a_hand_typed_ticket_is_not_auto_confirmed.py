@@ -329,7 +329,9 @@ def _fn(name: str) -> ast.AST:
 
 @pytest.mark.parametrize("fn, asks", [
     ("_tick", "_auto_confirm_batch"),
-    ("_force_scan_locked", "_auto_confirm_suppressed"),
+    # The force scan selects through the tick's own batch now, which asks
+    # `_auto_confirm_suppressed` for every pair: the same reading, one hop out.
+    ("_force_scan_locked", "_auto_confirm_batch"),
 ])
 def test_both_loops_ask_the_reading_before_they_confirm(fn, asks):
     """A SHAPE assertion, and stated as one.
@@ -399,8 +401,12 @@ async def test_a_ticket_registered_mid_scan_is_not_auto_confirmed_by_forcescan()
     engine._auto_confirm_notify_callback = None
     engine.analyzer = None
     engine._engine_idea_ids = set()
+    # The force scan publishes what it registered (recorded, not sent).
+    engine.published = []
+    engine._publish_engine_ideas = lambda ideas: engine.published.append(list(ideas))
     for name in ("_force_scan_locked", "_auto_confirm_gate_value",
-                 "_auto_confirm_suppressed", "_engine_pending_ids",
+                 "_auto_confirm_suppressed", "_auto_confirm_batch",
+                 "_run_auto_confirm_pairs", "_engine_pending_ids",
                  "_register_engine_idea"):
         setattr(engine, name, getattr(RuneClawEngine, name).__get__(engine))
 

@@ -32,10 +32,17 @@ park a fetch near the ceiling too. These tests pin that framing.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from bot.core import stage_profile as fp
 from tests.source_scan import code_only
+
+#: A guard whether or not the handler binds the exception: the signal-path
+#: triage counts what it catches (`except Exception as _sp_exc:` then
+#: note_signal_path_error), and it is still caught. Removing the guard fails this.
+_GUARDED = re.compile(r"except Exception(?: as \w+)?:")
 
 CEILING = 15.0
 
@@ -401,7 +408,7 @@ class TestTheEngineRecordsAndReportsIt:
         # PRESERVES offsets, so a ~700-char docstring pushes the body past a
         # 900-char window and the assertion fails on correct code.
         body = src[i:i + 2000]
-        assert "except Exception:" in body, (
+        assert _GUARDED.search(body), (
             "_analyze_signal runs under lightweight stubs; instrumentation "
             "that requires the caller to grow an attribute broke five suites "
             "once already"

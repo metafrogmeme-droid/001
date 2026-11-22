@@ -1,6 +1,7 @@
 """A risk-gated SOL idea maps to one small signal; everything else maps to a reason.
 
-SOL only, analyzer ideas only, fresh bars only, calls only (not re-offers).
+SOL only, analyzer ideas only, fresh bars only, calls only (not re-offers),
+full analyses only (not the tap's technicals-only read).
 LONG is ``long`` at the configured allocation; SHORT is ``flat`` at 0 -- the
 adapter never shorts. A signal lives at most 60 s and is at most 512 bytes.
 """
@@ -78,6 +79,7 @@ class TestWhatDoesNot:
         ({"source": "manual"}, "not an analyzer idea"),
         ({"source": "unknown"}, "not an analyzer idea"),
         ({"repeat_of": "TI-older"}, "re-offer"),
+        ({"analysis_depth": "lightweight"}, "lightweight analysis"),
         ({"bar_age_at_analysis_s": None}, "bar freshness: newest bar age unread"),
         ({"bar_age_at_analysis_s": 10_800.0}, "bar freshness: newest closed 1h bar is 10800s old"),
         ({"timeframe": None}, "bar freshness"),

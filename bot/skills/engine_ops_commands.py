@@ -330,6 +330,51 @@ def autoconfirm_status_line(engine, threshold: float, *, is_live: bool) -> str:
     return head + "\n" + autoconfirm_placement_line(engine, is_live=is_live)
 
 
+def signal_path_error_lines() -> list[str]:
+    """The /gates section for errors the signal path swallowed this session.
+
+    Each enrichment on the analysis path is fail-open on purpose; these are the
+    sites where one failed, with how often and the last exception's class
+    (`bot/core/signal_path_errors.py`). "None" is a reading of the counter, and
+    says so: it is not a claim that every enrichment ran.
+    """
+    from bot.core.signal_path_errors import signal_path_error_counts
+    counts = signal_path_error_counts()
+    head = "\U0001f9ef <b>Signal-path errors swallowed</b> (fail-open enrichments)"
+    if not counts:
+        return [head, "None recorded this session."]
+    rows = sorted(counts.items(), key=lambda kv: (-kv[1][0], kv[0]))
+    return [head] + [f"<code>{_html.escape(site)}</code>: {n}× "
+                     f"({_html.escape(cls)})" for site, (n, cls) in rows]
+
+
+def forcescan_outcome_lines(result: dict) -> list[str]:
+    """What became of the confirms a force scan ran, beyond the ones it placed.
+
+    "Auto-confirmed" counts orders PLACED. A confirm the risk gate refused,
+    one whose outcome the venue left unverified, one that raised, and a scan
+    whose auto-confirm did not run at all are different facts, each said when
+    it happened and left out when it did not.
+    """
+    def _n(key: str) -> int:
+        v = result.get(key)
+        return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
+
+    out: list[str] = []
+    if result.get("auto_confirm_skipped") == "lightweight":
+        out.append("\U0001f6ab Auto-confirm not run: a lightweight scan (technicals "
+                   "only). Each setup is pending; its Confirm button is the door.")
+    if _n("auto_refused"):
+        out.append(f"⛔ Auto-confirm refused: <b>{_n('auto_refused')}</b> (nothing placed)")
+    if _n("auto_unverified"):
+        out.append(f"❓ Auto-confirm outcome unverified: <b>{_n('auto_unverified')}</b> "
+                   "— check /positions")
+    if _n("auto_errored"):
+        out.append(f"⚠️ Auto-confirm errored: <b>{_n('auto_errored')}</b> "
+                   "(nothing counted; see the trade log)")
+    return out
+
+
 def forcescan_withheld_line(result: dict) -> Optional[str]:
     """The ideas a /forcescan held back from auto-confirm, and why.
 
@@ -1223,9 +1268,10 @@ class EngineOpsCommands:
             "",
             f"\U0001f4e1 Signals found: <b>{result.get('signals', 0)}</b>",
             f"\U0001f4a1 Ideas generated: <b>{result.get('ideas', 0)}</b>",
-            f"\U0001f916 Auto-confirmed: <b>{result.get('auto_confirmed', 0)}</b>",
+            f"\U0001f916 Auto-confirmed (placed): <b>{result.get('auto_confirmed', 0)}</b>",
             f"\u23f3 Pending confirmation: <b>{result.get('pending', 0)}</b>",
         ]
+        lines.extend(forcescan_outcome_lines(result))
         if result.get('cleared_pending', 0) > 0:
             lines.append(f"\U0001f9f9 Cleared old pending: <b>{result['cleared_pending']}</b>")
         _withheld = forcescan_withheld_line(result)
@@ -1565,20 +1611,24 @@ class EngineOpsCommands:
         if not self._is_admin(update):
             return
         stats = self.engine.risk.gate_stats()
+        lines: list[str] = []
         if not stats:
-            await self._send(update, "No gate evaluations recorded yet this session.")
-            return
-        lines = ["\U0001f6a6 <b>Risk Gate Telemetry</b>", "\u2500" * 28, ""]
-        for name, rec in stats.items():
-            total = rec["passed"] + rec["failed"] + rec["skipped"]
-            if total == 0:
-                continue
-            fail_pct = rec["failed"] / total * 100
-            lines.append(
-                f"<b>{name}</b>: {rec['passed']}P/{rec['failed']}F/{rec['skipped']}S"
-                f"  ({fail_pct:.0f}% fail)")
-        lines += ["", "Skips = fail-open (no data). High skip rates mean a gate",
-                  "is not really running; high fail rates mean it may be too strict."]
+            lines.append("No gate evaluations recorded yet this session.")
+        else:
+            lines += ["\U0001f6a6 <b>Risk Gate Telemetry</b>", "\u2500" * 28, ""]
+            for name, rec in stats.items():
+                total = rec["passed"] + rec["failed"] + rec["skipped"]
+                if total == 0:
+                    continue
+                fail_pct = rec["failed"] / total * 100
+                lines.append(
+                    f"<b>{name}</b>: {rec['passed']}P/{rec['failed']}F/{rec['skipped']}S"
+                    f"  ({fail_pct:.0f}% fail)")
+            lines += ["", "Skips = fail-open (no data). High skip rates mean a gate",
+                      "is not really running; high fail rates mean it may be too strict."]
+        # Said even when no gate has run: an enrichment that fails on every
+        # symbol is exactly the session in which nothing reaches the gate.
+        lines += [""] + signal_path_error_lines()
         await self._send(update, "\n".join(lines))
 
     async def _cmd_journal(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
