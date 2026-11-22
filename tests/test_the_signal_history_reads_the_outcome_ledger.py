@@ -42,10 +42,12 @@ def _ledger(tmp_path, monkeypatch):
         _row("b1", "ETH/USDT", "SHORT"), _row("b2", "ETH/USDT", "SHORT"),
         _row("c1", "SOL/USDT"),
     ])
-    so.apply("a1", so.Resolution(so.TARGET, "t", r=2.0, resolved_ms=NOW_MS), NOW_MS)
-    so.apply("a2", so.Resolution(so.STOP, "s", r=-1.0, resolved_ms=NOW_MS), NOW_MS)
-    so.apply("b1", so.Resolution(so.EXPIRED, "x", resolved_ms=NOW_MS), NOW_MS)
-    so.apply("b2", so.Resolution(so.TARGET, "t", r=1.5, resolved_ms=NOW_MS), NOW_MS)
+    so.apply_outcomes([
+        ("a1", so.Resolution(so.TARGET, "t", r=2.0, resolved_ms=NOW_MS)),
+        ("a2", so.Resolution(so.STOP, "s", r=-1.0, resolved_ms=NOW_MS)),
+        ("b1", so.Resolution(so.EXPIRED, "x", resolved_ms=NOW_MS)),
+        ("b2", so.Resolution(so.TARGET, "t", r=1.5, resolved_ms=NOW_MS)),
+    ], NOW_MS)
     return path
 
 

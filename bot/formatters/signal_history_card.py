@@ -64,8 +64,9 @@ def _span(summary: dict) -> str:
     keep_days = int(summary["keep_resolved_s"]) // 86400
     return (f"Span: the {total} call(s) the ledger holds, oldest published {oldest}. "
             f"A resolved call is kept {keep_days} days after it syncs and the ledger "
-            f"holds at most {summary['max_rows']} rows, so this is the recent "
-            f"record, not necessarily the whole history.")
+            f"is pruned to {summary['max_rows']} rows (a call is never pruned before "
+            f"its outcome has synced), so this is the recent record, not necessarily "
+            f"the whole history.")
 
 
 def _default_grouping() -> tuple[Callable, Callable, Callable]:

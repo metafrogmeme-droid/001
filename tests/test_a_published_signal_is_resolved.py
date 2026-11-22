@@ -273,6 +273,20 @@ def ledger(tmp_path, monkeypatch):
     return p
 
 
+def _apply1(key, res, now_ms):
+    """One walk answer through the pass's batch write: the entry when it
+    changed the word, None when it did not (or the ledger could not say)."""
+    got = so.apply_outcomes([(key, res)], now_ms)
+    if got is None or got.changed == 0:
+        return None
+    return dict(got.unsent)[key]
+
+
+def _planned(now_ms, **kw):
+    plan = so.plan_outcome_pass(now_ms, **kw)
+    return [k for rows in plan.markets.values() for k, _ in rows]
+
+
 class TestTheLedger:
     def test_a_published_row_is_recorded_whole_once(self, ledger):
         assert so.record_published([_long(), _long(), {"signal_key": "x"}]).added == 1
@@ -287,38 +301,46 @@ class TestTheLedger:
         with caplog.at_level(logging.ERROR, logger=so.__name__):
             assert so.record_published([_long()]) is None
         assert ledger.read_text() == "{not json"
-        assert so.rows_due() is None                         # never an empty list
-        assert so.apply("K1", so.Resolution(so.TARGET, "t", r=2.0), NOW) is None
-        assert not so.mark_synced("K1")
+        assert so.plan_outcome_pass(NOW) is None             # never an empty plan
+        assert so.apply_outcomes([("K1", so.Resolution(so.TARGET, "t", r=2.0))], NOW) is None
+        assert so.mark_outcomes_synced({"K1": so.TARGET}) == 0
         assert ledger.read_text() == "{not json"
 
-    def test_due_is_pending_or_unsynced_oldest_checked_first(self, ledger):
+    def test_a_pass_walks_due_pending_rows_oldest_due_first_and_sends_every_unsynced_row(
+            self, ledger):
         so.record_published([_long(signal_key=k) for k in "ABCD"])
-        so.apply("A", so.Resolution(so.OPEN, "o"), 500)
-        so.apply("B", so.Resolution(so.TARGET, "t", r=2.0, resolved_ms=9), 100)
-        so.apply("C", so.Resolution(so.STOP, "s", r=-1.0, resolved_ms=9), 200)
-        so.mark_synced("C")
-        keys = [k for k, _ in so.rows_due()]
-        assert keys == ["D", "B", "A"]                  # C is final and synced
-        assert [k for k, _ in so.rows_due(limit=2)] == ["D", "B"]
+        _apply1("A", so.Resolution(so.OPEN, "o"), FIRST + 3 * H + 20 * 60_000)   # 14:20
+        _apply1("B", so.Resolution(so.TARGET, "t", r=2.0, resolved_ms=9), FIRST + H)
+        _apply1("C", so.Resolution(so.STOP, "s", r=-1.0, resolved_ms=9), FIRST + H)
+        assert so.mark_outcomes_synced({"C": so.STOP}) == 1
+        # D was never walked: due at 12:00, when the first bar after 10:17
+        # closes. A was checked at 14:20: due at 15:00, when the 14:00 bar it
+        # could not read closes. B and C are final and never walked again.
+        assert _planned(FIRST + 4 * H) == ["D", "A"]
+        assert _planned(FIRST + 4 * H - 1) == ["D"]
+        assert _planned(FIRST + H - 1) == []                  # no bar after it has closed
+        # Every row the website does not have yet is named for sending,
+        # walked or not: the OPEN change and the TARGET, not the synced STOP.
+        got = so.apply_outcomes([], FIRST + 4 * H)
+        assert sorted(k for k, _ in got.unsent) == ["A", "B"]
 
     def test_a_changed_word_is_returned_unsynced(self, ledger):
         so.record_published([_long()])
-        got = so.apply("K1", so.Resolution(so.TARGET, "t", r=2.0, resolved_ms=5), 7)
+        got = _apply1("K1", so.Resolution(so.TARGET, "t", r=2.0, resolved_ms=5), 7)
         assert got["status"] == so.TARGET and got["r"] == 2.0 and got["synced"] is False
-        assert so.apply("K1", so.Resolution(so.STOP, "s", r=-1.0), 8) is None  # final
+        assert _apply1("K1", so.Resolution(so.STOP, "s", r=-1.0), 8) is None  # final
         entry = json.loads(ledger.read_text())["signals"]["K1"]
         assert entry["status"] == so.TARGET and entry["checked_ms"] == 8
 
     def test_an_open_call_does_not_go_back_to_new(self, ledger):
         so.record_published([_long()])
-        so.apply("K1", so.Resolution(so.OPEN, "o", triggered_ms=1), 1)
-        assert so.apply("K1", so.Resolution(so.NEW, "n"), 2) is None
+        _apply1("K1", so.Resolution(so.OPEN, "o", triggered_ms=1), 1)
+        assert _apply1("K1", so.Resolution(so.NEW, "n"), 2) is None
         assert json.loads(ledger.read_text())["signals"]["K1"]["status"] == so.OPEN
 
     def test_a_retry_records_the_check_and_nothing_else(self, ledger):
         so.record_published([_long()])
-        assert so.apply("K1", so.Resolution(so.NEW, "r", retry=True), 9) is None
+        assert _apply1("K1", so.Resolution(so.NEW, "r", retry=True), 9) is None
         entry = json.loads(ledger.read_text())["signals"]["K1"]
         assert entry["checked_ms"] == 9 and entry["status"] == so.NEW
 
@@ -326,25 +348,30 @@ class TestTheLedger:
         # A walk that saw the entry and then an unreadable bar answers OPEN
         # with retry: the word is not recorded until a walk reads through.
         so.record_published([_long()])
-        assert so.apply("K1", so.Resolution(so.OPEN, "r", retry=True), 9) is None
+        assert _apply1("K1", so.Resolution(so.OPEN, "r", retry=True), 9) is None
         assert json.loads(ledger.read_text())["signals"]["K1"]["status"] == so.NEW
 
     def test_the_same_word_again_is_not_a_change(self, ledger):
         so.record_published([_long()])
-        so.apply("K1", so.Resolution(so.OPEN, "o"), 1)
-        so.mark_synced("K1")
-        assert so.apply("K1", so.Resolution(so.OPEN, "o"), 2) is None
+        _apply1("K1", so.Resolution(so.OPEN, "o"), 1)
+        so.mark_outcomes_synced({"K1": so.OPEN})
+        assert _apply1("K1", so.Resolution(so.OPEN, "o"), 2) is None
 
     def test_an_unknown_key_is_not_created(self, ledger):
         so.record_published([_long()])
-        assert so.apply("NOPE", so.Resolution(so.TARGET, "t", r=1.0), 1) is None
+        assert _apply1("NOPE", so.Resolution(so.TARGET, "t", r=1.0), 1) is None
         assert "NOPE" not in json.loads(ledger.read_text())["signals"]
 
-    def test_mark_synced_is_one_way(self, ledger):
+    def test_a_sync_mark_is_one_way_and_only_for_the_word_that_was_sent(self, ledger):
         so.record_published([_long()])
-        so.apply("K1", so.Resolution(so.TARGET, "t", r=2.0), 1)
-        assert so.mark_synced("K1") is True
-        assert so.mark_synced("K1") is False
+        _apply1("K1", so.Resolution(so.TARGET, "t", r=2.0), 1)
+        # The website was sent OPEN, and the row has moved on to TARGET since:
+        # TARGET has not landed, so the row stays unsynced.
+        assert so.mark_outcomes_synced({"K1": so.OPEN}) == 0
+        assert json.loads(ledger.read_text())["signals"]["K1"]["synced"] is False
+        assert so.mark_outcomes_synced({"K1": so.TARGET}) == 1
+        assert so.mark_outcomes_synced({"K1": so.TARGET}) == 0
+        assert json.loads(ledger.read_text())["signals"]["K1"]["synced"] is True
 
     def test_old_synced_final_rows_are_pruned_and_unsynced_kept(self):
         now = 10**13
@@ -354,20 +381,58 @@ class TestTheLedger:
             "unsent": {"status": so.TARGET, "synced": False, "resolved_ms": old},
             "fresh": {"status": so.STOP, "synced": True, "resolved_ms": now},
             "open": {"status": so.OPEN, "synced": True, "resolved_ms": None},
+            # An UNSCORED row carries no resolution time; its last check
+            # starts its keep clock (keyed on resolved_ms alone it never aged).
+            "unscored_old": {"status": so.UNSCORED, "synced": True, "resolved_ms": None,
+                             "checked_ms": old},
+            "unscored_new": {"status": so.UNSCORED, "synced": True, "resolved_ms": None,
+                             "checked_ms": now},
         }
-        so._prune(sigs, now)
-        assert set(sigs) == {"unsent", "fresh", "open"}
+        assert so._prune(sigs, now) == (2, 0)
+        assert set(sigs) == {"unsent", "fresh", "open", "unscored_new"}
 
-    def test_the_cap_drops_final_rows_before_pending_ones(self, monkeypatch):
+    def test_the_cap_drops_final_synced_rows_before_pending_ones(self, monkeypatch):
         monkeypatch.setattr(so, "MAX_ROWS", 3)
         now = 10**13
         sigs = {
             "p1": {"status": so.NEW}, "p2": {"status": so.OPEN},
-            "t_old": {"status": so.TARGET, "synced": False, "resolved_ms": now - 5},
-            "t_new": {"status": so.STOP, "synced": False, "resolved_ms": now},
+            "t_old": {"status": so.TARGET, "synced": True, "resolved_ms": now - 5},
+            "t_new": {"status": so.STOP, "synced": True, "resolved_ms": now},
         }
-        so._prune(sigs, now)
+        assert so._prune(sigs, now) == (1, 0)
         assert set(sigs) == {"p1", "p2", "t_new"}
+        assert sigs["p1"]["status"] == so.NEW and sigs["p2"]["status"] == so.OPEN
+
+    def test_the_cap_never_drops_a_row_the_website_has_not_received(self, monkeypatch):
+        # The old cap deleted these: an unsynced TARGET (an outcome the website
+        # never got) and, past that, pending calls. Each one left a website row
+        # NEW for good.
+        monkeypatch.setattr(so, "MAX_ROWS", 2)
+        now = CREATED + 10 * H                     # inside the keep period
+        sigs = {
+            "p_old": {"status": so.NEW, "synced": True,
+                      "row": _long(created_at="2026-09-28T09:00:00+00:00")},
+            "p_mid": {"status": so.OPEN, "synced": True, "row": _long()},
+            "p_new": {"status": so.NEW, "synced": True,
+                      "row": _long(created_at="2026-09-28T11:30:00+00:00")},
+            "unsent": {"status": so.TARGET, "synced": False, "resolved_ms": now - 5},
+        }
+        assert so._prune(sigs, now) == (0, 1)
+        assert set(sigs) == {"p_old", "p_mid", "p_new", "unsent"}, "nothing unsynced is deleted"
+        # Three pending calls over a cap of two: the oldest is closed
+        # UNSCORED, to be sent, not dropped.
+        assert sigs["p_old"]["status"] == so.UNSCORED and sigs["p_old"]["synced"] is False
+        assert sigs["p_old"]["why"] == so.CAP_WHY
+        assert [sigs[k]["status"] for k in ("p_mid", "p_new")] == [so.OPEN, so.NEW]
+        # Until it lands the ledger stays over the cap, and the next prune
+        # closes nothing more: rows waiting to sync are on their way out.
+        assert so._prune(sigs, now) == (0, 0)
+        assert [sigs[k]["status"] for k in ("p_mid", "p_new")] == [so.OPEN, so.NEW]
+        # Once those outcomes have landed, the rows are final and synced, and go.
+        sigs["p_old"]["synced"] = True
+        sigs["unsent"]["synced"] = True
+        assert so._prune(sigs, now) == (2, 0)
+        assert set(sigs) == {"p_mid", "p_new"}
 
 
 @pytest.mark.parametrize("status, r, want_pnl, final", [
@@ -620,12 +685,24 @@ def test_a_resend_that_did_not_land_is_sent_again_without_a_second_walk(ledger, 
 
 
 def test_a_candle_read_that_raised_is_asked_again_and_sends_nothing(ledger, monkeypatch):
+    # Inside the call's horizon: at NOW (400 hours on) a call no walk could
+    # read is past its deadline and is closed UNSCORED, which the aging test
+    # in tests/test_signal_outcomes_keep_up.py drives.
     so.record_published([_long()])
     sent = []
-    eng, _ = _engine(lambda s: TimeoutError("boom"), monkeypatch, sent)
-    assert asyncio.run(eng._resolve_signal_outcomes(now_ms=NOW)) == 0
+    eng, asked = _engine(lambda s: TimeoutError("boom"), monkeypatch, sent)
+    assert asyncio.run(eng._resolve_signal_outcomes(now_ms=FIRST + 2 * H)) == 0
     entry = json.loads(ledger.read_text())["signals"]["K1"]
     assert sent == [] and entry["status"] == so.NEW and entry["checked_ms"] is None
+    # The market is passed over for a while rather than asked every pass...
+    eng._signal_outcome_pass_at = None
+    asyncio.run(eng._resolve_signal_outcomes(now_ms=FIRST + 2 * H))
+    assert len(asked) == 1
+    # ...and asked again once that backoff has run out.
+    eng._signal_outcome_pass_at = None
+    eng._signal_outcome_backoff = {m: 0.0 for m in eng._signal_outcome_backoff}
+    asyncio.run(eng._resolve_signal_outcomes(now_ms=FIRST + 2 * H))
+    assert len(asked) == 2
 
 
 def test_a_symbol_naming_no_market_is_sent_unscored(ledger, monkeypatch):

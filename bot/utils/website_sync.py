@@ -12,6 +12,7 @@ import os
 import threading
 import time as _t
 import uuid
+import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Optional
@@ -626,6 +627,44 @@ def sync_signals(signals: list[dict]) -> bool:
         return True
     log.warning("Signal stream sync failed")
     return False
+
+
+def fetch_pending_signals(after_id: int = 0, limit: int = 500, older_than_s: int = 3600,
+                          *, timeout: int = _COLD_START_TIMEOUT) -> Optional[dict]:
+    """GET one page of the sealed calls the website still holds as pending.
+
+    The operator's backfill (``scripts/signal_outcomes_backfill.py``) reads
+    these: calls the bot's outcome ledger evicted while pending were never
+    re-sent, so the website kept them NEW. ``{"signals": [...],
+    "next_after_id": id or None}``, or None when the website did not answer
+    with that shape. None is never an empty page: "nothing pending" is a
+    claim about the website, and a failed read is not one. A read, so it has
+    no retry budget of its own; the caller decides whether to ask again.
+    """
+    query = urllib.parse.urlencode({"after_id": int(after_id), "limit": int(limit),
+                                    "older_than_s": int(older_than_s)})
+    req = urllib.request.Request(
+        f"{WEBSITE_URL}/api/bot/sync/signals/pending?{query}",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "RUNECLAW-Bot/1.0",
+            "X-Bot-Secret": os.getenv("BOT_SYNC_SECRET", "") or SYNC_SECRET,
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            parsed = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        log.error("Pending signals read: HTTP %s", e.code)
+        return None
+    except Exception as exc:
+        log.error("Pending signals read failed (%s)", type(exc).__name__)
+        return None
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("signals"), list):
+        log.error("Pending signals read: the website answered in a shape it does not send")
+        return None
+    return parsed
 
 
 def sync_signals_in_background(signals: list[dict]) -> None:

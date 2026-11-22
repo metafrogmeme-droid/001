@@ -215,6 +215,60 @@ if (USE_MYSQL) {
 
 // ── In-memory database ──────────────────────────────────────────
 
+/** Split on commas outside parentheses and quotes. */
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0; let quote = null; let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote) { if (ch === quote) quote = null; continue; }
+    if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === '(') depth += 1;
+    else if (ch === ')') depth -= 1;
+    else if (ch === ',' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+  }
+  parts.push(text.slice(start));
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+/** `'A', 'B'` as ['A', 'B'], upper-cased: the default collation is case-insensitive. */
+function sqlWordList(text) {
+  return text.split(',').map((w) => w.trim().replace(/^'|'$/g, '').toUpperCase());
+}
+
+/**
+ * Apply a signals `ON DUPLICATE KEY UPDATE` clause the way MySQL does:
+ * assignment by assignment, LEFT TO RIGHT, each seeing the columns the ones
+ * before it already set. The ingest's terminal guard depends on that order
+ * (routes/sync.js assigns status last), and a shim that evaluated every
+ * condition against the old row would pass a clause that erases outcomes in
+ * production. Only the two shapes the ingest writes are understood:
+ * `c = VALUES(c)` and `c = IF(status IN (..) AND VALUES(status) NOT IN (..),
+ * c, VALUES(c))`. Anything else throws, never a guess. A NULL on either side
+ * of an IN makes the condition NULL, which IF reads as false.
+ */
+function applySignalUpsert(clause, existing, incoming) {
+  const plain = /^(\w+)\s*=\s*VALUES\((\w+)\)$/i;
+  const guarded = new RegExp(String.raw`^(\w+)\s*=\s*IF\(\s*status\s+IN\s*\(([^)]*)\)\s+AND\s+`
+    + String.raw`VALUES\(status\)\s+NOT\s+IN\s*\(([^)]*)\)\s*,\s*(\w+)\s*,\s*VALUES\((\w+)\)\s*\)$`, 'i');
+  for (const assignment of splitTopLevel(clause)) {
+    let m = assignment.match(plain);
+    if (m) { existing[m[1].toLowerCase()] = incoming[m[2].toLowerCase()]; continue; }
+    m = assignment.match(guarded);
+    if (!m) {
+      const err = new Error(`MemoryDB cannot evaluate the upsert assignment: ${assignment}`);
+      err.code = 'ER_MEMORYDB_UNIMPLEMENTED';
+      throw err;
+    }
+    const stored = existing.status == null ? null : String(existing.status).toUpperCase();
+    const sent = incoming.status == null ? null : String(incoming.status).toUpperCase();
+    const keep = stored !== null && sent !== null
+      && sqlWordList(m[2]).includes(stored) && !sqlWordList(m[3]).includes(sent);
+    const col = m[1].toLowerCase();
+    existing[col] = keep ? existing[m[4].toLowerCase()] : incoming[m[5].toLowerCase()];
+  }
+}
+
 class MemoryDB {
   /**
    * Which in-memory store backs each `user_id`-keyed table, for erasure.
@@ -656,13 +710,112 @@ class MemoryDB {
       const existing = this.signals.find(s => s.signal_key === row.signal_key);
       if (existing) {
         // Provable Calls: ON DUPLICATE updates outcome fields ONLY — the
-        // seal, payload and every decision-time value stay untouched.
-        existing.status = row.status; existing.pnl = row.pnl; existing.resolved_at = row.resolved_at;
+        // seal, payload and every decision-time value stay untouched. A
+        // statement that carries the clause gets it evaluated as MySQL would
+        // (applySignalUpsert); the bare seeding INSERTs the tests write keep
+        // the old outcome-fields update.
+        const clause = sql.match(/ON\s+DUPLICATE\s+KEY\s+UPDATE([\s\S]*)$/i);
+        if (clause) applySignalUpsert(clause[1], existing, row);
+        else { existing.status = row.status; existing.pnl = row.pnl; existing.resolved_at = row.resolved_at; }
       } else {
         row.id = this._nextSignalId++;
         this.signals.push(row);
       }
       return [{ affectedRows: 1 }, []];
+    }
+
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('SEAL IS NOT NULL AND SEALED_AT IS NOT NULL')
+        && cmd.includes('ID > ?')) {
+      // The backfill's read (GET /api/bot/sync/signals/pending): sealed rows
+      // in the statement's pending words, created before params[0], id after
+      // params[1], ascending id, the inline LIMIT. Ahead of the `ID >` sweep
+      // below, which ignores the status and seal filters.
+      const words = sqlWordList((cmd.match(/STATUS IN \(([^)]*)\)/) || [])[1] || '');
+      const before = new Date(params[0]).getTime();
+      const after = Number(params[1]);
+      const lim = Number((cmd.match(/LIMIT\s+(\d+)/) || [])[1]);
+      const rows = this.signals
+        .filter((s) => s.status != null && words.includes(String(s.status).toUpperCase())
+          && s.seal != null && s.sealed_at != null
+          && new Date(s.created_at).getTime() < before && Number(s.id) > after)
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .slice(0, lim);
+      return [projectSignals(rows), []];
+    }
+
+    // The Claw Record's two reads (lib/claw_record.js groupsSql / recentSql),
+    // answered with MySQL's semantics rather than the record's own functions,
+    // so the route's SQL path is checked against the pure path, not against
+    // itself. Ahead of the digest branch below, which also matches COUNT(*)
+    // and CREATED_AT >= and would answer a single count.
+    const clawMs = (v) => (v == null ? NaN : new Date(v).getTime());
+    const clawEligibility = (s) => {
+      if (s.seal == null || s.seal === '' || s.sealed_at == null) return 'unsealed';
+      if (s.resolved_at != null && clawMs(s.sealed_at) > clawMs(s.resolved_at)) return 'sealed_after_outcome';
+      return 'sealed';
+    };
+    // The double answers only the clauses the statement CARRIES: a read
+    // whose eligibility or outcome expression is not the one these
+    // branches implement is refused, never answered as if it were.
+    const flat = cmd.replace(/\s+/g, ' ');
+    const clawShape = (...parts) => {
+      if (parts.every((p) => flat.includes(p))) return;
+      const err = new Error('MemoryDB does not implement this Claw Record read');
+      err.code = 'ER_MEMORYDB_UNIMPLEMENTED';
+      throw err;
+    };
+    const CLAW_ELIGIBILITY = [
+      "WHEN SEAL IS NULL OR SEAL = '' OR SEALED_AT IS NULL THEN 'UNSEALED'",
+      "WHEN RESOLVED_AT IS NOT NULL AND SEALED_AT > RESOLVED_AT THEN 'SEALED_AFTER_OUTCOME'",
+      "ELSE 'SEALED' END",
+    ];
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('FLOOR(UNIX_TIMESTAMP(CREATED_AT) / 86400) AS DAY_N')) {
+      clawShape(...CLAW_ELIGIBILITY, 'END AS ELIG',
+        "CASE WHEN PNL IS NULL THEN NULL WHEN PNL > 0 THEN 'WIN' WHEN PNL < 0 THEN 'LOSS' ELSE 'FLAT' END AS OUTCOME",
+        'CASE WHEN PNL IS NULL THEN STATUS ELSE NULL END AS WORD',
+        'COUNT(*) AS N, SUM(PNL) AS SUM_R', 'WHERE CREATED_AT >= ?', 'GROUP BY DAY_N, ELIG, OUTCOME, WORD');
+      const since = clawMs(params[0]);
+      const lim = Number((cmd.match(/LIMIT\s+(\d+)/) || [])[1]);
+      const groups = new Map();
+      for (const s of this.signals) {
+        const created = clawMs(s.created_at);
+        if (!(created >= since)) continue;
+        const pnl = s.pnl == null ? null : Number(s.pnl);
+        const g = {
+          day_n: Math.floor(created / 86400000),
+          elig: clawEligibility(s),
+          outcome: pnl === null ? null : pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'flat',
+          word: pnl === null ? s.status : null,
+        };
+        const k = JSON.stringify([g.day_n, g.elig, g.outcome, g.word]);
+        if (!groups.has(k)) groups.set(k, { ...g, n: 0, sum_r: null });
+        const into = groups.get(k);
+        into.n += 1;
+        if (pnl !== null) into.sum_r = (into.sum_r === null ? 0 : into.sum_r) + pnl;   // SUM skips NULL
+      }
+      return [[...groups.values()].slice(0, lim), []];
+    }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('ORDER BY COALESCE(RESOLVED_AT, CREATED_AT) DESC, SIGNAL_KEY DESC')) {
+      clawShape(...CLAW_ELIGIBILITY, "END) = 'SEALED'", 'WHERE CREATED_AT >= ?');
+      const resolvedOnly = flat.includes('AND PNL IS NOT NULL AND');
+      const at = (s) => clawMs(s.resolved_at == null ? s.created_at : s.resolved_at);
+      const since = clawMs(params[0]);
+      let after = () => true;
+      if (cmd.includes('AND SIGNAL_KEY < ?')) {
+        const c = clawMs(params[1]); const key = String(params[3]);
+        after = (s) => at(s) < c || (at(s) === c && String(s.signal_key) < key);
+      } else if (cmd.includes('COALESCE(RESOLVED_AT, CREATED_AT) < ?')) {
+        const c = clawMs(params[1]);
+        after = (s) => at(s) < c;
+      }
+      const lim = Number((cmd.match(/LIMIT\s+(\d+)/) || [])[1]);
+      const rows = this.signals
+        .filter((s) => clawMs(s.created_at) >= since && (!resolvedOnly || s.pnl != null)
+          && clawEligibility(s) === 'sealed' && after(s))
+        .sort((a, b) => (at(b) - at(a))
+          || (String(a.signal_key) < String(b.signal_key) ? 1 : String(a.signal_key) > String(b.signal_key) ? -1 : 0))
+        .slice(0, lim);
+      return [projectSignals(rows), []];
     }
 
     if (cmd.includes('FROM SIGNALS') && cmd.includes('COUNT(*)') && cmd.includes('CREATED_AT >=')) {
