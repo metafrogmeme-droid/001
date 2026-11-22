@@ -476,8 +476,12 @@ def _forcescan_host(confirmed: list):
     engine._auto_confirm_notify_callback = None
     engine.analyzer = None
     engine._engine_idea_ids = set()
+    # The force scan publishes what it registered (recorded, not sent).
+    engine.published = []
+    engine._publish_engine_ideas = lambda ideas: engine.published.append(list(ideas))
     for name in ("_force_scan_locked", "_auto_confirm_gate_value",
-                 "_auto_confirm_suppressed", "_engine_pending_ids",
+                 "_auto_confirm_suppressed", "_auto_confirm_batch",
+                 "_run_auto_confirm_pairs", "_engine_pending_ids",
                  "_register_engine_idea", "_autonomous_live_refusal",
                  "_suppress_autonomous_live"):
         # Through the class __dict__, so a staticmethod binds as one.

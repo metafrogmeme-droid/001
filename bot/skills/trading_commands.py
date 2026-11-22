@@ -1710,13 +1710,18 @@ class TradingCommands:
                     return
                 if not pending:
                     sig_count = result.get("signals", 0)
-                    auto_count = result.get("auto_confirmed", 0)
+                    placed = result.get("auto_confirmed")
                     msg = f"No trade setups above {_display_min:.0%} confidence found."
                     if sig_count > 0:
                         msg += f"\n\n\U0001f4e1 Scanned {sig_count} pairs"
-                        if auto_count > 0:
-                            msg += f" — {auto_count} were auto-confirmed"
-                        msg += " but none passed confidence threshold."
+                        # "N were auto-confirmed but none passed confidence
+                        # threshold" contradicted itself, and counted refusals
+                        # as confirms. A count here is orders PLACED (only a
+                        # full scan this tap joined can place any).
+                        if isinstance(placed, int) and not isinstance(placed, bool) and placed > 0:
+                            msg += (f"; auto-confirm placed {placed}, which no "
+                                    "longer show as pending")
+                        msg += "."
                     msg += "\n\nTry <code>/fullscan</code> for deep multi-symbol analysis."
                     await self._send(update, msg)
                     return
