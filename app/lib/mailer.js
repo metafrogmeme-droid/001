@@ -87,6 +87,13 @@ function isConfigured(env = process.env) {
   return missingConfig(env).length === 0;
 }
 
+// The From a send would use, or '' when none resolves (sendMail then throws
+// ENOMFROM). A job that claims a member before sending asks this first, so a
+// missing sender is found before anyone is claimed.
+function sender(env = process.env) {
+  return _cfg(env).from;
+}
+
 function baseUrl() {
   // A verification link is clicked from an INBOX — the one place a wrong
   // hostname is both invisible to us and unfixable by the user.
@@ -337,6 +344,7 @@ async function sendMail({ to, subject, text, html, listUnsubscribe }) {
 module.exports = {
   isConfigured,
   missingConfig,
+  sender,
   baseUrl,
   sendMail,
   // exported for tests

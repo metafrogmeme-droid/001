@@ -2051,6 +2051,26 @@ class MemoryDB {
     }
 
     // -- USERS --
+    // The first-steps mail's candidates (lib/onboarding_mail.js): accounts
+    // created inside one epoch-second window, not yet mailed, not opted out.
+    // The bounds come from the params and both guards from the statement, so
+    // a query that dropped one would not be answered as if it had it.
+    if (cmd.startsWith('SELECT ID, EMAIL, EMAIL_VERIFIED FROM USERS WHERE UNIX_TIMESTAMP(CREATED_AT) > ? AND UNIX_TIMESTAMP(CREATED_AT) <= ?')) {
+      const lo = Number(params[0]);
+      const hi = Number(params[1]);
+      const m = cmd.match(/LIMIT\s+(\d+)/);
+      const lim = m ? Number(m[1]) : Infinity;
+      const notSent = cmd.includes('ONBOARDING_EMAIL_SENT_AT IS NULL');
+      const notOut = cmd.includes('EMAIL_OPTED_OUT_AT IS NULL');
+      const rows = this.users.filter((u) => {
+        const sec = Math.floor(new Date(u.created_at).getTime() / 1000);
+        return sec > lo && sec <= hi
+          && (!notSent || u.onboarding_email_sent_at == null)
+          && (!notOut || u.email_opted_out_at == null);
+      }).sort((a, b) => a.id - b.id).slice(0, lim)
+        .map((u) => ({ id: u.id, email: u.email, email_verified: u.email_verified }));
+      return [rows, []];
+    }
     if (cmd.includes('INSERT INTO USERS')) {
       const exists = this.users.find(u => u.email === params[0]);
       if (exists) {
