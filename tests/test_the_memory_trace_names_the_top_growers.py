@@ -8,12 +8,13 @@ object, so nothing a user typed and no env value can reach the log line.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
-import tracemalloc
 
 import pytest
 
 from bot.utils import mem_trace
+from tests._fresh_trace import run_traced
 
 KEYS = {"at", "size_delta", "count_delta", "size"}
 
@@ -132,21 +133,29 @@ def _allocate_five_megabytes():
     return [bytearray(1024) for _ in range(5 * 1024)]   # the line the trace must name
 
 
-def test_a_real_trace_names_the_line_that_grew_and_nothing_but_frames(monkeypatch):
-    if tracemalloc.is_tracing():
-        pytest.skip("a trace is already on in this process (PYTHONTRACEMALLOC?)")
+def test_a_real_trace_names_the_line_that_grew_and_nothing_but_frames():
+    """Run in a fresh interpreter (`tests/_fresh_trace.py`), so no tracer
+    already on in the test process can change what the trace sees."""
     sentinel = "SENTINEL-VALUE-THAT-MUST-NOT-BE-LOGGED"
-    monkeypatch.setenv("RUNECLAW_TEST_SENTINEL", sentinel)
-    lines, log = _recorder()
-    assert mem_trace.start_if_enabled({"RUNECLAW_TRACEMALLOC": "1"}) is True
-    try:
-        trace = mem_trace.GrowthTrace(log=log)
-        trace.tick()
-        kept = _allocate_five_megabytes()
-        growers = trace.tick()
-    finally:
-        tracemalloc.stop()
-    assert len(kept) == 5 * 1024
+    out = run_traced("""
+import json
+from bot.utils import mem_trace
+from tests.test_the_memory_trace_names_the_top_growers import _allocate_five_megabytes
+lines = []
+assert mem_trace.start_if_enabled({"RUNECLAW_TRACEMALLOC": "1"}) is True
+try:
+    trace = mem_trace.GrowthTrace(log=lambda result, data: lines.append([result, data]))
+    trace.tick()
+    kept = _allocate_five_megabytes()
+    growers = trace.tick()
+finally:
+    _tm.stop()
+assert len(kept) == 5 * 1024
+print(json.dumps({"growers": growers, "lines": lines}))
+""", env={"RUNECLAW_TEST_SENTINEL": sentinel})
+    got = json.loads(out)
+    growers, lines = got["growers"], got["lines"]
+    assert sentinel not in out
 
     assert growers, "a 5 MB allocation between looks must show as growth"
     here = "tests/test_the_memory_trace_names_the_top_growers.py:"

@@ -6,33 +6,42 @@ off has to mean off: tracemalloc never started, no snapshot, no task. And the
 switch is the process environment only: `bot/main.py` hands in the copy of
 `os.environ` taken before `.env` is loaded, so a line written into `.env`
 cannot start a trace on the next restart.
+
+The tests that read or start tracemalloc run in a fresh interpreter
+(`tests/_fresh_trace.py`): a tracer already on in the test process cannot
+make "off" look on, and a test here cannot stop someone else's tracer.
 """
 from __future__ import annotations
 
 import ast
 import re
-import tracemalloc
 from pathlib import Path
 
 import pytest
 
-from bot.utils import mem_trace
+from tests._fresh_trace import run_traced
 from tests.source_scan import code_only
 
 REPO = Path(__file__).resolve().parent.parent
 
 
+def _assert_off(mapping: dict, process_env: dict | None = None) -> None:
+    """In a fresh interpreter, with any tracemalloc start or snapshot raising
+    (so a passing run proves neither ran): ``mapping`` asks for no trace,
+    starts none, and none is on afterwards."""
+    out = run_traced(f"""
 def _refuse(*_a, **_k):
     raise AssertionError("tracemalloc was touched with the trace off")
-
-
-@pytest.fixture
-def untouchable(monkeypatch):
-    """Any start or snapshot raises, so a passing test proves neither ran."""
-    if tracemalloc.is_tracing():
-        pytest.skip("a trace is already on in this process (PYTHONTRACEMALLOC?)")
-    monkeypatch.setattr(tracemalloc, "start", _refuse)
-    monkeypatch.setattr(tracemalloc, "take_snapshot", _refuse)
+_tm.start = _refuse
+_tm.take_snapshot = _refuse
+from bot.utils import mem_trace
+env = {mapping!r}
+assert mem_trace.trace_requested(env) is False
+assert mem_trace.start_if_enabled(env) is False
+assert _tm.is_tracing() is False
+print("off")
+""", env=process_env)
+    assert out == "off", "the block must run to its end"
 
 
 @pytest.mark.parametrize("env", [
@@ -40,30 +49,30 @@ def untouchable(monkeypatch):
     {"RUNECLAW_TRACEMALLOC": "false"}, {"RUNECLAW_TRACEMALLOC": "off"},
     {"RUNECLAW_TRACEMALLOC": "no"}, {"SOMETHING_ELSE": "1"},
 ], ids=["unset", "empty", "zero", "false", "off", "no", "other-key"])
-def test_off_starts_nothing(env, untouchable):
-    assert mem_trace.trace_requested(env) is False
-    assert mem_trace.start_if_enabled(env) is False
-    assert tracemalloc.is_tracing() is False
+def test_off_starts_nothing(env):
+    _assert_off(env)
 
 
-def test_the_process_environment_is_not_read_behind_the_mapping(monkeypatch, untouchable):
-    """The flag in `os.environ` (where a `.env` load would put it) and absent
-    from the mapping handed in: off. The module asks only what it is given."""
-    monkeypatch.setenv("RUNECLAW_TRACEMALLOC", "1")
-    assert mem_trace.start_if_enabled({}) is False
-    assert tracemalloc.is_tracing() is False
+def test_the_process_environment_is_not_read_behind_the_mapping():
+    """The flag in the process environment (where a `.env` load would put it)
+    and absent from the mapping handed in: off. The module asks only what it
+    is given."""
+    _assert_off({}, process_env={"RUNECLAW_TRACEMALLOC": "1"})
 
 
 @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", " on "])
 def test_on_starts_tracing_with_one_frame(value):
-    if tracemalloc.is_tracing():
-        pytest.skip("a trace is already on in this process (PYTHONTRACEMALLOC?)")
-    try:
-        assert mem_trace.start_if_enabled({"RUNECLAW_TRACEMALLOC": value}) is True
-        assert tracemalloc.is_tracing() is True
-        assert tracemalloc.get_traceback_limit() == mem_trace.FRAMES == 1
-    finally:
-        tracemalloc.stop()
+    out = run_traced(f"""
+from bot.utils import mem_trace
+try:
+    assert mem_trace.start_if_enabled({{"RUNECLAW_TRACEMALLOC": {value!r}}}) is True
+    assert _tm.is_tracing() is True
+    assert _tm.get_traceback_limit() == mem_trace.FRAMES == 1
+finally:
+    _tm.stop()
+print("on")
+""")
+    assert out == "on", "the block must run to its end"
 
 
 def _run_telegram_src() -> str:

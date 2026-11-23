@@ -22,6 +22,7 @@ import pytest
 from bot import config as bot_config
 from bot.compat import UTC
 from bot.utils.bounded import evict_oldest, touch
+from tests._fresh_trace import run_traced
 
 # ── the shared rule ─────────────────────────────────────────────────────────
 
@@ -334,16 +335,26 @@ def _peak_of(fn) -> int:
         tracemalloc.stop()
 
 
-def test_a_tail_read_holds_the_tail_not_the_file(tmp_path):
+def test_a_tail_read_holds_the_tail_not_the_file():
     """The memory claim itself, measured: asking for the last 10 of 3000 rows
-    peaks at a small fraction of parsing the whole file into a list."""
-    if tracemalloc.is_tracing():
-        pytest.skip("a trace is already on in this process (PYTHONTRACEMALLOC?)")
-    from bot.learning.models import DecisionMemory
-    store = _store(tmp_path)
+    peaks at a small fraction of parsing the whole file into a list. Measured
+    in a fresh interpreter (`tests/_fresh_trace.py`), so no tracer already on
+    in the test process can change either peak."""
+    out = run_traced("""
+import json
+import tempfile
+from pathlib import Path
+from bot.learning.models import DecisionMemory
+from tests.test_unbounded_containers_are_capped import _peak_of, _store, _write_decisions
+with tempfile.TemporaryDirectory() as d:
+    store = _store(Path(d))
     _write_decisions(store._files["decision"], 3000)
     whole = _peak_of(lambda: store._read_jsonl("decision", DecisionMemory))
     tail = _peak_of(lambda: store.get_decisions(limit=10))
+print(json.dumps([tail, whole]))
+""")
+    tail, whole = json.loads(out)
+    assert whole > 0, "the whole read must have been measured"
     assert tail * 5 < whole, (tail, whole)
 
 
