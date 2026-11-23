@@ -4533,7 +4533,8 @@ async def handle_admin_members_act(request: web.Request) -> web.Response:
             bot, users, target, str(res.params.get("role") or ""))
     elif action == "set_tier":
         payload["notified"] = await member_admin.notify_tier(
-            bot, users, target, str(res.params.get("tier") or ""))
+            bot, users, target, str(res.params.get("tier") or ""),
+            previous=res.params.get("from"))
     return web.json_response(payload)
 
 

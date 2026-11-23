@@ -785,3 +785,4 @@ about to change before changing it.
 ## EVERY CALL GOT ONE LOOK BEFORE ITS FIRST BAR CLOSED, AND THE CAP EVICTED IT STILL PENDING (line 30510)
 
 - L30593: EVERY EMAIL THE SITE SENDS NOW COMES FROM ONE SHELL, AND THE TWO THAT ARE NOT SECURITY MAIL CAN BE STOPPED FROM THE MAIL ITSELF — `app/test/a_plan_notice_lists_the_bots_ladder.test.js`, `app/test/an_account_change_reaches_its_owner.test.js`, `app/test/email_onboarding_job.test.js`, `app/test/email_opt_out.test.js`, `app/test/email_previews_are_current.test.js`, `app/test/email_templates.test.js`, `app/test/the_reset_button_opens_the_forgot_form.smoke.test.js`, `app/test/the_token_mails_are_branded.test.js`
+- L30653: THE DOWNGRADE EMAIL COULD NEVER BE SENT, BECAUSE THE BOT NEVER SAID WHAT THE PLAN HAD BEEN — `tests/test_a_member_changes_through_one_path.py`, `tests/test_a_tier_buys_what_its_card_says.py`, `tests/test_a_website_member_hears_of_their_tier.py`

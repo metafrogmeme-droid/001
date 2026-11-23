@@ -399,6 +399,9 @@ def test_the_raw_grant_is_read_only_where_the_grant_is_the_subject():
         # A Stars checkout: whether a paid period changes the stored grant,
         # the same comparison `UserStore.grant_paid_tier` makes when it lands.
         ("bot/skills/upgrade_commands.py", "_on_pre_checkout"),
+        # The grant `set_tier` is about to replace, sent with a website
+        # member's tier notice so the email can word a move down as one.
+        ("bot/core/member_admin.py", "_held_tier"),
     }
     seen = set()
     for path in sorted((ROOT / "bot").rglob("*.py")):

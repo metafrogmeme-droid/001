@@ -815,7 +815,8 @@ def sync_tiers_in_background(tier_map: dict, *, remember: bool = True) -> None:
     t.start()
 
 
-def notify_tier_change(member_key: str, tier: str) -> Optional[dict]:
+def notify_tier_change(member_key: str, tier: str,
+                       previous: Optional[str] = None) -> Optional[dict]:
     """Ask the website to email a website-only member that /set_tier changed
     their tier. A Telegram member is told in Telegram; a ``web:<id>`` member
     has no chat, and without this the first they heard of a new tier was
@@ -827,12 +828,19 @@ def notify_tier_change(member_key: str, tier: str) -> Optional[dict]:
     a deploy corrects. An email per corrected row would be a mailing to the
     whole membership that nobody decided to send.
 
+    ``previous`` is the plan the member held before the change. It is sent
+    as ``from`` so the website can word a move down as one, and only when it
+    is known: with no ``from`` the website uses wording that never says
+    "upgraded", which is true either way.
+
     No retries (the ``_post`` default): an email is an event, not state, and
     a retried POST whose answer was lost sends the member the same email
     twice. Returns the website's answer, or None if it could not be reached.
     """
-    result = _post("/api/bot/sync/tier-notice",
-                   {"member": member_key, "tier": tier})
+    body = {"member": member_key, "tier": tier}
+    if isinstance(previous, str) and previous.strip():
+        body["from"] = previous.strip()
+    result = _post("/api/bot/sync/tier-notice", body)
     if result is None:
         log.warning("Tier notice for a website member could not be delivered "
                     "to the website")
@@ -841,7 +849,8 @@ def notify_tier_change(member_key: str, tier: str) -> Optional[dict]:
     return result
 
 
-def notify_tier_change_in_background(member_key: str, tier: str) -> None:
+def notify_tier_change_in_background(member_key: str, tier: str,
+                                     previous: Optional[str] = None) -> None:
     """Non-blocking tier notice."""
-    threading.Thread(target=notify_tier_change, args=(member_key, tier),
+    threading.Thread(target=notify_tier_change, args=(member_key, tier, previous),
                      daemon=True).start()

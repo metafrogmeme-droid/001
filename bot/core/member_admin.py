@@ -113,6 +113,20 @@ def _state(users, target: str) -> Optional[dict]:
             "tier": u.get("tier"), "live": u.get("can_trade_live")}
 
 
+def _held_tier(users, target: str) -> Optional[str]:
+    """The grant a member holds now, as the store enforces it (`get_tier`: a
+    paid period that has ended holds Basic), or None when their record has no
+    tier at all. `_state` keeps the stored word for the audit; this is the
+    grant the member actually had. The grant, not `tier_gate`'s reading: it
+    is what `set_tier` replaces and what the website's plan mirrors, so the
+    notice compares a grant with a grant."""
+    u = users.get(target)
+    if not u or not u.get("tier"):
+        return None
+    held = users.get_tier(target)
+    return held if isinstance(held, str) else None
+
+
 def _name(users, target: str) -> str:
     """The member's name as the commands always printed it: "Unknown" for no
     record, the record's own name otherwise (an empty one stays empty)."""
@@ -274,12 +288,16 @@ def set_tier(users, target: Any, tier: Optional[str], *, by: Any, via: str) -> O
         out.before = _state(users, target)
         if _web_on_admin(out, via):
             return out
+        held = _held_tier(users, target)
         if not users.set_tier(target, tier):
             out.error = "set_tier_failed"
             return out
         out.after = _state(users, target)
     out.ok, out.name = True, _name(users, target)
-    out.params = {"tier": tier, "is_web": is_web}
+    # `from` is the plan the member held before this change, so the website
+    # can word a move down as one (POST /api/bot/sync/tier-notice). None when
+    # the record held no tier: unknown is not Basic.
+    out.params = {"tier": tier, "is_web": is_web, "from": held}
     # The website's `users.plan` follows the bot's tier authority: mirrored
     # in the background, best-effort, from either door.
     try:
@@ -339,15 +357,18 @@ async def notify_approved(bot, users, target: str, role: str) -> bool:
         return False
 
 
-async def notify_tier(bot, users, target: str, tier: str) -> bool:
+async def notify_tier(bot, users, target: str, tier: str, *,
+                      previous: Optional[str] = None) -> bool:
     """Tell a member their tier changed: "changed", not "upgraded", since the
     same change lowers one. A website-only member has no chat to write to, so
     the website emails them instead (when it holds a real address and a mail
-    relay; best-effort, in the background)."""
+    relay; best-effort, in the background). `previous`, the plan held before
+    (`set_tier`'s ``params["from"]``), lets that email word a move down as
+    one; the Telegram message says "changed" either way."""
     if _is_web_member(target):
         try:
             from bot.utils.website_sync import notify_tier_change_in_background
-            notify_tier_change_in_background(target, tier)
+            notify_tier_change_in_background(target, tier, previous)
             return True
         except Exception:  # noqa: BLE001
             return False

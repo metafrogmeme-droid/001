@@ -188,7 +188,7 @@ const TEMPLATES = {
   // ── Not security mail: unsubscribe link, and an opt-out holds them back. ─
 
   // Also the wording when the direction of the change is not known (the bot
-  // does not yet send the previous plan): nothing in it says "upgraded".
+  // sent no previous plan): nothing in it says "upgraded".
   tier_upgrade: {
     security: false,
     note: NOTICE_NOTE,
