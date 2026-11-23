@@ -56,7 +56,8 @@ const PLAN_NAMES = Object.freeze({ basic: 'Basic', pro: 'Pro', elite: 'Elite' })
  * Which plan notice to send. The downgrade wording only when the plan before
  * the change is known and ranked higher; otherwise the upgrade wording, which
  * never says "upgraded", so it stays true when the direction is not known.
- * (The bot sends only the new tier today.)
+ * (The bot sends the plan the member held as `from`, bot/core/member_admin.py
+ * set_tier; it leaves it out when the record held no tier.)
  */
 function tierTemplate(tier, from) {
   const order = Object.keys(PLAN_NAMES);

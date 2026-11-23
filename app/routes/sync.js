@@ -759,8 +759,9 @@ router.post('/tiers', async (req, res) => {
  * mailed: its tier follows the Telegram id, which the bot tells in Telegram.
  *
  * `from`, optional, is the plan before the change. With it, a move down gets
- * the downgrade wording; without it (the bot sends only the new tier today),
- * or when it is not a plan this site names, the upgrade wording, which never
+ * the downgrade wording; without it (the bot leaves it out when the member's
+ * record held no tier, and an older bot never sent it), or when it is not a
+ * plan this site names, the upgrade wording, which never
  * says "upgraded" (lib/account_mail.js tierTemplate). The users row cannot
  * stand in for it: the plan mirror runs separately and may already hold the
  * new value.

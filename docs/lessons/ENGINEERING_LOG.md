@@ -30649,3 +30649,26 @@ send. `app/test/the_reset_button_opens_the_forgot_form.smoke.test.js` in
 Chromium. Mutants of the opt-out check, the security bypass, the claim guard,
 the window, the Arena rule, the flag, the pre-checks and the stop on failure
 were each killed by the test that names them.)
+
+**THE DOWNGRADE EMAIL COULD NEVER BE SENT, BECAUSE THE BOT NEVER SAID WHAT THE PLAN HAD BEEN.**
+The website's plan notice has a downgrade wording for a move down, chosen only
+when `/api/bot/sync/tier-notice` carries `from`, the plan before the change.
+The bot sent `{member, tier}` alone, so every notice took the upgrade wording
+(true either way: it never says "upgraded"), and the downgrade one was dead.
+`bot/core/member_admin.py` `set_tier` now reads the grant the member held,
+inside the lock and before the write, and returns it as `params["from"]`; both
+doors pass it to `notify_tier`, and `bot/utils/website_sync.py` sends it as
+`from`.
+- **The grant, not the stored word.** `get_tier` is read, so a paid period
+  that has ended counts as Basic; `_state` keeps the stored word for the
+  audit row. And the grant, not `tier_gate`'s reading: `set_tier` replaces a
+  grant and the website's plan mirrors grants, so the notice compares a grant
+  with a grant. The raw-grant scan in `tests/test_a_tier_buys_what_its_card_says.py`
+  lists the read with that reason.
+- **Unknown is not Basic.** A record with no tier sends no `from`; the
+  website then uses the wording that is true either way.
+(`tests/test_a_website_member_hears_of_their_tier.py`: the plan held goes with
+the notice from `/set_tier`, an ended paid period sends Basic, a record with
+no tier sends none, and `from` is in the body only when known.
+`tests/test_a_member_changes_through_one_path.py`: the admin page's door sends
+it too. Five mutants, all killed.)
