@@ -340,6 +340,24 @@ class TestGateway:
         assert bot.send_message.await_count == 1
         assert _rows(audit_file)[-1]["via"] == "website"
 
+    def test_a_website_members_tier_change_tells_the_website_the_plan_held(self, store, audit_file, monkeypatch):
+        # The page's set_tier reaches the same notice /set_tier does, with
+        # the plan the member held, so the email can word a move down.
+        from bot.utils import website_sync
+        from bot.web import user_gateway as ug
+        notices = []
+        monkeypatch.setattr(website_sync, "notify_tier_change_in_background",
+                            lambda member, tier, previous=None: notices.append((member, tier, previous)))
+        app, bot = _gw_app(store)
+        for tier, want in (("pro", ("web:7", "pro", "basic")), ("basic", ("web:7", "basic", "pro"))):
+            r = _run(ug.handle_admin_members_act(_Req(app, {
+                "telegram_id": OPERATOR, "action": "set_tier", "target": "web:7", "tier": tier})))
+            assert r.status == 200, r.body
+            body = json.loads(r.body)
+            assert body["ok"] is True and body["notified"] is True
+            assert notices[-1] == want, notices
+        assert bot.send_message.await_count == 0, "a website-only member has no chat"
+
     @pytest.mark.parametrize("ask", [
         {"action": "grant_live", "target": "55"},
         {"action": "grant_admin", "target": "55"},

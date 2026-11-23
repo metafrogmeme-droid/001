@@ -36,7 +36,7 @@ def _set_tier(store, monkeypatch, *args):
     monkeypatch.setattr(website_sync, "sync_tiers_in_background", lambda m, **kw: None)
     notices = []
     monkeypatch.setattr(website_sync, "notify_tier_change_in_background",
-                        lambda member, tier: notices.append((member, tier)))
+                        lambda member, tier, previous=None: notices.append((member, tier, previous)))
 
     async def send(update, text, *a, **k):
         return None
@@ -54,12 +54,40 @@ def _set_tier(store, monkeypatch, *args):
 def test_a_website_member_is_emailed_and_a_telegram_member_is_messaged(store, monkeypatch):
     told, notices = _set_tier(store, monkeypatch, "web:7", "pro")
     assert store.get_tier("web:7") == "pro"
-    assert notices == [("web:7", "pro")], notices
+    # The notice carries the plan the member held, so a move down can be
+    # worded as one on the website.
+    assert notices == [("web:7", "pro", "basic")], notices
     assert told == [], "a website-only member has no chat to write to"
     # The other arm: a Telegram member is told in Telegram, and not emailed.
     told, notices = _set_tier(store, monkeypatch, "101", "elite")
     assert notices == [], notices
     assert told and "Your tier changed" in told[-1].kwargs["text"]
+
+
+def test_the_plan_held_before_the_change_goes_with_the_notice(store, monkeypatch):
+    _set_tier(store, monkeypatch, "web:7", "elite")
+    _, notices = _set_tier(store, monkeypatch, "web:7", "pro")
+    assert notices == [("web:7", "pro", "elite")], notices
+    _, notices = _set_tier(store, monkeypatch, "web:7", "basic")
+    assert notices == [("web:7", "basic", "pro")], notices
+
+
+def test_the_plan_held_is_the_one_the_store_enforces(store, monkeypatch):
+    # A paid period that has ended holds Basic, whatever word is stored: the
+    # notice names the plan the member actually had, not the stored word.
+    store.set_tier("web:7", "elite")
+    store.get("web:7")["tier_until"] = 1.0
+    assert store.get_tier("web:7") == "basic"
+    _, notices = _set_tier(store, monkeypatch, "web:7", "pro")
+    assert notices == [("web:7", "pro", "basic")], notices
+
+
+def test_a_record_with_no_tier_sends_no_previous_plan(store, monkeypatch):
+    # Unknown is not Basic: with no tier on record the notice carries none,
+    # and the website words the mail so it is true either way.
+    store.get("web:7").pop("tier", None)
+    _, notices = _set_tier(store, monkeypatch, "web:7", "pro")
+    assert notices == [("web:7", "pro", None)], notices
 
 
 def test_a_refused_set_tier_tells_nobody(store, monkeypatch):
@@ -86,6 +114,15 @@ def test_the_notice_is_its_own_request_and_is_never_retried(monkeypatch):
     # No `retries=`: an email is an event, and a retried POST whose answer
     # was lost would send the member the same email twice.
     assert "retries" not in calls[0][2]
+    # The plan held before goes as `from` when it is known, and only then.
+    calls.clear()
+    ws.notify_tier_change("web:7", "pro", "elite")
+    assert calls == [("/api/bot/sync/tier-notice",
+                      {"member": "web:7", "tier": "pro", "from": "elite"}, {})], calls
+    for unknown in (None, "", "   "):
+        calls.clear()
+        ws.notify_tier_change("web:7", "pro", unknown)
+        assert calls[0][1] == {"member": "web:7", "tier": "pro"}, (unknown, calls)
     # Unreachable is reported as None, not as a notice sent.
     monkeypatch.setattr(ws, "_post", lambda p, b, **k: None)
     assert ws.notify_tier_change("web:7", "pro") is None

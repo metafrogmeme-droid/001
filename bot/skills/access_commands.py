@@ -261,7 +261,8 @@ class AccessCommands:
             f"\U0001f3af {t('set_tier_result', self._lang(update), name=html.escape(res.name), id=target_id, tier_label=tier_label, role=role)}")
         # Tell the member: "changed", not "upgraded", since the same command
         # lowers a tier.
-        await member_admin.notify_tier(ctx.bot, self.users, target_id, tier)
+        await member_admin.notify_tier(ctx.bot, self.users, target_id, tier,
+                                       previous=res.params.get("from"))
 
     async def _cmd_channel(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/channel — manage marketing channel auto-posting.
