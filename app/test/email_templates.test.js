@@ -230,3 +230,27 @@ test('the time and lifetime sentences come from the values the routes use', () =
   assert.equal(T.whenText(new Date('2026-10-14T15:32:59Z')), '2026-10-14 15:32 UTC');
   assert.throws(() => T.whenText('not a date'));
 });
+
+test('every send in the app goes through auth.js or lib/account_mail.js, and so through the templates', () => {
+  // A guard at every call site, which no behaviour test can reach: a new
+  // sendMail call elsewhere would skip the templates, the deliverable gate
+  // and the opt-out. Comments are stripped, so prose naming the function
+  // does not count.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { codeOnly } = require('./helpers/code_only');
+  const APP = path.join(__dirname, '..');
+  const SKIP_DIRS = new Set(['node_modules', 'test', 'public', 'content', 'data']);
+  const callers = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(full); continue; }
+      if (!e.name.endsWith('.js')) continue;
+      const rel = path.relative(APP, full);
+      if (rel === path.join('lib', 'mailer.js')) continue;
+      if (/\bsendMail\b/.test(codeOnly(fs.readFileSync(full, 'utf8')))) callers.push(rel);
+    }
+  }(APP));
+  assert.deepEqual(callers.sort(), ['auth.js', path.join('lib', 'account_mail.js')]);
+});

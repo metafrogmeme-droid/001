@@ -1,7 +1,9 @@
 'use strict';
 /**
  * Account notices: the emails that tell a person something changed on their
- * account, so a change they did not make reaches them while it still matters.
+ * account, so a change they did not make reaches them while it still matters,
+ * and the two that are not security mail (the plan notice and the one-time
+ * first-steps mail).
  *
  * The account already revoked every session on a password change or reset,
  * and asked for a code before 2FA came off or the account was deleted. None
@@ -15,6 +17,13 @@
  * without awaiting the delivery. It never carries a token, a code or a
  * secret: it names what changed and when, and what to do if it was not them.
  *
+ * The words and the layout are lib/email_templates; each template says
+ * whether it is a security mail. A security notice is always sent and never
+ * asks about preferences. Any other kind needs the member's users row id,
+ * carries an unsubscribe link and a one-click List-Unsubscribe header, and is
+ * not sent when the member opted out, or when that cannot be read: a
+ * preference nobody could read is not "opted in" (lib/email_prefs.js).
+ *
  * `deliverable` is the one reading of "can this address receive mail". The
  * app synthesises addresses for accounts that have no inbox (Telegram-, X-,
  * Discord- and wallet-only sign-ins, and erased accounts), and those must
@@ -22,6 +31,8 @@
  * and the person is told a message went out when none could.
  */
 const mailer = require('./mailer');
+const emailTemplates = require('./email_templates');
+const emailPrefs = require('./email_prefs');
 
 // The two shapes the app writes for an account with no real address:
 // `<provider>-<id>@<provider>.runeclaw.local` (auth.js, findOrCreateOAuthUser)
@@ -35,109 +46,90 @@ function deliverable(email) {
   return !SYNTHETIC.test(e);
 }
 
-function _when(at) {
-  // "2026-10-14 15:32 UTC": unambiguous across the 14 languages the site
-  // speaks, and no time zone the reader has to guess.
-  return `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+// The website's plan names, in rank order (basic < pro < elite): the order
+// of the keys is the one reading of which way a change went. `admin` is
+// never mailed: the website reads it as the operator, and the bot refuses to
+// grant it to a website account.
+const PLAN_NAMES = Object.freeze({ basic: 'Basic', pro: 'Pro', elite: 'Elite' });
+
+/**
+ * Which plan notice to send. The downgrade wording only when the plan before
+ * the change is known and ranked higher; otherwise the upgrade wording, which
+ * never says "upgraded", so it stays true when the direction is not known.
+ * (The bot sends only the new tier today.)
+ */
+function tierTemplate(tier, from) {
+  const order = Object.keys(PLAN_NAMES);
+  const now = order.indexOf(tier);
+  const before = order.indexOf(from);
+  return now >= 0 && before >= 0 && now < before ? 'tier_downgrade' : 'tier_upgrade';
 }
 
-function _escape(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  })[c]);
+function _isUserId(v) {
+  return Number.isSafeInteger(v) && v > 0;
 }
 
-const SECURITY = 'This is an automatic security notice from RUNECLAW.';
-
-// The website's plan names. `admin` is never mailed: the website reads it as
-// the operator, and the bot refuses to grant it to a website account.
-const PLAN_NAMES = { basic: 'Basic', pro: 'Pro', elite: 'Elite' };
-
-// What each change says. `done` is what the account already did about it,
-// stated only where the route really does it (both password routes revoke
-// every session). `ifNot` is the one thing to do if it was not them.
-const NOTICES = {
-  password_set: {
-    subject: 'A password was added to your RUNECLAW account',
-    what: 'A password was added to your RUNECLAW account',
-    done: 'You can now sign in with your email and that password, as well as the way you signed in before. Every other signed-in session was signed out.',
-    ifNot: (base) => `If this wasn't you, someone has signed in to your account. Reset the password now with "Forgot your password?" at ${base}/ and reply to this email.`,
-  },
-  password_changed: {
-    subject: 'Your RUNECLAW password was changed',
-    what: 'The password on your RUNECLAW account was changed',
-    done: 'Every other signed-in session was signed out.',
-    ifNot: (base) => `If this wasn't you, reset your password now with "Forgot your password?" at ${base}/ and reply to this email.`,
-  },
-  password_reset: {
-    subject: 'Your RUNECLAW password was reset',
-    what: 'The password on your RUNECLAW account was reset with an emailed link',
-    done: 'Every signed-in session was signed out.',
-    ifNot: (base) => `If this wasn't you, someone can read your email. Secure your email account first, then reset your RUNECLAW password again at ${base}/ and reply to this email.`,
-  },
-  totp_enabled: {
-    subject: 'Two-factor authentication is on',
-    what: 'Two-factor authentication was turned on for your RUNECLAW account',
-    done: 'Signing in with a password now also asks for a code from your authenticator app.',
-    ifNot: () => "If this wasn't you, someone has signed in to your account. Reply to this email straight away.",
-  },
-  totp_disabled: {
-    subject: 'Two-factor authentication was turned off',
-    what: 'Two-factor authentication was turned off for your RUNECLAW account',
-    // The route asks for a signed-in session and a current code, not the
-    // password, so the notice claims exactly that much about whoever did it.
-    done: 'Signing in no longer asks for a code from your authenticator app.',
-    ifNot: (base) => `If this wasn't you, someone is signed in to your account and has one of your codes. Reset your password now with "Forgot your password?" at ${base}/ (that signs every session out), turn two-factor back on, and reply to this email.`,
-  },
-  account_deleted: {
-    subject: 'Your RUNECLAW account was deleted',
-    what: 'Your RUNECLAW account was deleted',
-    // What the route's own reply says, and no more: the bot half only runs
-    // when a gateway is configured, so "and in the bot" is not always true.
-    done: 'Your account and its data have been erased.',
-    ifNot: () => "If this wasn't you, reply to this email straight away. A deletion cannot be undone, but we can look at how it happened.",
-  },
-  // Not a security notice: the operator changed the member's plan, and a
-  // website-only member has no Telegram chat to be told in.
-  tier_changed: {
-    subject: (v) => `Your RUNECLAW plan is now ${PLAN_NAMES[v.tier]}`,
-    what: (v) => `Your RUNECLAW plan was changed to ${PLAN_NAMES[v.tier]}`,
-    done: (v, base) => `Your dashboard shows what it includes: ${base}/dashboard`,
-    ifNot: null,
-    footer: 'This is an automatic notice from RUNECLAW.',
-  },
-};
-
-const _say = (x, v, base) => (typeof x === 'function' ? x(v, base) : x);
-
+/**
+ * The message for one notice: { subject, preheader, text, html, security }.
+ * Throws on an unknown kind, an unknown plan, or a non-security kind with no
+ * member to build its unsubscribe link for.
+ */
 function compose(kind, at = new Date(), vars = {}) {
-  const n = NOTICES[kind];
-  if (!n) throw new Error(`unknown account notice: ${kind}`);
-  if (kind === 'tier_changed' && !PLAN_NAMES[vars.tier]) {
-    throw new Error(`no plan name for tier: ${vars.tier}`);
-  }
+  const security = emailTemplates.isSecurity(kind);
   const base = mailer.baseUrl();
-  const lines = [`${_say(n.what, vars, base)} on ${_when(at)}.`, _say(n.done, vars, base)];
-  // ifNot reads the base as its first argument; tier_changed has none.
-  if (n.ifNot) lines.push(n.ifNot(base));
-  const footer = n.footer || SECURITY;
-  return {
-    subject: _say(n.subject, vars, base),
-    text: `${lines.join('\n\n')}\n\n${footer}`,
-    html: lines.map((l) => `<p>${_escape(l)}</p>`).join('')
-      + `<p style="color:#888;font-size:12px">${_escape(footer)}</p>`,
-  };
+  const v = { ...vars, base, when: emailTemplates.whenText(at) };
+  if (kind === 'tier_upgrade' || kind === 'tier_downgrade') {
+    if (!Object.prototype.hasOwnProperty.call(PLAN_NAMES, vars.tier)) {
+      throw new Error(`no plan name for tier: ${vars.tier}`);
+    }
+    v.tier_name = PLAN_NAMES[vars.tier];
+  }
+  if (!security) {
+    if (!_isUserId(vars.userId)) throw new Error(`${kind} needs the member's users row id`);
+    v.unsubscribe_url = emailPrefs.preferencesUrl(base, vars.userId);
+  }
+  return emailTemplates.render(kind, v);
 }
 
 /**
  * Send one notice. Resolves to what happened, never rejects:
- *   { sent: true } | { sent: false, reason: 'undeliverable' | 'not_configured' | 'failed' }
+ *   { sent: true }
+ * | { sent: false, reason: 'undeliverable' | 'not_configured' | 'failed'
+ *                        | 'opted_out' | 'prefs_unreadable'
+ *                        | 'no_unsubscribe_key' | 'no_member' }
+ *
+ * `vars.loadFeatures`, when given, is called only once the notice is going
+ * to be sent (after the opt-out check), so a member who opted out costs no
+ * read of the bot's plan ladder.
  */
 async function notify(kind, email, at = new Date(), vars = {}) {
   if (!deliverable(email)) return { sent: false, reason: 'undeliverable' };
   try {
-    const msg = compose(kind, at, vars);
-    const r = await mailer.sendMail({ to: String(email).trim(), ...msg });
+    const security = emailTemplates.isSecurity(kind);
+    const v = { ...vars };
+    let listUnsubscribe;
+    if (!security) {
+      if (!emailPrefs.available()) return { sent: false, reason: 'no_unsubscribe_key' };
+      if (!_isUserId(v.userId)) return { sent: false, reason: 'no_member' };
+      let out;
+      try {
+        out = await emailPrefs.optedOut(v.userId);
+      } catch (err) {
+        console.error(`[account_mail] ${kind} preference unreadable: ${err && err.name}`);
+        return { sent: false, reason: 'prefs_unreadable' };
+      }
+      if (out) return { sent: false, reason: 'opted_out' };
+      listUnsubscribe = emailPrefs.oneClickUrl(mailer.baseUrl(), v.userId);
+    }
+    if (typeof v.loadFeatures === 'function') {
+      v.features = await v.loadFeatures();
+      delete v.loadFeatures;
+    }
+    const msg = compose(kind, at, v);
+    const r = await mailer.sendMail({
+      to: String(email).trim(), subject: msg.subject, text: msg.text, html: msg.html,
+      ...(listUnsubscribe ? { listUnsubscribe } : {}),
+    });
     if (r && r.skipped) return { sent: false, reason: 'not_configured' };
     return { sent: true };
   } catch (err) {
@@ -147,4 +139,4 @@ async function notify(kind, email, at = new Date(), vars = {}) {
   }
 }
 
-module.exports = { deliverable, compose, notify, NOTICES, PLAN_NAMES };
+module.exports = { deliverable, compose, notify, tierTemplate, PLAN_NAMES };
