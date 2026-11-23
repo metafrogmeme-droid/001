@@ -64,6 +64,67 @@ Verification links expire after 24 hours. Password-reset links expire after
 A missing `PUBLIC_ORIGIN` / `APP_BASE_URL` / `WEBSITE_URL` while `SMTP_HOST` is
 set is fatal in production: the verify link would have no host.
 
+## What each email says, and how it looks
+
+Every email is rendered by `app/lib/email_templates/` from the copy in
+`app/lib/email_templates/copy.en.js`. A wording change is an edit to that
+file only. Each template says whether it is a security mail.
+
+| template | subject | kind | sent by |
+|---|---|---|---|
+| `welcome_verify` | Welcome to RUNECLAW — confirm your email | security | `POST /api/auth/register` (one combined mail) |
+| `verify` | Verify your RUNECLAW email | security | `POST /api/auth/send-verification` |
+| `password_reset_link` | Reset your RUNECLAW password | security | `POST /api/auth/forgot-password` |
+| `password_changed` | Your RUNECLAW password was changed | security | `POST /api/auth/change-password` |
+| `password_set` | A password was added to your RUNECLAW account | security | `POST /api/auth/change-password` (first password) |
+| `password_reset` | Your RUNECLAW password was reset | security | `POST /api/auth/reset-password` |
+| `totp_enabled` | Two-factor authentication is on | security | `POST /api/auth/2fa/enable` |
+| `totp_disabled` | Two-factor authentication was turned off | security | `POST /api/auth/2fa/disable` |
+| `account_deleted` | Your RUNECLAW account was deleted | security | `DELETE /api/auth/account` |
+| `tier_upgrade` / `tier_downgrade` | Your RUNECLAW plan is now {plan} | notice | `POST /api/bot/sync/tier-notice` |
+| `onboarding` | A few first steps on RUNECLAW | notice | `app/scripts/email_onboarding_job.js` (off by default) |
+
+Render every one of them to `.html` and `.txt`, with a stand-in origin and
+placeholder tokens:
+
+```
+node app/scripts/email_preview.js --out /tmp/email-previews
+```
+
+The reviewed copies are committed in `app/test/fixtures/email_previews/`, and
+a test fails when they no longer match what the templates render.
+
+## Unsubscribe
+
+A security mail never carries an unsubscribe link and is always sent. A
+notice (the plan notice and the first-steps note) ends with a link to
+`/email-preferences?token=…` and carries a one-click `List-Unsubscribe`
+header, and it is not sent to a member who opted out, or whose preference
+cannot be read.
+
+The token names one member and signs with
+`HMAC-SHA256(BOT_SYNC_SECRET, 'runeclaw-email-prefs-v1')`. There is no new
+secret to set. Rotating `BOT_SYNC_SECRET` retires the links already sent; a
+signed-in member can still open `/email-preferences` and change their own
+setting. The link is not a login.
+
+## The first-steps email (off by default)
+
+`EMAIL_ONBOARDING_JOB` is off unless it is `1` or `true`. While it is off the
+job reads nothing and sends nothing. To turn it on, set it in the web
+environment and run, once a day, where the website's settings are:
+
+```
+EMAIL_ONBOARDING_JOB=1 node app/scripts/email_onboarding_job.js
+```
+
+`--dry-run` counts who would be mailed and sends nothing. The job mails
+accounts at least 3 and under 4 days old, once each, never older ones, and
+skips a member who has placed an Arena paper trade, opted out, or holds an
+address that cannot receive mail. Running it more often than daily is safe; a
+day with no run skips that day's sign-ups. Nothing in this repository
+schedules it.
+
 ## Option B — your own domain, later
 
 When you want `noreply@humanoid-traders.com` (or another address on the

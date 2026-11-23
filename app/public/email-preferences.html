@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email preferences — RUNECLAW</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/styles.css?v=54">
+</head>
+<body>
+<main class="auth-wrap">
+  <div class="card" style="text-align:center">
+    <h2 style="font-family:var(--font-brand);font-size:var(--fs-md);letter-spacing:.06em;margin-bottom:var(--s3)">Email preferences</h2>
+    <p id="status" class="muted" aria-live="polite">Reading your preferences…</p>
+    <button id="pref-off" type="button" class="btn btn--primary btn-block mt-4" hidden>Stop these emails</button>
+    <button id="pref-on" type="button" class="btn btn-block mt-4" hidden>Send these emails again</button>
+    <p class="muted small mt-4">This covers plan notices and the one-time first-steps email. Security emails (verification and password-reset links, and notices when your password, two-factor setting or account changes) are always sent.</p>
+    <a href="/" class="btn btn-block mt-4">Continue to RUNECLAW →</a>
+  </div>
+</main>
+<script src="/js/api-retry.js?v=3"></script>
+<script>
+(function(){
+  var token=new URLSearchParams(location.search).get('token')||'';
+  var status=document.getElementById('status');
+  var off=document.getElementById('pref-off');
+  var on=document.getElementById('pref-on');
+  var url='/api/email-preferences'+(token?'?token='+encodeURIComponent(token):'');
+  function show(subscribed){
+    status.className='muted';
+    status.textContent=subscribed
+      ?'You get plan notices and the first-steps email.'
+      :'You will not get plan notices or the first-steps email.';
+    off.hidden=!subscribed;
+    on.hidden=subscribed;
+  }
+  function fail(res){
+    var code=res&&res.error;
+    status.className='form-err';
+    status.textContent=code==='invalid_link'
+      ?'This link is not valid any more. Sign in, then open this page again to change your email preferences.'
+      :code==='sign_in_or_use_the_link'
+        ?'Open this page from the link in one of our emails, or sign in first.'
+        :'Your preferences could not be read just now. Try again in a minute.';
+    off.hidden=true;
+    on.hidden=true;
+  }
+  function call(method,body){
+    var opts={method:method,credentials:'same-origin',headers:{}};
+    if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
+    return fetch(url,opts).then(function(r){
+      return r.json().catch(function(){return null;}).then(function(res){
+        if(!r.ok||!res||typeof res.subscribed!=='boolean'){fail(res);return;}
+        show(res.subscribed);
+      });
+    }).catch(function(){fail(null);});
+  }
+  off.addEventListener('click',function(){call('POST',{subscribed:false});});
+  on.addEventListener('click',function(){call('POST',{subscribed:true});});
+  call('GET');
+})();
+</script>
+</body>
+</html>

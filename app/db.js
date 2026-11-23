@@ -2051,6 +2051,26 @@ class MemoryDB {
     }
 
     // -- USERS --
+    // The first-steps mail's candidates (lib/onboarding_mail.js): accounts
+    // created inside one epoch-second window, not yet mailed, not opted out.
+    // The bounds come from the params and both guards from the statement, so
+    // a query that dropped one would not be answered as if it had it.
+    if (cmd.startsWith('SELECT ID, EMAIL, EMAIL_VERIFIED FROM USERS WHERE UNIX_TIMESTAMP(CREATED_AT) > ? AND UNIX_TIMESTAMP(CREATED_AT) <= ?')) {
+      const lo = Number(params[0]);
+      const hi = Number(params[1]);
+      const m = cmd.match(/LIMIT\s+(\d+)/);
+      const lim = m ? Number(m[1]) : Infinity;
+      const notSent = cmd.includes('ONBOARDING_EMAIL_SENT_AT IS NULL');
+      const notOut = cmd.includes('EMAIL_OPTED_OUT_AT IS NULL');
+      const rows = this.users.filter((u) => {
+        const sec = Math.floor(new Date(u.created_at).getTime() / 1000);
+        return sec > lo && sec <= hi
+          && (!notSent || u.onboarding_email_sent_at == null)
+          && (!notOut || u.email_opted_out_at == null);
+      }).sort((a, b) => a.id - b.id).slice(0, lim)
+        .map((u) => ({ id: u.id, email: u.email, email_verified: u.email_verified }));
+      return [rows, []];
+    }
     if (cmd.includes('INSERT INTO USERS')) {
       const exists = this.users.find(u => u.email === params[0]);
       if (exists) {
@@ -2070,6 +2090,8 @@ class MemoryDB {
         // because the whole web suite runs against this shim, so the feature
         // would have looked tested while doing nothing.
         token_epoch: 0,
+        // The MySQL columns' DEFAULT NULL: opted in, first-steps mail not sent.
+        email_opted_out_at: null, onboarding_email_sent_at: null,
         leaderboard_handle: null, created_at: new Date() };
       // Column order varies: email/password vs the OAuth passwordless inserts.
       if (cmd.includes('PASSWORD_HASH')) {
@@ -2321,6 +2343,22 @@ class MemoryDB {
       const now = new Date();
       const rows = this.users.filter(u => u.verify_token === params[0] && u.verify_token_expires > now);
       return [rows, []];
+    }
+    // Email preferences (lib/email_prefs.js). params: [opted_out_at | null, id]
+    if (cmd.startsWith('UPDATE USERS SET EMAIL_OPTED_OUT_AT = ? WHERE ID = ?')) {
+      const user = this.users.find(u => u.id === params[1]);
+      if (user) user.email_opted_out_at = params[0];
+      return [{ affectedRows: user ? 1 : 0 }, []];
+    }
+    // The first-steps mail's claim (lib/onboarding_mail.js): the guard is read
+    // from the statement, so a second claim on the same row changes nothing,
+    // exactly as MySQL answers it. params: [sent_at, id]
+    if (cmd.startsWith('UPDATE USERS SET ONBOARDING_EMAIL_SENT_AT = ? WHERE ID = ?')) {
+      const guarded = cmd.includes('AND ONBOARDING_EMAIL_SENT_AT IS NULL');
+      const user = this.users.find(u => u.id === params[1]);
+      if (!user || (guarded && user.onboarding_email_sent_at != null)) return [{ affectedRows: 0 }, []];
+      user.onboarding_email_sent_at = params[0];
+      return [{ affectedRows: 1 }, []];
     }
     if (cmd.startsWith('UPDATE USERS SET EMAIL_VERIFIED')) {
       // params: [id]
@@ -3418,6 +3456,12 @@ const SCHEMA_CHECK_TIMEOUT_MS = 10000;
 const REQUIRED_USER_COLUMNS = Object.freeze({
   // The Pi Network user, as Pi's /v2/me names it for this app (routes/pi_auth.js).
   pi_uid: 'VARCHAR(64) DEFAULT NULL',
+  // When the member turned off the mail that is not a security notice
+  // (lib/email_prefs.js). NULL is opted in, the default.
+  email_opted_out_at: 'DATETIME DEFAULT NULL',
+  // When the one-time first-steps mail was claimed for this member
+  // (lib/onboarding_mail.js). Set before the send, so a member gets it once.
+  onboarding_email_sent_at: 'DATETIME DEFAULT NULL',
 });
 const USER_COLUMN_INDEXES = Object.freeze({
   // One Pi account is one RUNECLAW account.
@@ -4731,6 +4775,14 @@ async function migrate() {
     try {
       await pool.query('CREATE UNIQUE INDEX idx_users_pi_uid ON users (pi_uid)');
     } catch (e) { /* index already exists */ }
+    // Email preferences and the one-time first-steps mail. Also reconciled on
+    // the fast path by ensureUserColumns() (REQUIRED_USER_COLUMNS).
+    try {
+      await pool.execute('ALTER TABLE users ADD COLUMN email_opted_out_at DATETIME DEFAULT NULL');
+    } catch (e) { /* column already exists */ }
+    try {
+      await pool.execute('ALTER TABLE users ADD COLUMN onboarding_email_sent_at DATETIME DEFAULT NULL');
+    } catch (e) { /* column already exists */ }
     // Ceremony flags back-fill for pre-existing deployments.
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_live TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_end TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }

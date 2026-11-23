@@ -41,6 +41,7 @@ function summaryFor(operator, summary) {
 
 const { isVenue } = require('../lib/venues');
 const accountMail = require('../lib/account_mail');
+const planFeatures = require('../lib/plan_features');
 
 /**
  * The venue a synced trade happened on, or the default.
@@ -745,7 +746,7 @@ router.post('/tiers', async (req, res) => {
 
 /**
  * POST /api/bot/sync/tier-notice
- * Body: { member: 'web:<site user id>', tier }
+ * Body: { member: 'web:<site user id>', tier, from? }
  *
  * Email a website-only member that the operator's /set_tier changed their
  * plan. A Telegram member is told in Telegram; a website-only member has no
@@ -756,19 +757,40 @@ router.post('/tiers', async (req, res) => {
  *
  * Answers what happened, not ok: { sent, reason }. A linked account is not
  * mailed: its tier follows the Telegram id, which the bot tells in Telegram.
+ *
+ * `from`, optional, is the plan before the change. With it, a move down gets
+ * the downgrade wording; without it (the bot sends only the new tier today),
+ * or when it is not a plan this site names, the upgrade wording, which never
+ * says "upgraded" (lib/account_mail.js tierTemplate). The users row cannot
+ * stand in for it: the plan mirror runs separately and may already hold the
+ * new value.
+ *
+ * What the plan includes is read from the bot's plan ladder at send time
+ * (lib/plan_features.js), and only once the member is known to want the
+ * mail. The plan notice is not a security notice: it carries an unsubscribe
+ * link and is not sent to a member who opted out (reason: opted_out).
  */
 router.post('/tier-notice', async (req, res) => {
   try {
     const web = WEB_MEMBER_KEY.exec(String(req.body?.member || '').trim());
     const tier = String(req.body?.tier || '').toLowerCase();
     if (!web) return res.status(400).json({ sent: false, reason: 'not_a_website_member' });
-    if (!accountMail.PLAN_NAMES[tier]) return res.status(400).json({ sent: false, reason: 'no_such_plan' });
+    if (!Object.prototype.hasOwnProperty.call(accountMail.PLAN_NAMES, tier)) {
+      return res.status(400).json({ sent: false, reason: 'no_such_plan' });
+    }
+    const fromRaw = typeof req.body?.from === 'string' ? req.body.from.toLowerCase() : null;
+    const from = fromRaw && Object.prototype.hasOwnProperty.call(accountMail.PLAN_NAMES, fromRaw) ? fromRaw : null;
     const [rows] = await pool.execute(
       'SELECT id, email, telegram_linked FROM users WHERE id = ?', [Number(web[1])]);
     const u = rows && rows[0];
     if (!u) return res.status(404).json({ sent: false, reason: 'no_such_member' });
     if (u.telegram_linked) return res.json({ sent: false, reason: 'linked' });
-    const r = await accountMail.notify('tier_changed', u.email, new Date(), { tier });
+    const userId = Number(u.id);
+    const r = await accountMail.notify(accountMail.tierTemplate(tier, from), u.email, new Date(), {
+      tier,
+      userId,
+      loadFeatures: async () => (await planFeatures.linesFor(`web:${userId}`, tier)).lines,
+    });
     res.json(r);
   } catch (err) {
     console.error('Tier notice error:', err.stack || err.message);

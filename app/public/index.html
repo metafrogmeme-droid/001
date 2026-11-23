@@ -1894,6 +1894,22 @@ function renderFooterSocials(links){
   window.addEventListener('hashchange',open);
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',open);else open();
 })();
+// #forgot: the "Forgot your password?" form. The account-change emails'
+// "Reset your password" button opens it (lib/email_templates forgot_url), so
+// the button lands on the form it names rather than on the home page.
+(function forgotDoor(){
+  function open(){
+    if((location.hash||'')!=='#forgot')return;
+    if(typeof window.switchTab==='function')window.switchTab('login');
+    if(typeof window.showForgot==='function')window.showForgot();
+    var panel=document.getElementById('auth-panel');
+    if(panel&&panel.scrollIntoView)panel.scrollIntoView({behavior:'smooth',block:'center'});
+    var f=document.getElementById('forgot-email');
+    if(f)setTimeout(function(){try{f.focus();}catch(_){}} ,350);
+  }
+  window.addEventListener('hashchange',open);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',open);else open();
+})();
 // OAuth completion: the callback redirects back with the session in the URL
 // fragment (#oauth=<base64> or #oauth_error=...). Consume it before anything else.
 (function handleOauthFragment(){

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { pool } = require('./db');
 const mailer = require('./lib/mailer');
 const accountMail = require('./lib/account_mail');
+const emailTemplates = require('./lib/email_templates');
 const oauth2 = require('./lib/oauth2');
 const piSignin = require('./lib/pi_signin');
 // Every OAuth hop is a page that navigates, never a 3xx: the live host follows
@@ -472,82 +473,40 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const RESET_TTL_MS = 30 * 60 * 1000;       // 30m
 
 // Issue a verification token for a user and email the link. Best-effort: a
-// mailer failure never breaks the calling flow (registration still succeeds).
-// The welcome half of the first email. Kept as ONE message rather than two:
-// a fresh account receiving a "welcome" and a "verify" back to back reads as a
-// mailing list, and the verify link is the only thing either of them needs the
-// reader to do.
+// mailer failure never breaks the calling flow (registration still succeeds),
+// and it resolves to whether a mail was attempted.
 //
-// It states what the account actually gets, in the order it becomes true —
-// paper now, Telegram link next, live only with operator approval. A welcome
+// `welcome` sends the combined first mail (registration): the welcome and the
+// verify link are ONE message rather than two. A fresh account receiving a
+// "welcome" and a "verify" back to back reads as a mailing list, and the
+// verify link is the only thing either of them needs the reader to do. Its
+// welcome states what the account gets in the order it becomes true: paper
+// now, Telegram if they want it, live only with operator approval. A welcome
 // that implies live trading is one tap away is the same promise-then-refuse
-// the bot's own onboarding was fixed for; the person just finds out later.
-function _mailShell(inner) {
-  return '<div style="font-family:Georgia,serif;color:#1c1a16;max-width:560px;line-height:1.5">'
-    + '<p style="margin:0 0 16px;letter-spacing:.14em;font-size:12px;color:#8a7340">'
-    + 'HUMANOID TRADERS</p>'
-    + inner
-    + '<p style="margin:24px 0 0;color:#888;font-size:12px">Humanoid Traders · RUNECLAW</p>'
-    + '</div>';
-}
-
-function _welcomeBlocks(link) {
-  const text =
-    'Welcome to RUNECLAW.\n\n'
-    + 'Confirm your email to finish setting up (link valid 24h):\n'
-    + `${link}\n\n`
-    + 'What you can do straight away:\n'
-    + '  - Paper trading and the dashboard — no setup, no exchange keys.\n'
-    + '  - Ask the assistant about any market from the chat panel.\n\n'
-    + 'Optional next steps:\n'
-    + '  - Link Telegram from the dashboard to manage exchange keys and your\n'
-    + '    live-trading controls, and to get alerts in Telegram.\n'
-    + '  - Live trading additionally needs the operator to approve your\n'
-    + '    account. Paper works without any of this.\n\n'
-    + "If you didn't create an account, ignore this message.";
-  const html = _mailShell(
-    '<p>Welcome to <b>RUNECLAW</b>.</p>'
-    + `<p><a href="${link}">Confirm your email</a> to finish setting up (valid 24h).</p>`
-    + '<p><b>Straight away:</b> paper trading and the dashboard — no setup, no '
-    + 'exchange keys — plus the assistant in the chat panel.</p>'
-    + '<p><b>Optional:</b> link Telegram from the dashboard for exchange-key '
-    + 'management, your live-trading controls and alerts. Live trading also '
-    + 'needs operator approval; paper works without any of it.</p>'
-    + '<p style="color:#888;font-size:12px">If you didn\'t create an account, '
-    + 'ignore this message.</p>'
-  );
-  return { text, html };
-}
-
-// Issue a verification token for a user and email the link. Best-effort: a
-// mailer failure never breaks the calling flow (registration still succeeds).
-// `welcome` sends the fuller first-contact version (registration); the resend
-// path keeps the short one, since by then they know what the product is.
+// the bot's own onboarding was fixed for. The resend path sends the short
+// verify mail, since by then they know what the product is. Both carry the
+// verify link, so both are security mail: no unsubscribe, never held back by
+// an opt-out (lib/email_templates/copy.en.js).
+//
+// No token is written and nothing is sent for an address the app synthesised
+// (lib/account_mail.js deliverable): a relay would bounce it back into the
+// sender's own inbox.
 async function sendVerificationEmail(userId, email, { welcome = false } = {}) {
+  if (!accountMail.deliverable(email)) return false;
   try {
     const raw = crypto.randomBytes(32).toString('hex');
+    const base = mailer.baseUrl();
+    const msg = emailTemplates.render(welcome ? 'welcome_verify' : 'verify', {
+      base,
+      verify_url: `${base}/verify?token=${raw}`,
+      expires_in: emailTemplates.durationText(VERIFY_TTL_MS),
+    });
     const expires = new Date(Date.now() + VERIFY_TTL_MS);
     await pool.execute(
       'UPDATE users SET verify_token = ?, verify_token_expires = ? WHERE id = ?',
       [_hashToken(raw), expires, userId]
     );
-    const base = mailer.baseUrl();
-    const link = `${base}/verify?token=${raw}`;
-    const body = welcome ? _welcomeBlocks(link) : {
-      text: `Confirm your email to finish setting up RUNECLAW.\n\nOpen this link (valid 24h):\n${link}\n\nIf you didn't create an account, ignore this message.`,
-      html: _mailShell(
-        `<p>Confirm your email to finish setting up <b>RUNECLAW</b>.</p>`
-        + `<p><a href="${link}">Verify my email</a> (valid 24h)</p>`
-        + `<p style="color:#888;font-size:12px">If you didn't create an account, ignore this message.</p>`
-      ),
-    };
-    await mailer.sendMail({
-      to: email,
-      subject: welcome ? 'Welcome to RUNECLAW — confirm your email'
-                       : 'Verify your RUNECLAW email',
-      text: body.text,
-      html: body.html,
-    });
+    await mailer.sendMail({ to: email, subject: msg.subject, text: msg.text, html: msg.html });
     return true;
   } catch (err) {
     console.error('sendVerificationEmail error:', err.stack || err.message);
@@ -608,7 +567,7 @@ router.post('/register', async (req, res) => {
     // errors (sendVerificationEmail swallows them).
     await sendVerificationEmail(userId, normalizedEmail, { welcome: true });
     await sendSession(req, res, { id: userId, email: normalizedEmail },
-      { email_pending: mailer.isConfigured() });
+      { email_pending: mailer.isConfigured() && accountMail.deliverable(normalizedEmail) });
   } catch (err) {
     // Uniform response to prevent user enumeration (don't reveal ER_DUP_ENTRY)
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Registration failed. Please try a different email.' });
@@ -1598,25 +1557,26 @@ router.post('/forgot-password', async (req, res) => {
 
     const [rows] = await pool.execute(
       'SELECT id, email, password_hash FROM users WHERE email = ?', [normalizedEmail]);
-    // Only send for accounts that actually have a password to reset.
-    if (rows.length && rows[0].password_hash) {
+    // Only send for accounts that actually have a password to reset, at an
+    // address that can receive mail (an account that signed in with a
+    // provider holds a placeholder). The reply below is the same either way,
+    // so neither check is an oracle.
+    if (rows.length && rows[0].password_hash && accountMail.deliverable(rows[0].email)) {
       const raw = crypto.randomBytes(32).toString('hex');
       const expires = new Date(Date.now() + RESET_TTL_MS);
       await pool.execute(
         'UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?',
         [_hashToken(raw), expires, rows[0].id]);
-      const link = `${mailer.baseUrl()}/reset?token=${raw}`;
+      const base = mailer.baseUrl();
       try {
-        await mailer.sendMail({
-          to: normalizedEmail,
-          subject: 'Reset your RUNECLAW password',
-          text: `Reset your RUNECLAW password using this link (valid 30 minutes):\n${link}\n\nIf you didn't request this, ignore this email — your password is unchanged.`,
-          html: `<p>Reset your <b>RUNECLAW</b> password.</p>`
-            + `<p><a href="${link}">Choose a new password</a> (valid 30 minutes)</p>`
-            + `<p style="color:#888;font-size:12px">If you didn't request this, ignore this email — your password is unchanged.</p>`,
+        const msg = emailTemplates.render('password_reset_link', {
+          base,
+          reset_url: `${base}/reset?token=${raw}`,
+          expires_in: emailTemplates.durationText(RESET_TTL_MS),
         });
+        await mailer.sendMail({ to: normalizedEmail, subject: msg.subject, text: msg.text, html: msg.html });
       } catch (mailErr) {
-        console.error('Reset email send failed:', mailErr.message);
+        console.error('Reset email send failed:', mailErr.stack || mailErr.message);
       }
     }
     res.json(generic);

@@ -1,0 +1,36 @@
+Subject: Welcome to RUNECLAW — confirm your email
+Preheader: Your paper account is ready — no exchange keys needed.
+
+Hello,
+
+Welcome to RUNECLAW. Your account is open, and you can start on paper right now.
+
+The Paper Trading Arena uses live market prices and the same virtual balance for every account. No exchange keys, no deposit, nothing to configure. You can also ask the live analyst from the chat on the site.
+
+A few things that are true from the first day:
+
+- Every call is sealed when it is made, before the market moves, so a result cannot be quietly rewritten later.
+- The server never holds mainnet keys or signs for users. You hold the keys.
+- Live trading, if you want it later, runs on your own withdrawal-disabled exchange keys and needs operator approval. Paper works without any of that. You can link Telegram from your account when you want exchange-key management, live-trading controls and alerts. We never message you first, and we never ask for your keys.
+
+Guardian checks, when you use them, give public signals with reasons. They are not a safe or scam verdict.
+
+Whenever you are ready, step into the Arena.
+
+Open the Arena
+https://www.humanoid-traders.com/arena
+
+Please confirm this email address for your RUNECLAW account.
+
+Confirming it means password-reset links and account notices can reach you. It does not start live trading.
+
+Confirm your email
+https://www.humanoid-traders.com/verify?token=preview-verify-token
+
+This link expires in 24 hours.
+
+If you didn’t create an account, ignore this message.
+
+RUNECLAW is a trading tool, not financial advice.
+This is an automatic security notice from RUNECLAW.
+HUMANOID-TRADERS · RUNECLAW

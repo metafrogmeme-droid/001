@@ -426,6 +426,7 @@ app.use(notReadyGate({ readiness, holdMs: holdMsFrom(process.env) }));
 
 // API routes
 app.use('/api/auth', authRouter);
+app.use('/api/email-preferences', require('./routes/email_preferences'));
 app.use('/api/trades', tradesRouter);
 app.use('/api/bot/sync', syncRouter);
 app.use('/api/market', marketRouter);
@@ -995,6 +996,9 @@ app.get('/letter/:week?', (req, res) => { res.setHeader('Cache-Control', 'no-cac
 app.get('/wallet-link', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'wallet-link.html')); });
 app.get('/reset', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'reset.html')); });
 app.get('/verify', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'verify.html')); });
+// The page a mail's unsubscribe line opens (routes/email_preferences.js does
+// the work; the link's token, or the signed-in member, decides whose row).
+app.get('/email-preferences', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'email-preferences.html')); });
 app.get('/agent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent.html')); });
 app.get('/agent/:address', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'agent-card.html')); });
 // One claimed agent's public page — the link an agent puts in its own README.

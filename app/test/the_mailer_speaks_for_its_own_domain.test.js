@@ -287,3 +287,35 @@ test('OAuth still needs APP_BASE_URL itself: PUBLIC_ORIGIN does not build its re
   assert.ok(fatalKeys(audit({ ...OAUTH, PUBLIC_ORIGIN: 'https://runeclaw.app' })).includes('APP_BASE_URL'));
   assert.ok(!fatalKeys(audit({ ...OAUTH, APP_BASE_URL: 'https://runeclaw.app' })).includes('APP_BASE_URL'));
 });
+
+// ── one-click unsubscribe (RFC 8058) ──────────────────────────────────────
+
+test('a mail with an opt-out carries List-Unsubscribe on the wire; one without carries none', async () => {
+  const url = 'https://app.test/api/email-preferences/unsubscribe?token=7.abc_DEF-123';
+  const withLink = await withSmtp({ MAIL_FROM: 'RUNECLAW <info@humanoid-traders.com>' }, async (lines) => {
+    await mailer.sendMail({ to: 'member@example.com', subject: 'Hi', text: 'body', html: '<p>body</p>', listUnsubscribe: url });
+    return lines;
+  });
+  assert.ok(withLink.includes(`List-Unsubscribe: <${url}>`), withLink.join('\n'));
+  assert.ok(withLink.includes('List-Unsubscribe-Post: List-Unsubscribe=One-Click'));
+
+  const without = await sendThrough({ MAIL_FROM: 'RUNECLAW <info@humanoid-traders.com>' });
+  assert.equal(without.some((l) => /^List-Unsubscribe/i.test(l)), false, without.join('\n'));
+});
+
+test('an opt-out URL that could break the header, or is not https, is left out', () => {
+  const base = { from: 'R <a@b.co>', to: 'c@d.co', subject: 's', text: 't' };
+  for (const bad of [
+    'https://app.test/u?token=1\r\nBcc: victim@example.com',
+    'https://app.test/u?token=1>, <mailto:x@y.z',
+    'http://app.test/u?token=1',
+    'javascript:alert(1)',
+    'https://app.test/u token',
+    '', null, undefined,
+  ]) {
+    const msg = mailer.buildMessage({ ...base, listUnsubscribe: bad });
+    assert.doesNotMatch(msg, /List-Unsubscribe|Bcc:/i, JSON.stringify(bad));
+  }
+  const ok = mailer.buildMessage({ ...base, listUnsubscribe: 'https://app.test/u?token=1.x' });
+  assert.match(ok, /\r\nList-Unsubscribe: <https:\/\/app\.test\/u\?token=1\.x>\r\n/);
+});

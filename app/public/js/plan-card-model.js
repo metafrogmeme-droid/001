@@ -48,8 +48,16 @@
     return row ? String(row.name || tier) : String(tier);
   }
 
-  // The tier's own lines: what it adds over the one below it.
-  function points(row, previous) {
+  // What the card says when the ladder is not enforced. The plan notice
+  // email (app/lib/plan_features.js) ends the same sentence without "above".
+  const NOT_ENFORCED = 'Tiers are not enforced yet: every member can use every command';
+
+  // The tier's own lines: what it adds over the one below it. With
+  // `{ commands: false }` the command lines are left out: a plan notice sent
+  // while the ladder is not enforced must not list commands as something the
+  // plan unlocked, when every member can already use them.
+  function points(row, previous, opts) {
+    const commands = !(opts && opts.commands === false);
     const out = [];
     if (previous) out.push('Everything in ' + previous);
     const cmds = [];
@@ -58,8 +66,8 @@
       if (list.length) for (const c of list) cmds.push('/' + c);
       else if (u.feature) cmds.push(String(u.feature));
     }
-    if (cmds.length) out.push('In the Telegram bot: ' + cmds.join(' '));
-    else if (!previous) out.push('Every command not listed under a higher tier');
+    if (commands && cmds.length) out.push('In the Telegram bot: ' + cmds.join(' '));
+    else if (commands && !previous) out.push('Every command not listed under a higher tier');
     // null is "no daily cap": the quota is off, or this tier is exempt.
     out.push(row.chat_per_day == null ? 'AI chat: no daily cap'
       : 'AI chat: ' + Number(row.chat_per_day) + ' questions a day');
@@ -113,7 +121,7 @@
     }).join('');
     const notes = [];
     if (ladder.enforced === false) {
-      notes.push('Tiers are not enforced yet: every member can use every command above.');
+      notes.push(NOT_ENFORCED + ' above.');
     }
     notes.push('Never tier-gated: the kill switch, your own positions and risk, why a trade '
       + 'was refused, and live trading limits.');
@@ -130,5 +138,19 @@
       + notes.map((n, i) => '<p class="muted small ' + (i ? 'mt-1' : 'mt-3') + '">' + n + '</p>').join('');
   }
 
-  return { cardHtml: cardHtml, readable: readable, ICON: ICON, STAKE_WHY: STAKE_WHY };
+  // One tier's lines, with the name of the tier below it as the card
+  // computes it. null when the ladder does not carry that tier.
+  function tierLines(ladder, tier, opts) {
+    let previous = '';
+    for (const row of ladder.tiers) {
+      if (row && row.tier === tier) return points(row, previous, opts);
+      previous = String((row && (row.name || row.tier)) || '');
+    }
+    return null;
+  }
+
+  return {
+    cardHtml: cardHtml, readable: readable, points: points, tierLines: tierLines,
+    NOT_ENFORCED: NOT_ENFORCED, ICON: ICON, STAKE_WHY: STAKE_WHY,
+  };
 }));

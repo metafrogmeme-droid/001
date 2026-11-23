@@ -87,6 +87,13 @@ test('a password change is mailed; a refused change is not', async () => {
   assert.equal(got[0].subject, 'Your RUNECLAW password was changed');
   assert.match(got[0].text, /Every other signed-in session was signed out/);
   assert.doesNotMatch(got[0].text, /anotherlong1/, 'the new password went into an email');
+  // Marketing's wording, with the time kept, and a button to the form it names.
+  assert.match(got[0].text, /^Hello,\n\nThe password on your RUNECLAW account was changed on \d{4}-\d\d-\d\d \d\d:\d\d UTC\.$/m);
+  assert.match(got[0].text, /^Reset your password\nhttps:\/\/app\.test\/#forgot$/m);
+  assert.ok(got[0].text.includes('This is an automatic security notice from RUNECLAW.'));
+  assert.ok(got[0].text.includes('HUMANOID-TRADERS · RUNECLAW'));
+  assert.doesNotMatch(got[0].text + got[0].html, /unsubscribe/i, 'a security notice offered an opt-out');
+  assert.equal(got[0].listUnsubscribe, undefined);
 });
 
 test('a first password on a provider account is "added", not "changed"', async () => {
@@ -235,6 +242,15 @@ test('the bot\'s tier notice emails a website-only member, once, by name', async
   assert.equal(got.length, 1);
   assert.equal(got[0].subject, 'Your RUNECLAW plan is now Pro');
   assert.match(got[0].text, /https:\/\/app\.test\/dashboard/);
+  // Not a security notice: an unsubscribe line in the body and a one-click
+  // header, both signed for this member.
+  const t = require('../lib/email_prefs').tokenFor(id);
+  assert.ok(got[0].text.includes(`you can unsubscribe: https://app.test/email-preferences?token=${t}`), got[0].text);
+  assert.equal(got[0].listUnsubscribe, `https://app.test/api/email-preferences/unsubscribe?token=${t}`);
+  // No gateway in this file, so the plan ladder was not read, and the mail
+  // says where to look instead of listing nothing.
+  assert.match(got[0].text, /^- Your dashboard shows what it includes\.$/m);
+  assert.doesNotMatch(got[0].text, /\blive\b/i, 'a plan notice mentioned live trading');
 
   // Without the bot's secret nothing is sent.
   from = sent.length;
@@ -272,4 +288,79 @@ test('the whole-book tier mirror changes a plan and mails nobody', async () => {
   assert.equal(r.status, 200);
   assert.equal(r.json.updated, 1, 'the fixture did not change the plan it says nothing about');
   assert.deepEqual(sent.slice(from), [], 'a reconciliation push mailed the member');
+});
+
+// Members written straight to the store: registration shares a per-address
+// limit of ten a window, which the tests above already spend.
+async function stored(email) {
+  const [r] = await pool.execute('INSERT INTO users (email, password_hash) VALUES (?, ?)', [email, 'x']);
+  return { id: r.insertId };
+}
+
+test('a member who opted out is not sent the plan notice; one who opted back in is', async () => {
+  const email = 'optout-tier@example.com';
+  const { id } = await stored(email);
+  const prefs = require('../lib/email_prefs');
+  await prefs.setOptOut(id, true);
+  let from = sent.length;
+  let r = await call('POST', '/api/bot/sync/tier-notice', { botSecret: SECRET, body: { member: `web:${id}`, tier: 'elite' } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json, { sent: false, reason: 'opted_out' });
+  assert.deepEqual(mailTo(email, from), []);
+  await prefs.setOptOut(id, false);
+  from = sent.length;
+  r = await call('POST', '/api/bot/sync/tier-notice', { botSecret: SECRET, body: { member: `web:${id}`, tier: 'elite' } });
+  assert.deepEqual(r.json, { sent: true });
+  assert.equal(mailTo(email, from).length, 1);
+});
+
+test('an opt-out never holds back a security notice, even one that cannot be read', async () => {
+  const email = 'optout-security@example.com';
+  const { id } = await stored(email);
+  const prefs = require('../lib/email_prefs');
+  await prefs.setOptOut(id, true);
+  const realOptedOut = prefs.optedOut;
+  prefs.optedOut = async () => { throw new Error('unreadable'); };
+  try {
+    for (const kind of ['password_changed', 'password_set', 'password_reset', 'totp_enabled', 'totp_disabled', 'account_deleted']) {
+      const from = sent.length;
+      assert.deepEqual(await accountMail.notify(kind, email, new Date(), { userId: id }), { sent: true }, kind);
+      assert.equal(mailTo(email, from).length, 1, kind);
+    }
+    // The other arm: the same unreadable preference holds back the plan notice.
+    const from = sent.length;
+    assert.deepEqual(await accountMail.notify('tier_upgrade', email, new Date(), { userId: id, tier: 'pro', features: ['x'] }),
+      { sent: false, reason: 'prefs_unreadable' });
+    assert.deepEqual(mailTo(email, from), []);
+  } finally {
+    prefs.optedOut = realOptedOut;
+  }
+});
+
+test('without the key for its unsubscribe link, a plan notice is not sent and a security notice is', async () => {
+  const email = 'nokey@example.com';
+  const { id } = await stored(email);
+  const saved = process.env.BOT_SYNC_SECRET;
+  delete process.env.BOT_SYNC_SECRET;
+  try {
+    let from = sent.length;
+    assert.deepEqual(await accountMail.notify('tier_upgrade', email, new Date(), { userId: id, tier: 'pro', features: ['x'] }),
+      { sent: false, reason: 'no_unsubscribe_key' });
+    assert.deepEqual(mailTo(email, from), []);
+    from = sent.length;
+    assert.deepEqual(await accountMail.notify('totp_enabled', email), { sent: true });
+    assert.equal(mailTo(email, from).length, 1);
+  } finally {
+    process.env.BOT_SYNC_SECRET = saved;
+  }
+});
+
+test('a plan notice names its member: without one it is refused, not sent unsigned', async () => {
+  const email = 'nomember@example.com';
+  for (const userId of [undefined, null, 0, -1, '7', 1.5]) {
+    const from = sent.length;
+    const r = await accountMail.notify('tier_upgrade', email, new Date(), { userId, tier: 'pro', features: ['x'] });
+    assert.deepEqual(r, { sent: false, reason: 'no_member' }, JSON.stringify(userId));
+    assert.deepEqual(mailTo(email, from), []);
+  }
 });
