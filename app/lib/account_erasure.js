@@ -131,6 +131,14 @@ const IDENTIFYING_COLUMNS = [
   'farcaster_fid', 'pi_uid',
 ];
 
+/**
+ * Per-person preferences on `users` that identify nobody but belong to the
+ * person, so they go with the account: whether they opted out of the mail
+ * that is not a security notice, and when the one-time first-steps mail was
+ * claimed for them. Nulled in the same statement; a tombstone keeps neither.
+ */
+const PREFERENCE_COLUMNS = ['email_opted_out_at', 'onboarding_email_sent_at'];
+
 /** The address an erased row carries. Unique per id, and unmistakably a tombstone. */
 function tombstoneEmail(userId) {
   return `deleted-${userId}@account.invalid`;
@@ -178,7 +186,7 @@ function erasurePlan(userId, identity) {
     }
   }
 
-  const sets = IDENTIFYING_COLUMNS.map((c) => `${c} = NULL`).join(', ');
+  const sets = [...IDENTIFYING_COLUMNS, ...PREFERENCE_COLUMNS].map((c) => `${c} = NULL`).join(', ');
   steps.push({
     table: 'users',
     // `token_epoch` is bumped in the same statement that clears the identity:
@@ -194,5 +202,5 @@ function erasurePlan(userId, identity) {
 
 module.exports = {
   USER_SCOPED_TABLES, ADDRESS_SCOPED_TABLES, REQUESTER_SCOPED_TABLES,
-  IDENTIFYING_COLUMNS, tombstoneEmail, erasurePlan,
+  IDENTIFYING_COLUMNS, PREFERENCE_COLUMNS, tombstoneEmail, erasurePlan,
 };
