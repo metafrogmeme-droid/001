@@ -30589,3 +30589,63 @@ Guarded by `tests/test_signal_outcomes_keep_up.py`,
 `tests/test_signal_outcomes_backfill.py`,
 `app/test/sync_signals_terminal_guard.test.js` and
 `app/test/the_claw_record_is_exact_over_any_window.test.js`.
+
+**EVERY EMAIL THE SITE SENDS NOW COMES FROM ONE SHELL, AND THE TWO THAT ARE NOT SECURITY MAIL CAN BE STOPPED FROM THE MAIL ITSELF.**
+The website's mail was composed in three places: `app/auth.js` built the
+welcome and the reset link by hand (the reset link as a bare `<p>`), and
+`app/lib/account_mail.js` built the notices from a sentence table. All of it
+now renders through `app/lib/email_templates/`, with Marketing's final copy in
+`app/lib/email_templates/copy.en.js`: nested tables and inline styles in the
+site's dark tokens, a PNG mark under the public origin beside a text wordmark,
+a hidden preheader, a plain-text part from the same blocks, and the credit
+line `HUMANOID-TRADERS · RUNECLAW`.
+- **One table says what is security mail.** Each template carries
+  `security: true|false`. A security mail (the verify and reset links and every
+  account-change notice) never carries an unsubscribe link and never asks about
+  preferences; a notice (the plan notice and the first-steps note) cannot be
+  rendered without one. `notify` reads the table, not a list of its own.
+- **Unreadable is not "opted in".** `app/lib/email_prefs.js` throws when the
+  opt-out column cannot be read, and the notice is then not sent. The link
+  token is signed with a key derived from `BOT_SYNC_SECRET`, not `JWT_SECRET`:
+  a deployment that sets no `JWT_SECRET` gets one derived at boot inside
+  `server.js`, which the standalone job script never sees, so links it signed
+  would not verify. The link is not a login: no cookie, nothing returned but
+  the one preference, refused as a bearer, and a link that does not verify
+  never falls back to whoever is signed in.
+- **Two sends never asked whether the address could receive mail.**
+  Registration and forgot-password took any address-shaped string, including
+  the placeholder shapes the app writes for accounts with no inbox, and would
+  have sent a verify or reset link into a bounce. Both now ask `deliverable`
+  first; the forgot-password reply is identical either way.
+- **A button names a door, so the door has to exist.** The account notices'
+  "Reset your password" button would have landed on the home page, one click
+  from the form it named. The landing page now has a `#forgot` door.
+- **What a plan includes is the bot's answer, read when the mail is sent.**
+  `app/lib/plan_features.js` prints the tier's lines with the plan card's own
+  `points()`; when the ladder is not enforced it lists no command as unlocked,
+  and when it cannot be read it says the dashboard shows the plan. The read
+  happens only after the opt-out check.
+- **A job that claims before it sends must not claim before it can send.**
+  `app/lib/onboarding_mail.js` claims each member before the send, so a crash
+  never mails twice; it checks the relay, the From, the https origin and the
+  unsubscribe key before the first claim, stops at the first delivery failure,
+  and treats an Arena read that fails as a skip, never as "has not traded". It
+  is off unless `EMAIL_ONBOARDING_JOB` is 1 or true, mails only accounts at
+  least 3 and under 4 days old (epoch seconds, so no time zone can shift it),
+  and nothing schedules it.
+(`app/test/email_templates.test.js`: every template rendered under a stand-in
+origin, credit line, preheader, unsubscribe only on notices, links only under
+the origin, escaping, no prices, profit claims, bot handle or token talk, and
+every `sendMail` call in `auth.js` or `account_mail.js`.
+`app/test/email_previews_are_current.test.js`: the committed previews are what
+ships. `app/test/email_opt_out.test.js`: the token, the routes, no fallback,
+not a login. `app/test/the_token_mails_are_branded.test.js` and
+`app/test/an_account_change_reaches_its_owner.test.js`: the token mails and
+notices, security mail sent even when the preference is unreadable.
+`app/test/a_plan_notice_lists_the_bots_ladder.test.js`: the three ladder
+readings and the downgrade rule. `app/test/email_onboarding_job.test.js`: off
+by default, once, the window, the skips, nothing claimed by a run that cannot
+send. `app/test/the_reset_button_opens_the_forgot_form.smoke.test.js` in
+Chromium. Mutants of the opt-out check, the security bypass, the claim guard,
+the window, the Arena rule, the flag, the pre-checks and the stop on failure
+were each killed by the test that names them.)

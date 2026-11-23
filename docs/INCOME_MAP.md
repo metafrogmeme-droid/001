@@ -1232,8 +1232,9 @@ pins every query to `OPERATOR_USER_ID`; there is no per-user letter and no way
 for a user to author, edit, schedule or send one. There is no distribution
 list and no email send: app/lib/mailer.js is transactional only (the welcome
 with its verify link, the password reset, and the account notices in
-`app/lib/account_mail.js::NOTICES`: password, two-factor, deletion and a
-website-only member's tier), so nothing ever mails a letter; delivery is a
+`app/lib/email_templates/copy.en.js::TEMPLATES`: password, two-factor, deletion,
+a website-only member's tier, and a one-time first-steps note that stays off
+unless an operator switches it on), so nothing ever mails a letter; delivery is a
 dashboard panel plus a web-push nudge. No
 subscribers, no signup form anywhere on the app or the marketing site, no paid
 tier, no paywall, no open/click metrics. The only user-facing 'newsletter'
