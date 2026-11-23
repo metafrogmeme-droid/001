@@ -1,0 +1,14 @@
+Subject: Two-factor authentication was turned off
+Preheader: Two-factor authentication was turned off for your RUNECLAW account.
+
+Two-factor authentication was turned off for your RUNECLAW account on 2026-11-23 15:32 UTC.
+
+Signing in no longer asks for a code from your authenticator app.
+
+If this wasn't you, someone is signed in to your account and has one of your codes. Reset your password now with "Forgot your password?" at https://www.humanoid-traders.com/ (that signs every session out), turn two-factor back on, and reply to this email.
+
+Reset your password
+https://www.humanoid-traders.com/#forgot
+
+This is an automatic security notice from RUNECLAW.
+HUMANOID-TRADERS · RUNECLAW

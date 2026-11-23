@@ -1,0 +1,18 @@
+Subject: Verify your RUNECLAW email
+Preheader: Confirm this address. The link expires in 24 hours.
+
+Hello,
+
+Please confirm this email address for your RUNECLAW account.
+
+Confirming it means password-reset links and account notices can reach you. It does not start live trading.
+
+Confirm your email
+https://www.humanoid-traders.com/verify?token=preview-verify-token
+
+This link expires in 24 hours.
+
+If you didn’t create an account, ignore this message.
+
+This is an automatic security notice from RUNECLAW.
+HUMANOID-TRADERS · RUNECLAW

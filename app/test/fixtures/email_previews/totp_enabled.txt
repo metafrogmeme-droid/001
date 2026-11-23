@@ -1,0 +1,11 @@
+Subject: Two-factor authentication is on
+Preheader: Two-factor authentication was turned on for your RUNECLAW account.
+
+Two-factor authentication was turned on for your RUNECLAW account on 2026-11-23 15:32 UTC.
+
+Signing in with a password now also asks for a code from your authenticator app.
+
+If this wasn't you, someone has signed in to your account. Reply to this email straight away.
+
+This is an automatic security notice from RUNECLAW.
+HUMANOID-TRADERS · RUNECLAW
