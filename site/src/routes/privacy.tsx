@@ -63,7 +63,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Gap, H, L, P } from '../components/Prose'
 
-const UPDATED = '22 October 2026'
+const UPDATED = '23 November 2026'
 
 function Privacy() {
   return (
@@ -237,10 +237,14 @@ function Privacy() {
         through Google Workspace from info@humanoid-traders.com, under
         Google&rsquo;s own privacy policy. It emails you for the welcome and
         verification link, a password reset, and a notice when your password,
-        your two-factor setting, your plan or your account changes. It sends no
-        marketing email. Accounts made by a sign-in that supplies no email
-        (Telegram, X, a wallet, Pi or Farcaster) hold a placeholder address,
-        not a real one, and are never emailed.
+        your two-factor setting, your plan or your account changes. It may
+        also send you one note with first steps a few days after you sign up,
+        and only once. The plan notice and that note end with a link to stop
+        them; the verification and reset links and the notices about your
+        password, two-factor setting and account always go out. It sends no
+        newsletters and no other email. Accounts made by a sign-in that
+        supplies no email (Telegram, X, a wallet, Pi or Farcaster) hold a
+        placeholder address, not a real one, and are never emailed.
       </P>
 
       <H>Exchange API keys</H>
