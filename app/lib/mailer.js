@@ -122,7 +122,17 @@ function _ehloName(from) {
     ? domain : 'runeclaw.local';
 }
 
-function buildMessage({ from, to, subject, text, html, date, replyTo }) {
+// RFC 8058 one-click unsubscribe, for a mail that offers one. Only an https
+// URL with nothing in it that could end the header or the angle brackets:
+// the value is built from the public origin and a signed token, and a header
+// with a line break in it is a second header.
+function _listUnsubscribe(url) {
+  const u = String(url == null ? '' : url).trim();
+  if (!/^https:\/\/[^\s<>]+$/.test(u)) return [];
+  return [`List-Unsubscribe: <${u}>`, 'List-Unsubscribe-Post: List-Unsubscribe=One-Click'];
+}
+
+function buildMessage({ from, to, subject, text, html, date, replyTo, listUnsubscribe }) {
   const boundary = 'rc_' + Buffer.from(String(subject || '') + '|' + String(to || ''))
     .toString('hex')
     .slice(0, 24);
@@ -134,6 +144,7 @@ function buildMessage({ from, to, subject, text, html, date, replyTo }) {
     ...(replyTo && !/[\r\n]/.test(replyTo) ? [`Reply-To: ${replyTo}`] : []),
     `Subject: ${_encodeHeader(subject || '')}`,
     `Date: ${(date || new Date()).toUTCString()}`,
+    ..._listUnsubscribe(listUnsubscribe),
     'MIME-Version: 1.0',
   ];
   let body;
@@ -302,7 +313,9 @@ function _oneLine(value) {
   return String(value || '').replace(/[\r\n]/g, ' ').slice(0, 200);
 }
 
-async function sendMail({ to, subject, text, html }) {
+// `listUnsubscribe` is optional: the URL of a one-click opt-out, set only on
+// mail that is not a security notice (lib/account_mail.js decides which).
+async function sendMail({ to, subject, text, html, listUnsubscribe }) {
   const cfg = _cfg();
   if (!cfg.host) {
     // One line, no body. The body of a verification mail is the token.
@@ -315,7 +328,7 @@ async function sendMail({ to, subject, text, html }) {
     throw err;
   }
   const envelope = { from: _addrOnly(cfg.from), to: String(to).trim() };
-  const message = buildMessage({ from: cfg.from, to, subject, text, html, replyTo: cfg.replyTo });
+  const message = buildMessage({ from: cfg.from, to, subject, text, html, replyTo: cfg.replyTo, listUnsubscribe });
   await _deliver(cfg, envelope, message);
   console.log(`[mailer] sent to=${_oneLine(to)} subject="${_oneLine(subject)}"`);
   return { skipped: false };
