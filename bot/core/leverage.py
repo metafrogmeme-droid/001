@@ -276,6 +276,113 @@ def order_standards(cfg: Any, override: Any) -> LeveragePair:
     return LeveragePair(min(sizing_leverage(cfg), venue), venue)
 
 
+# ── The pre-submit clamp: never ask the venue for a leverage it cannot set ────
+#
+# A venue holds a maximum leverage per symbol (BTC 125x, many alts 20x or 10x,
+# stock and pre-listing contracts lower still) and refuses a set call above
+# it. The refusal leaves the symbol at whatever leverage it held before, and
+# the order then goes out with a margin computed for a leverage the venue
+# never applied. The non-Bitget path clamped to the market's maximum inside
+# its own set call, after the order's margin had been computed; the Bitget
+# path did not clamp at all. The clamp is made ONCE, on the pair every reader
+# of an order's leverages asks for, so the set, the sizing, the margin
+# conversion and the free-margin check read one answer.
+
+CLAMP_SYMBOL_MAX = "symbol_max"
+CLAMP_ACCOUNT_CAP = "account_cap"
+
+
+def _leverage_figure(raw: Any) -> Optional[int]:
+    """A leverage a venue STATED, as an int >= 1, or None. A venue spells its
+    numbers as strings and ccxt as floats; anything else (a stand-in object,
+    a bool, a blank, NaN, a figure under 1) is not a statement."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        return None
+    try:
+        f = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")) or f < 1:
+        return None
+    return int(f)
+
+
+def symbol_max_leverage(market: Any) -> Optional[int]:
+    """The maximum leverage a venue's contract metadata states for a symbol.
+
+    ``market`` is the ccxt market row. The unified ``limits.leverage.max`` is
+    read first (ccxt fills it from Bitget's ``maxLever`` on a classic account
+    and ``maxLeverage`` on a unified one, and from the equivalents on the
+    other venues); the venue's raw row is the fallback for a client that
+    left the unified field empty. None when nothing states one: an unread
+    maximum is not a maximum of anything, and the caller clamps to what it
+    does hold.
+    """
+    if not isinstance(market, dict):
+        return None
+    limits = market.get("limits")
+    lev = limits.get("leverage") if isinstance(limits, dict) else None
+    stated = _leverage_figure(lev.get("max")) if isinstance(lev, dict) else None
+    if stated is not None:
+        return stated
+    info = market.get("info")
+    if isinstance(info, dict):
+        for key in ("maxLever", "maxLeverage"):
+            stated = _leverage_figure(info.get(key))
+            if stated is not None:
+                return stated
+    return None
+
+
+class SubmitLeverage(NamedTuple):
+    """An order's two leverages as they are SUBMITTED, and what bound them.
+
+    ``pair`` is what the order is sized at and the venue is set to.
+    ``requested`` is the pair before the clamp. ``symbol_max`` is the venue's
+    maximum for the symbol, None when its metadata was not read (the clamp
+    then holds the account cap alone). ``bound_by`` names the limit that set
+    the venue leverage (``symbol_max`` / ``account_cap``), "" when neither
+    lowered it."""
+
+    pair: LeveragePair
+    requested: LeveragePair
+    symbol_max: Optional[int]
+    account_cap: int
+    bound_by: str
+
+    @property
+    def clamped(self) -> bool:
+        return self.pair != self.requested
+
+
+def clamp_for_submit(requested: LeveragePair, symbol_max: Optional[int],
+                     account_cap: int) -> SubmitLeverage:
+    """``min(requested, symbol_max, account_cap)``, on the venue leverage.
+
+    Reduce-only, so everything that lowered the request (a user's preference,
+    the quality ladder, dynamic scaling, the margin-risk cap) still binds:
+    the answer is never above ``requested``. The SIZED leverage is lowered
+    only as far as the venue's, which keeps ``venue >= sized``: a symbol
+    whose maximum is under the sizing leverage gets a smaller notional, not
+    more margin than the caps measured. A maximum between the two leaves the
+    notional as it was and has the venue lock more margin for it, which is
+    what `venue_margin` then computes.
+    """
+    req_sized = max(1, int(requested.sized))
+    req_venue = max(req_sized, int(requested.venue))
+    cap = max(1, int(account_cap))
+    venue = req_venue
+    bound_by = ""
+    if cap < venue:
+        venue, bound_by = cap, CLAMP_ACCOUNT_CAP
+    if symbol_max is not None and max(1, int(symbol_max)) < venue:
+        venue, bound_by = max(1, int(symbol_max)), CLAMP_SYMBOL_MAX
+    return SubmitLeverage(LeveragePair(min(req_sized, venue), venue),
+                          LeveragePair(req_sized, req_venue),
+                          None if symbol_max is None else max(1, int(symbol_max)),
+                          cap, bound_by)
+
+
 def venue_leverage(sized: int, standards: LeveragePair) -> int:
     """The leverage the venue is set to for an order SIZED at ``sized``.
 

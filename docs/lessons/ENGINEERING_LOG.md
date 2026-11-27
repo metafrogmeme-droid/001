@@ -829,7 +829,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 636 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 632 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -30672,3 +30672,76 @@ the notice from `/set_tier`, an ended paid period sends Basic, a record with
 no tier sends none, and `from` is in the body only when known.
 `tests/test_a_member_changes_through_one_path.py`: the admin page's door sends
 it too. Five mutants, all killed.)
+
+**A CLOSE ASKED THE VENUE ONCE BEFORE IT BOOKED A TICKER, AND THE RECORD COULD NOT SAY WHICH KIND OF FIGURE IT HELD.**
+27 November, from the 249-exit parity card: 183 exits ticker-priced and 33
+`leverage_overshoot` aborts. Neither count's CAUSE is measurable from the
+repository (the card's own cause line and the audit rows are on the live
+box), so this records what the code did and what it does now, not a claim
+about which of these produced the 183 or the 33.
+- **Three callers priced a close and each had its own patience.** The sweep
+  asked three times, two seconds apart. The path for a position that was gone
+  before the bot's close arrived (`_handle_already_closed_position`) asked
+  ONCE, the moment the venue reported the position gone, which is when its
+  history has had the least time to carry the row, and then booked a ticker.
+  No attempt had a time limit of its own. `_close_data_bounded` is the one
+  ask now: `CLOSE_FILL_LOOKUP_ATTEMPTS` (3), `_TIMEOUT_SEC` (20) and
+  `_RETRY_DELAY_SEC` (2). An attempt that runs out of time stated nothing
+  about any stage, so the record's cause is its own word (`lookup timed
+  out`); a later attempt that prices the close clears the cause an earlier
+  one left. The bot's own close asks once when its close order's fill already
+  priced the exit and takes the retries only when nothing has.
+- **A close that filled in several legs was priced off its last leg.**
+  `_fill_by_order_id` summed the legs' profit and fee and read the price off
+  the last one; `_fill_by_close_side` read the last fill alone, so its profit
+  and fee stood for the whole close. `close_lookup.fill_legs` is the
+  volume-weighted average over the legs of the one order, taken only when
+  EVERY leg states a price and an amount: an average over the legs that
+  happened to be readable is a partial figure printed as the whole, so with
+  any leg unread the last leg's price stands, as before.
+- **`pnl_source` is `fill_source` in two words, derived and never set.**
+  `exchange_fill` when the venue priced the exit, `ticker_inferred` when a
+  ticker stood in after the retries, None for a close that carries no P&L or
+  a word this build does not know. `closed_trade_row` writes it on every row
+  and `row_pnl_source` reads a row from before the key the same way. It reads
+  the EXIT: an entry booked off the pre-order ticker keeps its own marker.
+  `/parity` prints the strategy exits split by it, each row with its own
+  sample, and a scored row with no source on record is counted apart.
+- **Hold-Time Analytics was fed from the paper book's close loop alone.** In
+  live mode `/holdtime` never left "insufficient data". The operator's live
+  closes feed it now (`record_live_close`, from `_on_live_position_closed`)
+  and the closes already on the record are read back at startup. Execution
+  aborts and never-filled orders are left out, an unpriced close is unscored,
+  R is read against the stop the trade was sized on where the record kept it,
+  and the card counts how many outcomes rest on a ticker-estimated exit. A
+  per-user account's close does not reach the operator's card.
+- **The Bitget path asked the venue for a leverage the symbol could not
+  take.** The non-Bitget path clamped to the market's maximum inside its own
+  set call, after the order's margin had been computed; the Bitget path did
+  not clamp. `leverage.clamp_for_submit` is `min(requested, symbol maximum,
+  MAX_LEVERAGE)`, made once in `_order_leverage_reading` so the set, the
+  sizing, the margin conversion and the free-margin check read one pair, and
+  `execute` audits LEVERAGE_CLAMPED when it lowered anything. The maximum is
+  read off the markets the client already holds (no venue call), the last
+  figure read is kept for a client whose markets are not loaded, and unread
+  it is no bound at all. Reduce-only: a preference, the quality ladder and
+  the margin-risk cap still bind. A maximum under the sizing leverage lowers
+  the sized leverage with it (a smaller notional), so the venue never locks
+  more than the sized margin.
+- **What the clamp does not do.** The post-fill overshoot guard is untouched
+  and still flattens a fill the venue confirmed past the ratio. An overshoot
+  is the venue applying MORE than was approved (the sticky per-symbol
+  setting), and a symbol's maximum bounds that from above, so a request over
+  the maximum fills UNDER the request, never over it. The clamp removes the
+  refused set, the mismatch report and the margin computed at a leverage the
+  venue never applied; whether any of the 33 came from it is for the live
+  `leverage_mismatch_on_fill` rows to say.
+(`tests/test_a_close_is_priced_by_the_exchange_fill.py`: a verified fill, a
+second ask finding what the first did not, three-leg and two-leg closes,
+every attempt failing, a hung attempt cut off and named, the parity split,
+the hold-time feed. `tests/test_the_leverage_is_clamped_before_the_order_is_submitted.py`:
+the minimum, the reader, the ladder at every rung against every maximum, the
+cache, the flag, and an order driven against a venue that refuses a set above
+its maximum, with the clamp on and off. `tests/test_dynamic_leverage_dedup.py`
+pins the one reading. Forty mutants, all killed, none refused. Not driven:
+the read-back of the record into the hold-time card at engine startup.)

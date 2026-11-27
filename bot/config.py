@@ -2100,6 +2100,30 @@ class ExecutionConfig:
     # "close on ANY overshoot", which is legal but will fight venue rounding.
     leverage_overshoot_max_ratio: float = _env_float_bounded(
         "LEVERAGE_OVERSHOOT_MAX_RATIO", 1.5, 1.0, 100.0)
+    # Pre-submit leverage clamp. Before an order is sized and the venue is
+    # set, the leverage is lowered to what the venue will accept for the
+    # symbol: min(requested, the symbol's maximum from the venue's contract
+    # metadata, the MAX_LEVERAGE ceiling). A set call above the symbol's
+    # maximum is refused, which leaves the symbol at whatever leverage it
+    # held before and the order's margin computed for a leverage the venue
+    # never applied. Reduce-only: it never raises a leverage, so a user's
+    # preference, the quality ladder and the margin-risk cap all still bind.
+    # With the symbol's maximum unread the order goes out as requested, as
+    # it did before this existed. Off restores that for every order. The
+    # post-fill overshoot guard above is untouched either way.
+    leverage_presubmit_clamp_enabled: bool = _env_switch(
+        "LEVERAGE_PRESUBMIT_CLAMP_ENABLED", True)
+    # The venue lookup that prices a close (position history, fills, closed
+    # orders) is asked a bounded number of times, each under a time limit,
+    # before a close falls back to a ticker estimate. The defaults are the
+    # sweep's old 3 attempts 2 seconds apart; the time limit is new (each
+    # attempt used to wait as long as the venue client did).
+    close_fill_lookup_attempts: int = int(_env_float_bounded(
+        "CLOSE_FILL_LOOKUP_ATTEMPTS", 3, 1, 10))
+    close_fill_lookup_timeout_sec: float = _env_float_bounded(
+        "CLOSE_FILL_LOOKUP_TIMEOUT_SEC", 20.0, 1.0, 120.0)
+    close_fill_lookup_retry_delay_sec: float = _env_float_bounded(
+        "CLOSE_FILL_LOOKUP_RETRY_DELAY_SEC", 2.0, 0.0, 30.0)
     # Slippage alert: the proactive monitor warns (live only) when a symbol's
     # mean absolute slippage exceeds this %, once it has at least N recorded
     # fills. Surfaces execution-quality drift before it quietly drains equity.

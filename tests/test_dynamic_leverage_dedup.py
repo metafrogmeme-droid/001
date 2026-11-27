@@ -118,7 +118,8 @@ class TestBothPathsUseHelper:
 
     def test_nothing_else_decides_a_leverage(self):
         """Exactly four methods ask for the venue's leverage, three ask for
-        the order's pair, and no other quietly works one out.
+        the order's pair (`execute` through the reading that carries the
+        clamp), and no other quietly works one out.
 
         The numbers are DERIVED -- a list of them would be the shape where the
         one added tomorrow is the one missing from it. `execute` reads the
@@ -145,5 +146,11 @@ class TestBothPathsUseHelper:
         assert callers("_compute_target_leverage") == [
             "_ensure_leverage", "_ensure_leverage_generic",
             "_intended_fill_leverage", "_size_or_block"]
+        # The pair is read in ONE place (`_order_leverage_reading`, which also
+        # carries what the pre-submit clamp did to it). `execute` asks that
+        # reading directly, once, because it has to say LEVERAGE_CLAMPED;
+        # every other reader asks `_order_leverages`, which is that reading's
+        # pair and nothing else.
+        assert callers("_order_leverage_reading") == ["_order_leverages", "execute"]
         assert callers("_order_leverages") == [
-            "_compute_sized_leverage", "_compute_target_leverage", "execute"]
+            "_compute_sized_leverage", "_compute_target_leverage"]

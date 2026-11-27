@@ -365,10 +365,16 @@ class HoldTimeAnalytics:
         # threw away.
         self._records: dict[str, list[tuple[float, Optional[float], str]]] = (
             defaultdict(list))
+        # Beside each record, whether its OUTCOME rests on a ticker-estimated
+        # exit (a live close no venue stage priced) rather than a verified
+        # fill. The hold is measured either way; the win or loss is not, and
+        # the card counts those apart.
+        self._estimated: dict[str, list[bool]] = defaultdict(list)
         self._max_records = 500
 
     def record(self, strategy_type: str, holding_hours: float,
-               r_multiple: Optional[float], pnl: Optional[float]) -> None:
+               r_multiple: Optional[float], pnl: Optional[float],
+               estimated: bool = False) -> None:
         """Record a closed trade's hold time, R and outcome.
 
         ``r_multiple`` is ``None`` when the risk it is a ratio OF could not be
@@ -379,8 +385,77 @@ class HoldTimeAnalytics:
         """
         self._records[strategy_type].append(
             (holding_hours, r_multiple, outcome_of(pnl)))
+        self._estimated[strategy_type].append(bool(estimated))
         if len(self._records[strategy_type]) > self._max_records:
             self._records[strategy_type] = self._records[strategy_type][-self._max_records:]
+            self._estimated[strategy_type] = (
+                self._estimated[strategy_type][-self._max_records:])
+
+    def record_live_close(self, pos) -> bool:
+        """Record one LIVE close off its position record; True when it was.
+
+        The collector was fed from one place, the paper book's close loop, so
+        in live mode `/holdtime` read "insufficient data" for every strategy
+        however many live trades had closed. A live close is recorded when it
+        is a strategy exit with a measured hold: not a never-filled order, not
+        a post-fill execution abort (a flatten seconds after the fill is not
+        a hold the strategy chose), and not a record with no entry or close
+        time. A close nobody could price is recorded as unscored, which the
+        analysis already counts apart. R is read against the stop the trade
+        was SIZED on when the record kept it (`entry_facts`), because the
+        position's own stop is moved by the break-even lock and the trail;
+        `trade_journal.r_multiple_for` is the one arithmetic.
+        """
+        from bot.core.close_lookup import PNL_TICKER_INFERRED, pnl_source
+        from bot.core.position_telemetry import entered_at, price_on_record
+        from bot.core.trade_journal import r_multiple_for
+        from bot.utils.close_reason import is_execution_abort, is_filled_close
+
+        reason = getattr(pos, "close_reason", None)
+        pnl = getattr(pos, "pnl_usd", None)
+        if isinstance(pnl, bool) or not isinstance(pnl, (int, float)):
+            pnl = None
+        if not is_filled_close(reason, pnl) or is_execution_abort(reason):
+            return False
+        opened, closed = entered_at(pos), getattr(pos, "closed_at", None)
+        if opened is None or closed is None:
+            return False
+        try:
+            hold_h = (closed - opened).total_seconds() / 3600.0
+        except (TypeError, AttributeError):
+            return False
+        if hold_h <= 0:
+            return False
+        strategy = getattr(pos, "strategy_type", None)
+        if not isinstance(strategy, str) or not strategy:
+            return False
+        final_r: Optional[float] = None
+        entry = price_on_record(getattr(pos, "entry_price", None))
+        if pnl is not None and entry is not None:
+            facts = getattr(pos, "entry_facts", None)
+            stop = price_on_record(facts.get("initial_stop_loss")
+                                   if isinstance(facts, dict) else None)
+            if stop is None:
+                stop = price_on_record(getattr(pos, "stop_loss", None))
+            if stop is not None:
+                final_r = r_multiple_for(entry, stop, pnl, getattr(pos, "quantity", None))
+        self.record(strategy, hold_h, final_r, pnl,
+                    estimated=(pnl_source(getattr(pos, "fill_source", None), pnl)
+                               == PNL_TICKER_INFERRED))
+        return True
+
+    def seed_from_closed(self, closed_positions) -> int:
+        """Record the live closes already on the record (oldest first), so the
+        card does not start empty after every restart. Returns how many were
+        recorded."""
+        n = 0
+        for pos in closed_positions:
+            try:
+                if self.record_live_close(pos):
+                    n += 1
+            except Exception:  # noqa: BLE001 - one unreadable row costs that row
+                continue
+        return n
 
     def get_analysis(self, strategy_type: str) -> Optional[dict]:
         """Analyze hold-time distribution for a strategy type.
@@ -439,6 +514,8 @@ class HoldTimeAnalytics:
 
         scored = len(records) - unscored
         return {
+            # How many of these outcomes rest on a ticker-estimated exit.
+            "estimated": sum(1 for e in self._estimated.get(strategy_type, []) if e),
             "total_trades": len(records),
             "wins": len(wins),
             "losses": len(losses),
@@ -481,6 +558,9 @@ class HoldTimeAnalytics:
             for _k, _w in (("flat", "flat"), ("unscored", "unpriced")):
                 if analysis[_k]:
                     counts += f", {analysis[_k]} {_w}"
+            if analysis["estimated"]:
+                tail += (f"  ({analysis['estimated']} of {analysis['total_trades']} "
+                         f"outcomes rest on a ticker-estimated exit, not a venue fill)\n")
             lines.append(
                 f"{st.upper()} ({counts}, {_num(analysis['win_rate'], '%')} WR)\n"
                 f"  Win hold: {analysis['avg_hold_win_hours']}h avg | "

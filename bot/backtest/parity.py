@@ -52,7 +52,16 @@ from bot.backtest.benchmark_record import (
 )
 from bot.config import CONFIG
 from bot.core.arb_tracker import MIN_VERDICT_ENTRIES, mean_interval
-from bot.core.close_lookup import FEE_CLOSE_LEG, FEE_ESTIMATED, UNRECORDED, fee_stated, is_ticker_priced
+from bot.core.close_lookup import (
+    FEE_CLOSE_LEG,
+    FEE_ESTIMATED,
+    PNL_EXCHANGE_FILL,
+    PNL_TICKER_INFERRED,
+    UNRECORDED,
+    fee_stated,
+    is_ticker_priced,
+    row_pnl_source,
+)
 from bot.formatters.money import signed_usd
 from bot.learning.readiness import wilson_interval
 from bot.utils.close_reason import is_execution_abort, is_filled_close
@@ -357,6 +366,27 @@ def class_rows(trades: list[dict]) -> dict[str, dict]:
     return _group(rows, "asset_class")
 
 
+#: The bucket for a scored close whose record does not say what priced it: a
+#: row from before ``fill_source`` was written, or a word this build does not
+#: know. Counted under its own name, never folded into either source.
+PNL_SOURCE_UNRECORDED = "(source not recorded)"
+
+
+def by_pnl_source(trades: list[dict]) -> dict[str, dict]:
+    """The strategy exits split by what their realized P&L rests on
+    (`close_lookup.pnl_source`): ``exchange_fill`` rows are verified venue
+    fills, ``ticker_inferred`` rows are estimates booked after the venue
+    lookup's bounded retries priced nothing. The two are never blended into
+    one figure here, so a reader can see what the verified record alone says
+    and how much of the headline is estimate. Always in the same order:
+    verified, estimated, then the rows with no source on record."""
+    rows = [{**t, "_pnl_source": row_pnl_source(t) or PNL_SOURCE_UNRECORDED}
+            for t in trades]
+    grouped = _group(rows, "_pnl_source", inferred_of=lambda _t: False)
+    order = (PNL_EXCHANGE_FILL, PNL_TICKER_INFERRED, PNL_SOURCE_UNRECORDED)
+    return {k: grouped[k] for k in order if k in grouped}
+
+
 def _by_exit_reason(trades: list[dict]) -> dict[str, dict]:
     rows = []
     for t in trades:
@@ -566,6 +596,8 @@ def parity_summary(trades: list[dict], modeled_commission_pct: float,
         "inferred_fills": head["inferred"],
         "benchmark": reading._asdict(),
         "verdict": parity_verdict(strategy, reading),
+        # Verified venue fills and ticker estimates, kept apart.
+        "by_pnl_source": by_pnl_source(strategy),
         "by_signal_type": _group(strategy, "signal_type"),
         "by_setup": _group(strategy, "strategy_type"),
         "by_exit_reason": _by_exit_reason(strategy),
@@ -680,6 +712,10 @@ def format_report(s: dict) -> str:
     # The ticker-priced share is said once, in the verdict block above, where
     # it qualifies the figures it sits under; a second sentence here said the
     # same thing in different words.
+    lines.extend(_bucket_lines(
+        "By PnL source (exchange_fill = verified venue fill, "
+        "ticker_inferred = estimate after the venue lookup failed)",
+        s.get("by_pnl_source") or {}))
     lines.extend(_bucket_lines("By signal type", s["by_signal_type"]))
     lines.extend(_bucket_lines("By setup", s["by_setup"]))
     lines.extend(_bucket_lines("By exit reason", s["by_exit_reason"],
