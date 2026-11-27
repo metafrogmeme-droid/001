@@ -239,6 +239,28 @@ def lookup_sentence(symbol: str, outcomes: Sequence[StageOutcome]) -> str:
     return f"No venue close data for {symbol} — " + "; ".join(parts)
 
 
+#: The word a closed record carries when the last bounded attempt at the venue
+#: lookup ran out of time (``LiveExecutor._close_data_bounded``). A lookup
+#: that did not finish stated nothing about any stage, so this is its own
+#: cause on the parity card rather than a stage's.
+LOOKUP_TIMED_OUT = "lookup timed out"
+
+#: ``pnl_source`` on a closed record: the two things a realized figure can
+#: rest on. A record that is neither (an unpriced close, a non-fill, a row a
+#: build before ``fill_source`` wrote) carries None, which is not either word.
+PNL_EXCHANGE_FILL = "exchange_fill"
+PNL_TICKER_INFERRED = "ticker_inferred"
+PNL_SOURCES = (PNL_EXCHANGE_FILL, PNL_TICKER_INFERRED)
+
+#: How a ``fill_source`` the VENUE priced begins: a position-history row, a
+#: fill, a closed stop/target order, or the bot's own close order read back
+#: (``close_order``, ``close_order_cost``). Prefixes, because the executor
+#: appends what else it knows (``_local_pnl``, ``+exchange_pnl``,
+#: ``+entry_estimated``) after the word that says where the exit came from.
+VENUE_PRICED_PREFIXES = ("bitget_position_history", "exchange_fill",
+                         "closed_order", "close_order")
+
+
 def is_ticker_priced(fill_source: Optional[str]) -> bool:
     """True when a closed record's exit was a TICKER estimate rather than a
     venue fill — every spelling of it. The executor writes three: the 25227
@@ -247,3 +269,104 @@ def is_ticker_priced(fill_source: Optional[str]) -> bool:
     reader used to compare one exact word, so the sweep's rows were never
     counted as inferred."""
     return str(fill_source or "").startswith("ticker")
+
+
+def pnl_source(fill_source: Optional[str], pnl: Any) -> Optional[str]:
+    """Where a closed record's realized P&L comes from, in two words.
+
+    ``exchange_fill``    the exit was priced by the venue (its position
+                         history, a fill, a closed order, the close order read
+                         back): a verified fill.
+    ``ticker_inferred``  no venue stage priced the exit after the bounded
+                         retries and a ticker stood in: an estimate.
+    ``None``             neither: the close carries no P&L (unpriced, entry
+                         unread, never filled), or its ``fill_source`` is
+                         absent or a word this build does not know.
+
+    DERIVED from ``fill_source``, which stays the one record of how a close
+    was sourced: this is its two-word reading for `/parity` and for any
+    consumer of the closed-trade file, never a second field set on its own.
+    It reads the EXIT. An entry booked off the pre-order ticker keeps its own
+    marker on the same word (``+entry_estimated``) and on ``entry_source``.
+    """
+    if isinstance(pnl, bool) or not isinstance(pnl, (int, float)):
+        return None
+    src = str(fill_source or "")
+    if not src:
+        return None
+    if is_ticker_priced(src):
+        return PNL_TICKER_INFERRED
+    if src.startswith(VENUE_PRICED_PREFIXES):
+        return PNL_EXCHANGE_FILL
+    return None
+
+
+def row_pnl_source(row: Any) -> Optional[str]:
+    """`pnl_source` asked of a closed-trade row, whatever build wrote it: read
+    off the row's ``fill_source`` and P&L, so a row from before the key was
+    written answers the same way as one written today."""
+    if not isinstance(row, dict):
+        return None
+    pnl: Any = None
+    for key in ("pnl_usd", "net_pnl", "net_pnl_usd"):
+        v = row.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            pnl = v
+            break
+    return pnl_source(row.get("fill_source"), pnl)
+
+
+class FillLegs(NamedTuple):
+    """The fills of one close, read together.
+
+    ``price`` is the volume-weighted average over the legs when every leg
+    stated an amount (``weighted``), else the last priced leg's price, which
+    is what a single-fill read has always answered. ``quantity`` is the total
+    filled, None when a leg stated no amount: an unread amount is not zero.
+    """
+    price: float
+    quantity: Optional[float]
+    legs: int
+    weighted: bool
+
+
+def _positive_number(v: Any) -> Optional[float]:
+    if isinstance(v, bool) or v is None or v == "":
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and f > 0 and f != float("inf") else None
+
+
+def fill_legs(fills: Iterable[Any]) -> Optional[FillLegs]:
+    """The average fill price of a close that filled in one leg or several.
+
+    A stop or a market close on a thin book fills in parts, each at its own
+    price. The lookup used to read the LAST part's price as the close price,
+    so a three-leg close at 100, 99 and 95 was booked at 95.
+
+    None when the last leg states no price, which is what the single-fill
+    read answered ("the fill carries no price"). The average is taken only
+    when EVERY leg states a price and an amount: an average over the legs
+    that happened to be readable is a partial figure printed as the whole,
+    so with any leg unread the last leg's price stands, as before, and
+    ``weighted`` says the legs were not averaged.
+    """
+    rows = [f for f in fills if isinstance(f, dict)]
+    if not rows:
+        return None
+    last_px = _positive_number(rows[-1].get("price"))
+    if last_px is None:
+        return None
+    pairs = [(_positive_number(f.get("price")), _positive_number(f.get("amount")))
+             for f in rows]
+    total = 0.0
+    notional = 0.0
+    for px, amount in pairs:
+        if px is None or amount is None:
+            return FillLegs(last_px, None, len(rows), False)
+        total += amount
+        notional += px * amount
+    return FillLegs(notional / total, total, len(rows), True)

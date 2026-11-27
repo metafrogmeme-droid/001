@@ -1248,6 +1248,14 @@ class RuneClawEngine:
         # Hold-time analytics tracker
         from bot.core.smart_exits import HoldTimeAnalytics
         self.hold_analytics = HoldTimeAnalytics()
+        # In live mode the card reads the operator's live closes, and the ones
+        # already on the record are read back so a restart does not empty it.
+        try:
+            if CONFIG.is_live():
+                self.hold_analytics.seed_from_closed(
+                    list(self.live_executor._closed_trades))
+        except Exception as _hs_exc:
+            logger.debug("Hold-time seed from the live record skipped: %s", _hs_exc)
 
         # Smart scan scheduling
         #
@@ -2013,6 +2021,16 @@ class RuneClawEngine:
         # not `self.journal_live_close`, so a stub engine the close tests
         # build still reaches the method.
         RuneClawEngine.journal_live_close(self, pos, user_id)
+        # ── Hold-time analytics ─────────────────────────────────────────────
+        # Fed from the paper book's close loop alone until now, so in live
+        # mode `/holdtime` never left "insufficient data". The operator's own
+        # closes only: the card is the operator's, and a per-user account's
+        # trades are not theirs to read there.
+        try:
+            if not user_id:
+                self.hold_analytics.record_live_close(pos)
+        except Exception as _ht_exc:
+            logger.debug("Hold-time record skipped for live close: %s", _ht_exc)
         # ── Feed the ACCOUNT-LEVEL loss breakers (audit CRITICAL) ──────────
         # In pure-live mode the paper portfolio is never updated, so the
         # consecutive-loss breaker, live-performance governor, equity throttle

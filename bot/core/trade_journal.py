@@ -414,7 +414,7 @@ class TradeJournal:
         all_lessons = []
         for e in recent:
             all_lessons.extend(e.lessons)
-        lesson_counts = defaultdict(int)
+        lesson_counts: defaultdict[str, int] = defaultdict(int)
         for lesson in all_lessons:
             lesson_counts[lesson] += 1
         top_lessons = sorted(lesson_counts.items(), key=lambda x: -x[1])[:5]

@@ -57,17 +57,21 @@ from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
     FEE_CLOSE_LEG, FEE_ESTIMATED, FEE_VENUE, StageOutcome, client_is_uta,
+    LOOKUP_TIMED_OUT, fill_legs, pnl_source,
     is_ticker_priced, lookup_class, lookup_no_rows, lookup_raised, lookup_sentence,
     lookup_skipped, lookup_unmatched, nearest_entry_gap_pct, uta_history_row,
 )
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import (
     LeveragePair,
+    SubmitLeverage,
     apply_margin_risk_cap,
+    clamp_for_submit,
     leverage_ceiling,
     leverage_floor,
     order_standards,
     resolve_user_leverage,
+    symbol_max_leverage,
     venue_leverage,
     venue_margin,
 )
@@ -625,6 +629,11 @@ def closed_trade_row(pos) -> dict:
         "close_reason": pos.close_reason,
         "origin": pos.origin,
         "fill_source": pos.fill_source,
+        # `fill_source` in two words (close_lookup.pnl_source): a verified
+        # exchange fill, a ticker estimate, or None for a close that carries
+        # no P&L. Derived here, on every write, so it cannot drift from the
+        # word it reads.
+        "pnl_source": pnl_source(pos.fill_source, pos.pnl_usd),
         "close_lookup": pos.close_lookup,
         # What the commission is made of (close_lookup.FEE_*), so a reader can
         # tell a fee the venue stated from the configured estimate that stands
@@ -2649,6 +2658,10 @@ class LiveExecutor:
         self._last_atr_pct: dict[str, float] = {}  # symbol -> ATR/price ratio
         # Symbols already warned about unverifiable leverage (once per process)
         self._lev_unverified_warned: set[str] = set()
+        # The last maximum leverage the venue's contract metadata stated per
+        # symbol (`_symbol_max_leverage`), kept so a client whose markets are
+        # not loaded at the moment of a read still clamps to it.
+        self._symbol_max_lev: dict[str, int] = {}
         # symbol -> monotonic expiry, armed when the overshoot guard flattens a
         # fill. Bitget's sticky per-symbol leverage survives the close, so
         # without this the engine re-signals, the venue over-levers again, and
@@ -2858,7 +2871,49 @@ class LiveExecutor:
             _override = None
         return order_standards(CONFIG.exchange, _override)
 
+    def _symbol_max_leverage(self, symbol: str) -> Optional[int]:
+        """The venue's maximum leverage for ``symbol``, or None when unread.
+
+        Read off the contract metadata the venue client already holds (its
+        loaded markets), so this asks the venue nothing and can be answered
+        wherever the order's leverages are read. The last figure stated for a
+        symbol is kept: a client whose markets are not loaded right now (a
+        fresh client after a restart, a reload in flight) answers the figure
+        it last read rather than none. With neither, None, and the clamp holds
+        the account cap alone, which is the order as it went out before the
+        clamp existed.
+        """
+        cache = getattr(self, "_symbol_max_lev", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            try:
+                self._symbol_max_lev = cache
+            except Exception:
+                pass
+        markets = getattr(getattr(self, "_exchange", None), "markets", None)
+        if isinstance(markets, dict):
+            keys = [symbol]
+            try:
+                swap = self._venue.swap_symbol(symbol)
+            except Exception:
+                swap = None
+            if isinstance(swap, str) and swap not in keys:
+                keys.append(swap)
+            for key in keys:
+                stated = symbol_max_leverage(markets.get(key))
+                if stated is not None:
+                    cache[symbol] = stated
+                    return stated
+        held = cache.get(symbol)
+        return held if isinstance(held, int) and not isinstance(held, bool) else None
+
     def _order_leverages(self, symbol: str, idea: Any = None) -> LeveragePair:
+        """This order's two leverages, as every reader asks for them: the
+        pair `_order_leverage_reading` answers, which is the pair the order
+        is submitted at."""
+        return self._order_leverage_reading(symbol, idea).pair
+
+    def _order_leverage_reading(self, symbol: str, idea: Any = None) -> SubmitLeverage:
         """THE ONE READING of this order's two leverages.
 
         ``sized`` is what the order is sized at: the sized standard lowered by
@@ -2882,7 +2937,40 @@ class LiveExecutor:
             pref = self._user_leverage_reading()
         if pref is not None:
             venue = min(venue, resolve_user_leverage(pref, standards.venue))
-        return LeveragePair(sized, max(sized, venue))
+        requested = LeveragePair(sized, max(sized, venue))
+        # THE PRE-SUBMIT CLAMP, made here so the venue set, the sizing, the
+        # margin conversion and the free-margin check all read the clamped
+        # pair: never above the symbol's maximum on the venue or the
+        # MAX_LEVERAGE ceiling, and never above what was requested.
+        ceiling = leverage_ceiling(CONFIG.exchange)
+        if not getattr(getattr(CONFIG, "execution", None),
+                       "leverage_presubmit_clamp_enabled", True):
+            return SubmitLeverage(requested, requested, None, ceiling, "")
+        return clamp_for_submit(requested, self._symbol_max_leverage(symbol), ceiling)
+
+    def _say_leverage_clamped(self, idea: Any, reading: SubmitLeverage) -> None:
+        """LEVERAGE_CLAMPED: the order goes out at a lower leverage than was
+        requested, and the record says which limit lowered it. Said once per
+        order, at the one place an order's leverages are read for submission."""
+        asset = getattr(idea, "asset", "")
+        limit = (f"the venue's {reading.symbol_max}x maximum for the symbol"
+                 if reading.bound_by == "symbol_max"
+                 else f"the {reading.account_cap}x MAX_LEVERAGE ceiling")
+        audit(trade_log,
+              f"LEVERAGE_CLAMPED for {asset}: requested "
+              f"{reading.requested.venue}x at the venue (sized at "
+              f"{reading.requested.sized}x), submitted at {reading.pair.venue}x "
+              f"(sized at {reading.pair.sized}x) under {limit}",
+              action="leverage_clamp", result="LEVERAGE_CLAMPED",
+              level=logging.WARNING,
+              data={"trade_id": getattr(idea, "id", None), "symbol": asset,
+                    "requested_leverage": reading.requested.venue,
+                    "requested_sized_leverage": reading.requested.sized,
+                    "leverage": reading.pair.venue,
+                    "sized_leverage": reading.pair.sized,
+                    "symbol_max_leverage": reading.symbol_max,
+                    "account_cap": reading.account_cap,
+                    "bound_by": reading.bound_by})
 
     def _compute_sized_leverage(self, symbol: str, idea: Any = None) -> int:
         """The leverage this order is SIZED at: notional = its margin x this.
@@ -3722,10 +3810,12 @@ class LiveExecutor:
                   else self._compute_target_leverage(symbol, idea))
         sym = self._venue.swap_symbol(symbol)
         try:
-            market = exchange.market(sym)
-            max_lev = ((market.get("limits") or {}).get("leverage") or {}).get("max")
-            if max_lev:
-                target = min(target, int(max_lev))
+            # The same reading `_order_leverage_reading` clamps an order's
+            # pair with; an order's target arrives here already under it, and
+            # a caller with no order (no target handed in) is clamped here.
+            max_lev = symbol_max_leverage(exchange.market(sym))
+            if max_lev is not None:
+                target = min(target, max_lev)
         except Exception:
             pass  # market not loaded yet — set call below will surface issues
         if self._venue.margin_mode_call_first:
@@ -9075,10 +9165,13 @@ class LiveExecutor:
             # `/leverage` change or a preference file that read on the second
             # try between them set the venue to one leverage and sized the
             # order at another: $200 of margin locked on a $100 approval.
-            _leverages = self._order_leverages(
+            _lev_reading = self._order_leverage_reading(
                 self._venue.swap_symbol(idea.asset) if is_futures else idea.asset,
                 idea)
+            _leverages = _lev_reading.pair
             _order_leverage = _leverages.venue
+            if is_futures and _lev_reading.clamped:
+                self._say_leverage_clamped(idea, _lev_reading)
 
             # Set leverage for this symbol (futures only)
             if is_futures:
@@ -14972,7 +15065,13 @@ class LiveExecutor:
             try:
                 import asyncio as _aio_pnl
                 await _aio_pnl.sleep(2)  # brief delay for Bitget to finalize
-                pos_hist_data = await self._fetch_bitget_close_data(pos)
+                # One attempt when the close order's own fill already priced
+                # the exit (the lookup can only add the venue's P&L and
+                # funding); the bounded retries when nothing has priced it
+                # yet, because the next thing in line is a ticker.
+                pos_hist_data = await self._close_data_bounded(
+                    pos, attempts=(None if (fill_price <= 0 or is_ticker_priced(_fill_src))
+                                   else 1))
                 _lk_px = (_num_or_none(pos_hist_data.get("close_price"))
                           if pos_hist_data else None)
                 if pos_hist_data and pos_hist_data.get("pnl") is not None:
@@ -15572,6 +15671,52 @@ class LiveExecutor:
 
     # ── Bitget Position History — single source of truth for closed PnL ──
 
+    async def _close_data_bounded(self, pos: LivePosition, *,
+                                  attempts: Optional[int] = None) -> dict | None:
+        """The venue's own record of a close, asked a BOUNDED number of times
+        under a time limit each; None when no attempt priced it, which is the
+        only case a caller may fall back to a ticker estimate.
+
+        Three callers price a close and each had its own patience. The sweep
+        asked three times two seconds apart. The path for a position that was
+        gone before the bot's close arrived asked ONCE, straight after the
+        venue reported it gone, which is when the venue's history has had the
+        least time to carry the row, and then booked a ticker. And none had a
+        time limit of its own: an attempt waited as long as the venue client
+        did, on up to seven reads. The bounds are the configuration's
+        (`CLOSE_FILL_LOOKUP_ATTEMPTS`, `_TIMEOUT_SEC`, `_RETRY_DELAY_SEC`).
+
+        An attempt that runs out of time stated nothing about any stage, so
+        the record's cause is its own word (`LOOKUP_TIMED_OUT`) when the LAST
+        attempt ended that way. A later attempt that prices the close clears
+        the cause an earlier one left: `close_lookup` is why a close was NOT
+        priced, and a priced close has no such reason.
+        """
+        cfg = getattr(CONFIG, "execution", None)
+        n = int(attempts if attempts is not None
+                else getattr(cfg, "close_fill_lookup_attempts", 3))
+        n = max(1, n)
+        timeout = float(getattr(cfg, "close_fill_lookup_timeout_sec", 20.0))
+        delay = float(getattr(cfg, "close_fill_lookup_retry_delay_sec", 2.0))
+        for attempt in range(n):
+            data: dict | None
+            try:
+                data = await asyncio.wait_for(
+                    self._fetch_bitget_close_data(pos), timeout=timeout)
+            except asyncio.TimeoutError:
+                data = None
+                pos.close_lookup = LOOKUP_TIMED_OUT
+                logger.warning(
+                    "Venue close lookup for %s timed out after %.0fs "
+                    "(attempt %d of %d)", pos.symbol, timeout, attempt + 1, n)
+            price = _num_or_none(data.get("close_price")) if data else None
+            if data is not None and price is not None and price > 0:
+                pos.close_lookup = None
+                return data
+            if attempt < n - 1 and delay > 0:
+                await asyncio.sleep(delay)
+        return None
+
     async def _fetch_bitget_close_data(
         self, pos: LivePosition,
     ) -> dict | None:
@@ -15971,9 +16116,13 @@ class LiveExecutor:
         relevant = [t for t in trades if t.get("order") in ids]
         if not relevant:
             return None, "no fill carries the stop/target order id"
-        fill_price = float(relevant[-1].get("price", 0) or 0)
-        if fill_price <= 0:
+        # EVERY LEG, not the last one. A stop that filled in three parts at
+        # 100, 99 and 95 was booked at 95: the profit and the fee below were
+        # already summed over the legs and the price was read off one.
+        legs = fill_legs(relevant)
+        if legs is None:
             return None, "the stop/target fill carries no price"
+        fill_price = legs.price
         total_profit = 0.0
         total_fees = 0.0
         for rt in relevant:
@@ -16017,6 +16166,7 @@ class LiveExecutor:
             "source": "exchange_fill_sltp" if stated else "exchange_fill_sltp_local_pnl",
             "fees_cover": "close",
             "pnl_is_net": False,
+            "legs": legs.legs,
         }, ""
 
     def _fill_by_close_side(self, pos: LivePosition, trades: list,
@@ -16044,11 +16194,25 @@ class LiveExecutor:
         if not candidates:
             return None, f"no {close_side} fill after the position opened"
         last_fill = candidates[-1]
-        fill_price = float(last_fill.get("price", 0) or 0)
-        if fill_price <= 0:
+        # THE LEGS OF THAT ONE ORDER. A market close that filled in parts is
+        # several fills under one order id, and this read the last part
+        # alone: its price as the close price, its profit as the whole
+        # close's and its fee as the whole fee. A fill that names no order
+        # is one leg, as before; another order's fills are another close.
+        _close_order = last_fill.get("order")
+        order_legs = ([t for t in candidates if t.get("order") == _close_order]
+                      if _close_order else [last_fill])
+        legs = fill_legs(order_legs)
+        if legs is None:
             return None, "the close-side fill carries no price"
-        info = last_fill.get("info", {}) if isinstance(last_fill.get("info"), dict) else {}
-        profit = float(info.get("profit", 0) or 0)
+        fill_price = legs.price
+
+        def _leg_info(t: dict) -> dict:
+            raw = t.get("info")
+            return raw if isinstance(raw, dict) else {}
+
+        info = _leg_info(last_fill)
+        profit = sum(float(_leg_info(t).get("profit", 0) or 0) for t in order_legs)
         stated = profit != 0
         venue_says_close = ("close" in str(info.get("tradeSide") or "").lower()
                             or bool(info.get("reduceOnly")))
@@ -16058,7 +16222,7 @@ class LiveExecutor:
         return {
             "close_price": fill_price,
             "pnl": profit if stated else None,
-            "fees": self._fill_fee(last_fill),
+            "fees": sum(self._fill_fee(t) for t in order_legs),
             # Unrecognized close-side fill -- infer from the
             # fill price before conceding unknown.
             "reason": self._infer_close_reason(pos, fill_price),
@@ -16067,6 +16231,7 @@ class LiveExecutor:
             "fees_cover": "close",
             # Gross, close-side fee only -- see exchange_fill_sltp note.
             "pnl_is_net": False,
+            "legs": legs.legs,
         }, ""
 
     async def _close_from_orders(self, pos: LivePosition, exchange, ccxt_symbol: str,
@@ -16396,7 +16561,9 @@ class LiveExecutor:
         ccxt_symbol = self._venue.swap_symbol(pos.symbol)
 
         # ── Get real close data from Bitget ──────────────────────────
-        close_data = await self._fetch_bitget_close_data(pos)
+        # Bounded retries: this handler runs the moment the venue reports the
+        # position gone, and it used to ask once and book a ticker.
+        close_data = await self._close_data_bounded(pos)
 
         if close_data and close_data["close_price"] > 0:
             est_exit = close_data["close_price"]
@@ -18137,15 +18304,10 @@ class LiveExecutor:
                                 continue
 
                             # Position no longer on exchange — get real close data from Bitget
-                            # SAFETY: retry up to 3 times before giving up
-                            close_data = None
-                            for _retry in range(3):
-                                close_data = await self._fetch_bitget_close_data(pos)
-                                if close_data and close_data["close_price"] > 0:
-                                    break
-                                if _retry < 2:
-                                    import asyncio as _aio
-                                    await _aio.sleep(2)  # brief pause before retry
+                            # SAFETY: a bounded number of attempts, each under a
+                            # time limit, before this tick gives up (the sweep
+                            # asks again on the next ticks, below)
+                            close_data = await self._close_data_bounded(pos)
 
                             if close_data and close_data["close_price"] > 0:
                                 est_exit = close_data["close_price"]
