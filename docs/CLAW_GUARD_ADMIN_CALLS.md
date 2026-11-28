@@ -43,7 +43,9 @@ Besides `decision`, `rules`, `text`, `order_hash` and `ts` (the shape of every C
 answer lists `findings` (each with its kind, path, target, signature and `new_value`), `gaps`
 (recognised parts that did not decode), `wrappers` (the paths of the batch wrappers it opened; their
 inner calls were read as encoded, not verified against the target's code) and `undecoded` (calls with
-calldata this module has no selector for). The last two never change the decision. They exist so that a
+calldata this module has no selector for), and `calls` (every call it visited, with its target). A
+`delegatecall` finding also names the `account` whose context would run the delegate's code. `wrappers`,
+`undecoded` and `calls` never change the decision. They exist so that a
 caller that reports on the check, such as an ERC-8481 report, can say what was not read instead of
 implying that nothing was there.
 

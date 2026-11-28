@@ -165,6 +165,16 @@ class Finding:
     target: str
     signature: str
     new_value: Optional[str] = None
+    #: For a delegatecall: the account whose context would run the delegate's code.
+    account: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Visited:
+    """A call this module looked at, at any depth."""
+
+    path: str
+    target: str
 
 
 @dataclass(frozen=True)
@@ -191,6 +201,7 @@ class Scan:
     #: Paths of the wrappers that were opened (so their inner calls were read as encoded, not verified).
     wrappers: tuple[str, ...] = ()
     undecoded: tuple[Undecoded, ...] = ()
+    calls: tuple[Visited, ...] = ()
 
 
 class _Unreadable(Exception):
@@ -413,20 +424,23 @@ class _Walk:
         self.gaps: dict[str, Gap] = {}
         self.wrappers: list[str] = []
         self.undecoded: list[Undecoded] = []
+        self.visited: list[Visited] = []
         self.opened = 0
 
     def gap(self, path: str, reason: str, nested: str = "not-inspected") -> None:
         self.gaps.setdefault(path, Gap(path, reason, nested))
 
-    def visit(self, call: _Call, path: str, depth: int) -> None:
+    def visit(self, call: _Call, path: str, depth: int, context: Optional[str]) -> None:
         target = call.to
+        if target is not None:
+            self.visited.append(Visited(path, target.lower()))
         if target is None or not call.data and not call.delegate:
             return
         if call.delegate:
             if target.lower() in _MULTISEND_LOWER and call.data[:4] == _selector("multiSend(bytes)"):
                 pass  # a published MultiSend is read through, not flagged
             else:
-                self.findings.append(Finding("delegatecall", path, target.lower(), "delegatecall"))
+                self.findings.append(Finding("delegatecall", path, target.lower(), "delegatecall", None, context))
                 if len(call.data) >= 4:
                     self.undecoded.append(Undecoded(path, "0x" + call.data[:4].hex()))
                 return
@@ -451,15 +465,16 @@ class _Walk:
             self.gap(path, "undecodable-data")
             return
         self.wrappers.append(path)
-        self.expand(inner, path, depth + 1)
+        # A read-through MultiSend runs in the context of the account that delegated to it.
+        self.expand(inner, path, depth + 1, context if call.delegate else target.lower())
 
-    def expand(self, calls: list[_Call], parent: str, depth: int) -> None:
+    def expand(self, calls: list[_Call], parent: str, depth: int, context: Optional[str]) -> None:
         for index, call in enumerate(calls):
             if self.opened >= MAX_CALLS:
                 self.gap(parent or "tx", "not-inspected")
                 return
             self.opened += 1
-            self.visit(call, f"{parent}.inner[{index}]" if parent != "tx" else f"tx.calls[{index}]", depth)
+            self.visit(call, f"{parent}.inner[{index}]" if parent != "tx" else f"tx.calls[{index}]", depth, context)
 
     def _admin(self, admin: tuple[str, str, Optional[int], int], args: bytes, target: str, path: str) -> None:
         signature, kind, index, words = admin
@@ -483,7 +498,7 @@ def scan(request: Any) -> Scan:
     except _BadRequest as exc:
         raise ValueError("request") from exc
     walk = _Walk()
-    walk.expand(calls, "tx", 0)
+    walk.expand(calls, "tx", 0, None)
     for index, raw in enumerate(authorizations):
         path = f"tx.authorizationList[{index}]"
         delegate = raw.get("address") if isinstance(raw, Mapping) else None
@@ -491,7 +506,13 @@ def scan(request: Any) -> Scan:
             walk.gap(path, "undecodable-data")
         elif delegate.lower() != _ZERO:
             walk.findings.append(Finding("eip7702-delegation", path, delegate.lower(), "authorizationList"))
-    return Scan(tuple(walk.findings), tuple(walk.gaps.values()), tuple(walk.wrappers), tuple(walk.undecoded))
+    return Scan(
+        tuple(walk.findings),
+        tuple(walk.gaps.values()),
+        tuple(walk.wrappers),
+        tuple(walk.undecoded),
+        tuple(walk.visited),
+    )
 
 
 def _read_request(request: Any) -> tuple[list[_Call], list[Any]]:
@@ -592,13 +613,21 @@ def _answer(
         "text": text,
         "out_of_scope": None,
         "findings": [
-            {"kind": f.kind, "path": f.path, "target": f.target, "signature": f.signature, "new_value": f.new_value}
+            {
+                "kind": f.kind,
+                "path": f.path,
+                "target": f.target,
+                "signature": f.signature,
+                "new_value": f.new_value,
+                "account": f.account,
+            }
             for f in found.findings
         ],
         "gaps": [{"path": g.path, "reason": g.reason, "nested": g.nested} for g in found.gaps],
         # What was opened, and what was not understood. Neither changes the decision.
         "wrappers": list(found.wrappers),
         "undecoded": [{"path": c.path, "selector": c.selector} for c in found.undecoded],
+        "calls": [{"path": c.path, "target": c.target} for c in found.calls],
     }
 
 
