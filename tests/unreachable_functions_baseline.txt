@@ -172,3 +172,7 @@ bot/warroom/warroom_bot.py:handle_callback
 bot/warroom/warroom_bot.py:render_positions
 bot/warroom/warroom_bot.py:render_signal
 bot/warroom/warroom_bot.py:render_status
+
+# The public door of the admin-call library. Nothing in production calls it
+# yet: the module is not wired to the order path. See docs/CLAW_GUARD_ADMIN_CALLS.md.
+bot/claw_guard/admin_calls.py:evaluate_admin_calls

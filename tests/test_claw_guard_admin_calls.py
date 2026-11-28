@@ -889,8 +889,10 @@ def test_every_sentence_the_check_says_starts_with_one_of_the_three_and_never_sa
 
 def test_the_module_says_nothing_user_facing_with_safe_or_scam_in_it():
     source = (ROOT / "bot" / "claw_guard" / "admin_calls.py").read_text(encoding="utf-8")
-    code = code_only(source)
-    assert not re.search(r"\b(safe|scam)\b", code, re.IGNORECASE)
+    code = code_only(source).lower()
+    # Same rule as test_verdict_strings_exist_only_as_the_three_sentences: a substring,
+    # so an identifier like _s + "afe" is also refused.
+    assert "safe" not in code and "scam" not in code
 
 
 def test_the_existing_order_path_still_refuses_an_evm_request_and_signs_nothing():

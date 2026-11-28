@@ -364,7 +364,7 @@ def _execute_mode(args: bytes, to: Optional[str]) -> list[_Call]:
     raise _Unreadable
 
 
-def _safe_inner(args: bytes, data_word: int, operation_word: int) -> list[_Call]:
+def _exec_inner(args: bytes, data_word: int, operation_word: int) -> list[_Call]:
     operation = _uint(args, 32 * operation_word)
     if operation > 1:
         raise _Unreadable
@@ -372,11 +372,11 @@ def _safe_inner(args: bytes, data_word: int, operation_word: int) -> list[_Call]
 
 
 def _exec_transaction(args: bytes, to: Optional[str]) -> list[_Call]:
-    return _safe_inner(args, 2, 3)
+    return _exec_inner(args, 2, 3)
 
 
 def _exec_from_module(args: bytes, to: Optional[str]) -> list[_Call]:
-    return _safe_inner(args, 2, 3)
+    return _exec_inner(args, 2, 3)
 
 
 def _multi_send(args: bytes, to: Optional[str]) -> list[_Call]:
