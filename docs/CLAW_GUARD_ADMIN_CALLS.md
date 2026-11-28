@@ -37,6 +37,18 @@ reason names the call, where it sits and which rule applied.
 
 An unreadable part is `READ-1`. A request that is not a list of calls is `REQ-1`.
 
+## The answer carries what it did not understand
+
+Besides `decision`, `rules`, `text`, `order_hash` and `ts` (the shape of every Claw Guard answer), the
+answer lists `findings` (each with its kind, path, target, signature and `new_value`), `gaps`
+(recognised parts that did not decode), `wrappers` (the paths of the batch wrappers it opened; their
+inner calls were read as encoded, not verified against the target's code) and `undecoded` (calls with
+calldata this module has no selector for). The last two never change the decision. They exist so that a
+caller that reports on the check, such as an ERC-8481 report, can say what was not read instead of
+implying that nothing was there.
+
+A call's `to` is a plain `0x` address or `eip155:<chain>:0x...`, as an ERC-8481 request writes it.
+
 Selectors come from the signatures in `SIGNATURES` through the repo's keccak.
 The tests pin the well-known ones to their published hex.
 

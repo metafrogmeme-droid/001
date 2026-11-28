@@ -62,6 +62,8 @@ MULTISEND_TARGETS: tuple[str, ...] = (
 _MULTISEND_LOWER = frozenset(t.lower() for t in MULTISEND_TARGETS)
 
 _ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+#: ``eip155:<chain>:<address>``, how an ERC-8481 request names an account.
+_CAIP10_EVM = re.compile(r"^eip155:(?:0|[1-9][0-9]*):(0x[0-9a-fA-F]{40})$")
 _ZERO = "0x" + "00" * 20
 
 #: kind -> (rule id, what it is, in the user's words)
@@ -175,9 +177,20 @@ class Gap:
 
 
 @dataclass(frozen=True)
+class Undecoded:
+    """A call with calldata this module has no selector for. Not a finding, and not a measurement either."""
+
+    path: str
+    selector: str
+
+
+@dataclass(frozen=True)
 class Scan:
     findings: tuple[Finding, ...]
     gaps: tuple[Gap, ...]
+    #: Paths of the wrappers that were opened (so their inner calls were read as encoded, not verified).
+    wrappers: tuple[str, ...] = ()
+    undecoded: tuple[Undecoded, ...] = ()
 
 
 class _Unreadable(Exception):
@@ -398,6 +411,8 @@ class _Walk:
     def __init__(self) -> None:
         self.findings: list[Finding] = []
         self.gaps: dict[str, Gap] = {}
+        self.wrappers: list[str] = []
+        self.undecoded: list[Undecoded] = []
         self.opened = 0
 
     def gap(self, path: str, reason: str, nested: str = "not-inspected") -> None:
@@ -412,6 +427,8 @@ class _Walk:
                 pass  # a published MultiSend is read through, not flagged
             else:
                 self.findings.append(Finding("delegatecall", path, target.lower(), "delegatecall"))
+                if len(call.data) >= 4:
+                    self.undecoded.append(Undecoded(path, "0x" + call.data[:4].hex()))
                 return
         if len(call.data) < 4:
             return
@@ -423,6 +440,7 @@ class _Walk:
             return
         wrapper = _WRAPPER_BY_SELECTOR.get(head)
         if wrapper is None:
+            self.undecoded.append(Undecoded(path, "0x" + head.hex()))
             return
         if depth >= MAX_DEPTH:
             self.gap(path, "depth-limit")
@@ -432,6 +450,7 @@ class _Walk:
         except _Unreadable:
             self.gap(path, "undecodable-data")
             return
+        self.wrappers.append(path)
         self.expand(inner, path, depth + 1)
 
     def expand(self, calls: list[_Call], parent: str, depth: int) -> None:
@@ -472,7 +491,7 @@ def scan(request: Any) -> Scan:
             walk.gap(path, "undecodable-data")
         elif delegate.lower() != _ZERO:
             walk.findings.append(Finding("eip7702-delegation", path, delegate.lower(), "authorizationList"))
-    return Scan(tuple(walk.findings), tuple(walk.gaps.values()))
+    return Scan(tuple(walk.findings), tuple(walk.gaps.values()), tuple(walk.wrappers), tuple(walk.undecoded))
 
 
 def _read_request(request: Any) -> tuple[list[_Call], list[Any]]:
@@ -491,6 +510,8 @@ def _read_request(request: Any) -> tuple[list[_Call], list[Any]]:
         if not isinstance(raw, Mapping):
             raise _BadRequest
         to = raw.get("to")
+        if isinstance(to, str) and (caip := _CAIP10_EVM.match(to)):
+            to = caip.group(1)
         if to is not None and (not isinstance(to, str) or not _ADDRESS.match(to)):
             raise _BadRequest
         data = raw.get("data", "0x")
@@ -524,7 +545,7 @@ def evaluate_admin_calls(request: Any, rules: Any, *, now: float) -> dict[str, A
         found = scan(request)
     except ValueError:
         hit = _hit("REQ-1", "block", "that request could not be read.")
-        return _answer([hit], identity, now, [], ())
+        return _answer([hit], identity, now, None)
     policy = _policy(rules)
     hits: list[dict[str, str]] = []
     for finding in found.findings:
@@ -535,7 +556,7 @@ def evaluate_admin_calls(request: Any, rules: Any, *, now: float) -> dict[str, A
     for gap in found.gaps:
         reason = f"part of this request ({gap.path}) could not be read, so what it changes is not known."
         hits.append(_hit("READ-1", unreadable_level, reason))
-    return _answer(hits, identity, now, list(found.findings), found.gaps)
+    return _answer(hits, identity, now, found)
 
 
 def _identity(request: Any) -> dict[str, Any]:
@@ -548,9 +569,9 @@ def _answer(
     hits: list[dict[str, str]],
     identity: Mapping[str, Any],
     now: float,
-    findings: list[Finding],
-    gaps: tuple[Gap, ...],
+    found: Optional[Scan],
 ) -> dict[str, Any]:
+    found = found or Scan((), ())
     blocks = [h for h in hits if h["level"] == "block"]
     confirms = [h for h in hits if h["level"] == "confirm"]
     if blocks:
@@ -572,9 +593,12 @@ def _answer(
         "out_of_scope": None,
         "findings": [
             {"kind": f.kind, "path": f.path, "target": f.target, "signature": f.signature, "new_value": f.new_value}
-            for f in findings
+            for f in found.findings
         ],
-        "gaps": [{"path": g.path, "reason": g.reason, "nested": g.nested} for g in gaps],
+        "gaps": [{"path": g.path, "reason": g.reason, "nested": g.nested} for g in found.gaps],
+        # What was opened, and what was not understood. Neither changes the decision.
+        "wrappers": list(found.wrappers),
+        "undecoded": [{"path": c.path, "selector": c.selector} for c in found.undecoded],
     }
 
 

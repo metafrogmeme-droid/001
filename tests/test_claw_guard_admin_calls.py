@@ -957,7 +957,9 @@ def test_the_verdict_carries_what_was_opened_and_not_understood_without_letting_
     assert result["decision"] == "ALLOW"
     assert result["text"] == ALLOW_TEXT
     assert result["wrappers"] == ["tx.calls[0]"]
-    assert result["undecoded"] == [{"path": "tx.calls[0].inner[0]", "selector": "0x" + sel("swap(uint256,uint256)").hex()}]
+    assert result["undecoded"] == [
+        {"path": "tx.calls[0].inner[0]", "selector": "0x" + sel("swap(uint256,uint256)").hex()}
+    ]
 
 
 def test_a_call_may_name_its_target_as_a_caip10_account_like_an_erc8481_request():
