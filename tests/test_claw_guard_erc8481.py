@@ -357,6 +357,11 @@ def test_native_value_makes_the_receiver_a_recipient_as_well():
     assert roles == [(caip(HELPER), "target"), (caip(HELPER), "recipient")]
 
 
+def test_one_unit_of_native_value_is_enough_to_make_a_recipient():
+    request = request_for((HELPER, 1, b""))
+    assert [a["role"] for a in build(request, result_for(request))["entities"]["addresses"]] == ["target", "recipient"]
+
+
 def test_a_zero_value_call_makes_no_recipient():
     roles = [a["role"] for a in build(UPGRADE_REQUEST, UPGRADE_RESULT)["entities"]["addresses"]]
     assert roles == ["target"]
@@ -644,6 +649,15 @@ def test_a_tuple_whose_signature_does_not_recover_is_a_gap_on_the_whole_transact
     assert r.conformance_errors(report, request) == []
 
 
+def test_a_high_s_authorization_is_not_valid_under_eip_7702():
+    authority = FixtureSigner("high s")
+    auth = signed_authorization(authority, HELPER)
+    n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+    flipped = {**auth, "s": "0x" + f"{n - int(auth['s'], 16):064x}", "yParity": 1 - auth["yParity"]}
+    assert r.recover_authority(auth) == authority.address
+    assert r.recover_authority(flipped) is None
+
+
 def test_the_recovered_authority_matches_an_independent_derivation():
     authority = FixtureSigner("independent")
     auth = signed_authorization(authority, HELPER, nonce=3, chain_id=0)
@@ -859,6 +873,11 @@ def test_an_expiry_before_issue_is_refused():
         build(UPGRADE_REQUEST, UPGRADE_RESULT, expires_at="2026-11-28T08:59:59Z")
 
 
+def test_an_expiry_equal_to_the_issue_time_is_refused():
+    with pytest.raises(ValueError, match="expires_at"):
+        build(UPGRADE_REQUEST, UPGRADE_RESULT, expires_at=NOW)
+
+
 def test_the_same_inputs_give_the_same_report_and_hash():
     one, two = (
         build(UPGRADE_REQUEST, UPGRADE_RESULT),
@@ -924,7 +943,7 @@ def test_a_signer_that_returns_anything_but_65_bytes_yields_no_report(bad):
         def sign_digest(self, digest: bytes):
             return bad
 
-    with pytest.raises(ValueError, match="signature"):
+    with pytest.raises(ValueError, match="65 bytes"):
         emit(UPGRADE_REQUEST, UPGRADE_RESULT, signer=Broken())
 
 
@@ -992,8 +1011,10 @@ def code_of(path: Path) -> str:
 def test_the_module_holds_no_private_key_and_cannot_sign_on_its_own():
     for path in MODULES:
         code = code_of(path)
-        for needle in ("PrivateKey", "sign_recoverable", "mnemonic", "os.environ", "getenv", "open(", "seed"):
+        for needle in ("PrivateKey", "sign_recoverable", "mnemonic", "getenv", "open(", "seed"):
             assert needle not in code, (path.name, needle)
+        # The one environment read there is: the flag, through a mapping the caller can replace.
+        assert code.count("os.environ") == (1 if path.name == "erc8481.py" else 0), path.name
 
 
 def test_the_test_signer_exists_only_in_tests():
