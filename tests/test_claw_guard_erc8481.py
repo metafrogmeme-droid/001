@@ -19,6 +19,7 @@ from coincurve import PrivateKey, PublicKey
 from bot.claw_guard import erc8481 as r
 from bot.claw_guard import erc8481_lists as lists
 from bot.hrc.keccak import keccak256
+from tests.source_scan import code_only
 
 ROOT = Path(__file__).resolve().parent.parent
 CHAIN = "eip155:1"
@@ -992,7 +993,11 @@ def test_the_signer_account_must_be_a_caip_10_account():
 
 
 # ---------------------------------------------------------------- what the module is not
-MODULES = [ROOT / "bot" / "claw_guard" / "erc8481.py", ROOT / "bot" / "claw_guard" / "erc8481_lists.py"]
+MODULES = [
+    ROOT / "bot" / "claw_guard" / "erc8481.py",
+    ROOT / "bot" / "claw_guard" / "erc8481_jcs.py",
+    ROOT / "bot" / "claw_guard" / "erc8481_lists.py",
+]
 
 
 def code_of(path: Path) -> str:
@@ -1024,7 +1029,8 @@ def test_the_test_signer_exists_only_in_tests():
 
 def test_the_wording_never_says_safe_or_scam():
     for path in MODULES:
-        assert not re.search(r"\b(safe|scam)\b", code_of(path).lower()), path.name
+        code = code_only(path.read_text(encoding="utf-8")).lower()
+        assert "safe" not in code and "scam" not in code, path.name
     request = request_for((SAFE_WALLET, 0, ENABLE_MODULE))
     result = result_for(
         request,

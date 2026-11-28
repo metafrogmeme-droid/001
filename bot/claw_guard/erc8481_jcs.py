@@ -11,7 +11,7 @@ from typing import Any
 
 from bot.hrc.keccak import keccak256
 
-_MAX_SAFE = 2**53 - 1
+_MAX_IJSON = 2**53 - 1
 _ESCAPES = {0x08: "\\b", 0x09: "\\t", 0x0A: "\\n", 0x0C: "\\f", 0x0D: "\\r", 0x22: '\\"', 0x5C: "\\\\"}
 
 
@@ -41,7 +41,7 @@ def _write(value: Any, out: list[str]) -> None:
     elif value is False:
         out.append("false")
     elif isinstance(value, int):
-        if abs(value) > _MAX_SAFE:
+        if abs(value) > _MAX_IJSON:
             raise ValueError("integer outside the I-JSON range; write it as a string")
         out.append(str(value))
     elif isinstance(value, float):
