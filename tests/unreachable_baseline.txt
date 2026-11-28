@@ -185,3 +185,10 @@ bot/core/presale_claims.py
 # nobody asked". Both have a main() and a guard now, which is what makes them
 # entry points to the checker and what stops the study being a side effect of
 # reading the file. Pinned by tests/test_research_scripts_are_importable.py.
+
+# ── Claw Guard, deliberately not wired ──────────────────────────────────────
+# ERC-8481 report emitter. Off by default, signs only through an injected
+# signer, and is not wired to the order path, the service door or any route.
+# Tests cover the library; they do not run it in production. Recorded here on
+# purpose. See docs/CLAW_GUARD_ERC8481.md.
+bot/claw_guard/erc8481.py

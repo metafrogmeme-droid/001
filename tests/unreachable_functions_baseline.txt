@@ -172,3 +172,9 @@ bot/warroom/warroom_bot.py:handle_callback
 bot/warroom/warroom_bot.py:render_positions
 bot/warroom/warroom_bot.py:render_signal
 bot/warroom/warroom_bot.py:render_status
+
+# Public doors of the ERC-8481 emitter. Nothing in production calls them yet:
+# the library is off by default and not wired to any route. See
+# docs/CLAW_GUARD_ERC8481.md.
+bot/claw_guard/erc8481.py:emit_report
+bot/claw_guard/erc8481.py:verify_report
