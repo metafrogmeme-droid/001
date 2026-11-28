@@ -969,3 +969,38 @@ def test_a_call_may_name_its_target_as_a_caip10_account_like_an_erc8481_request(
     for bad in ("eip155:1:0x12", "eip155::" + PROXY, "eip155:01:" + PROXY, "solana:1:" + PROXY):
         with pytest.raises(ValueError):
             scan(request({"to": bad, "value": "0", "data": "0x"}))
+
+
+# ---------------------------------------------------------------- every call visited, and who would run a delegatecall
+def test_the_scan_lists_every_call_it_visited_with_its_target():
+    data = multicall_bytes([erc20_transfer(OWNER, 1), upgrade_to(ATTACKER)])
+    found = scan(request(call(TOKEN, b""), call(PROXY, data), {"to": None, "value": "0", "data": "0x6080"}))
+    assert [(c.path, c.target) for c in found.calls] == [
+        ("tx.calls[0]", TOKEN),
+        ("tx.calls[1]", PROXY),
+        ("tx.calls[1].inner[0]", PROXY),
+        ("tx.calls[1].inner[1]", PROXY),
+    ]
+
+
+def test_a_delegatecall_finding_names_the_account_that_would_run_it():
+    direct = scan(request(call(SAFE_WALLET, exec_transaction(HELPER, b"\x12\x34\x56\x78", operation=1))))
+    assert [(f.kind, f.account) for f in direct.findings] == [("delegatecall", SAFE_WALLET)]
+    inner = exec_transaction(MULTISEND_TARGETS[0], multi_send([(1, HELPER, 0, b"\x01\x02\x03\x04")]), operation=1)
+    through = scan(request(call(SAFE_WALLET, inner)))
+    assert [(f.kind, f.account) for f in through.findings] == [("delegatecall", SAFE_WALLET)]
+    mode = scan(request(call(SAFE_WALLET, execute_single_7579(HELPER, 0, b"\x01\x02\x03\x04", call_type=0xFF))))
+    assert [(f.kind, f.account) for f in mode.findings] == [("delegatecall", SAFE_WALLET)]
+    plain = scan(request(call(PROXY, upgrade_to(ATTACKER))))
+    assert plain.findings[0].account is None
+
+
+def test_the_verdict_lists_the_calls_and_the_account_of_a_delegatecall():
+    result = evaluate_admin_calls(
+        request(call(SAFE_WALLET, exec_transaction(HELPER, b"\x12\x34\x56\x78", operation=1))), None, now=NOW
+    )
+    assert result["calls"] == [
+        {"path": "tx.calls[0]", "target": SAFE_WALLET},
+        {"path": "tx.calls[0].inner[0]", "target": HELPER},
+    ]
+    assert result["findings"][0]["account"] == SAFE_WALLET
