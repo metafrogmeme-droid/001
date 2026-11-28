@@ -919,3 +919,51 @@ def test_the_module_reads_no_environment_and_makes_no_network_call():
     code = code_only(source)
     for needle in ("os.environ", "getenv", "socket", "urllib", "requests", "http.client", "subprocess", "open("):
         assert needle not in code, needle
+
+
+# ---------------------------------------------------------------- what was opened and what was not understood
+def test_the_scan_lists_the_wrappers_it_opened():
+    data = aggregate3([(TOKEN, b""), (PROXY, multicall_bytes([erc20_transfer(OWNER, 1)]))])
+    found = scan(request(call(HELPER, b""), call(HELPER, data)))
+    assert found.wrappers == ("tx.calls[1]", "tx.calls[1].inner[1]")
+
+
+def test_the_scan_lists_calls_it_has_no_selector_for_and_never_counts_them_as_findings():
+    swap = sel("swap(uint256,uint256)") + u(1) + u(2)
+    data = multicall_bytes([swap, erc20_transfer(OWNER, 1)])
+    found = scan(request(call(TOKEN, erc20_approve(OWNER, 1)), call(PROXY, data)))
+    assert found.findings == ()
+    assert [(c.path, c.selector) for c in found.undecoded] == [
+        ("tx.calls[0]", "0x095ea7b3"),
+        ("tx.calls[1].inner[0]", "0x" + sel("swap(uint256,uint256)").hex()),
+        ("tx.calls[1].inner[1]", "0xa9059cbb"),
+    ]
+
+
+def test_a_plain_value_transfer_and_an_admin_call_are_not_undecoded():
+    found = scan(request(call(ATTACKER, b"", value=1), call(PROXY, upgrade_to(ATTACKER))))
+    assert found.undecoded == ()
+
+
+def test_a_delegatecall_with_calldata_is_flagged_and_its_calldata_is_listed_as_not_understood():
+    found = scan(request(call(SAFE_WALLET, exec_transaction(HELPER, b"\x12\x34\x56\x78", operation=1))))
+    assert kinds(found) == ["delegatecall"]
+    assert [c.path for c in found.undecoded] == ["tx.calls[0].inner[0]"]
+
+
+def test_the_verdict_carries_what_was_opened_and_not_understood_without_letting_it_change_the_answer():
+    data = multicall_bytes([sel("swap(uint256,uint256)") + u(1) + u(2)])
+    result = evaluate_admin_calls(request(call(PROXY, data)), None, now=NOW)
+    assert result["decision"] == "ALLOW"
+    assert result["text"] == ALLOW_TEXT
+    assert result["wrappers"] == ["tx.calls[0]"]
+    assert result["undecoded"] == [{"path": "tx.calls[0].inner[0]", "selector": "0x" + sel("swap(uint256,uint256)").hex()}]
+
+
+def test_a_call_may_name_its_target_as_a_caip10_account_like_an_erc8481_request():
+    caip = {"to": f"eip155:1:{PROXY}", "value": "0", "data": hexed(upgrade_to(ATTACKER))}
+    found = scan(request(caip))
+    assert [(f.kind, f.target) for f in found.findings] == [("proxy-upgrade", PROXY)]
+    for bad in ("eip155:1:0x12", "eip155::" + PROXY, "eip155:01:" + PROXY, "solana:1:" + PROXY):
+        with pytest.raises(ValueError):
+            scan(request({"to": bad, "value": "0", "data": "0x"}))
